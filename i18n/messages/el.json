@@ -1,0 +1,52 @@
+{
+  "common": {
+    "save": "Αποθήκευση",
+    "cancel": "Άκυρο",
+    "delete": "Διαγραφή",
+    "edit": "Επεξεργασία",
+    "create": "Δημιουργία",
+    "search": "Αναζήτηση",
+    "loading": "Φόρτωση...",
+    "noResults": "Δεν βρέθηκαν αποτελέσματα",
+    "or": "ή",
+    "back": "Πίσω",
+    "next": "Επόμενο",
+    "language": "Γλώσσα"
+  },
+  "auth": {
+    "signIn": "Σύνδεση",
+    "signOut": "Αποσύνδεση",
+    "register": "Εγγραφή",
+    "email": "Email",
+    "password": "Κωδικός",
+    "forgotPassword": "Ξεχάσατε τον κωδικό;",
+    "noAccount": "Δεν έχετε λογαριασμό;",
+    "createAccount": "Δημιουργία λογαριασμού"
+  },
+  "admin": {
+    "dashboard": "Dashboard",
+    "users": "Χρήστες",
+    "roles": "Ρόλοι",
+    "permissions": "Δικαιώματα",
+    "settings": "Ρυθμίσεις",
+    "audit": "Audit log",
+    "media": "Media",
+    "imports": "Imports",
+    "docs": "API Docs"
+  },
+  "users": {
+    "name": "Όνομα",
+    "role": "Ρόλος",
+    "status": "Κατάσταση",
+    "active": "Ενεργός",
+    "inactive": "Ανενεργός",
+    "verified": "Επιβεβ.",
+    "pending": "Εκκρεμεί",
+    "created": "Δημιουργία",
+    "newUser": "Νέος χρήστης",
+    "editUser": "Επεξεργασία χρήστη",
+    "deleteUser": "Διαγραφή χρήστη",
+    "changePassword": "Αλλαγή κωδικού",
+    "preferredLocales": "Προτιμώμενες γλώσσες"
+  }
+}

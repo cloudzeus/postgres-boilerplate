@@ -1,0 +1,208 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// System-level role keys. Custom roles have key = null.
+enum RoleKey {
+  SUPER_ADMIN
+  ADMIN
+  EMPLOYEE
+  COLLABORATOR
+  SUPPLIER
+  CUSTOMER
+}
+
+enum Provider {
+  EMAIL
+  GOOGLE
+  MICROSOFT
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  key         RoleKey?         @unique
+  name        String           @unique
+  description String?
+  isSystem    Boolean          @default(false)
+  order       Int              @default(0)
+  users       User[]
+  permissions RolePermission[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([order])
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique
+  resource    String
+  action      String
+  description String?
+  order       Int              @default(0)
+  roles       RolePermission[]
+  createdAt   DateTime         @default(now())
+
+  @@index([resource, order])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  grantedAt    DateTime   @default(now())
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model User {
+  id               String        @id @default(cuid())
+  email            String        @unique
+  passwordHash     String?
+  emailVerified    DateTime?
+  name             String?
+  image            String?
+  isActive         Boolean       @default(true)
+  locale           String        @default("el")
+  preferredLocales String[]      @default(["el"])
+  roleId           String
+  role          Role          @relation(fields: [roleId], references: [id])
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+  otpTokens     OtpToken[]
+  excelImports  ExcelImport[]
+
+  @@index([roleId])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @map("refresh_token")
+  access_token      String? @map("access_token")
+  expires_at        Int?    @map("expires_at")
+  token_type        String? @map("token_type")
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model OtpToken {
+  id        String   @id @default(cuid())
+  email     String
+  codeHash  String
+  type      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String?
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  userEmail  String?
+  action     String   // e.g. "users.create", "roles.delete", "auth.login"
+  resource   String   // e.g. "user", "role"
+  resourceId String?
+  metadata   Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([resource, resourceId])
+}
+
+model AppSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       Json
+  category    String   @default("general")
+  description String?
+  isSecret    Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  @@index([category])
+}
+
+model MediaFolder {
+  id        String         @id @default(cuid())
+  name      String
+  parentId  String?
+  parent    MediaFolder?   @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  MediaFolder[]  @relation("FolderTree")
+  files     MediaFile[]
+  order     Int            @default(0)
+  createdById String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([parentId])
+  @@unique([parentId, name])
+}
+
+model MediaFile {
+  id            String       @id @default(cuid())
+  folderId      String?
+  folder        MediaFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  name          String       // user-facing filename
+  originalName  String       // upload-time original
+  storageKey    String       @unique  // path on Bunny S3 (e.g. media/2025/12/abc-photo.webp)
+  originalKey   String?      // for SVG: path of original .svg companion
+  mimeType      String
+  size          Int          // bytes
+  width         Int?
+  height        Int?
+  isImage       Boolean      @default(false)
+  isSvg         Boolean      @default(false)
+  publicUrl     String       // CDN URL for primary file
+  originalUrl   String?      // CDN URL for SVG original (when isSvg)
+  uploadedById  String?
+  uploadedAt    DateTime     @default(now())
+
+  @@index([folderId])
+  @@index([uploadedAt])
+}
+
+model ExcelImport {
+  id           String   @id @default(cuid())
+  userId       String
+  fileName     String
+  uploadedAt   DateTime @default(now())
+  mappedFields Json?
+  status       String   @default("PENDING")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

@@ -1,0 +1,145 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   DGEspa — SmartMove-aligned brand system
+   Blue-driven · light · rounded · soft shadows
+   70% white/light · 20% blue · 10% red accent
+   ============================================================ */
+
+@layer base {
+  :root {
+    /* Brand */
+    --color-brand-blue:       #2563EB;
+    --color-brand-blue-deep:  #1E40AF;
+    --color-brand-blue-soft:  #DBEAFE;
+    --color-brand-blue-light: #EFF6FF;
+    --color-brand-red:        #EF4444;
+    --color-brand-red-deep:   #B91C1C;
+    --color-brand-red-light:  #FEE2E2;
+
+    /* Neutrals */
+    --color-bg:               #F8FAFC;
+    --color-surface:          #FFFFFF;
+    --color-border-soft:      #E2E8F0;
+    --color-text-primary:     #0F172A;
+    --color-text-secondary:   #475569;
+    --color-text-muted:       #64748B;
+
+    --color-success: #16A34A;
+    --color-warning: #F59E0B;
+
+    /* shadcn tokens mapped to SmartMove palette */
+    --background:            var(--color-bg);
+    --foreground:            var(--color-text-primary);
+    --card:                  var(--color-surface);
+    --card-foreground:       var(--color-text-primary);
+    --popover:               var(--color-surface);
+    --popover-foreground:    var(--color-text-primary);
+    --primary:               var(--color-brand-blue);
+    --primary-foreground:    #FFFFFF;
+    --secondary:             #F1F5F9;
+    --secondary-foreground:  var(--color-text-primary);
+    --muted:                 #F1F5F9;
+    --muted-foreground:      var(--color-text-muted);
+    --accent:                var(--color-brand-blue-light);
+    --accent-foreground:     var(--color-brand-blue-deep);
+    --destructive:           var(--color-brand-red);
+    --destructive-foreground:#FFFFFF;
+    --border:                var(--color-border-soft);
+    --input:                 var(--color-border-soft);
+    --ring:                  var(--color-brand-blue);
+    --radius:                10px;
+
+    --sidebar:                    var(--color-surface);
+    --sidebar-foreground:         var(--color-text-primary);
+    --sidebar-primary:            var(--color-brand-blue);
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent:             var(--color-brand-blue-light);
+    --sidebar-accent-foreground:  var(--color-brand-blue-deep);
+    --sidebar-border:             var(--color-border-soft);
+    --sidebar-ring:               var(--color-brand-blue);
+
+    /* Shadows (soft, marketplace) */
+    --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.06);
+    --shadow-pop:  0 4px 12px rgb(15 23 42 / 0.06), 0 12px 32px rgb(15 23 42 / 0.08);
+    --shadow-cta:  0 6px 20px rgb(37 99 235 / 0.25);
+
+    /* cx tokens */
+    --cx-duration: 150ms;
+    --cx-ease: cubic-bezier(0.33, 0, 0.67, 1);
+    --cx-accent: var(--primary);
+    --cx-accent-soft: var(--color-brand-blue-light);
+    --cx-hover: color-mix(in oklab, var(--foreground) 5%, transparent);
+    --cx-divider: color-mix(in oklab, var(--border) 70%, transparent);
+    --cx-shadow-card: var(--shadow-card);
+  }
+}
+
+/* HARD font lock — Inter + Manrope via next/font, fallback to system sans */
+html, body, button, input, select, textarea, table, th, td,
+h1, h2, h3, h4, h5, h6, p, span, div, a, li, ul, ol,
+label, fieldset, legend, code, pre,
+input::placeholder, textarea::placeholder {
+  font-family:
+    var(--font-inter),
+    'Inter',
+    'Manrope',
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    sans-serif !important;
+}
+
+.font-display {
+  font-family:
+    var(--font-manrope),
+    'Manrope',
+    var(--font-inter),
+    'Inter',
+    system-ui,
+    sans-serif !important;
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+* { box-sizing: border-box; }
+
+@layer utilities {
+  .bg-sidebar            { background-color: var(--sidebar); }
+  .border-sidebar-border { border-color: var(--sidebar-border); }
+  .shadow-card           { box-shadow: var(--shadow-card); }
+  .shadow-pop            { box-shadow: var(--shadow-pop); }
+  .shadow-cta            { box-shadow: var(--shadow-cta); }
+}
+
+@layer components {
+  .cx-transition {
+    transition-property: background-color, color, border-color, box-shadow, opacity, transform;
+    transition-duration: var(--cx-duration);
+    transition-timing-function: var(--cx-ease);
+  }
+  .cx-eyebrow {
+    font-size: 10px; line-height: 1.2; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted-foreground);
+  }
+  .cx-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-card);
+  }
+}

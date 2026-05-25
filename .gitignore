@@ -1,0 +1,51 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.*
+
+# Next build / cache
+.next
+out
+dist
+build
+.turbo
+.swc
+
+# Env (NEVER commit secrets)
+.env
+.env*.local
+.env.development
+.env.production
+.env.test
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Coverage
+coverage
+.nyc_output
+
+# Local artefacts
+*.tsbuildinfo
+next-env.d.ts
+.s1session.json
+
+# Internal planning notes
+.planning/HANDOFF.json
+.planning/*.local.md
+
+# Vercel
+.vercel

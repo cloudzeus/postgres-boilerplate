@@ -1,0 +1,52 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "search": "Search",
+    "loading": "Loading...",
+    "noResults": "No results found",
+    "or": "or",
+    "back": "Back",
+    "next": "Next",
+    "language": "Language"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "register": "Register",
+    "email": "Email",
+    "password": "Password",
+    "forgotPassword": "Forgot password?",
+    "noAccount": "Don't have an account?",
+    "createAccount": "Create account"
+  },
+  "admin": {
+    "dashboard": "Dashboard",
+    "users": "Users",
+    "roles": "Roles",
+    "permissions": "Permissions",
+    "settings": "Settings",
+    "audit": "Audit log",
+    "media": "Media",
+    "imports": "Imports",
+    "docs": "API Docs"
+  },
+  "users": {
+    "name": "Name",
+    "role": "Role",
+    "status": "Status",
+    "active": "Active",
+    "inactive": "Inactive",
+    "verified": "Verified",
+    "pending": "Pending",
+    "created": "Created",
+    "newUser": "New user",
+    "editUser": "Edit user",
+    "deleteUser": "Delete user",
+    "changePassword": "Change password",
+    "preferredLocales": "Preferred languages"
+  }
+}

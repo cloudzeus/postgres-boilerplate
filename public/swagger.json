@@ -1,0 +1,41 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "DGSMART ERP API",
+    "version": "0.1.0",
+    "description": "Swagger documentation for the ERP Admin API."
+  },
+  "paths": {
+    "/api/import/excel": {
+      "post": {
+        "summary": "Upload Excel file",
+        "description": "Upload an XLSX file and parse it for future field mapping.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "required": ["file"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "File parsed successfully"
+          },
+          "400": {
+            "description": "Invalid upload"
+          }
+        }
+      }
+    }
+  }
+}
