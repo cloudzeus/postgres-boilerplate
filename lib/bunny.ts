@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, DeleteObjectsCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSetting } from '@/lib/settings';
 
 interface BunnyCfg {
@@ -52,6 +52,29 @@ export async function bunnyUpload({ key, body, contentType, cacheControl = 'publ
     ? `https://${cfg.cdnHost.replace(/^https?:\/\//, '')}/${encodeURI(key)}`
     : `${cfg.endpoint.replace(/\/$/, '')}/${cfg.zone}/${encodeURI(key)}`;
   return { publicUrl, key };
+}
+
+// Private upload — same target zone, no public-read ACL. Used for backups.
+export async function bunnyUploadPrivate({ key, body, contentType }: { key: string; body: Buffer; contentType: string }) {
+  const cfg = await resolveCfg();
+  const s3 = await makeClient(cfg);
+  await s3.send(new PutObjectCommand({
+    Bucket: cfg.zone,
+    Key: key,
+    Body: body,
+    ContentType: contentType,
+  }));
+  return { key };
+}
+
+export async function bunnyDownload(key: string): Promise<Buffer> {
+  const cfg = await resolveCfg();
+  const s3 = await makeClient(cfg);
+  const res = await s3.send(new GetObjectCommand({ Bucket: cfg.zone, Key: key }));
+  const chunks: Buffer[] = [];
+  // @ts-expect-error — Body is a Node Readable stream in the AWS SDK v3 Node runtime
+  for await (const chunk of res.Body) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks);
 }
 
 export async function bunnyDelete(keys: string[]) {

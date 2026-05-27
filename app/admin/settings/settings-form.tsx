@@ -14,8 +14,9 @@ import {
 import { LocaleMultiSelect } from '@/components/i18n/locale-multi-select';
 import { LocaleBadge } from '@/components/i18n/locale-badge';
 import { LOCALES } from '@/i18n/locales';
+import { MediaPicker, type PickedMediaFile } from '@/components/media/media-picker';
 
-type ItemType = 'text'|'password'|'url'|'email'|'number'|'boolean'|'textarea'|'locale'|'locales-multi';
+type ItemType = 'text'|'password'|'url'|'email'|'number'|'boolean'|'textarea'|'locale'|'locales-multi'|'media';
 type Item = {
   key: string;
   category: string;
@@ -96,6 +97,34 @@ export function SettingsForm({ items, categories }: { items: Item[]; categories:
           />
           <span className="text-[13px] text-foreground">Ενεργοποιημένο</span>
         </label>
+      );
+    }
+
+    // Media (URL string backed by media gallery picker)
+    if (item.type === 'media') {
+      const url = (typeof v === 'string' ? v : '') ?? '';
+      const picked: PickedMediaFile | null = url
+        ? {
+            id: url, name: url.split('/').pop() || url, publicUrl: url, originalUrl: null,
+            mimeType: 'image/*', width: null, height: null, isImage: true, isSvg: url.endsWith('.svg'), size: 0,
+          }
+        : null;
+      return (
+        <div className="grid gap-2">
+          <Input
+            id={item.key}
+            type="text"
+            value={url}
+            onChange={(e) => update(item.key, e.target.value)}
+            placeholder="https://… ή επίλεξε από Media"
+          />
+          <MediaPicker
+            value={picked}
+            onChange={(f) => update(item.key, f?.publicUrl ?? '')}
+            acceptImagesOnly
+            triggerLabel="Επιλογή από Media Gallery"
+          />
+        </div>
       );
     }
 

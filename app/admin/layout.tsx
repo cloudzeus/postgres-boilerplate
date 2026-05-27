@@ -12,6 +12,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <AdminSidebar
         user={{ name: user.name, email: user.email }}
         roleName={user.role.name}
+        roleKey={user.role.key ?? null}
         locale={locale}
         permissionKeys={permissionKeys}
       />

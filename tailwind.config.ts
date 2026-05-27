@@ -65,6 +65,15 @@ const config: Config = {
         pop: 'var(--shadow-pop)',
         cta: 'var(--shadow-cta)',
       },
+      keyframes: {
+        ocrProgress: {
+          '0%':   { left: '-33%' },
+          '100%': { left: '100%' },
+        },
+      },
+      animation: {
+        ocrProgress: 'ocrProgress 1.4s ease-in-out infinite',
+      },
     },
   },
   plugins: [require('@tailwindcss/forms'), require('@tailwindcss/typography')],

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   FiGrid, FiUsers, FiShield, FiKey, FiUpload, FiImage,
-  FiActivity, FiSettings, FiFileText, FiLogOut,
+  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiTag, FiLayers, FiCpu, FiGlobe,
 } from 'react-icons/fi';
 
 type IconType = React.ComponentType<{ className?: string }>;
@@ -16,6 +16,8 @@ type NavItem = {
   icon: IconType;
   exact?: boolean;
   permissions?: string[];
+  /** When set, only users with this role.key can see this item. */
+  requireRoleKey?: string;
   badgeKey?: keyof Badges;
 };
 type NavGroup = { label: string; items: NavItem[] };
@@ -43,15 +45,22 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Δεδομένα',
     items: [
+      { href: '/admin/companies', label: 'Εταιρίες', icon: FiBriefcase, permissions: ['companies.read'] },
+      { href: '/admin/kad-codes', label: 'Μητρώο ΚΑΔ', icon: FiTag, permissions: ['kad.read'] },
+      { href: '/admin/reference-data', label: 'Μητρώα αναφοράς', icon: FiLayers, permissions: ['metadata.read'] },
       { href: '/admin/imports', label: 'Excel Imports', icon: FiUpload, permissions: ['imports.read'], badgeKey: 'newImports' },
       { href: '/admin/media', label: 'Media', icon: FiImage },
+      { href: '/admin/ocr', label: 'OCR / Έγγραφα', icon: FiCpu, permissions: ['ocr.read'] },
+      { href: '/admin/programs', label: 'Ευρωπαϊκά Προγράμματα', icon: FiGlobe, permissions: ['programs.read'] },
     ],
   },
   {
     label: 'Σύστημα',
     items: [
       { href: '/admin/audit', label: 'Audit log', icon: FiActivity, permissions: ['system.audit'] },
+      { href: '/admin/backups', label: 'Backups', icon: FiDatabase, permissions: ['system.backups'] },
       { href: '/admin/settings', label: 'Ρυθμίσεις', icon: FiSettings, permissions: ['system.settings'] },
+      { href: '/admin/ai-usage', label: 'AI Usage', icon: FiCpu, requireRoleKey: 'SUPER_ADMIN' },
       { href: '/admin/docs', label: 'API Docs', icon: FiFileText },
     ],
   },
@@ -63,6 +72,7 @@ import type { LocaleCode } from '@/i18n/locales';
 interface Props {
   user: { name?: string | null; email?: string | null };
   roleName: string;
+  roleKey?: string | null;
   locale: LocaleCode;
   permissionKeys: string[];
   badges?: Badges;
@@ -70,12 +80,13 @@ interface Props {
 
 function cn(...c: (string | false | undefined)[]) { return c.filter(Boolean).join(' '); }
 
-export function AdminSidebar({ user, roleName, locale, permissionKeys, badges = {} }: Props) {
+export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, badges = {} }: Props) {
   const path = usePathname();
   const initials = (user.name ?? user.email ?? '??')
     .split(/[\s@]/).map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 
   const allowed = (perms?: string[]) => !perms || perms.length === 0 || perms.some((p) => permissionKeys.includes(p));
+  const allowedItem = (it: NavItem) => allowed(it.permissions) && (!it.requireRoleKey || it.requireRoleKey === roleKey);
 
   return (
     <aside className="sticky top-0 hidden h-screen w-[244px] shrink-0 flex-col self-start border-r border-sidebar-border bg-sidebar lg:flex">
@@ -96,7 +107,7 @@ export function AdminSidebar({ user, roleName, locale, permissionKeys, badges = 
 
       <nav className="flex flex-1 flex-col gap-3 overflow-y-auto px-2 py-3">
         {NAV_GROUPS.map((group) => {
-          const visible = group.items.filter((it) => allowed(it.permissions));
+          const visible = group.items.filter(allowedItem);
           if (visible.length === 0) return null;
           return (
             <div key={group.label}>

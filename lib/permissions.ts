@@ -38,9 +38,38 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: 'media.delete', resource: 'media', action: 'delete', description: 'Delete media files/folders' },
   { key: 'media.manage_folders', resource: 'media', action: 'manage_folders', description: 'Create/rename folders' },
 
+  // Companies
+  { key: 'companies.read', resource: 'companies', action: 'read', description: 'View companies' },
+  { key: 'companies.create', resource: 'companies', action: 'create', description: 'Create companies' },
+  { key: 'companies.update', resource: 'companies', action: 'update', description: 'Update companies' },
+  { key: 'companies.delete', resource: 'companies', action: 'delete', description: 'Delete companies' },
+  { key: 'companies.manage_types', resource: 'companies', action: 'manage_types', description: 'Manage company types (sodtype)' },
+
+  // ΚΑΔ master registry
+  { key: 'kad.read', resource: 'kad', action: 'read', description: 'View ΚΑΔ registry' },
+  { key: 'kad.manage', resource: 'kad', action: 'manage', description: 'Create/update ΚΑΔ master entries' },
+
+  // Reference data (ΓΕΜΗ metadata: νομικές μορφές, νομοί, δήμοι, υπηρεσίες ΓΕΜΗ…)
+  { key: 'metadata.read', resource: 'metadata', action: 'read', description: 'View reference lookup tables' },
+  { key: 'metadata.manage', resource: 'metadata', action: 'manage', description: 'Refresh ΓΕΜΗ metadata + edit lookups' },
+
+  // OCR / Intelligent document extraction
+  { key: 'ocr.read',   resource: 'ocr', action: 'read',   description: 'View OCR documents' },
+  { key: 'ocr.create', resource: 'ocr', action: 'create', description: 'Upload & extract documents' },
+  { key: 'ocr.delete', resource: 'ocr', action: 'delete', description: 'Delete OCR documents' },
+  { key: 'ocr.categorize', resource: 'ocr', action: 'categorize', description: 'Set category / notes on OCR documents' },
+  { key: 'ocr.post', resource: 'ocr', action: 'post', description: 'Post OCR document to SoftOne' },
+
+  // European funding programs (ΕΣΠΑ / EU calls)
+  { key: 'programs.read',   resource: 'programs', action: 'read',   description: 'View European funding programs' },
+  { key: 'programs.create', resource: 'programs', action: 'create', description: 'Upload & extract program PDFs' },
+  { key: 'programs.update', resource: 'programs', action: 'update', description: 'Edit extracted program data' },
+  { key: 'programs.delete', resource: 'programs', action: 'delete', description: 'Delete programs' },
+
   // System
   { key: 'system.audit', resource: 'system', action: 'audit', description: 'View audit log' },
   { key: 'system.settings', resource: 'system', action: 'settings', description: 'Modify system settings' },
+  { key: 'system.backups', resource: 'system', action: 'backups', description: 'Manage database backups' },
 ];
 
 // Default permission keys per system role.
@@ -51,6 +80,11 @@ export const ROLE_DEFAULTS: Record<string, string[]> = {
     'roles.read',
     'permissions.read',
     'imports.read', 'imports.create',
+    'companies.read', 'companies.create', 'companies.update', 'companies.delete', 'companies.manage_types',
+    'kad.read', 'kad.manage',
+    'metadata.read', 'metadata.manage',
+    'ocr.read', 'ocr.create', 'ocr.delete', 'ocr.categorize', 'ocr.post',
+    'programs.read', 'programs.create', 'programs.update', 'programs.delete',
   ],
   EMPLOYEE: ['users.read', 'imports.read', 'imports.create'],
   COLLABORATOR: ['users.read', 'imports.read'],

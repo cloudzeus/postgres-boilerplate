@@ -1,0 +1,214 @@
+import { NextResponse } from 'next/server';
+import { customAlphabet } from 'nanoid';
+import { prisma } from '@/lib/db';
+import { requirePermission } from '@/lib/rbac';
+import { bunnyUploadPrivate } from '@/lib/bunny';
+import { extractProgram } from '@/lib/programs/extract';
+import { asDate, asNum, asStr, normalizeKad } from '@/lib/programs/coerce';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const slug = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 8);
+const MAX_BYTES = 50 * 1024 * 1024; // 50 MB — program PDFs can be large
+
+const ALLOWED_MIMES = new Set([
+  'application/pdf',
+  'image/jpeg', 'image/png', 'image/webp',
+]);
+
+function ymPath() {
+  const d = new Date();
+  return `programs/${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function sanitize(name: string) {
+  return name
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+    .toLowerCase() || 'program';
+}
+
+export async function GET() {
+  await requirePermission('programs.read');
+  const programs = await prisma.program.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+    select: {
+      id: true, title: true, summary: true, sourceFileName: true,
+      publicationDate: true, submissionStart: true, submissionEnd: true,
+      totalBudget: true, fundingRate: true, durationMonths: true,
+      status: true, extractStatus: true, errorMessage: true,
+      createdAt: true,
+      _count: { select: { kads: true, expenseCats: true, regions: true, criteria: true, deadlines: true } },
+    },
+  });
+  return NextResponse.json({ data: programs });
+}
+
+export async function POST(req: Request) {
+  const user = await requirePermission('programs.create');
+
+  const form = await req.formData();
+  const file = form.get('file');
+  if (!(file instanceof File)) {
+    return NextResponse.json({ error: 'file required (multipart/form-data)' }, { status: 400 });
+  }
+  if (!ALLOWED_MIMES.has(file.type)) {
+    return NextResponse.json({ error: `Unsupported file type: ${file.type}` }, { status: 415 });
+  }
+  if (file.size > MAX_BYTES) {
+    return NextResponse.json({ error: `File exceeds ${MAX_BYTES / 1024 / 1024} MB limit` }, { status: 413 });
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const safe = sanitize(file.name || 'program.pdf');
+  const ext = safe.includes('.') ? safe.slice(safe.lastIndexOf('.')) : '';
+  const stem = safe.replace(ext, '').slice(0, 60) || 'program';
+  const storageKey = `${ymPath()}/${slug()}-${stem}${ext}`;
+
+  await bunnyUploadPrivate({ key: storageKey, body: buffer, contentType: file.type });
+
+  const program = await prisma.program.create({
+    data: {
+      title: file.name,            // placeholder; replaced after extraction
+      sourceFileName: file.name,
+      storageKey,
+      publicUrl: `bunny:${storageKey}`,
+      mimeType: file.type,
+      size: file.size,
+      extractStatus: 'PROCESSING',
+      createdById: user.id,
+    },
+  });
+
+  try {
+    const result = await extractProgram({ buffer, mimeType: file.type });
+    const data = result.data ?? {};
+
+    const kads: Array<{ code: string; description?: string; excluded?: boolean }> = [
+      ...(Array.isArray(data.potentialKads) ? data.potentialKads.map((k: any) => ({ ...k, excluded: false })) : []),
+      ...(Array.isArray(data.excludedKads)  ? data.excludedKads.map((k: any) => ({ ...k, excluded: true }))  : []),
+    ];
+    const expenseCats: Array<{ name: string; minAmount?: any; minPercentage?: any; maxAmount?: any; maxPercentage?: any; mandatory?: boolean }> = Array.isArray(data.expenseCategories) ? data.expenseCategories : [];
+    const regions: Array<{ name: string; fundingRate?: any }> = Array.isArray(data.regions) ? data.regions : [];
+    const criteria: string[] = Array.isArray(data.criteria) ? data.criteria : [];
+    const deadlines: Array<{ deadline: string; description?: string }> = Array.isArray(data.deadlines) ? data.deadlines : [];
+    const legalForms: string[] = Array.isArray(data.eligibleLegalForms) ? data.eligibleLegalForms.filter((x: any) => typeof x === 'string' && x.trim()) : [];
+    const VALID_BONUS_KINDS = ['TIME_BASED', 'EMPLOYMENT', 'SUSTAINABILITY', 'WOMEN_LED', 'YOUTH', 'R_AND_D', 'OTHER'] as const;
+    const bonuses: Array<{ kind: string; name: string; condition: string; bonusRate?: any; bonusAmount?: any }> = Array.isArray(data.bonuses) ? data.bonuses : [];
+
+    await prisma.$transaction([
+      prisma.program.update({
+        where: { id: program.id },
+        data: {
+          title: asStr(data.title) ?? file.name,
+          summary: asStr(data.summary),
+          publicationDate: asDate(data.publicationDate),
+          submissionStart: asDate(data.submissionStart),
+          submissionEnd:   asDate(data.submissionEnd),
+          totalBudget:     asNum(data.totalBudget),
+          fundingRate:     asNum(data.fundingRate),
+          durationMonths:  data.durationMonths != null ? Math.round(Number(data.durationMonths)) : null,
+          referenceCode:   asStr(data.referenceCode),
+          kadRule: (() => {
+            const v = asStr(data.kadRule);
+            return v && ['ALL_EXCEPT_LISTED', 'ONLY_LISTED', 'MIXED', 'UNSPECIFIED'].includes(v) ? v as any : 'UNSPECIFIED';
+          })(),
+          kadRuleNote: asStr(data.kadRuleNote),
+          minEmployeesFte:     asNum(data.minEmployeesFte),
+          minOperationalYears: asNum(data.minOperationalYears),
+          eligibilityNote:     asStr(data.eligibilityNote),
+          extractStatus: 'COMPLETED',
+          extractedData: data,
+          model: result.model,
+          tokensUsed: result.tokensUsed,
+          durationMs: result.durationMs,
+        },
+      }),
+      ...kads.filter((k) => asStr(k.code)).map((k) => {
+        const n = normalizeKad(String(k.code));
+        return prisma.programKad.upsert({
+          where: { programId_code: { programId: program.id, code: n.code } },
+          update: { description: asStr(k.description) ?? undefined, excluded: !!k.excluded },
+          create: { programId: program.id, code: n.code, codeWithoutDots: n.codeWithoutDots, description: asStr(k.description), excluded: !!k.excluded },
+        });
+      }),
+      ...expenseCats.filter((c) => asStr(c.name)).map((c, i) =>
+        prisma.programExpenseCategory.create({
+          data: {
+            programId: program.id,
+            name: asStr(c.name)!,
+            minAmount: asNum(c.minAmount),
+            minPercentage: asNum(c.minPercentage),
+            maxAmount: asNum(c.maxAmount),
+            maxPercentage: asNum(c.maxPercentage),
+            mandatory: !!c.mandatory,
+            order: i,
+          },
+        }),
+      ),
+      ...bonuses.filter((b) => asStr(b.name) || asStr(b.condition)).map((b, i) =>
+        prisma.programBonus.create({
+          data: {
+            programId: program.id,
+            kind: (VALID_BONUS_KINDS as readonly string[]).includes(b.kind) ? (b.kind as any) : 'OTHER',
+            name: asStr(b.name) ?? `Bonus ${i + 1}`,
+            condition: asStr(b.condition) ?? '',
+            bonusRate: asNum(b.bonusRate),
+            bonusAmount: asNum(b.bonusAmount),
+            order: i,
+          },
+        }),
+      ),
+      // Also register the uploaded source PDF as the MAIN ProgramFile.
+      prisma.programFile.create({
+        data: {
+          programId: program.id,
+          fileName: file.name,
+          storageKey,
+          publicUrl: `bunny:${storageKey}`,
+          mimeType: file.type,
+          size: file.size,
+          kind: 'MAIN',
+          uploadedById: user.id,
+        },
+      }),
+      ...legalForms.map((name) =>
+        prisma.programEligibleLegalForm.upsert({
+          where: { programId_name: { programId: program.id, name } },
+          update: {},
+          create: { programId: program.id, name },
+        }),
+      ),
+      ...regions.filter((r) => asStr(r.name)).map((r) =>
+        prisma.programRegion.create({
+          data: { programId: program.id, name: asStr(r.name)!, fundingRate: asNum(r.fundingRate) },
+        }),
+      ),
+      ...criteria.filter((c) => asStr(c)).map((text, i) =>
+        prisma.programCriterion.create({
+          data: { programId: program.id, text: asStr(text)!, order: i },
+        }),
+      ),
+      ...deadlines.filter((d) => asDate(d.deadline)).map((d, i) =>
+        prisma.programDeadline.create({
+          data: {
+            programId: program.id,
+            deadline: asDate(d.deadline)!,
+            description: asStr(d.description),
+            order: i,
+          },
+        }),
+      ),
+    ], { timeout: 60_000, maxWait: 10_000 });
+
+    return NextResponse.json({ id: program.id, durationMs: result.durationMs });
+  } catch (err: any) {
+    await prisma.program.update({
+      where: { id: program.id },
+      data: { extractStatus: 'FAILED', errorMessage: String(err?.message ?? err).slice(0, 2000) },
+    });
+    return NextResponse.json({ id: program.id, error: String(err?.message ?? err) }, { status: 422 });
+  }
+}

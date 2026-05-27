@@ -8,7 +8,7 @@ const nextConfig = {
   experimental: {
     serverActions: { bodySizeLimit: '500mb' },
   },
-  serverExternalPackages: ['sharp'],
+  serverExternalPackages: ['sharp', 'pdf-to-img', 'pdfjs-dist', 'pdf-parse', 'unpdf'],
 };
 
 export default nextConfig;

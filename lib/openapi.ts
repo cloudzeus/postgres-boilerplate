@@ -25,6 +25,19 @@ export const openapiSpec = {
     { name: 'Audit', description: 'Audit log ενεργειών χρηστών' },
     { name: 'Imports', description: 'Excel imports' },
     { name: 'AI', description: 'Μεταφράσεις και AI helpers (DeepSeek)' },
+    { name: 'Companies', description: 'Διαχείριση εταιριών (CRUD + λογότυπο + γεωκωδικοποίηση)' },
+    { name: 'Company Types', description: 'Τύποι εταιρίας / sotype (Πελάτης, Προμηθευτής, Συνεργάτης…)' },
+    { name: 'Company Branches', description: 'Υποκαταστήματα ανά εταιρία' },
+    { name: 'Company Contacts', description: 'Επαφές προσώπων ανά εταιρία + avatar' },
+    { name: 'Company Channels', description: 'Πολλαπλά κανάλια επικοινωνίας (email/τηλέφωνο/fax) με τίτλο' },
+    { name: 'Company Documents', description: 'Δημόσια έγγραφα ΓΕΜΗ ανά εταιρία (Bunny CDN)' },
+    { name: 'AADE', description: 'Άντληση στοιχείων από Ανεξάρτητη Αρχή Δημοσίων Εσόδων (afm2info)' },
+    { name: 'GEMI', description: 'ΓΕΜΗ Open Data — αναζήτηση + sync εταιρίας + έγγραφα + metadata' },
+    { name: 'KAD', description: 'Μητρώο ΚΑΔ (Greek Activity Codes)' },
+    { name: 'Reference Data', description: 'Lookup tables (νομικές μορφές, νομοί, δήμοι, ΦΠΑ…)' },
+    { name: 'Backups', description: 'Database backups (pg_dump → Bunny CDN)' },
+    { name: 'Media', description: 'Media library (folders + files) στο Bunny CDN' },
+    { name: 'Geo', description: 'Γεωκωδικοποίηση και χάρτες (MapTiler)' },
   ],
   components: {
     securitySchemes: {
@@ -92,6 +105,225 @@ export const openapiSpec = {
           value: {},
           category: { type: 'string' },
           isSecret: { type: 'boolean' },
+        },
+      },
+
+      // ---- Companies & related entities ----
+      CompanyType: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          key: { type: 'string', description: 'UPPER_SNAKE — π.χ. CUSTOMER, SUPPLIER, PARTNER, PROSPECT' },
+          name: { type: 'string' },
+          pluralName: { type: 'string', nullable: true },
+          description: { type: 'string', nullable: true },
+          color: { type: 'string', nullable: true, description: 'hex' },
+          icon: { type: 'string', nullable: true, description: 'react-icons key (π.χ. FiUser)' },
+          isSystem: { type: 'boolean' },
+          order: { type: 'integer' },
+        },
+      },
+      CompanyTypeAssignment: {
+        type: 'object',
+        properties: { typeId: { type: 'string' }, type: { $ref: '#/components/schemas/CompanyType' } },
+      },
+      Company: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          code: { type: 'string', nullable: true },
+          name: { type: 'string' },
+          shortName: { type: 'string', nullable: true },
+          afm: { type: 'string', nullable: true, description: 'ΑΦΜ (9 ψηφία)' },
+          doy: { type: 'string', nullable: true },
+          profession: { type: 'string', nullable: true },
+          legalForm: { type: 'string', nullable: true, description: 'Free-text (denormalized cache)' },
+          legalTypeId: { type: 'integer', nullable: true, description: 'FK → LegalType' },
+          gemhNumber: { type: 'string', nullable: true },
+          arGemi: { type: 'string', nullable: true, description: 'Αρ. ΓΕΜΗ από Open Data (string)' },
+          gemiOffice: { type: 'string', nullable: true },
+          gemiOfficeId: { type: 'integer', nullable: true },
+          gemiStatus: { type: 'string', nullable: true },
+          companyStatusId: { type: 'integer', nullable: true },
+          gemiObjective: { type: 'string', nullable: true },
+          gemiIsBranch: { type: 'boolean', nullable: true },
+          gemiAutoRegistered: { type: 'boolean', nullable: true },
+          gemiLastStatusChange: { type: 'string', format: 'date-time', nullable: true },
+          gemiSyncedAt: { type: 'string', format: 'date-time', nullable: true },
+          aadeStatus: { type: 'string', nullable: true },
+          aadeFirmKind: { type: 'string', nullable: true },
+          aadeSyncedAt: { type: 'string', format: 'date-time', nullable: true },
+          foundingDate: { type: 'string', format: 'date', nullable: true },
+          address: { type: 'string', nullable: true },
+          city: { type: 'string', nullable: true },
+          zip: { type: 'string', nullable: true },
+          country: { type: 'string', nullable: true, description: 'ISO 3166 alpha-2 (default GR)' },
+          district: { type: 'string', nullable: true },
+          prefectureId: { type: 'string', nullable: true },
+          municipalityId: { type: 'string', nullable: true },
+          phone: { type: 'string', nullable: true },
+          phone2: { type: 'string', nullable: true },
+          fax: { type: 'string', nullable: true },
+          email: { type: 'string', format: 'email', nullable: true },
+          website: { type: 'string', nullable: true },
+          contactPerson: { type: 'string', nullable: true },
+          contactTitle: { type: 'string', nullable: true },
+          iban: { type: 'string', nullable: true },
+          bankName: { type: 'string', nullable: true },
+          currency: { type: 'string', nullable: true, description: 'ISO 4217 (default EUR)' },
+          paymentTerms: { type: 'string', nullable: true },
+          creditLimit: { type: 'number', nullable: true },
+          discount: { type: 'number', nullable: true },
+          vatCategory: { type: 'string', nullable: true },
+          vatCategoryId: { type: 'integer', nullable: true },
+          category: { type: 'string', nullable: true },
+          notes: { type: 'string', nullable: true },
+          isActive: { type: 'boolean' },
+          employeeCount: { type: 'integer', nullable: true },
+          logoUrl: { type: 'string', nullable: true, description: 'CDN URL στο Bunny' },
+          logoStorageKey: { type: 'string', nullable: true },
+          latitude: { type: 'number', nullable: true },
+          longitude: { type: 'number', nullable: true },
+          geocodedAt: { type: 'string', format: 'date-time', nullable: true },
+          geocodedAddress: { type: 'string', nullable: true },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+          types: { type: 'array', items: { $ref: '#/components/schemas/CompanyTypeAssignment' } },
+          activities: { type: 'array', items: { $ref: '#/components/schemas/CompanyActivity' } },
+        },
+      },
+      CompanyBranch: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          companyId: { type: 'string' },
+          code: { type: 'string', nullable: true },
+          name: { type: 'string' },
+          isHeadquarters: { type: 'boolean' },
+          address: { type: 'string', nullable: true },
+          city: { type: 'string', nullable: true },
+          zip: { type: 'string', nullable: true },
+          country: { type: 'string', nullable: true },
+          phone: { type: 'string', nullable: true },
+          email: { type: 'string', format: 'email', nullable: true },
+          isActive: { type: 'boolean' },
+          latitude: { type: 'number', nullable: true },
+          longitude: { type: 'number', nullable: true },
+        },
+      },
+      CompanyContact: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          companyId: { type: 'string' },
+          firstName: { type: 'string', nullable: true },
+          lastName: { type: 'string', nullable: true },
+          fullName: { type: 'string' },
+          role: { type: 'string', nullable: true, description: 'π.χ. "Λογιστής"' },
+          department: { type: 'string', nullable: true },
+          mobile: { type: 'string', nullable: true },
+          phone: { type: 'string', nullable: true },
+          email: { type: 'string', format: 'email', nullable: true },
+          fax: { type: 'string', nullable: true },
+          address: { type: 'string', nullable: true },
+          city: { type: 'string', nullable: true },
+          isPrimary: { type: 'boolean' },
+          isActive: { type: 'boolean' },
+          notes: { type: 'string', nullable: true },
+          avatarUrl: { type: 'string', nullable: true },
+        },
+      },
+      CompanyChannel: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          companyId: { type: 'string' },
+          kind: { type: 'string', enum: ['EMAIL', 'PHONE', 'MOBILE', 'FAX', 'OTHER'] },
+          label: { type: 'string', nullable: true, description: 'π.χ. "Λογιστήριο"' },
+          value: { type: 'string' },
+          isPrimary: { type: 'boolean' },
+          isActive: { type: 'boolean' },
+        },
+      },
+      CompanyDocument: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          companyId: { type: 'string' },
+          source: { type: 'string', enum: ['GEMI', 'MANUAL'] },
+          kind: { type: 'string', enum: ['DECISION', 'PUBLICATION', 'OTHER'] },
+          title: { type: 'string' },
+          kak: { type: 'string', nullable: true, description: 'Κωδικός Αριθμός Καταχώρισης' },
+          assembly: { type: 'string', nullable: true },
+          summary: { type: 'string', nullable: true },
+          decisionSubject: { type: 'string', nullable: true },
+          dateAssemblyDecided: { type: 'string', format: 'date-time', nullable: true },
+          dateAnnounced: { type: 'string', format: 'date-time', nullable: true },
+          dateRegistrated: { type: 'string', format: 'date-time', nullable: true },
+          sourceUrl: { type: 'string', nullable: true, description: 'Original ΓΕΜΗ URL' },
+          publicUrl: { type: 'string', nullable: true, description: 'Bunny CDN URL' },
+          mimeType: { type: 'string', nullable: true },
+          sizeBytes: { type: 'integer', nullable: true },
+        },
+      },
+      CompanyActivity: {
+        type: 'object',
+        properties: {
+          code: { type: 'string', description: 'ΚΑΔ' },
+          description: { type: 'string' },
+          kind: { type: 'string', enum: ['PRIMARY', 'SECONDARY'] },
+          order: { type: 'integer' },
+        },
+      },
+      KadCode: {
+        type: 'object',
+        properties: {
+          code: { type: 'string', description: '2-10 ψηφία' },
+          description: { type: 'string' },
+          parentCode: { type: 'string', nullable: true },
+          category: { type: 'string', nullable: true },
+          isActive: { type: 'boolean' },
+        },
+      },
+      LegalType: { type: 'object', properties: { id: { type: 'integer' }, descr: { type: 'string' }, descrEn: { type: 'string', nullable: true } } },
+      GemiOffice: { type: 'object', properties: { id: { type: 'integer' }, descr: { type: 'string' }, city: { type: 'string', nullable: true }, phone: { type: 'string', nullable: true } } },
+      CompanyStatusRef: { type: 'object', properties: { id: { type: 'integer' }, descr: { type: 'string' }, isActive: { type: 'boolean' } } },
+      Prefecture: { type: 'object', properties: { id: { type: 'string' }, descr: { type: 'string' } } },
+      Municipality: { type: 'object', properties: { id: { type: 'string' }, descr: { type: 'string' }, prefectureId: { type: 'string', nullable: true } } },
+      VatCategory: { type: 'object', properties: { id: { type: 'integer' }, code: { type: 'string' }, descr: { type: 'string' }, rate: { type: 'number', nullable: true } } },
+      AadeLookupResult: {
+        type: 'object',
+        properties: {
+          mapped: {
+            type: 'object',
+            properties: {
+              afm: { type: 'string' },
+              name: { type: 'string' },
+              shortName: { type: 'string', nullable: true },
+              doy: { type: 'string', nullable: true },
+              legalForm: { type: 'string', nullable: true },
+              address: { type: 'string', nullable: true },
+              zip: { type: 'string', nullable: true },
+              city: { type: 'string', nullable: true },
+              foundingDate: { type: 'string', format: 'date', nullable: true },
+              profession: { type: 'string', nullable: true },
+              aadeStatus: { type: 'string', nullable: true },
+              aadeFirmKind: { type: 'string', nullable: true },
+              isActive: { type: 'boolean' },
+            },
+          },
+          activities: { type: 'array', items: { $ref: '#/components/schemas/CompanyActivity' } },
+        },
+      },
+      GemiLookupResult: {
+        type: 'object',
+        properties: {
+          mapped: { type: 'object' },
+          raw: { type: 'object' },
+          documentCounts: {
+            type: 'object',
+            properties: { decision: { type: 'integer' }, publication: { type: 'integer' }, total: { type: 'integer' } },
+          },
         },
       },
     },
@@ -469,6 +701,335 @@ export const openapiSpec = {
           500: { description: 'DeepSeek error' },
         },
       },
+    },
+
+    // ============== COMPANIES ==============
+    '/api/admin/companies': {
+      get: {
+        tags: ['Companies'],
+        summary: 'Λίστα εταιριών',
+        description: 'Επιστρέφει όλες τις εταιρίες με τα assigned types. Φίλτρα ανά `typeKey`, `typeId`, ή free-text `q` (επωνυμία/ΑΦΜ/email/κωδικός). **Απαιτεί `companies.read`**.',
+        parameters: [
+          { name: 'typeKey', in: 'query', schema: { type: 'string' } },
+          { name: 'typeId', in: 'query', schema: { type: 'string' } },
+          { name: 'q', in: 'query', schema: { type: 'string' }, description: 'Free-text search' },
+        ],
+        responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'object', properties: { companies: { type: 'array', items: { $ref: '#/components/schemas/Company' } } } } } } } },
+      },
+      post: {
+        tags: ['Companies'],
+        summary: 'Δημιουργία νέας εταιρίας',
+        description:
+          'Δημιουργεί εταιρία + assigned types + (optional) activities. Κάνει αυτόματη γεωκωδικοποίηση αν υπάρχει διεύθυνση. **Απαιτεί `companies.create`**.',
+        requestBody: { required: true, content: { 'application/json': { schema: { allOf: [{ $ref: '#/components/schemas/Company' }, { type: 'object', required: ['name', 'typeIds'], properties: { typeIds: { type: 'array', items: { type: 'string' }, minItems: 1 } } }] } } } },
+        responses: { 201: { description: 'Created', content: { 'application/json': { schema: { type: 'object', properties: { company: { $ref: '#/components/schemas/Company' } } } } } }, 400: { description: 'Invalid' } },
+      },
+    },
+    '/api/admin/companies/{id}': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      get: {
+        tags: ['Companies'],
+        summary: 'Στοιχεία εταιρίας',
+        description: 'Πλήρης εγγραφή με types + activities. **Απαιτεί `companies.read`**.',
+        responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } },
+      },
+      patch: {
+        tags: ['Companies'],
+        summary: 'Ενημέρωση εταιρίας',
+        description:
+          'Partial update. Αν αλλάξει η διεύθυνση, re-geocodes αυτόματα. Αν περάσεις `activities`, αντικαθιστά πλήρως τη λίστα ΚΑΔ. **Απαιτεί `companies.update`**.',
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/Company' } } } },
+        responses: { 200: { description: 'OK' } },
+      },
+      delete: {
+        tags: ['Companies'],
+        summary: 'Διαγραφή εταιρίας',
+        description: 'Cascade διαγραφή branches/contacts/channels/activities/documents. **Απαιτεί `companies.delete`**.',
+        responses: { 200: { description: 'Deleted' } },
+      },
+    },
+    '/api/admin/companies/{id}/logo': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      post: {
+        tags: ['Companies'],
+        summary: 'Ανέβασμα λογότυπου εταιρίας',
+        description: 'Multipart upload (PNG/JPG/WEBP/SVG, max 4MB) → Bunny CDN. Αντικαθιστά παλιό λογότυπο. **Απαιτεί `companies.update`**.',
+        requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } } } } },
+        responses: { 200: { description: 'OK' }, 400: { description: 'unsupported_type | too_large' } },
+      },
+      delete: {
+        tags: ['Companies'],
+        summary: 'Διαγραφή λογότυπου',
+        responses: { 200: { description: 'Deleted' } },
+      },
+    },
+    '/api/admin/companies/{id}/geocode': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      post: {
+        tags: ['Geo'],
+        summary: 'Χειροκίνητη (re-)γεωκωδικοποίηση εταιρίας',
+        description: 'Καλεί MapTiler forward geocoding με τα address fields. Σώζει `latitude`, `longitude`, `geocodedAddress`. **Απαιτεί `companies.update`**.',
+        responses: { 200: { description: 'OK' }, 422: { description: 'geocode_failed (δεν βρέθηκε)' } },
+      },
+    },
+
+    // ============== COMPANY TYPES ==============
+    '/api/admin/company-types': {
+      get: { tags: ['Company Types'], summary: 'Λίστα τύπων εταιρίας', responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'object', properties: { types: { type: 'array', items: { $ref: '#/components/schemas/CompanyType' } } } } } } } } },
+      post: {
+        tags: ['Company Types'], summary: 'Δημιουργία custom τύπου',
+        description: '**Απαιτεί `companies.manage_types`**.',
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['key', 'name'], properties: { key: { type: 'string' }, name: { type: 'string' }, pluralName: { type: 'string' }, color: { type: 'string' }, icon: { type: 'string' } } } } } },
+        responses: { 201: { description: 'Created' }, 409: { description: 'key exists' } },
+      },
+    },
+    '/api/admin/company-types/{id}': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      patch: { tags: ['Company Types'], summary: 'Ενημέρωση τύπου', responses: { 200: { description: 'OK' } } },
+      delete: { tags: ['Company Types'], summary: 'Διαγραφή τύπου (όχι system types)', responses: { 200: { description: 'OK' }, 400: { description: 'system_type_protected' } } },
+    },
+
+    // ============== COMPANY BRANCHES ==============
+    '/api/admin/companies/{id}/branches': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      get: { tags: ['Company Branches'], summary: 'Λίστα υποκαταστημάτων', responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'object', properties: { branches: { type: 'array', items: { $ref: '#/components/schemas/CompanyBranch' } } } } } } } } },
+      post: {
+        tags: ['Company Branches'], summary: 'Νέο υποκατάστημα',
+        description: 'Auto-geocodes. Αν `isHeadquarters=true`, ξεμαρκάρει τα άλλα. **Απαιτεί `companies.update`**.',
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/CompanyBranch' } } } },
+        responses: { 201: { description: 'Created' } },
+      },
+    },
+    '/api/admin/companies/{id}/branches/{branchId}': {
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+        { name: 'branchId', in: 'path', required: true, schema: { type: 'string' } },
+      ],
+      patch: { tags: ['Company Branches'], summary: 'Ενημέρωση υποκαταστήματος (re-geocodes αν αλλάξει διεύθυνση)', responses: { 200: { description: 'OK' } } },
+      delete: { tags: ['Company Branches'], summary: 'Διαγραφή υποκαταστήματος', responses: { 200: { description: 'OK' } } },
+    },
+
+    // ============== COMPANY CONTACTS ==============
+    '/api/admin/companies/{id}/contacts': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      get: { tags: ['Company Contacts'], summary: 'Λίστα επαφών εταιρίας', responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'object', properties: { contacts: { type: 'array', items: { $ref: '#/components/schemas/CompanyContact' } } } } } } } } },
+      post: {
+        tags: ['Company Contacts'], summary: 'Νέα επαφή',
+        description: 'Αυτο-υπολογίζει `fullName` από `firstName + lastName` αν δεν δοθεί. Αν `isPrimary=true`, ξεμαρκάρει τα άλλα. **Απαιτεί `companies.update`**.',
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/CompanyContact' } } } },
+        responses: { 201: { description: 'Created' }, 400: { description: 'missing_name' } },
+      },
+    },
+    '/api/admin/companies/{id}/contacts/{contactId}': {
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+        { name: 'contactId', in: 'path', required: true, schema: { type: 'string' } },
+      ],
+      patch: { tags: ['Company Contacts'], summary: 'Ενημέρωση επαφής', responses: { 200: { description: 'OK' } } },
+      delete: { tags: ['Company Contacts'], summary: 'Διαγραφή επαφής', responses: { 200: { description: 'OK' } } },
+    },
+    '/api/admin/companies/{id}/contacts/{contactId}/avatar': {
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+        { name: 'contactId', in: 'path', required: true, schema: { type: 'string' } },
+      ],
+      post: {
+        tags: ['Company Contacts'], summary: 'Ανέβασμα avatar επαφής',
+        description: 'Multipart (PNG/JPG/WEBP/SVG, max 3MB) → Bunny CDN.',
+        requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } } } } },
+        responses: { 200: { description: 'OK' } },
+      },
+      delete: { tags: ['Company Contacts'], summary: 'Διαγραφή avatar επαφής', responses: { 200: { description: 'OK' } } },
+    },
+
+    // ============== COMPANY CHANNELS (multi-email/phone) ==============
+    '/api/admin/companies/{id}/channels': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      get: { tags: ['Company Channels'], summary: 'Λίστα καναλιών επικοινωνίας', responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'object', properties: { channels: { type: 'array', items: { $ref: '#/components/schemas/CompanyChannel' } } } } } } } } },
+      post: {
+        tags: ['Company Channels'], summary: 'Νέο κανάλι (email/τηλέφωνο/fax) με τίτλο',
+        description: 'Το `isPrimary` εφαρμόζεται ανά `kind` (ένα κύριο email, ένα κύριο σταθερό κ.λπ.). **Απαιτεί `companies.update`**.',
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/CompanyChannel' } } } },
+        responses: { 201: { description: 'Created' } },
+      },
+    },
+    '/api/admin/companies/{id}/channels/{channelId}': {
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+        { name: 'channelId', in: 'path', required: true, schema: { type: 'string' } },
+      ],
+      patch: { tags: ['Company Channels'], summary: 'Ενημέρωση καναλιού', responses: { 200: { description: 'OK' } } },
+      delete: { tags: ['Company Channels'], summary: 'Διαγραφή καναλιού', responses: { 200: { description: 'OK' } } },
+    },
+
+    // ============== COMPANY DOCUMENTS ==============
+    '/api/admin/companies/{id}/documents': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      get: { tags: ['Company Documents'], summary: 'Λίστα εγγράφων ΓΕΜΗ της εταιρίας (από Bunny CDN)', responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'object', properties: { documents: { type: 'array', items: { $ref: '#/components/schemas/CompanyDocument' } } } } } } } } },
+    },
+    '/api/admin/companies/{id}/documents/{docId}': {
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+        { name: 'docId', in: 'path', required: true, schema: { type: 'string' } },
+      ],
+      delete: { tags: ['Company Documents'], summary: 'Διαγραφή εγγράφου (+ Bunny cleanup)', responses: { 200: { description: 'OK' } } },
+    },
+    '/api/admin/companies/{id}/gemi-sync': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      post: {
+        tags: ['GEMI'],
+        summary: 'Συγχρονισμός εταιρίας από ΓΕΜΗ Open Data',
+        description:
+          'Καλεί ΓΕΜΗ (search by ΑΦΜ αν λείπει `arGemi`, μετά get company + documents). Ενημερώνει όλα τα πεδία, αντικαθιστά activities, upserts στο master ΚΑΔ, κατεβάζει όλα τα έγγραφα και τα ανεβάζει στο Bunny CDN σε `companies/{id}/gemi/`. **Απαιτεί `companies.update`**.',
+        requestBody: { required: false, content: { 'application/json': { schema: { type: 'object', properties: { arGemi: { type: 'string' }, syncDocuments: { type: 'boolean', default: true } } } } } },
+        responses: {
+          200: { description: 'OK', content: { 'application/json': { schema: { type: 'object', properties: { ok: { type: 'boolean' }, arGemi: { type: 'string' }, documentsImported: { type: 'integer' }, documentsFailed: { type: 'integer' } } } } } },
+          400: { description: 'missing_identifier' },
+          404: { description: 'gemi_not_found' },
+          502: { description: 'gemi_error' },
+        },
+      },
+    },
+
+    // ============== AADE / GEMI lookups ==============
+    '/api/admin/aade-lookup': {
+      post: {
+        tags: ['AADE'],
+        summary: 'Άντληση στοιχείων από ΑΕΔΕΕ (afm2info)',
+        description: 'Επιστρέφει mapped fields + λίστα ΚΑΔ. Δεν γράφει στο DB εκτός από αυτόματο upsert στο master ΚΑΔ. **Απαιτεί `companies.read`**.',
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['afm'], properties: { afm: { type: 'string', pattern: '^\\d{9}$' } } } } } },
+        responses: {
+          200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/AadeLookupResult' } } } },
+          404: { description: 'not_found' },
+          502: { description: 'aade_unreachable' },
+        },
+      },
+    },
+    '/api/admin/gemi-lookup': {
+      post: {
+        tags: ['GEMI'],
+        summary: 'Προεπισκόπηση στοιχείων από ΓΕΜΗ Open Data',
+        description: 'Δέξου είτε `afm` είτε `arGemi`. Δεν γράφει στο DB. **Απαιτεί `companies.read`**.',
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { afm: { type: 'string' }, arGemi: { type: 'string' } } } } } },
+        responses: {
+          200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/GemiLookupResult' } } } },
+          404: { description: 'not_found' },
+          502: { description: 'gemi_error' },
+        },
+      },
+    },
+
+    // ============== KAD master ==============
+    '/api/admin/kad-codes': {
+      get: {
+        tags: ['KAD'],
+        summary: 'Αναζήτηση στο μητρώο ΚΑΔ',
+        description: 'Free-text `q` ψάχνει και σε code και σε description. **Απαιτεί `kad.read`**.',
+        parameters: [
+          { name: 'q', in: 'query', schema: { type: 'string' } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100, maximum: 500 } },
+        ],
+        responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'object', properties: { codes: { type: 'array', items: { $ref: '#/components/schemas/KadCode' } }, total: { type: 'integer' } } } } } } },
+      },
+      post: {
+        tags: ['KAD'],
+        summary: 'Manual upsert ΚΑΔ',
+        description: '**Απαιτεί `kad.manage`**.',
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/KadCode' } } } },
+        responses: { 200: { description: 'OK' } },
+      },
+    },
+
+    // ============== REFERENCE DATA (lookup tables) ==============
+    '/api/admin/lookups': {
+      get: {
+        tags: ['Reference Data'],
+        summary: 'Όλα τα lookup tables σε μία κλήση (για form selects)',
+        description: '**Απαιτεί `companies.read`**.',
+        responses: {
+          200: { description: 'OK', content: { 'application/json': { schema: { type: 'object', properties: {
+            legalTypes: { type: 'array', items: { $ref: '#/components/schemas/LegalType' } },
+            gemiOffices: { type: 'array', items: { $ref: '#/components/schemas/GemiOffice' } },
+            companyStatuses: { type: 'array', items: { $ref: '#/components/schemas/CompanyStatusRef' } },
+            prefectures: { type: 'array', items: { $ref: '#/components/schemas/Prefecture' } },
+            municipalities: { type: 'array', items: { $ref: '#/components/schemas/Municipality' } },
+            vatCategories: { type: 'array', items: { $ref: '#/components/schemas/VatCategory' } },
+          } } } } },
+        },
+      },
+    },
+    '/api/admin/metadata': {
+      get: {
+        tags: ['Reference Data'],
+        summary: 'Counts + last update ανά lookup table',
+        description: '**Απαιτεί `metadata.read`**.',
+        responses: { 200: { description: 'OK' } },
+      },
+    },
+    '/api/admin/metadata/refresh-gemi': {
+      post: {
+        tags: ['Reference Data'],
+        summary: 'Ανανέωση όλων των ΓΕΜΗ metadata',
+        description: 'Κατεβάζει LegalType / GemiOffice / CompanyStatus / Prefecture / Municipality από ΓΕΜΗ Open Data και κάνει upsert. **Απαιτεί `metadata.manage`**.',
+        responses: {
+          200: { description: 'OK', content: { 'application/json': { schema: { type: 'object', properties: { ok: { type: 'boolean' }, refreshedAt: { type: 'string', format: 'date-time' }, summary: { type: 'object' } } } } } },
+          502: { description: 'gemi_error' },
+        },
+      },
+    },
+
+    // ============== BACKUPS ==============
+    '/api/admin/backups': {
+      get: { tags: ['Backups'], summary: 'Λίστα backups', description: '**Απαιτεί `system.backups`**.', responses: { 200: { description: 'OK' } } },
+      post: { tags: ['Backups'], summary: 'Χειροκίνητο backup τώρα', description: 'Καλεί pg_dump (custom format) και ανεβάζει στο Bunny CDN private storage. **Απαιτεί `system.backups`**.', responses: { 200: { description: 'OK' } } },
+    },
+    '/api/admin/backups/{id}': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      delete: { tags: ['Backups'], summary: 'Διαγραφή backup (+ Bunny cleanup)', responses: { 200: { description: 'OK' } } },
+    },
+    '/api/admin/backups/{id}/download': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      get: { tags: ['Backups'], summary: 'Λήψη .dump αρχείου από Bunny', responses: { 200: { description: 'Binary stream' } } },
+    },
+    '/api/cron/backups': {
+      get: { tags: ['Backups'], summary: 'Cron trigger backup', description: 'Καλείται από scheduler. Bearer token authentication.', security: [], responses: { 200: { description: 'OK' } } },
+    },
+
+    // ============== GEO / MAP ==============
+    '/api/admin/map/static': {
+      get: {
+        tags: ['Geo'],
+        summary: 'Proxy για στατικό χάρτη MapTiler (κρύβει το API key)',
+        description: 'Επιστρέφει PNG. Παράμετροι: `lat`, `lng`, `zoom`, `w`, `h`. Cached 24h. **Απαιτεί `companies.read`**.',
+        parameters: [
+          { name: 'lat', in: 'query', required: true, schema: { type: 'number' } },
+          { name: 'lng', in: 'query', required: true, schema: { type: 'number' } },
+          { name: 'zoom', in: 'query', schema: { type: 'integer', default: 15 } },
+          { name: 'w', in: 'query', schema: { type: 'integer', default: 600 } },
+          { name: 'h', in: 'query', schema: { type: 'integer', default: 320 } },
+        ],
+        responses: { 200: { description: 'image/png' }, 502: { description: 'maptiler_failed' } },
+      },
+    },
+
+    // ============== MEDIA ==============
+    '/api/admin/media': {
+      get: { tags: ['Media'], summary: 'Λίστα media files', description: '**Απαιτεί `media.read`**.', responses: { 200: { description: 'OK' } } },
+      post: { tags: ['Media'], summary: 'Upload media file → Bunny CDN', description: '**Απαιτεί `media.upload`**.', responses: { 201: { description: 'Created' } } },
+    },
+    '/api/admin/media/{id}': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      patch: { tags: ['Media'], summary: 'Rename / move file', responses: { 200: { description: 'OK' } } },
+      delete: { tags: ['Media'], summary: 'Διαγραφή file (+ Bunny cleanup)', responses: { 200: { description: 'OK' } } },
+    },
+    '/api/admin/media/folders': {
+      get: { tags: ['Media'], summary: 'Λίστα φακέλων', responses: { 200: { description: 'OK' } } },
+      post: { tags: ['Media'], summary: 'Νέος φάκελος', description: '**Απαιτεί `media.manage_folders`**.', responses: { 201: { description: 'Created' } } },
+    },
+    '/api/admin/media/folders/{id}': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      patch: { tags: ['Media'], summary: 'Rename / move folder', responses: { 200: { description: 'OK' } } },
+      delete: { tags: ['Media'], summary: 'Διαγραφή φακέλου (cascade)', responses: { 200: { description: 'OK' } } },
     },
   },
 };

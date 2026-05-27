@@ -158,6 +158,20 @@ model AppSetting {
   @@index([category])
 }
 
+model DbBackup {
+  id           String   @id @default(cuid())
+  filename     String
+  storageKey   String   @unique
+  sizeBytes    BigInt
+  status       String   @default("READY") // PENDING | READY | FAILED | RESTORING
+  trigger      String   @default("cron")  // cron | manual
+  errorMessage String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 model MediaFolder {
   id        String         @id @default(cuid())
   name      String
@@ -197,6 +211,430 @@ model MediaFile {
   @@index([uploadedAt])
 }
 
+// ============================================================
+// Companies (SoftOne TRDR-inspired: unified Customer / Supplier / Partner)
+// ============================================================
+
+model CompanyType {
+  id          String                    @id @default(cuid())
+  key         String                    @unique           // e.g. CUSTOMER, SUPPLIER, PARTNER, PROSPECT
+  name        String                                      // display name (Greek), e.g. "Πελάτης"
+  pluralName  String?                                     // "Πελάτες"
+  description String?
+  color       String?                   // hex, for badge
+  icon        String?                   // react-icons key (e.g. "FiUser")
+  isSystem    Boolean                   @default(false)   // CUSTOMER/SUPPLIER/PARTNER seeded as system
+  order       Int                       @default(0)
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  companies   CompanyTypeAssignment[]
+
+  @@index([order])
+}
+
+model Company {
+  id              String                  @id @default(cuid())
+  // SoftOne TRDR identity
+  code            String?                 @unique           // TRDR.CODE — internal code
+  sodtype         Int?                                      // SoftOne sodtype (13=customer, 12=supplier...) (optional, informative)
+  name            String                                    // TRDR.NAME — επωνυμία
+  shortName       String?                                   // brand / σύντομη επωνυμία
+  // Tax / legal
+  afm             String?                 @unique           // ΑΦΜ / VAT number
+  doy             String?                                   // ΔΟΥ / tax office
+  irsData         String?                                   // additional IRS notes
+  profession      String?                                   // επάγγελμα / activity
+  legalForm       String?                                   // νομική μορφή (Α.Ε., Ι.Κ.Ε., κ.λπ.)
+  gemhNumber      String?                                   // αρ. ΓΕΜΗ
+  // Contact
+  address         String?
+  city            String?
+  zip             String?
+  country         String?                 @default("GR")
+  district        String?
+  phone           String?
+  phone2          String?
+  fax             String?
+  email           String?
+  website         String?
+  contactPerson   String?
+  contactTitle    String?
+  // Financial
+  iban            String?
+  bankName        String?
+  currency        String?                 @default("EUR")
+  paymentTerms    String?
+  creditLimit     Decimal?                @db.Decimal(14, 2)
+  balance         Decimal?                @db.Decimal(14, 2)
+  discount        Decimal?                @db.Decimal(5, 2)
+  vatCategory     String?
+  // Classification
+  category        String?
+  branchInfo      String?
+  notes           String?
+  // State
+  isActive        Boolean                 @default(true)
+  // ΑΕΔΕΕ extras
+  foundingDate    DateTime?                                 // ημερομηνία ίδρυσης (regist_date)
+  aadeStatus      String?                                   // deactivation_flag_descr (π.χ. ΕΝΕΡΓΟΣ ΑΦΜ)
+  aadeFirmKind    String?                                   // firm_flag_descr (π.χ. ΕΠΙΤΗΔΕΥΜΑΤΙΑΣ)
+  aadeSyncedAt    DateTime?
+  // Logo (Bunny CDN)
+  logoUrl         String?
+  logoStorageKey  String?
+  // ΓΕΜΗ extras
+  arGemi              String?   @unique                     // Αριθμός ΓΕΜΗ (από Open Data) — string γιατί ξεπερνά Int32
+  gemiOffice          String?                                // Τοπική Υπηρεσία ΓΕΜΗ
+  gemiStatus          String?                                // Κατάσταση επιχείρησης (ΓΕΜΗ)
+  gemiObjective       String?                                // Σκοπός εταιρείας
+  gemiIsBranch        Boolean?                               // Υποκατάστημα ή Μητρική
+  gemiAutoRegistered  Boolean?                               // Ολοκληρωμένη αυτοαπογραφή
+  gemiLastStatusChange DateTime?
+  gemiSyncedAt        DateTime?
+  gemiData            Json?                                  // raw GEMI response για future-proofing
+  // SoftOne sync
+  s1Trdr          Int?                    @unique           // mirror TRDR primary key when synced
+  s1UpdDate       DateTime?
+  // Geocoding (MapTiler)
+  latitude        Float?
+  longitude       Float?
+  geocodedAt      DateTime?
+  geocodedAddress String?                                    // canonical address returned by geocoder
+  // Audit
+  createdById     String?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  // FK to lookup tables (nullable; text counterparts above act as denormalized cache)
+  legalTypeId       Int?
+  legalTypeRef      LegalType?        @relation(fields: [legalTypeId], references: [id])
+  gemiOfficeId      Int?
+  gemiOfficeRef     GemiOfficeRef?    @relation(fields: [gemiOfficeId], references: [id])
+  companyStatusId   Int?
+  companyStatusRef  CompanyStatusRef? @relation(fields: [companyStatusId], references: [id])
+  prefectureId      String?
+  prefectureRef     Prefecture?       @relation(fields: [prefectureId], references: [id])
+  municipalityId    String?
+  municipalityRef   Municipality?     @relation(fields: [municipalityId], references: [id])
+  vatCategoryId     Int?
+  vatCategoryRef    VatCategory?      @relation(fields: [vatCategoryId], references: [id])
+
+  // Manual operational data (όχι από API)
+  employeeCount     Int?                                  // αριθμός εργαζομένων
+
+  types           CompanyTypeAssignment[]
+  branches        CompanyBranch[]
+  activities      CompanyActivity[]
+  documents       CompanyDocument[]
+  contacts        CompanyContact[]
+  channels        CompanyChannel[]
+
+  @@index([legalTypeId])
+  @@index([gemiOfficeId])
+  @@index([companyStatusId])
+  @@index([prefectureId])
+  @@index([municipalityId])
+  @@index([vatCategoryId])
+
+  @@index([name])
+  @@index([afm])
+  @@index([isActive])
+}
+
+// ============================================================
+// Reference / lookup tables — seeded from ΓΕΜΗ Open Data /metadata/*
+// ============================================================
+
+model LegalType {
+  id          Int      @id            // GEMI legalType.id
+  descr       String
+  descrEn     String?
+  lastUpdated DateTime?
+  companies   Company[]
+}
+
+model GemiOfficeRef {
+  id          Int      @id            // GEMI gemiOffice.id
+  descr       String
+  descrEn     String?
+  address     String?
+  city        String?
+  zipCode     String?
+  phone       String?
+  fax         String?
+  url         String?
+  lastUpdated DateTime?
+  companies   Company[]
+}
+
+model CompanyStatusRef {
+  id          Int      @id            // GEMI status.id
+  descr       String
+  descrEn     String?
+  isActive    Boolean  @default(true)
+  lastUpdated DateTime?
+  companies   Company[]
+}
+
+model Prefecture {
+  id            String   @id          // GEMI prefecture.id (string in API)
+  descr         String
+  descrEn       String?
+  lastUpdated   DateTime?
+  municipalities Municipality[]
+  companies     Company[]
+}
+
+// ΦΠΑ καθεστώτα/κατηγορίες — manual seed (όχι από ΓΕΜΗ).
+model VatCategory {
+  id          Int       @id @default(autoincrement())
+  code        String    @unique          // π.χ. "NORMAL", "REDUCED", "EXEMPT", "ZERO"
+  descr       String                     // "Κανονικό", "Μειωμένο", "Απαλλασσόμενο"…
+  rate        Float?                     // π.χ. 24, 13, 6, 0 (nullable: για καθεστώτα χωρίς ποσοστό)
+  isActive    Boolean   @default(true)
+  order       Int       @default(0)
+  companies   Company[]
+
+  @@index([order])
+}
+
+model Municipality {
+  id            String     @id        // GEMI municipality.id (string)
+  prefectureId  String?
+  prefecture    Prefecture? @relation(fields: [prefectureId], references: [id])
+  descr         String
+  descrEn       String?
+  lastUpdated   DateTime?
+  companies     Company[]
+
+  @@index([prefectureId])
+  @@index([descr])
+}
+
+enum DocumentSource {
+  GEMI
+  MANUAL
+}
+
+enum DocumentKind {
+  DECISION       // CompanyDocumentDecision (απόφαση οργάνου)
+  PUBLICATION    // CompanyDocumentPublication (ΥΜΣ)
+  OTHER
+}
+
+model CompanyDocument {
+  id            String          @id @default(cuid())
+  companyId     String
+  company       Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  source        DocumentSource  @default(GEMI)
+  kind          DocumentKind    @default(OTHER)
+  title         String                                       // τίτλος (decisionSubject ή summary ή filename)
+  // GEMI document metadata
+  kak           String?                                      // Κωδικός Αριθμός Καταχώρισης
+  assembly      String?                                      // είδος οργάνου
+  summary       String?                                      // περίληψη
+  decisionSubject String?
+  dateAssemblyDecided  DateTime?
+  dateAnnounced        DateTime?
+  dateRegistrated      DateTime?
+  applicationStatus String?
+  // File on Bunny CDN
+  sourceUrl     String?                                      // αρχική URL στο businessportal
+  storageKey    String?                                      // path στο Bunny zone
+  publicUrl     String?                                      // CDN URL
+  mimeType      String?
+  sizeBytes     Int?
+  metadata      Json?                                        // raw GEMI item για debugging
+  createdAt     DateTime        @default(now())
+
+  @@index([companyId])
+  @@index([kak])
+  @@unique([companyId, kak])
+}
+
+// Master catalog of all ΚΑΔ codes (Greek Activity Code register).
+// Auto-populated from ΑΕΔΕΕ lookups and used for mapping/search across companies.
+model KadCode {
+  code            String    @id                              // canonical with dots, π.χ. "43.21.00" ή "62.10.12.00"
+  codeWithoutDots String?   @unique @db.VarChar(10)          // "43210000" (padded to 8 για NACE-level)
+  description     String                                     // legacy alias of title (kept for backward compat)
+  title           String?                                    // επίσημος τίτλος (από kad2025.json)
+  level           Int?                                       // 1..7
+  sector          String?   @db.VarChar(3)                   // π.χ. "Α", "ΣΤ"
+  sectorLetter    String?   @db.VarChar(3)                   // same as sector — indexed for filtering
+  parentCode      String?                                    // πατρικός ΚΑΔ (string FK to KadCode.code)
+  parent          KadCode?  @relation("KadHierarchy", fields: [parentCode], references: [code], onDelete: SetNull)
+  children        KadCode[] @relation("KadHierarchy")
+  path            String?                                    // π.χ. "Α>01>01.1>01.11>01.11.1>01.11.11"
+  category        String?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  customerKADs    CustomerKAD[]
+
+  @@index([title])
+  @@index([description])
+  @@index([parentCode])
+  @@index([level])
+  @@index([sectorLetter])
+  @@index([codeWithoutDots])
+}
+
+model CustomerKAD {
+  id            Int       @id @default(autoincrement())
+  customerId    String                                       // Company.id (cuid)
+  submittedKAD  String    @db.VarChar(20)
+  resolvedKAD   String?   @db.VarChar(20)
+  resolvedCode  KadCode?  @relation(fields: [resolvedKAD], references: [code], onDelete: SetNull)
+  hierarchyJSON Json?
+  status        String    @default("resolved")               // resolved | ambiguous | not_found
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([customerId])
+  @@index([submittedKAD])
+  @@index([resolvedKAD])
+}
+
+model KadImportLog {
+  id            Int      @id @default(autoincrement())
+  totalCodes    Int
+  importedAt    DateTime @default(now())
+  sourceVersion String   @default("2026")
+  status        String   @default("completed")
+  notes         String?
+}
+
+enum ActivityKind {
+  PRIMARY      // ΚΥΡΙΑ (firm_act_kind = 1)
+  SECONDARY    // ΔΕΥΤΕΡΕΥΟΥΣΑ (firm_act_kind = 2)
+}
+
+model CompanyActivity {
+  id              String       @id @default(cuid())
+  companyId       String
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code            String       // ΚΑΔ canonical με τελείες (από KadCode), π.χ. "43.21.00"
+  codeWithoutDots String?      // ΚΑΔ canonical χωρίς τελείες, π.χ. "432100"
+  codeAade        String?      // ΚΑΔ ακριβώς όπως ήρθε από ΑΑΔΕ (firm_act_code), zero-padded 8-ψήφια, π.χ. "43210000"
+  description     String       // firm_act_descr
+  kind            ActivityKind @default(SECONDARY)
+  order           Int          @default(0)
+  createdAt       DateTime     @default(now())
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([codeWithoutDots])
+  @@index([codeAade])
+}
+
+enum ChannelKind {
+  EMAIL
+  PHONE
+  MOBILE
+  FAX
+  OTHER
+}
+
+// Πολλαπλά κανάλια επικοινωνίας ανά εταιρία (email/phone/mobile/fax) με τίτλο
+// για το καθένα (π.χ. "Λογιστήριο", "Διοίκηση", "Hot line πωλήσεων").
+model CompanyChannel {
+  id          String      @id @default(cuid())
+  companyId   String
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  kind        ChannelKind
+  label       String?                              // τίτλος π.χ. "Λογιστήριο", "Hotline"
+  value       String                               // η ίδια η τιμή (email ή αριθμός)
+  isPrimary   Boolean     @default(false)
+  isActive    Boolean     @default(true)
+  notes       String?
+  order       Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([companyId, kind])
+  @@index([value])
+}
+
+model CompanyContact {
+  id            String   @id @default(cuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Identity
+  firstName     String?
+  lastName      String?
+  fullName      String                                       // derived/required (το γεμίζει ο client)
+  role          String?                                      // περιγραφή (π.χ. "Λογιστής", "Διευθυντής Πωλήσεων")
+  department    String?
+  // Communication
+  mobile        String?
+  phone         String?
+  email         String?
+  fax           String?
+  // Address (separate from company HQ — π.χ. λογιστής με δικό του γραφείο)
+  address       String?
+  city          String?
+  zip           String?
+  country       String?  @default("GR")
+  // Misc
+  isPrimary     Boolean  @default(false)                     // κύρια επαφή
+  isActive      Boolean  @default(true)
+  notes         String?
+  order         Int      @default(0)
+  avatarUrl         String?
+  avatarStorageKey  String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([email])
+  @@index([mobile])
+}
+
+model CompanyBranch {
+  id            String   @id @default(cuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code          String?                  // εσωτερικός κωδικός υποκαταστήματος
+  s1Branch      Int?                     // SoftOne BRANCH κωδικός (όταν συγχρονίζεται)
+  name          String                   // π.χ. "Έδρα", "Υποκατάστημα Θεσσαλονίκης"
+  isHeadquarters Boolean @default(false)
+  address       String?
+  city          String?
+  zip           String?
+  country       String?  @default("GR")
+  district      String?
+  phone         String?
+  phone2        String?
+  fax           String?
+  email         String?
+  contactPerson String?
+  notes         String?
+  isActive      Boolean  @default(true)
+  order         Int      @default(0)
+  latitude      Float?
+  longitude     Float?
+  geocodedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([companyId])
+  @@unique([companyId, code])
+}
+
+model CompanyTypeAssignment {
+  companyId String
+  typeId    String
+  assignedAt DateTime    @default(now())
+  company   Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type      CompanyType @relation(fields: [typeId], references: [id], onDelete: Cascade)
+
+  @@id([companyId, typeId])
+  @@index([typeId])
+}
+
 model ExcelImport {
   id           String   @id @default(cuid())
   userId       String
@@ -205,4 +643,349 @@ model ExcelImport {
   mappedFields Json?
   status       String   @default("PENDING")
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// OCR / Intelligent Document Extraction (DeepSeek)
+// ============================================================
+
+enum OcrDocType {
+  INVOICE
+  RECEIPT
+  GENERAL_TEXT
+}
+
+enum OcrPdfSource {
+  DIGITAL
+  SCANNED
+}
+
+enum OcrStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum OcrCategory {
+  EXPENSE
+  INVOICE_IN
+  INVOICE_OUT
+  RECEIPT
+  CREDIT_NOTE
+  PAYROLL
+  TAX
+  OTHER
+}
+
+enum OcrPostStatus {
+  NONE
+  PENDING
+  POSTED
+  FAILED
+}
+
+model OcrDocument {
+  id            String        @id @default(cuid())
+  fileName      String                              // user-facing display name
+  originalName  String
+  storageKey    String        @unique                // Bunny path (private zone path)
+  publicUrl     String                                // CDN URL or signed URL
+  mimeType      String
+  size          Int                                   // bytes
+  docType       OcrDocType
+  pdfSource     OcrPdfSource?                         // only for PDFs
+  language      String        @default("el")          // ISO code: el / en / de ...
+  status        OcrStatus     @default(PENDING)
+  rawText       String?       @db.Text                // pdf-parse output (DIGITAL path)
+  extractedData Json?                                 // full structured payload returned by LLM
+  errorMessage  String?       @db.Text
+  model         String?                               // which DeepSeek model was used
+  tokensUsed    Int?
+  durationMs    Int?
+  createdById   String?
+  createdAt     DateTime      @default(now())
+  completedAt   DateTime?
+  // Thumbnail (small WebP preview) cached on Bunny CDN.
+  thumbKey      String?
+  thumbUrl      String?
+  // Categorization + downstream posting state.
+  category      OcrCategory?
+  notes         String?       @db.Text
+  postStatus    OcrPostStatus @default(NONE)
+  postedAt      DateTime?
+  postedRef     String?                                 // SoftOne FINDOC ref / external doc id
+  postError     String?       @db.Text
+  items         OcrInvoiceItem[]
+
+  @@index([status])
+  @@index([docType])
+  @@index([category])
+  @@index([postStatus])
+  @@index([createdAt])
+}
+
+// ============================================================
+// European funding programs (ΕΣΠΑ / EU calls) — separate OCR pipeline
+// ============================================================
+
+enum ProgramStatus {
+  DRAFT       // newly extracted, not reviewed
+  REVIEWING   // user is editing
+  PUBLISHED   // finalized, visible to internal users
+  ARCHIVED
+}
+
+enum ProgramExtractStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+/**
+ * Κανόνας επιλεξιμότητας ΚΑΔ — το PDF συχνά αναφέρει είτε λίστα επιλέξιμων
+ * (allow-list) είτε λίστα εξαιρούμενων (deny-list), σπάνια και τα δύο.
+ */
+enum KadEligibilityRule {
+  ALL_EXCEPT_LISTED   // Όλοι οι ΚΑΔ είναι επιλέξιμοι ΕΚΤΟΣ από αυτούς που έχει flag excluded=true
+  ONLY_LISTED         // Επιλέξιμοι ΜΟΝΟ οι ρητά αναφερόμενοι (excluded=false)
+  MIXED               // Συνδυασμός — υπάρχει λίστα επιλέξιμων αλλά και εξαιρέσεις
+  UNSPECIFIED         // Το PDF δεν διευκρινίζει
+}
+
+model Program {
+  id              String        @id @default(cuid())
+  // Core fields
+  title           String                                 // required, editable
+  summary         String?       @db.Text
+  // Source PDF (Bunny private)
+  sourceFileName  String?
+  storageKey      String?       @unique
+  publicUrl       String?
+  mimeType        String?
+  size            Int?
+  // Dates
+  publicationDate DateTime?
+  submissionStart DateTime?
+  submissionEnd   DateTime?
+  // Budget & funding
+  totalBudget     Decimal?      @db.Decimal(18, 2)       // total project budget €
+  fundingRate     Decimal?      @db.Decimal(5, 2)        // subsidy percentage (e.g. 50.00)
+  durationMonths  Int?
+  // Reference codes (e.g. ΕΣΠΑ 2021-2027 codes)
+  referenceCode   String?
+  // ΚΑΔ eligibility rule (how to interpret the kads[] list)
+  kadRule         KadEligibilityRule @default(UNSPECIFIED)
+  kadRuleNote     String?            @db.Text       // free-form explanation from PDF
+  // Eligibility thresholds for the applicant company
+  minEmployeesFte     Decimal?       @db.Decimal(10, 2)   // ελάχιστες ΕΜΕ (Ετήσιες Μονάδες Εργασίας)
+  minOperationalYears Decimal?       @db.Decimal(5, 2)    // ελάχιστα έτη λειτουργίας / διαχειριστικές χρήσεις
+  eligibilityNote     String?        @db.Text             // free-form summary of eligibility
+  // Status (lifecycle for the user, not LLM)
+  status          ProgramStatus @default(DRAFT)
+  // Extraction metadata
+  extractStatus   ProgramExtractStatus @default(PENDING)
+  extractedData   Json?
+  errorMessage    String?       @db.Text
+  model           String?
+  tokensUsed      Int?
+  durationMs      Int?
+  // Manual notes
+  notes           String?       @db.Text
+  // Audit
+  createdById     String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  // Relations
+  kads            ProgramKad[]
+  expenseCats     ProgramExpenseCategory[]
+  regions         ProgramRegion[]
+  criteria        ProgramCriterion[]
+  deadlines       ProgramDeadline[]
+  legalForms      ProgramEligibleLegalForm[]
+  bonuses         ProgramBonus[]
+  files           ProgramFile[]
+
+  @@index([status])
+  @@index([extractStatus])
+  @@index([submissionEnd])
+  @@index([createdAt])
+}
+
+model ProgramKad {
+  id              String   @id @default(cuid())
+  programId       String
+  program         Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  code            String                                 // canonical dotted, e.g. "62.01.11"
+  codeWithoutDots String?
+  description     String?  @db.Text
+  excluded        Boolean  @default(false)               // true ⇒ ΚΑΔ που ρητά εξαιρείται
+
+  @@unique([programId, code])
+  @@index([programId])
+  @@index([code])
+  @@index([excluded])
+}
+
+model ProgramExpenseCategory {
+  id            String   @id @default(cuid())
+  programId     String
+  program       Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  name          String                                  // "Μισθολογικό κόστος", "Εξοπλισμός", etc.
+  minAmount     Decimal? @db.Decimal(18, 2)             // absolute floor in €
+  minPercentage Decimal? @db.Decimal(5, 2)              // floor as % of total budget
+  maxAmount     Decimal? @db.Decimal(18, 2)             // absolute cap in €
+  maxPercentage Decimal? @db.Decimal(5, 2)              // cap as % of total budget
+  mandatory     Boolean  @default(false)                // υποχρεωτική κατηγορία δαπάνης
+  notes         String?  @db.Text
+  order         Int      @default(0)
+
+  @@index([programId])
+  @@index([mandatory])
+}
+
+enum ProgramBonusKind {
+  TIME_BASED       // π.χ. +10% αν ολοκλήρωση σε ≤9 μήνες
+  EMPLOYMENT       // π.χ. +5% για κάθε νέα θέση εργασίας
+  SUSTAINABILITY   // π.χ. +5% για πράσινες δαπάνες
+  WOMEN_LED        // π.χ. +5% για γυναικείες επιχειρήσεις
+  YOUTH            // π.χ. +5% για επιχειρηματίες <30 ετών
+  R_AND_D          // +X% για ερευνητικές δαπάνες
+  OTHER
+}
+
+model ProgramBonus {
+  id              String           @id @default(cuid())
+  programId       String
+  program         Program          @relation(fields: [programId], references: [id], onDelete: Cascade)
+  kind            ProgramBonusKind @default(OTHER)
+  name            String                                          // "Bonus γρήγορης ολοκλήρωσης"
+  condition       String           @db.Text                       // "Ολοκλήρωση φυσικού αντικειμένου εντός 9 μηνών"
+  bonusRate       Decimal?         @db.Decimal(5, 2)              // π.χ. 10.00 (= +10%)
+  bonusAmount     Decimal?         @db.Decimal(18, 2)             // απόλυτο ποσό αν δίνεται
+  order           Int              @default(0)
+
+  @@index([programId])
+}
+
+enum ProgramFileKind {
+  MAIN              // κύριος οδηγός / πρόσκληση
+  ANNEX             // παράρτημα
+  CLARIFICATION     // διευκρινίσεις / επικαιροποίηση
+  AMENDMENT         // τροποποίηση
+  OTHER
+}
+
+model ProgramFile {
+  id          String          @id @default(cuid())
+  programId   String
+  program     Program         @relation(fields: [programId], references: [id], onDelete: Cascade)
+  fileName    String
+  storageKey  String          @unique
+  publicUrl   String?
+  mimeType    String
+  size        Int
+  kind        ProgramFileKind @default(OTHER)
+  label       String?                                              // user-facing label
+  uploadedAt  DateTime        @default(now())
+  uploadedById String?
+
+  @@index([programId])
+  @@index([kind])
+}
+
+model ProgramEligibleLegalForm {
+  id        String   @id @default(cuid())
+  programId String
+  program   Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  name      String                                       // "ΙΚΕ", "ΕΠΕ", "ΑΕ", "Ατομική", "ΟΕ", "ΕΕ" κλπ.
+  notes     String?
+
+  @@unique([programId, name])
+  @@index([programId])
+}
+
+model ProgramRegion {
+  id           String   @id @default(cuid())
+  programId    String
+  program      Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  name         String                                   // "Αττική", "Δυτική Ελλάδα", ...
+  fundingRate  Decimal? @db.Decimal(5, 2)               // regional override of subsidy % (some programs vary)
+  notes        String?
+
+  @@index([programId])
+}
+
+model ProgramCriterion {
+  id        String   @id @default(cuid())
+  programId String
+  program   Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  text      String   @db.Text
+  order     Int      @default(0)
+
+  @@index([programId])
+}
+
+model ProgramDeadline {
+  id          String   @id @default(cuid())
+  programId   String
+  program     Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  deadline    DateTime
+  description String?
+  order       Int      @default(0)
+
+  @@index([programId])
+}
+
+// ============================================================
+// AI usage & cost tracking (SUPER_ADMIN only)
+// ============================================================
+
+enum AiScope {
+  OCR_TEXT          // DeepSeek text model on digital PDF
+  OCR_VISION        // Gemini / VLM vision call (image or scanned PDF page)
+  OCR_VISION_RETRY  // upgraded-model retry firing on missing-fields
+  TRANSLATION       // DeepSeek translation
+  OTHER
+}
+
+model AiUsage {
+  id           String   @id @default(cuid())
+  scope        AiScope
+  provider     String                              // "deepseek" | "gemini" | "openai" | ...
+  model        String                              // "deepseek-chat" | "gemini-2.5-flash" | ...
+  operation    String?                             // free-form (e.g. "ocr.invoice", "i18n.batch")
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  totalTokens  Int      @default(0)
+  inputCost    Decimal? @db.Decimal(12, 6)         // USD
+  outputCost   Decimal? @db.Decimal(12, 6)         // USD
+  totalCost    Decimal? @db.Decimal(12, 6)         // USD
+  durationMs   Int?
+  userId       String?
+  refType      String?                             // "OcrDocument" etc.
+  refId        String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([scope])
+  @@index([model])
+  @@index([userId])
+}
+
+model OcrInvoiceItem {
+  id          String      @id @default(cuid())
+  documentId  String
+  document    OcrDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  rowIndex    Int
+  code        String?
+  name        String
+  quantity    Decimal?    @db.Decimal(18, 4)
+  price       Decimal?    @db.Decimal(18, 4)
+  discount    Decimal?    @db.Decimal(18, 4)
+  vatRate     Decimal?    @db.Decimal(5, 2)
+  total       Decimal?    @db.Decimal(18, 4)
+
+  @@index([documentId])
 }

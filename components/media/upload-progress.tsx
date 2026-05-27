@@ -4,7 +4,7 @@ import * as React from 'react';
 import { FiX, FiCheck, FiAlertCircle, FiUpload } from 'react-icons/fi';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { formatBytes } from '@/lib/media';
+import { formatBytes } from '@/lib/format';
 
 export type UploadItem = {
   id: string;

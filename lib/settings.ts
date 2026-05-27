@@ -8,6 +8,7 @@ export const SETTING_CATEGORIES = [
   { id: 'email', label: 'Email (Mailgun)' },
   { id: 'storage', label: 'BunnyCDN Storage' },
   { id: 'ai', label: 'AI / DeepSeek' },
+  { id: 'backups', label: 'Database Backups' },
   { id: 'general', label: 'Γενικές ρυθμίσεις' },
 ] as const;
 
@@ -17,7 +18,7 @@ export interface SettingDef {
   category: typeof SETTING_CATEGORIES[number]['id'];
   label: string;
   description?: string;
-  type: 'text' | 'password' | 'url' | 'email' | 'number' | 'boolean' | 'textarea' | 'locale' | 'locales-multi';
+  type: 'text' | 'password' | 'url' | 'email' | 'number' | 'boolean' | 'textarea' | 'locale' | 'locales-multi' | 'media';
   isSecret?: boolean;
   defaultValue?: string | number | boolean | string[];
 }
@@ -56,7 +57,7 @@ export const SETTING_CATALOG: SettingDef[] = [
   { key: 'company.address',      category: 'company', label: 'Διεύθυνση',          type: 'text' },
   { key: 'company.phone',        category: 'company', label: 'Τηλέφωνο',           type: 'text' },
   { key: 'company.email',        category: 'company', label: 'Email επικοινωνίας', type: 'email' },
-  { key: 'company.logoUrl',      category: 'company', label: 'Logo URL',           type: 'url' },
+  { key: 'company.logoUrl',      category: 'company', label: 'Logo',               type: 'media' },
 
   // Email
   { key: 'email.mailgunApiKey',     category: 'email', label: 'Mailgun API Key',     type: 'password', isSecret: true },
@@ -73,12 +74,25 @@ export const SETTING_CATALOG: SettingDef[] = [
   // AI
   { key: 'ai.deepseekApiKey', category: 'ai', label: 'DeepSeek API Key', type: 'password', isSecret: true },
   { key: 'ai.deepseekUrl',    category: 'ai', label: 'DeepSeek API URL', type: 'url',      defaultValue: 'https://api.deepseek.com/v1/chat/completions' },
+  { key: 'ai.deepseekTextModel', category: 'ai', label: 'DeepSeek text model (digital PDF / text OCR)', type: 'text', defaultValue: 'deepseek-chat' },
+  { key: 'ai.visionApiKey',   category: 'ai', label: 'Vision OCR API Key (Gemini/DeepInfra/OpenAI)', type: 'password', isSecret: true, description: 'Για scanned images. Default: Gemini 2.0 Flash. Αν κενό, διαβάζεται από GEMINI_API_KEY στο .env.' },
+  { key: 'ai.visionUrl',      category: 'ai', label: 'Vision OCR endpoint',     type: 'url',  defaultValue: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions' },
+  { key: 'ai.visionModel',    category: 'ai', label: 'Vision OCR model',        type: 'text', defaultValue: 'gemini-2.5-flash' },
 
   // Integrations
   { key: 'integrations.softoneSerial',  category: 'integrations', label: 'SoftOne Serial',  type: 'text' },
   { key: 'integrations.softoneAppId',   category: 'integrations', label: 'SoftOne App ID',  type: 'text' },
   { key: 'integrations.softoneUser',    category: 'integrations', label: 'SoftOne Username',type: 'text' },
   { key: 'integrations.softonePass',    category: 'integrations', label: 'SoftOne Password',type: 'password', isSecret: true },
+  { key: 'integrations.gemiApiKey',     category: 'integrations', label: 'ΓΕΜΗ API Key', description: 'API Key για το Γενικό Εμπορικό Μητρώο (Μητρώο Επιχειρήσεων).', type: 'password', isSecret: true },
+
+  // Backups
+  { key: 'backups.enabled',       category: 'backups', label: 'Ενεργό αυτόματο backup',  description: 'Ενεργοποιεί το ημερήσιο cron backup της βάσης.', type: 'boolean', defaultValue: true },
+  { key: 'backups.retentionDays', category: 'backups', label: 'Μέγιστος αριθμός αρχείων', description: 'Μέγιστος αριθμός backups που διατηρούνται. Τα παλαιότερα διαγράφονται αυτόματα.', type: 'number', defaultValue: 30 },
+  { key: 'backups.cronSecret',    category: 'backups', label: 'Cron Secret Token',        description: 'Bearer token που ζητείται από το /api/cron/backup για να εκτελεστεί το backup.', type: 'password', isSecret: true },
+  { key: 'backups.storagePrefix', category: 'backups', label: 'Storage prefix',           description: 'Φάκελος μέσα στο BunnyCDN storage zone όπου ανεβαίνουν τα backups.', type: 'text', defaultValue: 'backups' },
+  { key: 'backups.pgDumpPath',    category: 'backups', label: 'pg_dump path',             description: 'Πλήρες path του εκτελέσιμου pg_dump στον server. Αφήστε κενό για default.', type: 'text', defaultValue: 'pg_dump' },
+  { key: 'backups.pgRestorePath', category: 'backups', label: 'pg_restore path',          description: 'Πλήρες path του εκτελέσιμου pg_restore στον server.', type: 'text', defaultValue: 'pg_restore' },
 
   // General
   { key: 'general.defaultLocale', category: 'general', label: 'Default locale', type: 'text', defaultValue: 'el-GR' },

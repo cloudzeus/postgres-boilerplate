@@ -4,6 +4,7 @@ import * as React from 'react';
 import {
   ColumnDef,
   ColumnFiltersState,
+  ColumnOrderState,
   ColumnSizingState,
   ExpandedState,
   SortingState,
@@ -18,8 +19,16 @@ import {
 } from '@tanstack/react-table';
 import {
   FiSearch, FiChevronDown, FiChevronRight, FiArrowUp, FiArrowDown, FiArrowDownRight,
-  FiColumns, FiChevronLeft, FiChevronsLeft, FiChevronsRight, FiMoreVertical,
+  FiColumns, FiChevronLeft, FiChevronsLeft, FiChevronsRight, FiMoreVertical, FiMove,
 } from 'react-icons/fi';
+import {
+  DndContext, PointerSensor, closestCenter, useSensor, useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext, arrayMove, useSortable, verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -46,6 +55,9 @@ export interface DataTableProps<TData, TValue> {
   emptyState?: React.ReactNode;
   toolbar?: React.ReactNode;
   enableSelection?: boolean;
+  initialColumnVisibility?: VisibilityState;
+  /** When set, column visibility + order are persisted to localStorage under this key. */
+  persistKey?: string;
   className?: string;
 }
 
@@ -59,15 +71,63 @@ export function DataTable<TData, TValue>({
   emptyState,
   toolbar,
   enableSelection = false,
+  initialColumnVisibility,
+  persistKey,
   className,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>({});
   const [rowSelection, setRowSelection] = React.useState({});
   const [expanded, setExpanded] = React.useState<ExpandedState>({});
   const [globalFilter, setGlobalFilter] = React.useState('');
+
+  // ---- Persisted state: visibility + order keyed by persistKey ----
+  const visibilityKey = persistKey ? `dt:${persistKey}:visibility` : null;
+  const orderKey = persistKey ? `dt:${persistKey}:order` : null;
+
+  // SSR-safe: start with defaults so server and first client render match,
+  // then hydrate from localStorage after mount.
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
+    initialColumnVisibility ?? {},
+  );
+  const [columnOrder, setColumnOrder] = React.useState<ColumnOrderState>([]);
+  const [hydrated, setHydrated] = React.useState(false);
+
+  React.useEffect(() => {
+    if (visibilityKey) {
+      try {
+        const stored = window.localStorage.getItem(visibilityKey);
+        if (stored) setColumnVisibility((v) => ({ ...v, ...JSON.parse(stored) }));
+      } catch {}
+    }
+    if (orderKey) {
+      try {
+        const stored = window.localStorage.getItem(orderKey);
+        if (stored) setColumnOrder(JSON.parse(stored));
+      } catch {}
+    }
+    const sizeKey = persistKey ? `dt:${persistKey}:sizing` : null;
+    if (sizeKey) {
+      try {
+        const stored = window.localStorage.getItem(sizeKey);
+        if (stored) setColumnSizing(JSON.parse(stored));
+      } catch {}
+    }
+    setHydrated(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  React.useEffect(() => {
+    if (hydrated && visibilityKey) try { window.localStorage.setItem(visibilityKey, JSON.stringify(columnVisibility)); } catch {}
+  }, [columnVisibility, visibilityKey, hydrated]);
+  React.useEffect(() => {
+    if (hydrated && orderKey) try { window.localStorage.setItem(orderKey, JSON.stringify(columnOrder)); } catch {}
+  }, [columnOrder, orderKey, hydrated]);
+  React.useEffect(() => {
+    const sizeKey = persistKey ? `dt:${persistKey}:sizing` : null;
+    if (hydrated && sizeKey) try { window.localStorage.setItem(sizeKey, JSON.stringify(columnSizing)); } catch {}
+  }, [columnSizing, persistKey, hydrated]);
 
   const enrichedColumns = React.useMemo<ColumnDef<TData, TValue>[]>(() => {
     const cols: ColumnDef<TData, TValue>[] = [];
@@ -115,11 +175,12 @@ export function DataTable<TData, TValue>({
   const table = useReactTable({
     data,
     columns: enrichedColumns,
-    state: { sorting, columnFilters, columnVisibility, columnSizing, rowSelection, expanded, globalFilter },
+    state: { sorting, columnFilters, columnVisibility, columnSizing, columnOrder, rowSelection, expanded, globalFilter },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onColumnSizingChange: setColumnSizing,
+    onColumnOrderChange: setColumnOrder,
     onRowSelectionChange: setRowSelection,
     onExpandedChange: setExpanded,
     onGlobalFilterChange: setGlobalFilter,
@@ -160,19 +221,27 @@ export function DataTable<TData, TValue>({
                 <FiColumns /> Στήλες
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
-              <DropdownMenuLabel>Εμφάνιση στηλών</DropdownMenuLabel>
+            <DropdownMenuContent align="end" className="max-h-80 w-72 overflow-y-auto p-2">
+              <DropdownMenuLabel className="flex items-center justify-between">
+                <span>Εμφάνιση & σειρά στηλών</span>
+                {persistKey && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (visibilityKey) try { window.localStorage.removeItem(visibilityKey); } catch {}
+                      if (orderKey) try { window.localStorage.removeItem(orderKey); } catch {}
+                      setColumnVisibility(initialColumnVisibility ?? {});
+                      setColumnOrder([]);
+                    }}
+                    className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                  >
+                    reset
+                  </button>
+                )}
+              </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {table.getAllLeafColumns().filter((c) => c.getCanHide()).map((column) => (
-                <DropdownMenuCheckboxItem
-                  key={column.id}
-                  checked={column.getIsVisible()}
-                  onCheckedChange={(v) => column.toggleVisibility(!!v)}
-                  className="capitalize"
-                >
-                  {typeof column.columnDef.header === 'string' ? column.columnDef.header : column.id}
-                </DropdownMenuCheckboxItem>
-              ))}
+              <ColumnSortableList table={table} />
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -335,3 +404,78 @@ export const RowActionsTrigger = React.forwardRef<HTMLButtonElement, React.Butto
     );
   },
 );
+
+// ---- Sortable column visibility list (used in the "Στήλες" dropdown) ----
+
+function ColumnSortableList<T>({ table }: { table: ReturnType<typeof useReactTable<T>> }) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  // All columns the user is allowed to hide/reorder (skip internal __expand / __select).
+  const columns = table.getAllLeafColumns().filter((c) => c.getCanHide());
+  const ids = columns.map((c) => c.id);
+
+  const onDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldIndex = ids.indexOf(String(active.id));
+    const newIndex = ids.indexOf(String(over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    // Compose the full leaf-column id list, replacing the sortable slice with the reordered one.
+    const allIds = table.getAllLeafColumns().map((c) => c.id);
+    const reorderedSlice = arrayMove(ids, oldIndex, newIndex);
+    let cursor = 0;
+    const next = allIds.map((id) => (ids.includes(id) ? reorderedSlice[cursor++] : id));
+    table.setColumnOrder(next);
+  };
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+        <ul className="flex flex-col">
+          {columns.map((column) => (
+            <ColumnRow key={column.id} id={column.id} column={column} />
+          ))}
+        </ul>
+      </SortableContext>
+    </DndContext>
+  );
+}
+
+function ColumnRow({ id, column }: { id: string; column: any }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+  };
+  const label = typeof column.columnDef.header === 'string' ? column.columnDef.header : column.id;
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-1.5 px-1 py-1 rounded-sm hover:bg-muted/60 group select-none"
+    >
+      <button
+        type="button"
+        className="cursor-grab text-muted-foreground/60 hover:text-foreground touch-none"
+        {...attributes}
+        {...listeners}
+        aria-label="Σύρε για αναδιάταξη"
+      >
+        <FiMove className="size-3.5" />
+      </button>
+      <Checkbox
+        checked={column.getIsVisible()}
+        onCheckedChange={(v) => column.toggleVisibility(!!v)}
+        aria-label={label}
+      />
+      <span
+        className="text-[12px] flex-1 truncate cursor-pointer"
+        onClick={() => column.toggleVisibility(!column.getIsVisible())}
+      >
+        {label}
+      </span>
+    </li>
+  );
+}

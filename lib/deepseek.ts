@@ -1,4 +1,5 @@
 import { getSetting } from '@/lib/settings';
+import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
 
 const DEFAULT_URL = 'https://api.deepseek.com/v1/chat/completions';
 
@@ -40,6 +41,16 @@ export async function deepseekChat(messages: ChatMessage[], opts: DeepSeekOption
     throw new Error(`DeepSeek ${res.status}: ${text.slice(0, 200)}`);
   }
   const data = await res.json();
+  const u = data?.usage ?? {};
+  void logAiUsage({
+    scope: 'TRANSLATION',
+    provider: providerFromUrl(apiUrl),
+    model: opts.model ?? 'deepseek-chat',
+    operation: 'i18n.translate',
+    inputTokens: u.prompt_tokens ?? 0,
+    outputTokens: u.completion_tokens ?? 0,
+    totalTokens: u.total_tokens ?? 0,
+  });
   return data?.choices?.[0]?.message?.content?.trim() ?? '';
 }
 
