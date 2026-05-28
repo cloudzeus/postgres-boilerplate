@@ -67,7 +67,22 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     },
   });
   if (!company) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  return NextResponse.json({ company });
+
+  // Enrich activities with operating-license flag from KadLicenseRequirement.
+  const activityCodes = company.activities.map((a) => a.code).filter(Boolean);
+  let licenseSet = new Set<string>();
+  if (activityCodes.length > 0) {
+    const reqs = await prisma.kadLicenseRequirement.findMany({
+      where: { code: { in: activityCodes }, licenseType: 'OPERATING_LICENSE' },
+      select: { code: true },
+    });
+    licenseSet = new Set(reqs.map((r) => r.code));
+  }
+  const enriched = {
+    ...company,
+    activities: company.activities.map((a) => ({ ...a, requiresLicense: licenseSet.has(a.code) })),
+  };
+  return NextResponse.json({ company: enriched });
 }
 
 export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {

@@ -38,6 +38,7 @@ export const openapiSpec = {
     { name: 'Backups', description: 'Database backups (pg_dump → Bunny CDN)' },
     { name: 'Media', description: 'Media library (folders + files) στο Bunny CDN' },
     { name: 'Geo', description: 'Γεωκωδικοποίηση και χάρτες (MapTiler)' },
+    { name: 'Invoice OCR', description: 'Upload τιμολογίων/αποδείξεων, εξαγωγή πεδίων με LLM vision, κατηγοριοποίηση, post → SoftOne' },
   ],
   components: {
     securitySchemes: {
@@ -324,6 +325,71 @@ export const openapiSpec = {
             type: 'object',
             properties: { decision: { type: 'integer' }, publication: { type: 'integer' }, total: { type: 'integer' } },
           },
+        },
+      },
+      OcrInvoiceItem: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          rowIndex: { type: 'integer' },
+          code: { type: 'string', nullable: true },
+          name: { type: 'string' },
+          quantity: { type: 'number', nullable: true },
+          price: { type: 'number', nullable: true },
+          discount: { type: 'number', nullable: true },
+          vatRate: { type: 'number', nullable: true },
+          total: { type: 'number', nullable: true },
+        },
+      },
+      OcrExtractedInvoice: {
+        type: 'object',
+        description: 'Δομημένα πεδία που εξάγει το LLM για τύπο "invoice". Όλα προαιρετικά — ό,τι δεν εντοπιστεί επιστρέφεται null.',
+        properties: {
+          invoiceNumber: { type: 'string', nullable: true },
+          invoiceDate: { type: 'string', nullable: true, description: 'ISO date (YYYY-MM-DD) αν είναι αναγνώσιμο.' },
+          dueDate: { type: 'string', nullable: true },
+          currency: { type: 'string', nullable: true, example: 'EUR' },
+          supplierName: { type: 'string', nullable: true },
+          vatNumber: { type: 'string', nullable: true, description: 'ΑΦΜ εκδότη (9 ψηφία).' },
+          customerName: { type: 'string', nullable: true },
+          customerVatNumber: { type: 'string', nullable: true, description: 'ΑΦΜ παραλήπτη.' },
+          subtotal: { type: 'number', nullable: true },
+          vatAmount: { type: 'number', nullable: true },
+          total: { type: 'number', nullable: true },
+          items: { type: 'array', items: { $ref: '#/components/schemas/OcrInvoiceItem' } },
+        },
+      },
+      OcrDocument: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          fileName: { type: 'string' },
+          originalName: { type: 'string' },
+          mimeType: { type: 'string' },
+          size: { type: 'integer' },
+          docType: { type: 'string', enum: ['INVOICE', 'RECEIPT', 'GENERAL_TEXT'] },
+          pdfSource: { type: 'string', enum: ['DIGITAL', 'SCANNED'], nullable: true },
+          language: { type: 'string', example: 'el' },
+          status: { type: 'string', enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'] },
+          extractedData: { $ref: '#/components/schemas/OcrExtractedInvoice' },
+          rawText: { type: 'string', nullable: true },
+          model: { type: 'string', nullable: true },
+          tokensUsed: { type: 'integer', nullable: true },
+          durationMs: { type: 'integer', nullable: true },
+          errorMessage: { type: 'string', nullable: true },
+          category: {
+            type: 'string', nullable: true,
+            enum: ['EXPENSE', 'INVOICE_IN', 'INVOICE_OUT', 'RECEIPT', 'CREDIT_NOTE', 'PAYROLL', 'TAX', 'OTHER'],
+          },
+          notes: { type: 'string', nullable: true },
+          postStatus: { type: 'string', enum: ['NONE', 'PENDING', 'POSTED', 'FAILED'] },
+          postedAt: { type: 'string', format: 'date-time', nullable: true },
+          postedRef: { type: 'string', nullable: true },
+          postError: { type: 'string', nullable: true },
+          thumbUrl: { type: 'string', nullable: true },
+          createdAt: { type: 'string', format: 'date-time' },
+          completedAt: { type: 'string', format: 'date-time', nullable: true },
+          items: { type: 'array', items: { $ref: '#/components/schemas/OcrInvoiceItem' } },
         },
       },
     },
@@ -1030,6 +1096,222 @@ export const openapiSpec = {
       parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
       patch: { tags: ['Media'], summary: 'Rename / move folder', responses: { 200: { description: 'OK' } } },
       delete: { tags: ['Media'], summary: 'Διαγραφή φακέλου (cascade)', responses: { 200: { description: 'OK' } } },
+    },
+
+    // ============== INVOICE OCR ==============
+    '/api/admin/ocr': {
+      get: {
+        tags: ['Invoice OCR'],
+        summary: 'Λίστα OCR εγγράφων (τελευταία 200)',
+        description: '**Απαιτεί `ocr.read`**. Επιστρέφει summary χωρίς items/rawText/extractedData.',
+        responses: {
+          200: {
+            description: 'OK',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: { type: 'array', items: { $ref: '#/components/schemas/OcrDocument' } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      post: {
+        tags: ['Invoice OCR'],
+        summary: 'Upload + extract (multipart/form-data)',
+        description:
+          '**Απαιτεί `ocr.create`**. Ανεβάζει αρχείο στο Bunny (private), δημιουργεί `OcrDocument` σε ' +
+          '`PROCESSING`, τρέχει LLM vision extraction και επιστρέφει το structured payload μόλις ολοκληρωθεί.\n\n' +
+          '**Όρια**: 25 MB max, MIME: `application/pdf`, `image/jpeg|png|webp|gif|tiff|bmp`.\n\n' +
+          'Για PDFs, αν δοθεί `pdfSource=digital` παρακάμπτεται το vision step και χρησιμοποιείται text extraction ' +
+          '(pdf-parse). Με `pdfSource=auto` (default) επιλέγεται αυτόματα βάσει του εάν υπάρχει embedded text.',
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object',
+                required: ['file'],
+                properties: {
+                  file: { type: 'string', format: 'binary' },
+                  docType: { type: 'string', enum: ['invoice', 'receipt', 'general_text'], default: 'invoice' },
+                  language: { type: 'string', enum: ['el', 'en', 'de'], default: 'el' },
+                  pdfSource: { type: 'string', enum: ['auto', 'digital', 'scanned'], default: 'auto' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Extraction completed',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    data: { $ref: '#/components/schemas/OcrExtractedInvoice' },
+                    durationMs: { type: 'integer' },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Λάθος παράμετροι', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          413: { description: 'File > 25 MB' },
+          415: { description: 'Unsupported file type' },
+          422: { description: 'Extraction failed (το document αποθηκεύτηκε με status=FAILED)' },
+        },
+      },
+    },
+    '/api/admin/ocr/{id}': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      get: {
+        tags: ['Invoice OCR'],
+        summary: 'Πλήρες OCR document (μαζί με items)',
+        description: '**Απαιτεί `ocr.read`**.',
+        responses: {
+          200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/OcrDocument' } } } },
+          404: { description: 'Not found' },
+        },
+      },
+      patch: {
+        tags: ['Invoice OCR'],
+        summary: 'Ενημέρωση κατηγορίας / σημειώσεων',
+        description: '**Απαιτεί `ocr.categorize`**. Πρέπει να οριστεί `category` πριν το `post-softone`.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  category: {
+                    type: 'string', nullable: true,
+                    enum: ['EXPENSE', 'INVOICE_IN', 'INVOICE_OUT', 'RECEIPT', 'CREDIT_NOTE', 'PAYROLL', 'TAX', 'OTHER'],
+                  },
+                  notes: { type: 'string', nullable: true, maxLength: 4000 },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/OcrDocument' } } } } },
+      },
+      delete: {
+        tags: ['Invoice OCR'],
+        summary: 'Διαγραφή OCR document (+ Bunny cleanup)',
+        description: '**Απαιτεί `ocr.delete`**.',
+        responses: { 200: { description: 'OK' } },
+      },
+    },
+    '/api/admin/ocr/{id}/file': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      get: {
+        tags: ['Invoice OCR'],
+        summary: 'Κατέβασμα του original αρχείου (proxied από Bunny private)',
+        description: '**Απαιτεί `ocr.read`**. Επιστρέφει το binary με το αρχικό MIME type.',
+        responses: {
+          200: {
+            description: 'Binary content',
+            content: {
+              'application/pdf': { schema: { type: 'string', format: 'binary' } },
+              'image/*': { schema: { type: 'string', format: 'binary' } },
+            },
+          },
+          404: { description: 'Not found' },
+        },
+      },
+    },
+    '/api/admin/ocr/{id}/thumbnail': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      get: {
+        tags: ['Invoice OCR'],
+        summary: 'Thumbnail (WebP)',
+        description: '**Απαιτεί `ocr.read`**. Παράγεται lazily κατά το πρώτο request αν δεν υπάρχει ήδη.',
+        responses: { 200: { description: 'WebP image', content: { 'image/webp': { schema: { type: 'string', format: 'binary' } } } } },
+      },
+    },
+    '/api/admin/ocr/{id}/reextract': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      post: {
+        tags: ['Invoice OCR'],
+        summary: 'Επανεξαγωγή με higher-tier vision model',
+        description:
+          '**Απαιτεί `ocr.create`**. Χρήσιμο για θολά/χαμηλής αντίθεσης scans. Αναβαθμίζει προσωρινά το ' +
+          '`ai.visionModel` setting σε `gemini-2.5-pro`, ξανατρέχει extraction, αντικαθιστά τα invoice items.',
+        responses: {
+          200: {
+            description: 'Re-extracted',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    ok: { type: 'boolean' },
+                    model: { type: 'string' },
+                    data: { $ref: '#/components/schemas/OcrExtractedInvoice' },
+                  },
+                },
+              },
+            },
+          },
+          422: { description: 'Re-extraction failed' },
+        },
+      },
+    },
+    '/api/admin/ocr/{id}/post-softone': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      post: {
+        tags: ['Invoice OCR'],
+        summary: 'Καταχώρηση στο SoftOne (FINDOC / PURDOC / SODOC)',
+        description:
+          '**Απαιτεί `ocr.post`**. Το document πρέπει να είναι `status=COMPLETED` με ορισμένο `category`. ' +
+          'Routing ανά category: `EXPENSE`/`INVOICE_IN` → PURDOC · `INVOICE_OUT`/`RECEIPT` → SODOC · ' +
+          '`CREDIT_NOTE` → PURDOC/SODOC με αρνητική SERIES.',
+        responses: {
+          200: {
+            description: 'Posted',
+            content: {
+              'application/json': {
+                schema: { type: 'object', properties: { ok: { type: 'boolean' }, ref: { type: 'string' } } },
+              },
+            },
+          },
+          422: { description: 'Δεν είναι COMPLETED ή λείπει category' },
+          502: { description: 'SoftOne error (διατηρείται postError στο record)' },
+        },
+      },
+    },
+    '/api/admin/ocr/{id}/create-supplier': {
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+        {
+          name: 'role', in: 'query', required: false,
+          schema: { type: 'string', enum: ['SUPPLIER', 'CUSTOMER'], default: 'SUPPLIER' },
+          description: 'Από ποιο ΑΦΜ του τιμολογίου να δημιουργηθεί εταιρία — εκδότη (SUPPLIER) ή παραλήπτη (CUSTOMER).',
+        },
+      ],
+      post: {
+        tags: ['Invoice OCR'],
+        summary: 'Auto-create εταιρία από το ΑΦΜ του τιμολογίου (AADE lookup)',
+        description:
+          '**Απαιτεί `companies.create`**. Διαβάζει `vatNumber` ή `customerVatNumber` από τα extracted πεδία, ' +
+          'καλεί AADE (afm2info) και δημιουργεί `Company` με γεωκωδικοποίηση. Αν υπάρχει ήδη εταιρία με το ίδιο ΑΦΜ ' +
+          'γίνεται re-use και απλά προστίθεται ο τύπος.',
+        responses: {
+          200: { description: 'Reused existing company' },
+          201: { description: 'Created' },
+          404: { description: 'ΑΦΜ δεν βρέθηκε στην ΑΑΔΕ' },
+          422: { description: 'OCR δεν είναι COMPLETED ή ΑΦΜ δεν εντοπίστηκε στα extracted πεδία' },
+          502: { description: 'AADE service unreachable' },
+        },
+      },
     },
   },
 };

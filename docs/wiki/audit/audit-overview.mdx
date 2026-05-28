@@ -1,0 +1,29 @@
+---
+title: "Audit log"
+module: audit
+slug: audit-overview
+roles: [SUPER_ADMIN, ADMIN]
+order: 1
+updatedAt: 2026-05-28
+description: "Καταγραφή ενεργειών χρηστών για ασφάλεια και συμμόρφωση."
+screenshots:
+  - file: list.png
+    route: /admin/audit
+    caption: "Πρόσφατες εγγραφές audit"
+helpAnchors: [audit, audit-log]
+---
+
+## Τι καταγράφεται
+
+Κάθε σημαντική ενέργεια χρήστη: σύνδεση, αλλαγή ρόλου, δημιουργία/διαγραφή εγγραφών, αλλαγές ρυθμίσεων κ.λπ. Για κάθε εγγραφή φαίνονται: χρήστης, ενέργεια, πόρος, διεύθυνση IP, χρονοσήμανση, metadata JSON.
+
+## Φίλτρα
+
+Φιλτράρισμα ανά:
+- Ενέργεια (π.χ. `users.create`, `auth.login`)
+- Πόρο (`user`, `role`, `company`)
+- Χρήστη
+
+<Callout type="info">
+  Εμφανίζονται οι <strong>τελευταίες 500 εγγραφές</strong>. Για ιστορικό πέραν αυτού επικοινώνησε με τον διαχειριστή.
+</Callout>

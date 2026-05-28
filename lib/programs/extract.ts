@@ -21,16 +21,30 @@ const RETRY_MISSING_THRESHOLD = 2;
 const PRIMARY_MODEL  = 'deepseek-chat';
 const FALLBACK_MODEL = 'deepseek-reasoner';
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
-const MAX_TEXT_CHARS = 240_000;   // ~80-90k tokens — safe under 128k limit
+// DeepSeek context = 128k tokens. Greek averages ~3 chars/token, so ~380k chars
+// is the safe ceiling. We cap at 360k to leave room for the system prompt + JSON output.
+const MAX_TEXT_CHARS = 360_000;
 
-function parseJsonLoose(s: string): any {
+async function parseJsonLoose(s: string): Promise<any> {
   if (!s) throw new Error('Empty LLM response');
   const cleaned = s.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  // 1) Try strict JSON.parse first (fast path)
   try { return JSON.parse(cleaned); } catch { /* fall through */ }
+  // 2) Extract first {...} block if there's prose around the JSON
   const start = cleaned.indexOf('{');
   const end   = cleaned.lastIndexOf('}');
-  if (start !== -1 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
-  throw new Error('LLM did not return valid JSON');
+  const candidate = start !== -1 && end > start ? cleaned.slice(start, end + 1) : cleaned;
+  try { return JSON.parse(candidate); } catch { /* fall through */ }
+  // 3) Try jsonrepair — fixes missing commas, trailing commas, truncated arrays
+  try {
+    const { jsonrepair } = await import('jsonrepair');
+    const repaired = jsonrepair(candidate);
+    console.log('[program extract] jsonrepair fixed malformed JSON');
+    return JSON.parse(repaired);
+  } catch (err) {
+    console.error('[program extract] jsonrepair also failed:', err);
+  }
+  throw new Error('LLM did not return valid JSON (after repair attempt)');
 }
 
 function countMissing(data: any): number {
@@ -69,6 +83,7 @@ async function callDeepSeek(cfg: DeepSeekCfg, model: string, text: string) {
       body: JSON.stringify({
         model,
         temperature: 0.1,
+        max_tokens: 8192,                  // DeepSeek max — needed for long ΕΣΠΑ programs
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: PROGRAM_SYSTEM_PROMPT },
@@ -163,13 +178,22 @@ export async function extractProgram(
     totalTokens: first.tokens ?? 0,
   });
 
-  let data = parseJsonLoose(first.content);
+  let data: any;
+  try {
+    data = await parseJsonLoose(first.content);
+  } catch (err: any) {
+    console.error('[program extract] parseJsonLoose failed:', err?.message);
+    console.error('[program extract] LLM raw response (first 1000 chars):', String(first.content).slice(0, 1000));
+    throw new Error(`LLM returned invalid JSON: ${err?.message ?? err}`);
+  }
   let model = first.model;
   let tokensUsed = first.tokens;
   let retried = false;
+  console.log(`[program extract] first pass OK, model=${model}, missing=${countMissing(data)}, text_chars=${text.length}`);
 
   // 3) Auto-retry with deepseek-reasoner if too many core fields missing.
   if (countMissing(data) >= RETRY_MISSING_THRESHOLD) {
+    console.log(`[program extract] retry with ${FALLBACK_MODEL}`);
     try {
       const r = await callDeepSeek(cfg, FALLBACK_MODEL, text);
       void logAiUsage({
@@ -181,7 +205,7 @@ export async function extractProgram(
         outputTokens: r.outputTokens,
         totalTokens: r.tokens ?? 0,
       });
-      const retryData = parseJsonLoose(r.content);
+      const retryData = await parseJsonLoose(r.content);
       if (countMissing(retryData) < countMissing(data)) {
         data = retryData; model = r.model;
         tokensUsed = (tokensUsed ?? 0) + (r.tokens ?? 0);
@@ -233,6 +257,7 @@ export async function extractProgram(
     const merged = mergeKads([...llmPotential, ...llmExcluded], harvested);
     data.potentialKads = merged.filter((k) => !k.excluded).map((k) => ({ code: k.code, description: k.description }));
     data.excludedKads  = merged.filter((k) =>  k.excluded).map((k) => ({ code: k.code, description: k.description }));
+    console.log(`[ΚΑΔ extract] llm=${llmPotential.length + llmExcluded.length} text=${textHarvested.length} positional=${positional.length} merged=${merged.length} (text_chars=${text.length})`);
   } catch (err) {
     console.error('ΚΑΔ harvester failed', err);
   }

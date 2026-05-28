@@ -1,0 +1,30 @@
+---
+title: "Διαχείριση χρηστών"
+module: users
+slug: users-management
+roles: [SUPER_ADMIN, ADMIN]
+order: 1
+updatedAt: 2026-05-28
+description: "Δημιουργία χρηστών, ανάθεση ρόλου και έγκριση εκκρεμών αιτημάτων."
+screenshots:
+  - file: list.png
+    caption: "Λίστα χρηστών"
+    route: /admin/users
+helpAnchors: [users, users-list]
+---
+
+## Δημιουργία νέου χρήστη
+
+<Steps>
+  <li>Πάτα <strong>Νέος χρήστης</strong> πάνω δεξιά.</li>
+  <li>Συμπλήρωσε email, ονοματεπώνυμο και ρόλο.</li>
+  <li>Επιλογή <strong>Αποστολή πρόσκλησης</strong> για αυτόματο email ενεργοποίησης.</li>
+</Steps>
+
+## Έγκριση εκκρεμών
+
+Στο sidebar εμφανίζεται badge δίπλα στο <strong>Χρήστες</strong> αν υπάρχουν αιτήματα που περιμένουν έγκριση. Άνοιξε τη λίστα και χρησιμοποίησε το φίλτρο <em>Σε αναμονή</em>.
+
+<Callout type="danger">
+  Η διαγραφή χρήστη δεν αναιρείται. Προτίμησε <strong>Απενεργοποίηση</strong>.
+</Callout>

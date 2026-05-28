@@ -143,3 +143,188 @@ body {
     box-shadow: var(--shadow-card);
   }
 }
+
+/* ===========================
+   Wiki content — friendly UX
+   =========================== */
+
+.wiki-content { color: #1e293b; font-size: 15px; line-height: 1.7; }
+.wiki-content p { margin: 0.85rem 0; color: #1e293b; }
+.wiki-content strong { color: #0f172a; font-weight: 600; }
+.wiki-content li { color: #1e293b; }
+
+/* Headings with colored bar */
+.wiki-content h1, .wiki-content h2, .wiki-content h3, .wiki-content h4 { color: #0f172a !important; }
+.wiki-content h2 {
+  position: relative;
+  padding-left: 0.85rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-top: 2.25rem;
+  margin-bottom: 0.85rem;
+}
+.wiki-content h2::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0.35rem; bottom: 0.35rem;
+  width: 4px; border-radius: 2px;
+  background: linear-gradient(180deg, #3b82f6, #8b5cf6);
+}
+.wiki-content h3 { font-size: 1.05rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+
+/* Lists */
+.wiki-content ul:not(.wiki-steps), .wiki-content ol:not(.wiki-steps) {
+  padding-left: 1.4rem; margin: 0.85rem 0;
+}
+.wiki-content ul:not(.wiki-steps) > li, .wiki-content ol:not(.wiki-steps) > li { margin: 0.4rem 0; }
+
+/* Steps — numbered circles */
+.wiki-content .wiki-steps {
+  counter-reset: step;
+  list-style: none;
+  padding: 0;
+  margin: 1.25rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.wiki-content .wiki-steps > li {
+  counter-increment: step;
+  position: relative;
+  padding: 0.85rem 1rem 0.85rem 3rem;
+  background: linear-gradient(135deg, #f8fafc, #ffffff);
+  border: 1px solid #e2e8f0;
+  border-radius: 0.625rem;
+  font-size: 0.925rem;
+}
+.wiki-content .wiki-steps > li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0.8rem; top: 0.7rem;
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  width: 1.6rem; height: 1.6rem;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(59,130,246,0.35);
+}
+
+/* Callouts — big colored cards with icon */
+.wiki-content .wiki-callout {
+  margin: 1.25rem 0;
+  padding: 1rem 1.1rem 1rem 3.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid;
+  font-size: 0.925rem;
+  line-height: 1.6;
+  position: relative;
+}
+.wiki-content .wiki-callout::before {
+  position: absolute;
+  left: 1rem; top: 0.95rem;
+  width: 1.6rem; height: 1.6rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+.wiki-content .wiki-callout > *:first-child { margin-top: 0; }
+.wiki-content .wiki-callout > *:last-child { margin-bottom: 0; }
+
+.wiki-content .wiki-callout-info {
+  background: linear-gradient(135deg, #eff6ff, #ffffff);
+  border-color: #bfdbfe; color: #1e3a8a;
+}
+.wiki-content .wiki-callout-info::before {
+  content: 'ⓘ'; background: #3b82f6; color: white;
+}
+
+.wiki-content .wiki-callout-warning {
+  background: linear-gradient(135deg, #fffbeb, #ffffff);
+  border-color: #fde68a; color: #78350f;
+}
+.wiki-content .wiki-callout-warning::before {
+  content: '!'; background: #f59e0b; color: white;
+}
+
+.wiki-content .wiki-callout-success {
+  background: linear-gradient(135deg, #ecfdf5, #ffffff);
+  border-color: #a7f3d0; color: #064e3b;
+}
+.wiki-content .wiki-callout-success::before {
+  content: '✓'; background: #10b981; color: white;
+}
+
+.wiki-content .wiki-callout-danger {
+  background: linear-gradient(135deg, #fef2f2, #ffffff);
+  border-color: #fecaca; color: #7f1d1d;
+}
+.wiki-content .wiki-callout-danger::before {
+  content: '⚠'; background: #ef4444; color: white;
+}
+
+/* Screenshot */
+.wiki-content .wiki-screenshot {
+  margin: 1.5rem 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: white;
+  box-shadow: 0 4px 12px rgba(15,23,42,0.06);
+}
+.wiki-content .wiki-screenshot img { width: 100%; height: auto; display: block; }
+.wiki-content .wiki-screenshot figcaption {
+  padding: 0.625rem 0.875rem;
+  font-size: 0.8125rem;
+  color: #475569;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+/* Role badge */
+.wiki-content .wiki-role-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 0.25rem;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+}
+
+/* Inline code */
+.wiki-content code:not(pre code) {
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  background: #f1f5f9;
+  color: #be123c;
+  font-size: 0.88em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Blockquote */
+.wiki-content blockquote {
+  margin: 1rem 0;
+  padding: 0.5rem 1rem;
+  border-left: 4px solid #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+  font-style: italic;
+}
+
+/* Links */
+.wiki-content a {
+  color: #2563eb;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+.wiki-content a:hover { border-bottom-color: currentColor; }

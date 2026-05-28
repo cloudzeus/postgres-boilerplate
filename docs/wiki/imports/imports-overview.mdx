@@ -1,0 +1,35 @@
+---
+title: "Excel Imports"
+module: imports
+slug: imports-overview
+roles: [SUPER_ADMIN, ADMIN]
+order: 1
+updatedAt: 2026-05-28
+description: "Μαζική εισαγωγή δεδομένων από αρχεία Excel με wizard."
+screenshots:
+  - file: list.png
+    route: /admin/imports
+    caption: "Ιστορικό imports"
+helpAnchors: [imports, imports-list]
+---
+
+## Διαδικασία
+
+<Steps>
+  <li><strong>Ανέβασμα αρχείου</strong> Excel (.xlsx).</li>
+  <li>Επιλογή γραμμής κεφαλίδων και αρχής δεδομένων.</li>
+  <li>Καθαρισμός κενών στηλών / γραμμών αν χρειάζεται.</li>
+  <li>Επιλογή οντότητας στόχου (Εταιρίες, ΚΑΔ, κ.λπ.).</li>
+  <li>Αντιστοίχιση στηλών Excel ↔ πεδίων συστήματος (mapping).</li>
+  <li>Προεπισκόπηση και εκτέλεση.</li>
+</Steps>
+
+## Πριν εκτελέσεις
+
+<Callout type="warning">
+  Δεν υπάρχει αυτόματο rollback. Δοκίμασε πρώτα με <strong>μικρό δείγμα</strong> (10-20 γραμμές) πριν τρέξεις το πλήρες αρχείο.
+</Callout>
+
+<Callout type="info">
+  Παλαιότερα imports και τα αποτελέσματά τους φαίνονται στο ιστορικό για επανέλεγχο.
+</Callout>

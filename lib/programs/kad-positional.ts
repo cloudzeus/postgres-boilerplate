@@ -22,7 +22,8 @@ interface PdfItem { str: string; x: number; y: number; w?: number }
 
 const CODE_ONLY_RE = /^\d{2}(?:\.\d{1,3}){1,3}$/;
 const CODE_INLINE_RE = /(?<![\d.])(\d{2}(?:\.\d{1,3}){1,3})(?![\d])/g;
-const Y_TOLERANCE = 4;     // pixels — items within this Y delta belong to same row
+// Rows can wrap into 2-3 visual lines in wide tables. Allow generous Y tolerance.
+const Y_TOLERANCE = 12;
 
 // Same description allow-list used by the text harvester.
 const KAD_STARTERS = /^(Παραγωγή|Παρασκευή|Εμπόριο|Χονδρικό|Λιανικό|Πώληση|Υπηρεσίες|Παροχή|Καλλιέργεια|Φύτευση|Εκτροφή|Αλιεία|Υδατοκαλλιέργ|Δασοκομία|Μεταποίηση|Επεξεργασία|Συσκευασία|Τυποποίηση|Δραστηριότητες|Εκμετάλλευση|Κατασκευή|Εξόρυξη|Εστιατόρια|Καταλύματα|Εστίαση|Μεταφορά|Μεταφορές|Διανομή|Αποθήκευση|Εγκατάσταση|Συντήρηση|Επισκευή|Διαχείριση|Προμήθεια|Φυτώρια|Ενοικίαση|Έκδοση|Εκτύπωση|Ανάπτυξη|Σχεδιασμός|Δημιουργία|Παρ\.|Άλλες|Λοιπές|Ηλεκτρ|Έρευνα|Προγραμματισμός|Παραγωγές|Προστασία|Εξυπηρέτηση)/i;
@@ -31,7 +32,12 @@ const CHECKLIST_MARKERS = /Δικαιολογητικ|Παράρτημα\s+(?:I|
 function looksLikeKadDescription(desc: string): boolean {
   if (!desc || desc.length < 6) return false;
   if (CHECKLIST_MARKERS.test(desc)) return false;
-  return KAD_STARTERS.test(desc);
+  // Accept if it starts with a known ΚΑΔ verb/noun, OR if it's reasonably long
+  // Greek text (>= 12 chars, mostly letters) — this catches valid descriptions
+  // we didn't anticipate (e.g. "Δραστηριότητες…").
+  if (KAD_STARTERS.test(desc)) return true;
+  const letters = (desc.match(/[α-ωΑ-ΩάέήίόύώϊϋΆΈΉΊΌΎΏΪΫ]/g) ?? []).length;
+  return desc.length >= 12 && letters >= 8 && letters / desc.length > 0.5;
 }
 
 /**
@@ -86,29 +92,30 @@ function descriptionFromRow(row: PdfItem[], codeXs: Set<number>): string | null 
  * columns) and a description (rightmost column).
  */
 export async function extractKadsPositional(buffer: Buffer): Promise<PositionalKad[]> {
-  const { extractTextItems, getDocumentProxy } = await import('unpdf');
+  const { getDocumentProxy } = await import('unpdf');
   let pdf: any;
   try { pdf = await getDocumentProxy(new Uint8Array(buffer)); }
-  catch { return []; }
-  const numPages: number = pdf.numPages ?? (await pdf.getMetadata?.())?.numPages ?? 0;
+  catch (err) { console.error('getDocumentProxy failed', err); return []; }
+  const numPages: number = pdf.numPages ?? 0;
 
   const found = new Map<string, PositionalKad>();
 
+  // Use pdfjs directly via the documentProxy (unpdf exposes it). Each page's
+  // getTextContent() returns items with `.str` and `.transform` (transform[4]=x,
+  // transform[5]=y) — exactly what we need to reconstruct table rows.
   for (let pageNo = 1; pageNo <= numPages; pageNo++) {
     let items: PdfItem[] = [];
     try {
       const page = await pdf.getPage(pageNo);
-      const result = await (extractTextItems as any)(page);
-      // unpdf returns { items: [{str, transform, ...}] } where transform[4]=x, transform[5]=y
-      // OR an array of { str, x, y } depending on version. Normalize.
-      const raw = Array.isArray(result) ? result : (result?.items ?? []);
-      items = raw.map((it: any) => ({
-        str: String(it.str ?? it.text ?? ''),
-        x: typeof it.x === 'number' ? it.x : (it.transform?.[4] ?? 0),
-        y: typeof it.y === 'number' ? it.y : (it.transform?.[5] ?? 0),
+      const tc = await page.getTextContent();
+      items = (tc.items ?? []).map((it: any) => ({
+        str: String(it.str ?? ''),
+        x: it.transform?.[4] ?? 0,
+        y: it.transform?.[5] ?? 0,
+        w: it.width ?? 0,
       })).filter((it: PdfItem) => it.str.trim().length > 0);
     } catch (err) {
-      console.error('extractTextItems failed for page', pageNo, err);
+      // Some PDFs have a few unreadable pages; skip them silently.
       continue;
     }
 

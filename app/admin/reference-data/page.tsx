@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function ReferenceDataPage() {
   await requirePermission('metadata.read');
-  const [legalTypes, gemiOffices, companyStatuses, prefectures, municipalities, vatCategories, kadCount] = await Promise.all([
+  const [legalTypes, gemiOffices, companyStatuses, prefectures, municipalities, vatCategories, kadCount, kadLicenseTotal, kadLicenseRoots] = await Promise.all([
     prisma.legalType.aggregate({ _count: { _all: true }, _max: { lastUpdated: true } }),
     prisma.gemiOfficeRef.aggregate({ _count: { _all: true }, _max: { lastUpdated: true } }),
     prisma.companyStatusRef.aggregate({ _count: { _all: true }, _max: { lastUpdated: true } }),
@@ -16,6 +16,8 @@ export default async function ReferenceDataPage() {
     prisma.municipality.aggregate({ _count: { _all: true }, _max: { lastUpdated: true } }),
     prisma.vatCategory.count(),
     prisma.kadCode.count(),
+    prisma.kadLicenseRequirement.count({ where: { licenseType: 'OPERATING_LICENSE' } }),
+    prisma.kadLicenseRequirement.count({ where: { licenseType: 'OPERATING_LICENSE', inherited: false } }),
   ]);
   const canManage = await hasPermission('metadata.manage');
 
@@ -36,6 +38,7 @@ export default async function ReferenceDataPage() {
           { key: 'municipalities', label: 'Δήμοι', count: municipalities._count._all, lastUpdated: municipalities._max.lastUpdated?.toISOString() ?? null, source: 'ΓΕΜΗ' },
           { key: 'vatCategories', label: 'Κατηγορίες ΦΠΑ', count: vatCategories, lastUpdated: null, source: 'Manual' },
           { key: 'kadCodes', label: 'Μητρώο ΚΑΔ', count: kadCount, lastUpdated: null, source: 'Auto (από lookups)' },
+          { key: 'kadLicense', label: `ΚΑΔ με άδεια λειτουργίας (από ${kadLicenseRoots} ρίζες)`, count: kadLicenseTotal, lastUpdated: null, source: 'NF BUSNESS.xlsx' },
         ]}
       />
     </div>

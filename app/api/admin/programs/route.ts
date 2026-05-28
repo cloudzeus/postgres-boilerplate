@@ -98,6 +98,37 @@ export async function POST(req: Request) {
     const VALID_BONUS_KINDS = ['TIME_BASED', 'EMPLOYMENT', 'SUSTAINABILITY', 'WOMEN_LED', 'YOUTH', 'R_AND_D', 'OTHER'] as const;
     const bonuses: Array<{ kind: string; name: string; condition: string; bonusRate?: any; bonusAmount?: any }> = Array.isArray(data.bonuses) ? data.bonuses : [];
 
+    // Bulk-friendly data prep.
+    const kadData = kads.filter((k) => asStr(k.code)).map((k) => {
+      const n = normalizeKad(String(k.code));
+      return { programId: program.id, code: n.code, codeWithoutDots: n.codeWithoutDots, description: asStr(k.description), excluded: !!k.excluded };
+    });
+    const expenseData = expenseCats.filter((c) => asStr(c.name)).map((c, i) => ({
+      programId: program.id, name: asStr(c.name)!,
+      minAmount: asNum(c.minAmount), minPercentage: asNum(c.minPercentage),
+      maxAmount: asNum(c.maxAmount), maxPercentage: asNum(c.maxPercentage),
+      mandatory: !!c.mandatory, order: i,
+    }));
+    const bonusData = bonuses.filter((b) => asStr(b.name) || asStr(b.condition)).map((b, i) => ({
+      programId: program.id,
+      kind: ((VALID_BONUS_KINDS as readonly string[]).includes(b.kind) ? b.kind : 'OTHER') as any,
+      name: asStr(b.name) ?? `Bonus ${i + 1}`,
+      condition: asStr(b.condition) ?? '',
+      bonusRate: asNum(b.bonusRate), bonusAmount: asNum(b.bonusAmount),
+      order: i,
+    }));
+    const legalFormData = Array.from(new Set(legalForms)).map((name) => ({ programId: program.id, name }));
+    const regionData = regions.filter((r) => asStr(r.name)).map((r) => ({
+      programId: program.id, name: asStr(r.name)!, fundingRate: asNum(r.fundingRate),
+    }));
+    const criteriaData = criteria.filter((c) => asStr(c)).map((text, i) => ({
+      programId: program.id, text: asStr(text)!, order: i,
+    }));
+    const deadlineData = deadlines.filter((d) => asDate(d.deadline)).map((d, i) => ({
+      programId: program.id, deadline: asDate(d.deadline)!, description: asStr(d.description), order: i,
+    }));
+
+    // Step 1: scalar update + ProgramFile row (fast, in a small transaction).
     await prisma.$transaction([
       prisma.program.update({
         where: { id: program.id },
@@ -126,42 +157,6 @@ export async function POST(req: Request) {
           durationMs: result.durationMs,
         },
       }),
-      ...kads.filter((k) => asStr(k.code)).map((k) => {
-        const n = normalizeKad(String(k.code));
-        return prisma.programKad.upsert({
-          where: { programId_code: { programId: program.id, code: n.code } },
-          update: { description: asStr(k.description) ?? undefined, excluded: !!k.excluded },
-          create: { programId: program.id, code: n.code, codeWithoutDots: n.codeWithoutDots, description: asStr(k.description), excluded: !!k.excluded },
-        });
-      }),
-      ...expenseCats.filter((c) => asStr(c.name)).map((c, i) =>
-        prisma.programExpenseCategory.create({
-          data: {
-            programId: program.id,
-            name: asStr(c.name)!,
-            minAmount: asNum(c.minAmount),
-            minPercentage: asNum(c.minPercentage),
-            maxAmount: asNum(c.maxAmount),
-            maxPercentage: asNum(c.maxPercentage),
-            mandatory: !!c.mandatory,
-            order: i,
-          },
-        }),
-      ),
-      ...bonuses.filter((b) => asStr(b.name) || asStr(b.condition)).map((b, i) =>
-        prisma.programBonus.create({
-          data: {
-            programId: program.id,
-            kind: (VALID_BONUS_KINDS as readonly string[]).includes(b.kind) ? (b.kind as any) : 'OTHER',
-            name: asStr(b.name) ?? `Bonus ${i + 1}`,
-            condition: asStr(b.condition) ?? '',
-            bonusRate: asNum(b.bonusRate),
-            bonusAmount: asNum(b.bonusAmount),
-            order: i,
-          },
-        }),
-      ),
-      // Also register the uploaded source PDF as the MAIN ProgramFile.
       prisma.programFile.create({
         data: {
           programId: program.id,
@@ -174,34 +169,32 @@ export async function POST(req: Request) {
           uploadedById: user.id,
         },
       }),
-      ...legalForms.map((name) =>
-        prisma.programEligibleLegalForm.upsert({
-          where: { programId_name: { programId: program.id, name } },
-          update: {},
-          create: { programId: program.id, name },
-        }),
-      ),
-      ...regions.filter((r) => asStr(r.name)).map((r) =>
-        prisma.programRegion.create({
-          data: { programId: program.id, name: asStr(r.name)!, fundingRate: asNum(r.fundingRate) },
-        }),
-      ),
-      ...criteria.filter((c) => asStr(c)).map((text, i) =>
-        prisma.programCriterion.create({
-          data: { programId: program.id, text: asStr(text)!, order: i },
-        }),
-      ),
-      ...deadlines.filter((d) => asDate(d.deadline)).map((d, i) =>
-        prisma.programDeadline.create({
-          data: {
-            programId: program.id,
-            deadline: asDate(d.deadline)!,
-            description: asStr(d.description),
-            order: i,
-          },
-        }),
-      ),
-    ], { timeout: 60_000, maxWait: 10_000 });
+    ], { timeout: 30_000, maxWait: 5_000 });
+
+    // Step 2: bulk-insert children. Each table independently — if ONE fails we
+    // still keep the others (and surface the failures in the log).
+    const seedResults: Record<string, { tried: number; ok: number; err?: string }> = {};
+    async function seedTable(table: string, data: any[], fn: () => Promise<any>) {
+      seedResults[table] = { tried: data.length, ok: 0 };
+      if (data.length === 0) return;
+      try {
+        const r = await fn();
+        seedResults[table].ok = r?.count ?? data.length;
+      } catch (e: any) {
+        seedResults[table].err = String(e?.message ?? e).slice(0, 300);
+        console.error(`[program upload] ${table} createMany failed:`, e?.message);
+        console.error(`[program upload] ${table} sample row:`, JSON.stringify(data[0], null, 2));
+      }
+    }
+    await seedTable('programKad', kadData, () => prisma.programKad.createMany({ data: kadData, skipDuplicates: true }));
+    await seedTable('programExpenseCategory', expenseData, () => prisma.programExpenseCategory.createMany({ data: expenseData }));
+    await seedTable('programBonus', bonusData, () => prisma.programBonus.createMany({ data: bonusData }));
+    await seedTable('programEligibleLegalForm', legalFormData, () => prisma.programEligibleLegalForm.createMany({ data: legalFormData, skipDuplicates: true }));
+    await seedTable('programRegion', regionData, () => prisma.programRegion.createMany({ data: regionData }));
+    await seedTable('programCriterion', criteriaData, () => prisma.programCriterion.createMany({ data: criteriaData }));
+    await seedTable('programDeadline', deadlineData, () => prisma.programDeadline.createMany({ data: deadlineData }));
+
+    console.log('[program upload] seed results:', seedResults);
 
     return NextResponse.json({ id: program.id, durationMs: result.durationMs });
   } catch (err: any) {

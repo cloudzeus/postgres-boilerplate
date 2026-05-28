@@ -102,15 +102,15 @@ const CHECKLIST_MARKERS = [
 function looksLikeKadDescription(desc: string): boolean {
   if (!desc) return false;
   if (desc.length < 6) return false;
-  // Reject obvious checklist phrases
   for (const re of CHECKLIST_MARKERS) {
     if (re.test(desc)) return false;
   }
-  // Accept if starts with a known ΚΑΔ verb/noun
   for (const re of KAD_DESCRIPTION_STARTERS) {
     if (re.test(desc)) return true;
   }
-  return false;
+  // Fallback: long Greek string with mostly letters → probably a real ΚΑΔ description.
+  const letters = (desc.match(/[α-ωΑ-ΩάέήίόύώϊϋΆΈΉΊΌΎΏΪΫ]/g) ?? []).length;
+  return desc.length >= 12 && letters >= 8 && letters / desc.length > 0.5;
 }
 
 export function harvestKadsFromText(text: string): HarvestedKad[] {

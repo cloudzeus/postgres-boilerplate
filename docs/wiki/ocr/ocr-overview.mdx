@@ -1,0 +1,40 @@
+---
+title: "OCR & εξαγωγή δεδομένων"
+module: ocr
+slug: ocr-overview
+roles: [SUPER_ADMIN, ADMIN, EMPLOYEE]
+order: 1
+updatedAt: 2026-05-28
+description: "Αναγνώριση τιμολογίων / αποδείξεων / εγγράφων με AI και αυτόματη ανάρτηση σε εταιρία."
+screenshots:
+  - file: list.png
+    route: /admin/ocr
+    caption: "Λίστα εγγράφων με κατάσταση επεξεργασίας"
+related: [companies-overview]
+helpAnchors: [ocr, ocr-list]
+---
+
+## Ανέβασμα
+
+Σύρε ένα ή περισσότερα PDF / εικόνες στην περιοχή drop. Κάθε αρχείο μπαίνει σε ουρά για AI επεξεργασία.
+
+## Κύκλος ζωής εγγράφου
+
+<Steps>
+  <li><strong>Pending</strong> — αναμονή AI εξαγωγής.</li>
+  <li><strong>Extracted</strong> — δεδομένα έτοιμα για επιβεβαίωση.</li>
+  <li><strong>Categorized</strong> — έχει χαρακτηριστεί (τύπος, εταιρία).</li>
+  <li><strong>Posted</strong> — αναρτημένο σε εταιρία / ροή.</li>
+</Steps>
+
+## Διόρθωση & ανάρτηση
+
+Άνοιξε ένα έγγραφο για επεξεργασία. Διόρθωσε ΑΦΜ, ποσά, ημερομηνίες αν χρειάζεται. Πάτα <strong>Καταχώρηση</strong> για ανάρτηση.
+
+<Callout type="warning">
+  Καταχωρημένο έγγραφο <strong>δεν αναιρείται</strong>. Έλεγξε διπλά τα στοιχεία.
+</Callout>
+
+<Callout type="info">
+  Το κόστος AI ανά έγγραφο καταγράφεται. Αποτυχημένες αναγνωρίσεις μπορούν να επανεκτελεστούν.
+</Callout>

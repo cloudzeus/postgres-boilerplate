@@ -471,6 +471,7 @@ model KadCode {
   updatedAt       DateTime  @updatedAt
 
   customerKADs    CustomerKAD[]
+  licenseRequirements KadLicenseRequirement[]
 
   @@index([title])
   @@index([description])
@@ -495,6 +496,30 @@ model CustomerKAD {
   @@index([customerId])
   @@index([submittedKAD])
   @@index([resolvedKAD])
+}
+
+// Λίστα ΚΑΔ που απαιτούν Άδεια Λειτουργίας (και άλλους τύπους αδειών στο μέλλον).
+// Seeded από public/NF BUSNESS.xlsx. Τα παιδιά κληρονομούν τον κανόνα μέσω inherited=true.
+enum KadLicenseType {
+  OPERATING_LICENSE   // Άδεια λειτουργίας
+}
+
+model KadLicenseRequirement {
+  id               Int             @id @default(autoincrement())
+  code             String          @db.VarChar(20)
+  kadCode          KadCode         @relation(fields: [code], references: [code], onDelete: Cascade)
+  licenseType      KadLicenseType  @default(OPERATING_LICENSE)
+  inherited        Boolean         @default(false)   // true = το κληρονόμησε από parent ΚΑΔ
+  sourceParentCode String?         @db.VarChar(20)   // ο ρητά αναφερόμενος γονέας (αν inherited)
+  source           String          @default("NF BUSNESS")
+  notes            String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([code, licenseType])
+  @@index([licenseType])
+  @@index([inherited])
+  @@index([sourceParentCode])
 }
 
 model KadImportLog {

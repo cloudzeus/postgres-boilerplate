@@ -51,13 +51,14 @@ export function AdminTopbar({ user, roleName }: Props) {
         />
       </div>
 
-      <button
-        type="button"
+      <Link
+        href="/wiki"
+        title="Οδηγός Χρήστη"
         className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-neutral-60 hover:bg-neutral-10 transition-colors"
-        aria-label="Help"
+        aria-label="Οδηγός Χρήστη"
       >
         <FiHelpCircle className="h-4 w-4" />
-      </button>
+      </Link>
       <button
         type="button"
         className="relative inline-flex h-7 w-7 items-center justify-center rounded-sm text-neutral-60 hover:bg-neutral-10 transition-colors"
@@ -88,6 +89,7 @@ export function AdminTopbar({ user, roleName }: Props) {
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild><Link href="/admin/profile"><FiUser /> Προφίλ</Link></DropdownMenuItem>
+          <DropdownMenuItem asChild><Link href="/wiki"><FiHelpCircle /> Οδηγός Χρήστη</Link></DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" asChild><Link href="/api/auth/signout"><FiLogOut /> Αποσύνδεση</Link></DropdownMenuItem>
         </DropdownMenuContent>

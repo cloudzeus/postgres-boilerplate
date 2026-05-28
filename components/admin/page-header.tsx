@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { HelpIcon } from '@/components/wiki/help-icon';
 
 interface Props {
   title: string;
@@ -6,11 +7,12 @@ interface Props {
   icon?: React.ReactNode;
   actions?: React.ReactNode;
   className?: string;
+  helpAnchor?: string;
 }
 
 function cn(...c: (string | false | undefined)[]) { return c.filter(Boolean).join(' '); }
 
-export function PageHeader({ title, description, icon, actions, className }: Props) {
+export function PageHeader({ title, description, icon, actions, className, helpAnchor }: Props) {
   return (
     <div className={cn('flex items-start justify-between gap-3 mb-5', className)}>
       <div className="flex items-start gap-3 min-w-0">
@@ -24,7 +26,10 @@ export function PageHeader({ title, description, icon, actions, className }: Pro
           {description && <p className="text-body-sm text-muted-foreground mt-0.5">{description}</p>}
         </div>
       </div>
-      {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+      <div className="flex items-center gap-2 shrink-0">
+        {actions}
+        {helpAnchor && <HelpIcon anchor={helpAnchor} />}
+      </div>
     </div>
   );
 }

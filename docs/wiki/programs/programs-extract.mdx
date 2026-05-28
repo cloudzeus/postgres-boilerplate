@@ -1,0 +1,36 @@
+---
+title: "Εισαγωγή προγράμματος από PDF"
+module: programs
+slug: programs-extract
+roles: [SUPER_ADMIN, ADMIN]
+order: 2
+updatedAt: 2026-05-28
+description: "Αυτόματη εξαγωγή στοιχείων πρόσκλησης ΕΣΠΑ με AI (Gemini 2.5 Pro)."
+screenshots:
+  - file: upload.png
+    route: /admin/programs
+    caption: "Ανέβασμα PDF πρόσκλησης"
+related: [programs-overview]
+helpAnchors: [programs-new, programs-extract]
+---
+
+## Διαδικασία
+
+<Steps>
+  <li>Από τη λίστα Προγραμμάτων, πάτα <strong>Νέο πρόγραμμα</strong> και ανέβασε το PDF της πρόσκλησης.</li>
+  <li>Το AI εξάγει: τίτλο, περίοδο υποβολής, ΚΑΔ, δαπάνες, περιφέρειες, ποσά.</li>
+  <li>Η κατάσταση γίνεται <strong>Extracting…</strong> και ολοκληρώνεται σε λίγα λεπτά.</li>
+  <li>Έλεγξε / διόρθωσε στην αναλυτική προβολή.</li>
+</Steps>
+
+## Αν αποτύχει
+
+Αν η εξαγωγή σημάνει <strong>FAILED</strong>, μπορείς να τη ξανατρέξεις από το μενού ενεργειών (<strong>Re-extract</strong>).
+
+<Callout type="warning">
+  Το <strong>Re-extract</strong> καταναλώνει AI tokens. Χρησιμοποίησέ το όταν τα στοιχεία είναι ελλιπή ή λανθασμένα.
+</Callout>
+
+<Callout type="danger">
+  Η διαγραφή προγράμματος αφαιρεί <strong>όλους</strong> τους συσχετισμένους ΚΑΔ, δαπάνες και περιφέρειες.
+</Callout>

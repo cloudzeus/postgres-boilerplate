@@ -1,0 +1,30 @@
+---
+title: "Μητρώα αναφοράς"
+module: reference-data
+slug: reference-data-overview
+roles: [SUPER_ADMIN, ADMIN]
+order: 1
+updatedAt: 2026-05-28
+description: "Πίνακες αναφοράς που τροφοδοτούν αναζητήσεις και autocomplete σε όλη την εφαρμογή."
+screenshots:
+  - file: list.png
+    route: /admin/reference-data
+    caption: "Στατιστικά πινάκων αναφοράς"
+helpAnchors: [reference-data, metadata]
+---
+
+## Τι περιλαμβάνεται
+
+- Νομοί, Δήμοι, Περιφέρειες (ΓΕΜΗ Open Data)
+- Κατηγορίες ΦΠΑ
+- Λοιπά lookup tables
+
+Για κάθε πίνακα φαίνεται πλήθος εγγραφών, ημερομηνία τελευταίας ενημέρωσης και πηγή.
+
+## Χειροκίνητη ανανέωση ΓΕΜΗ
+
+Όποιος χρήστης έχει δικαίωμα `metadata.manage` βλέπει κουμπί <strong>Sync</strong> δίπλα σε πίνακες ΓΕΜΗ.
+
+<Callout type="warning">
+  Το sync τραβάει νέα δεδομένα από Open Data και επικαλύπτει τοπικές αλλαγές.
+</Callout>

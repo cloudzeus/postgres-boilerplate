@@ -1,0 +1,26 @@
+---
+title: "Βιβλιοθήκη Media"
+module: media
+slug: media-library
+roles: [SUPER_ADMIN, ADMIN, EMPLOYEE, COLLABORATOR]
+order: 1
+updatedAt: 2026-05-28
+description: "Ανέβασμα, οργάνωση και αναζήτηση αρχείων."
+screenshots:
+  - file: grid.png
+    caption: "Grid προβολή της βιβλιοθήκης"
+    route: /admin/media
+helpAnchors: [media, media-library]
+---
+
+## Ανέβασμα αρχείων
+
+Σύρε αρχεία στο παράθυρο ή πάτα <strong>Upload</strong>. Υποστηρίζονται εικόνες, PDF και έγγραφα.
+
+<Callout type="info">
+  Τα αρχεία αποθηκεύονται σε ασφαλές S3 storage και είναι προσβάσιμα μόνο σε χρήστες με το ανάλογο δικαίωμα.
+</Callout>
+
+## Αναζήτηση
+
+Χρήση φίλτρων ανά τύπο, ετικέτα ή ημερομηνία. Η αναζήτηση καλύπτει και το περιεχόμενο μέσω OCR (όπου εφαρμόζεται).

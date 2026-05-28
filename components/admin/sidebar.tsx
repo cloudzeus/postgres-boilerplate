@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   FiGrid, FiUsers, FiShield, FiKey, FiUpload, FiImage,
-  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiTag, FiLayers, FiCpu, FiGlobe,
+  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiTag, FiLayers, FiCpu, FiGlobe, FiBookOpen,
 } from 'react-icons/fi';
 
 type IconType = React.ComponentType<{ className?: string }>;
@@ -62,6 +62,12 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/settings', label: 'Ρυθμίσεις', icon: FiSettings, permissions: ['system.settings'] },
       { href: '/admin/ai-usage', label: 'AI Usage', icon: FiCpu, requireRoleKey: 'SUPER_ADMIN' },
       { href: '/admin/docs', label: 'API Docs', icon: FiFileText },
+    ],
+  },
+  {
+    label: 'Βοήθεια',
+    items: [
+      { href: '/wiki', label: 'Οδηγός Χρήστη', icon: FiBookOpen },
     ],
   },
 ];

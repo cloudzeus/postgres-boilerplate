@@ -490,6 +490,7 @@ function CompanyDialog({
           setActivities((c.activities ?? []).map((a: any) => ({
             code: a.code, codeAade: a.codeAade, codeWithoutDots: a.codeWithoutDots,
             description: a.description, kind: a.kind, order: a.order,
+            requiresLicense: a.requiresLicense ?? false,
           })));
         });
     } else {
@@ -1596,7 +1597,7 @@ function ChannelsPanel({ companyId, compact = false }: { companyId: string; comp
   );
 }
 
-type Activity = { code: string; codeAade?: string | null; codeWithoutDots?: string | null; description: string; kind: 'PRIMARY' | 'SECONDARY'; order?: number };
+type Activity = { code: string; codeAade?: string | null; codeWithoutDots?: string | null; description: string; kind: 'PRIMARY' | 'SECONDARY'; order?: number; requiresLicense?: boolean };
 
 function ActivitiesEditor({
   activities, onChange,
@@ -1635,6 +1636,15 @@ function ActivitiesEditor({
                   {a.code}
                 </span>
                 <span className="flex-1 text-[11px] truncate" title={a.description}>{a.description}</span>
+                {a.requiresLicense && (
+                  <Badge
+                    variant="outline"
+                    className="text-[9px] border-amber-400 text-amber-700 bg-amber-50"
+                    title="Ο ΚΑΔ απαιτεί άδεια λειτουργίας (NF BUSNESS)"
+                  >
+                    Άδεια
+                  </Badge>
+                )}
                 <Badge
                   variant="outline"
                   className={a.kind === 'PRIMARY' ? 'text-[9px] border-emerald-300 text-emerald-700' : 'text-[9px]'}
@@ -1922,6 +1932,15 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
                         <li key={a.code} className="flex items-center gap-2 px-2 py-1.5 text-[11px]">
                           <span className="font-mono tabular-nums w-20 shrink-0">{a.code}</span>
                           <span className="flex-1 truncate" title={a.description}>{a.description}</span>
+                          {a.requiresLicense && (
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] border-amber-400 text-amber-700 bg-amber-50"
+                              title="Ο ΚΑΔ απαιτεί άδεια λειτουργίας (NF BUSNESS)"
+                            >
+                              Άδεια
+                            </Badge>
+                          )}
                           <Badge
                             variant="outline"
                             className={a.kind === 'PRIMARY' ? 'text-[9px] border-emerald-300 text-emerald-700' : 'text-[9px]'}
