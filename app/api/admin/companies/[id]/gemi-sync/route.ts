@@ -104,17 +104,25 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
           m.activities.map((a) => resolveKadForActivity(a.code, a.description)),
         );
         await tx.companyActivity.deleteMany({ where: { companyId: id } });
-        await tx.companyActivity.createMany({
-          data: m.activities.map((a, i) => ({
+        // ΓΕΜΗ/ΑΑΔΕ can return the same ΚΑΔ twice (e.g. PRIMARY + SECONDARY, or two codes
+        // resolving to the same canonical dotted form). Unique is (companyId, code), so
+        // dedupe by resolved code — prefer PRIMARY, otherwise keep the first occurrence.
+        const byCode = new Map<string, { companyId: string; code: string; codeWithoutDots: string | null; codeAade: string | null; description: string; kind: typeof m.activities[number]['kind']; order: number }>();
+        m.activities.forEach((a, i) => {
+          const r = resolved[i];
+          const prev = byCode.get(r.code);
+          if (prev && !(prev.kind !== 'PRIMARY' && a.kind === 'PRIMARY')) return;
+          byCode.set(r.code, {
             companyId: id,
-            code: resolved[i].code,
-            codeWithoutDots: resolved[i].codeWithoutDots,
-            codeAade: resolved[i].codeAade,
-            description: resolved[i].description,
+            code: r.code,
+            codeWithoutDots: r.codeWithoutDots,
+            codeAade: r.codeAade,
+            description: r.description,
             kind: a.kind,
             order: a.order ?? i,
-          })),
+          });
         });
+        await tx.companyActivity.createMany({ data: Array.from(byCode.values()) });
       }
     });
 
