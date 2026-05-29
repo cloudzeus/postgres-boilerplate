@@ -334,10 +334,11 @@ export function CompaniesView({
                 });
                 if (!res.ok) { toast.error('Δεν βρέθηκε αντιστοίχιση Καλλικράτη'); return; }
                 const m = await res.json();
-                await fetch(`/api/admin/companies/${c.id}`, {
+                const patchRes = await fetch(`/api/admin/companies/${c.id}`, {
                   method: 'PATCH', headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ regionCode: m.regionCode }),
                 });
+                if (!patchRes.ok) { toast.error('Η αποθήκευση της αντιστοίχισης απέτυχε'); return; }
                 const chain = [m.breadcrumb?.region?.nameEL, m.breadcrumb?.regionalUnit?.nameEL, m.breadcrumb?.municipality?.nameEL].filter(Boolean).join(' › ');
                 toast.success(`Αντιστοιχίστηκε: ${chain}`);
                 router.refresh();

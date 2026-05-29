@@ -36,7 +36,7 @@ export async function PATCH(
   if (!parsed.success) return NextResponse.json({ error: 'invalid', issues: parsed.error.issues }, { status: 400 });
   const { email, ...rest } = parsed.data;
 
-  const addrChanged = ['address', 'city', 'zip', 'country'].some((k) => k in rest);
+  const addrChanged = ['address', 'city', 'zip', 'country', 'district'].some((k) => k in rest);
   const geo = addrChanged
     ? await (async () => {
         const cur = await prisma.companyBranch.findUnique({

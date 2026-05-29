@@ -114,7 +114,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   }
 
   // Re-geocode only when an address part is in the payload
-  const addrChanged = ['address', 'city', 'zip', 'country'].some((k) => k in rest);
+  const addrChanged = ['address', 'city', 'zip', 'country', 'district'].some((k) => k in rest);
   const geo = addrChanged
     ? await (async () => {
         const cur = await prisma.company.findUnique({
