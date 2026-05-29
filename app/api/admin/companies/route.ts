@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { geocodeAddress } from '@/lib/geocode';
+import { matchRegion } from '@/lib/regions/match';
 
 const CompanyBaseSchema = z.object({
   code: z.string().optional().nullable(),
@@ -41,6 +42,7 @@ const CompanyBaseSchema = z.object({
   companyStatusId: z.coerce.number().int().optional().nullable(),
   prefectureId: z.string().optional().nullable(),
   municipalityId: z.string().optional().nullable(),
+  regionCode: z.string().optional().nullable(),
   vatCategoryId: z.coerce.number().int().optional().nullable(),
   foundingDate: z.string().optional().nullable(),
   aadeStatus: z.string().optional().nullable(),
@@ -91,9 +93,20 @@ export async function POST(request: Request) {
 
   const geo = await geocodeAddress({ address: rest.address, city: rest.city, zip: rest.zip, country: rest.country });
 
+  let regionCode = rest.regionCode ?? null;
+  if (!regionCode && (rest.municipalityId || rest.prefectureId || rest.address || rest.city || rest.district)) {
+    const m = await matchRegion({
+      address: rest.address, city: rest.city, district: rest.district, zip: rest.zip, country: rest.country,
+      municipalityId: rest.municipalityId, prefectureId: rest.prefectureId,
+      latitude: geo?.lat ?? null, longitude: geo?.lng ?? null,
+    });
+    if (m) regionCode = m.regionCode;
+  }
+
   const company = await prisma.company.create({
     data: {
       ...rest,
+      regionCode,
       email: email || null,
       foundingDate: foundingDate ? new Date(foundingDate) : null,
       aadeSyncedAt: aadeSyncedAt ? new Date(aadeSyncedAt) : null,
