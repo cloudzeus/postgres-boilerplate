@@ -44,23 +44,39 @@ function evalKad(company: CompanyEligInput, program: ProgramEligInput): Eligibil
   const codes = company.activities.map((a) => a.code).filter(Boolean);
   const listed = program.kads.filter((k) => !k.excluded).map((k) => k.code);
   const excluded = program.kads.filter((k) => k.excluded).map((k) => k.code);
-  const actual = codes.join(', ') || null;
-  const base = { key: 'kad' as const, label: 'ΚΑΔ', actual };
+  const base = { key: 'kad' as const, label: 'ΚΑΔ' };
 
   if (program.kadRule === 'UNSPECIFIED' || (listed.length === 0 && excluded.length === 0)) {
-    return { ...base, required: null, pass: true, note: 'δεν διευκρινίζεται' };
+    return { ...base, required: null, actual: codes.join(', ') || null, pass: true, note: 'δεν διευκρινίζεται' };
   }
-  const hitExcluded = codes.some((c) => excluded.some((e) => kadMatches(e, c)));
-  const hitListed = codes.some((c) => listed.some((l) => kadMatches(l, c)));
+
+  // Δείχνουμε μόνο τους ΚΑΔ της επιχείρησης που ταιριάζουν (όχι όλη τη λίστα του προγράμματος).
+  const matchedListed = codes.filter((c) => listed.some((l) => kadMatches(l, c)));
+  const matchedExcluded = codes.filter((c) => excluded.some((e) => kadMatches(e, c)));
 
   if (program.kadRule === 'ALL_EXCEPT_LISTED') {
-    return { ...base, required: `εκτός: ${excluded.join(', ') || '—'}`, pass: !hitExcluded };
+    const pass = matchedExcluded.length === 0;
+    return {
+      ...base, required: null,
+      actual: pass ? null : matchedExcluded.join(', '),
+      pass, note: pass ? 'δεν εμπίπτει σε εξαίρεση' : 'ΚΑΔ εξαιρείται από το πρόγραμμα',
+    };
   }
   if (program.kadRule === 'ONLY_LISTED') {
-    return { ...base, required: `εντός: ${listed.join(', ') || '—'}`, pass: hitListed };
+    const pass = matchedListed.length > 0;
+    return {
+      ...base, required: null,
+      actual: pass ? matchedListed.join(', ') : null,
+      pass, note: pass ? 'επιλέξιμος ΚΑΔ' : 'κανένας επιλέξιμος ΚΑΔ',
+    };
   }
   // MIXED
-  return { ...base, required: 'εντός λίστας & όχι εξαιρούμενος', pass: hitListed && !hitExcluded };
+  const pass = matchedListed.length > 0 && matchedExcluded.length === 0;
+  return {
+    ...base, required: null,
+    actual: pass ? matchedListed.join(', ') : (matchedExcluded.length ? matchedExcluded.join(', ') : null),
+    pass, note: pass ? 'επιλέξιμος ΚΑΔ' : (matchedExcluded.length ? 'ΚΑΔ εξαιρείται' : 'κανένας επιλέξιμος ΚΑΔ'),
+  };
 }
 
 export function evaluateEligibility(

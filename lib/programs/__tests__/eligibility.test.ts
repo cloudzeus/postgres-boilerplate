@@ -31,6 +31,17 @@ describe('evaluateEligibility', () => {
     expect(r.criteria.find((c) => c.key === 'kad')?.pass).toBe(false);
     expect(r.eligible).toBe(false);
   });
+  it('ΚΑΔ row shows only the matching company codes (not the full program list) on pass', () => {
+    const r = evaluateEligibility({ ...baseCompany, activities: [{ code: '62.01.11' }, { code: '99.99.99' }] }, baseProgram, asOf);
+    const kad = r.criteria.find((c) => c.key === 'kad');
+    expect(kad?.actual).toBe('62.01.11');   // only the matching one, not 99.99.99 nor the program list
+    expect(kad?.required).toBeNull();         // no full program list dumped
+  });
+  it('ΚΑΔ row shows a simple note and no codes on no match', () => {
+    const kad = evaluateEligibility({ ...baseCompany, activities: [{ code: '10.10.00' }] }, baseProgram, asOf).criteria.find((c) => c.key === 'kad');
+    expect(kad?.actual).toBeNull();
+    expect(kad?.note).toBe('κανένας επιλέξιμος ΚΑΔ');
+  });
   it('ALL_EXCEPT_LISTED fails only when an activity is explicitly excluded', () => {
     const prog = { ...baseProgram, kadRule: 'ALL_EXCEPT_LISTED' as const };
     expect(evaluateEligibility({ ...baseCompany, activities: [{ code: '63.11.10' }] }, prog, asOf).criteria.find((c) => c.key === 'kad')?.pass).toBe(false);
