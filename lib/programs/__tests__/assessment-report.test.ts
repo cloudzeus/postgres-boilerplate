@@ -53,4 +53,22 @@ describe('buildAssessmentDocx', () => {
     const buf = await buildAssessmentDocx({ ...base, overallVerdict: 'NOT_ELIGIBLE', eligible: false, questionnaireScore: null, questionnaireMax: null, questionnairePassed: null, questionnaire: null });
     expect(buf.length).toBeGreaterThan(1000);
   });
+  it('builds with a full questionnaire breakdown (questions + answers)', async () => {
+    const buf = await buildAssessmentDocx({
+      ...base,
+      questionnaire: {
+        threshold: '75', maxScore: '100', sourceNote: 'Παράρτημα III',
+        questions: [
+          { id: 'q1', code: 'Q1', text: 'Έχει πιστοποίηση ISO;', answerType: 'BOOLEAN', maxPoints: '20', weight: '1', options: [] },
+          { id: 'q2', code: 'Q2', text: 'Επίπεδο ψηφιακής ωριμότητας', answerType: 'SINGLE_CHOICE', maxPoints: '40', weight: '2', options: [{ id: 'o1', label: 'Χαμηλό', points: '0' }, { id: 'o2', label: 'Υψηλό', points: '40' }] },
+        ],
+      },
+      answers: [
+        { questionId: 'q1', valueBool: true, valueNumber: null, selectedOptionId: null, pointsAwarded: '20' },
+        { questionId: 'q2', valueBool: null, valueNumber: null, selectedOptionId: 'o2', pointsAwarded: '40' },
+      ],
+    });
+    expect(buf.length).toBeGreaterThan(1000);
+    expect(buf[0]).toBe(0x50); expect(buf[1]).toBe(0x4b);
+  });
 });

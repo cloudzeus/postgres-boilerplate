@@ -16,7 +16,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     include: {
       company: { select: { name: true, afm: true, legalForm: true, regionCode: true } },
       program: { select: { title: true, referenceCode: true } },
-      questionnaire: { select: { threshold: true, maxScore: true, sourceNote: true } },
+      questionnaire: {
+        select: {
+          threshold: true, maxScore: true, sourceNote: true,
+          questions: {
+            orderBy: { order: 'asc' },
+            select: { id: true, code: true, text: true, answerType: true, maxPoints: true, weight: true, options: { orderBy: { order: 'asc' }, select: { id: true, label: true, points: true } } },
+          },
+        },
+      },
+      answers: { select: { questionId: true, valueBool: true, valueNumber: true, selectedOptionId: true, pointsAwarded: true } },
     },
   });
   if (!a) return NextResponse.json({ error: 'not found' }, { status: 404 });
@@ -32,8 +41,22 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     company: a.company,
     program: a.program,
     questionnaire: a.questionnaire
-      ? { threshold: a.questionnaire.threshold as unknown as string | null, maxScore: a.questionnaire.maxScore as unknown as string | null, sourceNote: a.questionnaire.sourceNote }
+      ? {
+          threshold: a.questionnaire.threshold as unknown as string | null,
+          maxScore: a.questionnaire.maxScore as unknown as string | null,
+          sourceNote: a.questionnaire.sourceNote,
+          questions: a.questionnaire.questions.map((q) => ({
+            id: q.id, code: q.code, text: q.text, answerType: q.answerType,
+            maxPoints: q.maxPoints as unknown as string | null, weight: q.weight as unknown as string | null,
+            options: q.options.map((o) => ({ id: o.id, label: o.label, points: o.points as unknown as string | null })),
+          })),
+        }
       : null,
+    answers: a.answers.map((x) => ({
+      questionId: x.questionId, valueBool: x.valueBool,
+      valueNumber: x.valueNumber as unknown as string | null,
+      selectedOptionId: x.selectedOptionId, pointsAwarded: x.pointsAwarded as unknown as string | null,
+    })),
   } as AssessmentForReport);
 
   const safeName = (a.company?.name ?? 'εταιρία').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60);
