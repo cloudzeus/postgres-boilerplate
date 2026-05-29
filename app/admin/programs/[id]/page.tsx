@@ -22,6 +22,7 @@ export default async function ProgramDetailPage({ params }: { params: Promise<{ 
       legalForms:  { orderBy: { name: 'asc' } },
       bonuses:     { orderBy: { order: 'asc' } },
       files:       { orderBy: [{ kind: 'asc' }, { uploadedAt: 'asc' }] },
+      questionnaire: { include: { questions: { orderBy: { order: 'asc' }, include: { options: { orderBy: { order: 'asc' } } } } } },
     },
   });
   if (!program) notFound();
