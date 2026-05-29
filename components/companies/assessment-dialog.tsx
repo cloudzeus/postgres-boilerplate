@@ -10,7 +10,7 @@ import type { ScoringQuestion, ScoringAnswer, ScoringModel } from '@/lib/program
 
 interface ProgramOption { id: string; title: string }
 
-export function AssessmentDialog({ companyId, companyName, open, onClose }: { companyId: string | null; companyName: string; open: boolean; onClose: () => void }) {
+export function AssessmentDialog({ companyId, companyName, open, onClose, presetProgramId, onSaved }: { companyId: string | null; companyName: string; open: boolean; onClose: () => void; presetProgramId?: string | null; onSaved?: () => void }) {
   const router = useRouter();
   const [programs, setPrograms] = React.useState<ProgramOption[]>([]);
   const [programId, setProgramId] = React.useState('');
@@ -20,11 +20,12 @@ export function AssessmentDialog({ companyId, companyName, open, onClose }: { co
 
   React.useEffect(() => {
     if (!open) { setProgramId(''); setAssessment(null); setAnswers({}); return; }
+    if (presetProgramId) setProgramId(presetProgramId);
     fetch('/api/admin/programs').then((r) => r.json()).then((d) => {
       const list = Array.isArray(d?.data) ? d.data : [];
       setPrograms(list.map((p: any) => ({ id: p.id, title: p.title })));
     }).catch(() => {});
-  }, [open]);
+  }, [open, presetProgramId]);
 
   async function start() {
     if (!companyId || !programId) { toast.error('Επίλεξε πρόγραμμα'); return; }
@@ -58,7 +59,7 @@ export function AssessmentDialog({ companyId, companyName, open, onClose }: { co
         body: JSON.stringify({ status: 'COMPLETED', answers: Object.values(answers) }),
       });
       if (!res.ok) { toast.error('Αποτυχία αποθήκευσης'); return; }
-      toast.success('Αποθηκεύτηκε'); onClose(); router.refresh();
+      toast.success('Αποθηκεύτηκε'); onClose(); router.refresh(); onSaved?.();
     } finally { setBusy(false); }
   }
 

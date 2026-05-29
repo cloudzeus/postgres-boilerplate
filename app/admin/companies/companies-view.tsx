@@ -1738,7 +1738,7 @@ function ActivitiesEditor({
   );
 }
 
-type ExpandTab = 'info' | 'contact' | 'contacts' | 'tax' | 'branches' | 'documents' | 'financial' | 'map';
+type ExpandTab = 'info' | 'contact' | 'contacts' | 'tax' | 'branches' | 'documents' | 'financial' | 'map' | 'assessments';
 
 function CompanyExpandedRow({ company }: { company: CompanyRow }) {
   const [tab, setTab] = React.useState<ExpandTab>('info');
@@ -1779,11 +1779,28 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
     setDocsLoading(false);
   }, [company.id, docs, docsLoading]);
 
+  const [assessments, setAssessments] = React.useState<any[] | null>(null);
+  const [assessmentsLoading, setAssessmentsLoading] = React.useState(false);
+  const loadAssessments = React.useCallback(async () => {
+    setAssessmentsLoading(true);
+    const r = await fetch(`/api/admin/companies/${company.id}/assessments`);
+    setAssessments(r.ok ? await r.json() : []);
+    setAssessmentsLoading(false);
+  }, [company.id]);
+  const ensureAssessments = React.useCallback(async () => {
+    if (assessments || assessmentsLoading) return;
+    await loadAssessments();
+  }, [assessments, assessmentsLoading, loadAssessments]);
+
+  const [assessOpen, setAssessOpen] = React.useState(false);
+  const [assessPreset, setAssessPreset] = React.useState<string | null>(null);
+
   const switchTo = (next: ExpandTab) => {
     setTab(next);
     if (['info', 'contact', 'tax', 'financial'].includes(next)) ensureDetail();
     if (next === 'branches') ensureBranches();
     if (next === 'documents') ensureDocs();
+    if (next === 'assessments') ensureAssessments();
   };
 
   // Info tab also benefits from full detail (notes, gemiObjective, etc.) — kick off on mount.
@@ -1814,6 +1831,7 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
     { id: 'documents', label: 'Έγγραφα ΓΕΜΗ', icon: FiArchive },
     { id: 'financial', label: 'Οικονομικά', icon: FiCreditCard },
     { id: 'map', label: 'Χάρτης', icon: FiMapPin },
+    { id: 'assessments', label: 'Αξιολογήσεις', icon: FiClipboard, badge: assessments && assessments.length > 0 ? assessments.length : undefined },
   ];
 
   return (
@@ -2105,6 +2123,70 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
           geocoding={geocoding}
         />
       )}
+
+      {tab === 'assessments' && (
+        <div className="space-y-3 px-1 py-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] font-semibold text-foreground">Αξιολογήσεις προγραμμάτων</span>
+            <button
+              type="button"
+              onClick={() => { setAssessPreset(null); setAssessOpen(true); }}
+              className="inline-flex items-center gap-1 rounded bg-violet-600 px-2.5 py-1 text-[12px] text-white hover:bg-violet-700"
+            >
+              <FiClipboard className="size-3" /> Νέα αξιολόγηση
+            </button>
+          </div>
+          {assessmentsLoading && <p className="text-[12px] text-muted-foreground">Φόρτωση…</p>}
+          {!assessmentsLoading && assessments && assessments.length === 0 && (
+            <p className="text-[12px] italic text-muted-foreground">Δεν υπάρχουν αξιολογήσεις.</p>
+          )}
+          {!assessmentsLoading && assessments && assessments.length > 0 && (
+            <div className="rounded border border-border text-[12px]">
+              <ul className="divide-y divide-border">
+                {assessments.map((a: any) => {
+                  const verdictMap: Record<string, { label: string; cls: string }> = {
+                    ELIGIBLE: { label: 'Επιλέξιμη', cls: 'border-emerald-300 text-emerald-700' },
+                    NOT_ELIGIBLE: { label: 'Μη επιλέξιμη', cls: 'border-red-300 text-red-700' },
+                    NEEDS_REVIEW: { label: 'Προς έλεγχο', cls: 'border-amber-300 text-amber-700' },
+                  };
+                  const verdict = verdictMap[a.overallVerdict] ?? null;
+                  const score = a.questionnaireScore != null
+                    ? `${Number(a.questionnaireScore).toFixed(1)} ${a.questionnairePassed ? '✅' : '❌'}`
+                    : '—';
+                  return (
+                    <li key={a.id} className="flex items-center gap-3 px-3 py-2">
+                      <div className="flex-1 min-w-0">
+                        <span className="font-medium">{a.program?.title ?? '—'}</span>
+                        <span className="ml-2 text-muted-foreground">{new Date(a.createdAt).toLocaleDateString('el-GR')}</span>
+                      </div>
+                      {verdict && (
+                        <Badge variant="outline" className={`text-[10px] ${verdict.cls}`}>{verdict.label}</Badge>
+                      )}
+                      <span className="tabular-nums text-muted-foreground">{score}</span>
+                      <button
+                        type="button"
+                        onClick={() => { setAssessPreset(a.programId); setAssessOpen(true); }}
+                        className="rounded border border-border px-2 py-0.5 text-[11px] hover:bg-muted"
+                      >
+                        Επανεκτέλεση
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      <AssessmentDialog
+        open={assessOpen}
+        companyId={company.id}
+        companyName={company.name}
+        presetProgramId={assessPreset}
+        onClose={() => setAssessOpen(false)}
+        onSaved={() => loadAssessments()}
+      />
     </div>
   );
 }
