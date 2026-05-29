@@ -1166,7 +1166,7 @@ model AssessmentAnswer {
   valueBool        Boolean?
   valueNumber      Decimal? @db.Decimal(14, 4)
   valueText        String?  @db.Text
-  selectedOptionId String?
+  selectedOptionId String?  // intentional loose ref (no FK): questionnaire regen full-replaces options; we keep historical answers
   pointsAwarded    Decimal? @db.Decimal(8, 2)
   source           AnswerSource @default(MANUAL)
   @@index([assessmentId])
