@@ -196,6 +196,17 @@ export async function POST(req: Request) {
 
     console.log('[program upload] seed results:', seedResults);
 
+    // Best-effort: auto-generate the self-assessment questionnaire if the program needs one.
+    if (data?.selfAssessment?.required === true) {
+      try {
+        const { generateQuestionnaire, persistQuestionnaire } = await import('@/lib/programs/questionnaire');
+        const gen = await generateQuestionnaire(program.id);
+        await persistQuestionnaire(program.id, gen.draft, gen.model);
+      } catch (err) {
+        console.error('[questionnaire auto-gen] failed (non-fatal):', err);
+      }
+    }
+
     return NextResponse.json({ id: program.id, durationMs: result.durationMs });
   } catch (err: any) {
     await prisma.program.update({
