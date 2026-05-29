@@ -40,14 +40,20 @@ function stripAccents(s: string): string {
  */
 function canonicalLegalForm(s: string): string {
   const t = stripAccents(s).toUpperCase().replace(/[^Α-ΩA-Z]/g, '');
+  // Κ.ΑΛ.Ο. / κοινωνικοί φορείς FIRST — many contain "Περιορισμένης Ευθύνης" or "Εταιρεία"
+  // and must NOT be mistaken for ΕΠΕ / ΑΕ.
+  if (/ΚΟΙΣΠΕ/.test(t) || (/ΚΟΙΝΩΝΙΚΟΣΣΥΝΕΤΑΙΡΙΣΜΟΣ/.test(t) && /ΠΕΡΙΟΡΙΣΜΕΝΗΣΕΥΘΥΝΗΣ/.test(t))) return 'ΚΟΙΣΠΕ';
+  if (/ΚΟΙΝΣΕΠ/.test(t) || /ΚΟΙΝΩΝΙΚΗΣΥΝΕΤΑΙΡΙΣΤΙΚΗ/.test(t)) return 'ΚΟΙΝΣΕΠ';
+  if (/ΣΥΝΕΤΑΙΡΙΣΜ/.test(t)) return 'ΣΥΝΕΤΑΙΡΙΣΜΟΣ';
+  if (/ΑΣΤΙΚΗΜΗΚΕΡΔΟΣΚΟΠΙΚΗ/.test(t) || /^ΑΜΚΕ/.test(t)) return 'ΑΜΚΕ';
+  // Εμπορικές μορφές
   if (/ΙΔΙΩΤΙΚΗΚΕΦΑΛΑΙΟΥΧΙΚΗ/.test(t) || t === 'ΙΚΕ' || t.endsWith('ΙΚΕ')) return 'ΙΚΕ';
   if (/ΑΝΩΝΥΜ/.test(t) || t === 'ΑΕ') return 'ΑΕ';
-  if (/ΠΕΡΙΟΡΙΣΜΕΝΗΣΕΥΘΥΝΗΣ/.test(t) || t === 'ΕΠΕ') return 'ΕΠΕ';
+  // ΕΠΕ μόνο όταν είναι «Εταιρ(ε)ία Περιορισμένης Ευθύνης» και ΟΧΙ «Συνεταιρισμός».
+  if (t === 'ΕΠΕ' || (/ΕΤΑΙΡ/.test(t) && /ΠΕΡΙΟΡΙΣΜΕΝΗΣΕΥΘΥΝΗΣ/.test(t) && !/ΣΥΝΕΤΑΙΡ/.test(t))) return 'ΕΠΕ';
   if (/ΟΜΟΡΡΥΘΜ/.test(t) || t === 'ΟΕ') return 'ΟΕ';
   if (/ΕΤΕΡΟΡΡΥΘΜ/.test(t) || t === 'ΕΕ') return 'ΕΕ';
   if (/ΑΤΟΜΙΚ/.test(t)) return 'ΑΤΟΜΙΚΗ';
-  if (/ΚΟΙΝΣΕΠ|ΚΟΙΝΩΝΙΚΗΣΥΝΕΤΑΙΡΙΣΤΙΚΗ/.test(t)) return 'ΚΟΙΝΣΕΠ';
-  if (/ΣΥΝΕΤΑΙΡΙΣΜ/.test(t)) return 'ΣΥΝΕΤΑΙΡΙΣΜΟΣ';
   return t;
 }
 /** Normalise a region name: drop accents + the word "ΠΕΡΙΦΕΡΕΙΑ", keep letters only.

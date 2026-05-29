@@ -55,6 +55,23 @@ describe('evaluateEligibility', () => {
     expect(evaluateEligibility({ ...baseCompany, legalForm: 'Ιδιωτική Κεφαλαιουχική Εταιρεία' }, baseProgram, asOf).criteria.find((c) => c.key === 'legalForm')?.pass).toBe(true);
     expect(evaluateEligibility({ ...baseCompany, legalForm: 'Μονοπρόσωπη Ι.Κ.Ε.' }, baseProgram, asOf).criteria.find((c) => c.key === 'legalForm')?.pass).toBe(true);
   });
+  it('does NOT confuse ΕΠΕ with social-economy forms containing «Περιορισμένης Ευθύνης»', () => {
+    const kaloProgram = { ...baseProgram, eligibleLegalForms: [
+      'Κοινωνικός Συνεταιρισμός Περιορισμένης Ευθύνης (Κοι.Σ.Π.Ε.)',
+      'Κοινωνική Συνεταιριστική Επιχείρηση (Κοιν.Σ.Επ.) Ένταξης',
+      'Συνεταιρισμός Εργαζομένων',
+      'Αστική μη κερδοσκοπική εταιρεία',
+    ] };
+    // a plain ΕΠΕ company is NOT one of the Κ.ΑΛ.Ο. forms → must fail
+    expect(evaluateEligibility({ ...baseCompany, legalForm: 'ΕΠΕ' }, kaloProgram, asOf).criteria.find((c) => c.key === 'legalForm')?.pass).toBe(false);
+    expect(evaluateEligibility({ ...baseCompany, legalForm: 'Εταιρία Περιορισμένης Ευθύνης' }, kaloProgram, asOf).criteria.find((c) => c.key === 'legalForm')?.pass).toBe(false);
+    // but a ΚοινΣΕπ company IS eligible for that program
+    expect(evaluateEligibility({ ...baseCompany, legalForm: 'Κοιν.Σ.Επ.' }, kaloProgram, asOf).criteria.find((c) => c.key === 'legalForm')?.pass).toBe(true);
+  });
+  it('matches a genuine ΕΠΕ when the program allows ΕΠΕ', () => {
+    const epeProgram = { ...baseProgram, eligibleLegalForms: ['ΕΠΕ', 'ΑΕ'] };
+    expect(evaluateEligibility({ ...baseCompany, legalForm: 'Εταιρία Περιορισμένης Ευθύνης' }, epeProgram, asOf).criteria.find((c) => c.key === 'legalForm')?.pass).toBe(true);
+  });
   it('matches a Καλλικράτης region name (genitive + prefix) against the program nominative', () => {
     // registry stores "ΠΕΡΙΦΕΡΕΙΑ ΑΤΤΙΚΗΣ"; program lists "Αττική"
     const kal = evaluateEligibility({ ...baseCompany, regionName: 'ΠΕΡΙΦΕΡΕΙΑ ΑΤΤΙΚΗΣ' }, baseProgram, asOf).criteria.find((c) => c.key === 'region');
