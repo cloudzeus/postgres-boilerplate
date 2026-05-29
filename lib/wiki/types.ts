@@ -51,6 +51,7 @@ export const MODULE_LABELS: Record<string, string> = {
   'kad-codes': 'Μητρώο ΚΑΔ',
   'reference-data': 'Μητρώα αναφοράς',
   audit: 'Audit log',
+  mitroa: 'Μητρώο Περιφερειών',
   backups: 'Backups',
   settings: 'Ρυθμίσεις',
   account: 'Ο λογαριασμός μου',
