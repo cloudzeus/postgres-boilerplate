@@ -27,10 +27,11 @@ export async function deriveHierarchy(code: string): Promise<RegionBreadcrumb> {
   const chain: RegionChainNode[] = [];
   let current: string | null = code;
   for (let i = 0; i < 8 && current; i++) {
-    const node = await prisma.region.findUnique({
-      where: { code: current },
-      select: { code: true, nameEL: true, level: true, parentCode: true },
-    });
+    const node: { code: string; nameEL: string; level: number; parentCode: string | null } | null =
+      await prisma.region.findUnique({
+        where: { code: current },
+        select: { code: true, nameEL: true, level: true, parentCode: true },
+      });
     if (!node) break;
     chain.unshift({ code: node.code, nameEL: node.nameEL, level: node.level });
     current = node.parentCode;
