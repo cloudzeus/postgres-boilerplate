@@ -463,6 +463,7 @@ function CompanyDialog({
   onSaved: () => void;
 }) {
   const isEdit = !!company;
+  const router = useRouter();
   const [form, setForm] = React.useState<any>({});
   const [typeIds, setTypeIds] = React.useState<string[]>([]);
   const [activities, setActivities] = React.useState<{ code: string; codeAade?: string | null; codeWithoutDots?: string | null; description: string; kind: 'PRIMARY' | 'SECONDARY'; order?: number }[]>([]);
@@ -571,6 +572,32 @@ function CompanyDialog({
     setActivities(data.activities);
   };
 
+  // Αυτόματη άντληση ΑΑΔΕ μόλις συμπληρωθεί έγκυρο 9ψήφιο ΑΦΜ σε ΝΕΟ πελάτη.
+  const autoAadeAfm = React.useRef<string>('');
+  const [aadeAuto, setAadeAuto] = React.useState(false);
+  React.useEffect(() => {
+    if (isEdit) return;
+    const afm = (form.afm ?? '').trim();
+    if (!/^\d{9}$/.test(afm) || autoAadeAfm.current === afm) return;
+    autoAadeAfm.current = afm;
+    let cancelled = false;
+    setAadeAuto(true);
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/aade-lookup', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ afm }),
+        });
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+        if (!cancelled) { applyAade(data); toast.success('Αντλήθηκαν στοιχεία από ΑΑΔΕ'); }
+      } catch { /* silent — μη έγκυρο/μη ευρεθέν ΑΦΜ */ }
+      finally { if (!cancelled) setAadeAuto(false); }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.afm, isEdit]);
+
   const save = async () => {
     if (!form.name?.trim()) { toast.error('Επωνυμία υποχρεωτική'); return; }
     if (typeIds.length === 0) { toast.error('Επίλεξε τουλάχιστον έναν τύπο'); return; }
@@ -598,8 +625,30 @@ function CompanyDialog({
       body: JSON.stringify(payload),
     });
     setSaving(false);
-    if (res.ok) { toast.success(isEdit ? 'Αποθηκεύτηκε' : 'Δημιουργήθηκε'); onSaved(); }
-    else {
+    if (res.ok) {
+      const body = await res.json().catch(() => ({} as any));
+      toast.success(isEdit ? 'Αποθηκεύτηκε' : 'Δημιουργήθηκε');
+      // Νέος πελάτης με ΑΦΜ/ΓΕΜΗ → αυτόματος συγχρονισμός ΓΕΜΗ στο παρασκήνιο (με έγγραφα).
+      const newId: string | undefined = body?.company?.id;
+      if (!isEdit && newId && (form.afm || form.arGemi)) {
+        const tid = toast.loading('Συγχρονισμός ΓΕΜΗ στο παρασκήνιο…');
+        fetch(`/api/admin/companies/${newId}/gemi-sync`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ syncDocuments: true }),
+        })
+          .then(async (r) => {
+            if (r.ok) {
+              const d = await r.json().catch(() => ({} as any));
+              toast.success(`ΓΕΜΗ ολοκληρώθηκε${d?.documentsImported ? ` · ${d.documentsImported} έγγραφα` : ''}`, { id: tid });
+            } else {
+              toast.error('Ο συγχρονισμός ΓΕΜΗ απέτυχε', { id: tid });
+            }
+            router.refresh();
+          })
+          .catch(() => toast.error('Ο συγχρονισμός ΓΕΜΗ απέτυχε', { id: tid }));
+      }
+      onSaved();
+    } else {
       const err = await res.json().catch(() => ({}));
       toast.error(err.error || 'Αποτυχία αποθήκευσης');
     }
@@ -781,6 +830,8 @@ function CompanyDialog({
                       />
                       <AadeLookupButton initialAfm={form.afm ?? ''} onApply={applyAade} />
                     </div>
+                    {aadeAuto && <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-sisyphus-600">Άντληση στοιχείων από ΑΑΔΕ…</span>}
+                    {!isEdit && <span className="mt-1 block text-[11px] text-muted-foreground">Με τη συμπλήρωση 9ψήφιου ΑΦΜ αντλούνται αυτόματα ΑΑΔΕ· το ΓΕΜΗ συγχρονίζεται μετά την αποθήκευση.</span>}
                   </Field>
                   <Field label="ΔΟΥ" id="c-doy"><Input id="c-doy" value={form.doy ?? ''} onChange={(e) => set('doy', e.target.value)} /></Field>
                   <Field label="Κατηγορία ΦΠΑ" id="c-vat">
