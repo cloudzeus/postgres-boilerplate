@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { geocodeAddress } from '@/lib/geocode';
 import { resolveKadForActivity } from '@/lib/kad/resolve';
+import { matchRegion } from '@/lib/regions/match';
 
 const UpdateSchema = z.object({
   code: z.string().optional().nullable(),
@@ -42,6 +43,7 @@ const UpdateSchema = z.object({
   companyStatusId: z.coerce.number().int().optional().nullable(),
   prefectureId: z.string().optional().nullable(),
   municipalityId: z.string().optional().nullable(),
+  regionCode: z.string().optional().nullable(),
   vatCategoryId: z.coerce.number().int().optional().nullable(),
   foundingDate: z.string().optional().nullable(),
   aadeStatus: z.string().optional().nullable(),
@@ -112,7 +114,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   }
 
   // Re-geocode only when an address part is in the payload
-  const addrChanged = ['address', 'city', 'zip', 'country'].some((k) => k in rest);
+  const addrChanged = ['address', 'city', 'zip', 'country', 'district'].some((k) => k in rest);
   const geo = addrChanged
     ? await (async () => {
         const cur = await prisma.company.findUnique({
@@ -127,6 +129,21 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
         });
       })()
     : null;
+
+  if (!('regionCode' in rest) && (addrChanged || 'municipalityId' in rest || 'prefectureId' in rest)) {
+    const cur = await prisma.company.findUnique({
+      where: { id }, select: { regionCode: true, address: true, city: true, district: true, zip: true, country: true, municipalityId: true, prefectureId: true },
+    });
+    if (!cur?.regionCode) {
+      const m = await matchRegion({
+        address: rest.address ?? cur?.address, city: rest.city ?? cur?.city,
+        district: rest.district ?? cur?.district, zip: rest.zip ?? cur?.zip, country: rest.country ?? cur?.country,
+        municipalityId: rest.municipalityId ?? cur?.municipalityId, prefectureId: rest.prefectureId ?? cur?.prefectureId,
+        latitude: geo?.lat ?? null, longitude: geo?.lng ?? null,
+      });
+      if (m) (rest as any).regionCode = m.regionCode;
+    }
+  }
 
   const company = await prisma.$transaction(async (tx) => {
     const updated = await tx.company.update({

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   FiGrid, FiUsers, FiShield, FiKey, FiUpload, FiImage,
-  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiTag, FiLayers, FiCpu, FiGlobe, FiBookOpen,
+  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiTag, FiLayers, FiCpu, FiGlobe, FiBookOpen, FiMapPin,
 } from 'react-icons/fi';
 
 type IconType = React.ComponentType<{ className?: string }>;
@@ -47,6 +47,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/admin/companies', label: 'Εταιρίες', icon: FiBriefcase, permissions: ['companies.read'] },
       { href: '/admin/kad-codes', label: 'Μητρώο ΚΑΔ', icon: FiTag, permissions: ['kad.read'] },
+      { href: '/admin/regions', label: 'Μητρώο Περιφερειών', icon: FiMapPin, permissions: ['metadata.read'] },
       { href: '/admin/reference-data', label: 'Μητρώα αναφοράς', icon: FiLayers, permissions: ['metadata.read'] },
       { href: '/admin/imports', label: 'Excel Imports', icon: FiUpload, permissions: ['imports.read'], badgeKey: 'newImports' },
       { href: '/admin/media', label: 'Media', icon: FiImage },

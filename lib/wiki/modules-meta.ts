@@ -1,7 +1,7 @@
 import type * as React from 'react';
 import {
   FiBookOpen, FiUser, FiUsers, FiShield, FiBriefcase, FiUpload, FiImage,
-  FiCpu, FiGlobe, FiLayers, FiTag, FiActivity, FiHome,
+  FiCpu, FiGlobe, FiLayers, FiTag, FiActivity, FiHome, FiMapPin,
 } from 'react-icons/fi';
 import type { IconType } from 'react-icons';
 
@@ -90,6 +90,12 @@ export const MODULE_META: Record<string, ModuleMeta> = {
     icon: FiActivity,
     gradientFrom: '#94a3b8', gradientTo: '#64748b',
     accent: '#475569', accentSoft: '#f1f5f9',
+  },
+  mitroa: {
+    label: 'Μητρώο Περιφερειών', description: 'Δομή Καλλικράτη — Περιφέρειες/Νομοί/Δήμοι',
+    icon: FiMapPin,
+    gradientFrom: '#38bdf8', gradientTo: '#0284c7',
+    accent: '#0369a1', accentSoft: '#e0f2fe',
   },
 };
 

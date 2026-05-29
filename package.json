@@ -11,10 +11,14 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "seed:db": "node ./scripts/seed.js",
+    "seed:regions": "npx tsx prisma/seeds/regions.ts",
+    "backfill:regions": "npx tsx scripts/backfill-regions.ts",
     "check-updates": "node ./scripts/check-updates.js",
     "wiki:new": "node ./scripts/wiki/new.mjs",
     "wiki:index": "node ./scripts/wiki/build-index.mjs",
-    "wiki:screenshots": "node ./scripts/wiki/screenshot.mjs"
+    "wiki:screenshots": "node ./scripts/wiki/screenshot.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@auth/core": "^0.34.3",
@@ -96,6 +100,7 @@
     "prisma": "^7.8.0",
     "tailwindcss": "^3.4.5",
     "ts-node": "^10.9.2",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.7"
   }
 }

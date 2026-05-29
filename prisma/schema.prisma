@@ -315,6 +315,8 @@ model Company {
   prefectureRef     Prefecture?       @relation(fields: [prefectureId], references: [id])
   municipalityId    String?
   municipalityRef   Municipality?     @relation(fields: [municipalityId], references: [id])
+  regionCode        String?
+  regionRef         Region?           @relation("CompanyRegion", fields: [regionCode], references: [code])
   vatCategoryId     Int?
   vatCategoryRef    VatCategory?      @relation(fields: [vatCategoryId], references: [id])
 
@@ -333,6 +335,7 @@ model Company {
   @@index([companyStatusId])
   @@index([prefectureId])
   @@index([municipalityId])
+  @@index([regionCode])
   @@index([vatCategoryId])
 
   @@index([name])
@@ -408,6 +411,30 @@ model Municipality {
 
   @@index([prefectureId])
   @@index([descr])
+}
+
+// Καλλικράτης δενδροειδής δομή — seed από public/periferies-*.json (όχι GEMI).
+model Region {
+  code        String   @id            // "111" (Περιφ.), "11102" (Π.Ε./Νομός), "1110202" (Δήμος)
+  nameEL      String
+  nameEN      String?
+  level       Int                      // 3=Περιφέρεια, 4=Περιφ. Ενότητα/Νομός, 5=Δήμος
+  parentCode  String?
+  parent      Region?  @relation("RegionHierarchy", fields: [parentCode], references: [code], onDelete: SetNull)
+  children    Region[] @relation("RegionHierarchy")
+  path        String?                  // "111>11102>1110202"
+  latitude    Float?
+  longitude   Float?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  companies       Company[]       @relation("CompanyRegion")
+  companyBranches CompanyBranch[] @relation("BranchRegion")
+
+  @@index([parentCode])
+  @@index([level])
+  @@index([nameEL])
 }
 
 enum DocumentSource {
@@ -642,10 +669,13 @@ model CompanyBranch {
   latitude      Float?
   longitude     Float?
   geocodedAt    DateTime?
+  regionCode    String?
+  regionRef     Region?  @relation("BranchRegion", fields: [regionCode], references: [code])
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@index([companyId])
+  @@index([regionCode])
   @@unique([companyId, code])
 }
 

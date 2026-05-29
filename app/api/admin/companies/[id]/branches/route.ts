@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { geocodeAddress } from '@/lib/geocode';
+import { matchRegion } from '@/lib/regions/match';
 
 const BranchSchema = z.object({
   code: z.string().optional().nullable(),
@@ -21,6 +22,7 @@ const BranchSchema = z.object({
   notes: z.string().optional().nullable(),
   isActive: z.boolean().optional(),
   order: z.coerce.number().int().optional(),
+  regionCode: z.string().optional().nullable(),
 });
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -41,13 +43,23 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   if (!parsed.success) return NextResponse.json({ error: 'invalid', issues: parsed.error.issues }, { status: 400 });
   const { email, ...rest } = parsed.data;
   const geo = await geocodeAddress({ address: rest.address, city: rest.city, zip: rest.zip, country: rest.country });
+
+  let regionCode = rest.regionCode ?? null;
+  if (!regionCode && (rest.address || rest.city || rest.district)) {
+    const m = await matchRegion({
+      address: rest.address, city: rest.city, district: rest.district, zip: rest.zip, country: rest.country,
+      latitude: geo?.lat ?? null, longitude: geo?.lng ?? null,
+    });
+    if (m) regionCode = m.regionCode;
+  }
+
   const branch = await prisma.$transaction(async (tx) => {
     if (rest.isHeadquarters) {
       await tx.companyBranch.updateMany({ where: { companyId: id, isHeadquarters: true }, data: { isHeadquarters: false } });
     }
     return tx.companyBranch.create({
       data: {
-        ...rest, email: email || null, companyId: id,
+        ...rest, regionCode, email: email || null, companyId: id,
         ...(geo ? { latitude: geo.lat, longitude: geo.lng, geocodedAt: new Date() } : {}),
       },
     });

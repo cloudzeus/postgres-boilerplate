@@ -71,6 +71,7 @@ export default async function AdminCompaniesPage() {
     prefectureLabel: c.prefectureRef?.descr ?? null,
     municipalityId: c.municipalityId,
     municipalityLabel: c.municipalityRef?.descr ?? null,
+    regionCode: c.regionCode,
     employeeCount: c.employeeCount,
     category: c.category,
     isActive: c.isActive,
