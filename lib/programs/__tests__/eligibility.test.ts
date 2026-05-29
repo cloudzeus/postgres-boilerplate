@@ -51,6 +51,17 @@ describe('evaluateEligibility', () => {
     expect(evaluateEligibility(baseCompany, baseProgram, asOf).criteria.find((c) => c.key === 'legalForm')?.pass).toBe(true);
     expect(evaluateEligibility({ ...baseCompany, legalForm: 'ΟΕ' }, baseProgram, asOf).criteria.find((c) => c.key === 'legalForm')?.pass).toBe(false);
   });
+  it('matches the full legal-form name against the abbreviation (ΙΚΕ)', () => {
+    expect(evaluateEligibility({ ...baseCompany, legalForm: 'Ιδιωτική Κεφαλαιουχική Εταιρεία' }, baseProgram, asOf).criteria.find((c) => c.key === 'legalForm')?.pass).toBe(true);
+    expect(evaluateEligibility({ ...baseCompany, legalForm: 'Μονοπρόσωπη Ι.Κ.Ε.' }, baseProgram, asOf).criteria.find((c) => c.key === 'legalForm')?.pass).toBe(true);
+  });
+  it('matches a Καλλικράτης region name (genitive + prefix) against the program nominative', () => {
+    // registry stores "ΠΕΡΙΦΕΡΕΙΑ ΑΤΤΙΚΗΣ"; program lists "Αττική"
+    const kal = evaluateEligibility({ ...baseCompany, regionName: 'ΠΕΡΙΦΕΡΕΙΑ ΑΤΤΙΚΗΣ' }, baseProgram, asOf).criteria.find((c) => c.key === 'region');
+    expect(kal?.pass).toBe(true);
+    const out = evaluateEligibility({ ...baseCompany, regionName: 'ΠΕΡΙΦΕΡΕΙΑ ΗΠΕΙΡΟΥ' }, baseProgram, asOf).criteria.find((c) => c.key === 'region');
+    expect(out?.pass).toBe(false);
+  });
   it('fails operational years below the minimum', () => {
     const r = evaluateEligibility({ ...baseCompany, foundingDate: new Date('2025-01-01T00:00:00Z') }, baseProgram, asOf);
     expect(r.criteria.find((c) => c.key === 'operationalYears')?.pass).toBe(false);

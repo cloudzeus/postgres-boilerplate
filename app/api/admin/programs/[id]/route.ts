@@ -101,79 +101,68 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (Object.keys(scalarUpdate).length) {
       await tx.program.update({ where: { id }, data: scalarUpdate });
     }
-    // Full-replace strategy for nested arrays — simpler than per-row diff.
+    // Full-replace strategy for nested arrays. Bulk createMany (one round-trip per table)
+    // instead of per-row create — a program can carry hundreds of ΚΑΔ and the per-row
+    // loop blew past the transaction timeout.
     if (body.kads) {
       await tx.programKad.deleteMany({ where: { programId: id } });
+      // Dedupe by canonical code (unique [programId, code]); keep last occurrence.
+      const byCode = new Map<string, { programId: string; code: string; codeWithoutDots: string | null; description: string | null; excluded: boolean }>();
       for (const k of body.kads) {
         const n = normalizeKad(k.code);
-        await tx.programKad.create({ data: { programId: id, code: n.code, codeWithoutDots: n.codeWithoutDots, description: asStr(k.description), excluded: !!k.excluded } });
+        byCode.set(n.code, { programId: id, code: n.code, codeWithoutDots: n.codeWithoutDots, description: asStr(k.description), excluded: !!k.excluded });
       }
+      if (byCode.size) await tx.programKad.createMany({ data: Array.from(byCode.values()) });
     }
     if (body.expenseCats) {
       await tx.programExpenseCategory.deleteMany({ where: { programId: id } });
-      for (let i = 0; i < body.expenseCats.length; i++) {
-        const c = body.expenseCats[i];
-        await tx.programExpenseCategory.create({
-          data: {
-            programId: id, name: c.name,
-            minAmount: asNum(c.minAmount), minPercentage: asNum(c.minPercentage),
-            maxAmount: asNum(c.maxAmount), maxPercentage: asNum(c.maxPercentage),
-            mandatory: !!c.mandatory,
-            notes: asStr(c.notes), order: i,
-          },
-        });
-      }
+      if (body.expenseCats.length) await tx.programExpenseCategory.createMany({
+        data: body.expenseCats.map((c, i) => ({
+          programId: id, name: c.name,
+          minAmount: asNum(c.minAmount), minPercentage: asNum(c.minPercentage),
+          maxAmount: asNum(c.maxAmount), maxPercentage: asNum(c.maxPercentage),
+          mandatory: !!c.mandatory, notes: asStr(c.notes), order: i,
+        })),
+      });
     }
     if (body.bonuses) {
       await tx.programBonus.deleteMany({ where: { programId: id } });
-      for (let i = 0; i < body.bonuses.length; i++) {
-        const b = body.bonuses[i];
-        await tx.programBonus.create({
-          data: {
-            programId: id,
-            kind: (b.kind ?? 'OTHER') as any,
-            name: b.name, condition: b.condition,
-            bonusRate: asNum(b.bonusRate), bonusAmount: asNum(b.bonusAmount),
-            order: i,
-          },
-        });
-      }
+      if (body.bonuses.length) await tx.programBonus.createMany({
+        data: body.bonuses.map((b, i) => ({
+          programId: id, kind: (b.kind ?? 'OTHER') as any,
+          name: b.name, condition: b.condition,
+          bonusRate: asNum(b.bonusRate), bonusAmount: asNum(b.bonusAmount), order: i,
+        })),
+      });
     }
     if (body.legalForms) {
       await tx.programEligibleLegalForm.deleteMany({ where: { programId: id } });
-      for (const lf of body.legalForms) {
-        // Unique by (programId, name) — use upsert to be safe for duplicates in payload.
-        await tx.programEligibleLegalForm.upsert({
-          where: { programId_name: { programId: id, name: lf.name } },
-          update: { notes: asStr(lf.notes) ?? undefined },
-          create: { programId: id, name: lf.name, notes: asStr(lf.notes) },
-        });
-      }
+      // Dedupe by name (unique [programId, name]); keep last notes.
+      const byName = new Map<string, { programId: string; name: string; notes: string | null }>();
+      for (const lf of body.legalForms) byName.set(lf.name, { programId: id, name: lf.name, notes: asStr(lf.notes) });
+      if (byName.size) await tx.programEligibleLegalForm.createMany({ data: Array.from(byName.values()) });
     }
     if (body.regions) {
       await tx.programRegion.deleteMany({ where: { programId: id } });
-      for (const r of body.regions) {
-        await tx.programRegion.create({
-          data: { programId: id, name: r.name, fundingRate: asNum(r.fundingRate), notes: asStr(r.notes) },
-        });
-      }
+      if (body.regions.length) await tx.programRegion.createMany({
+        data: body.regions.map((r) => ({ programId: id, name: r.name, fundingRate: asNum(r.fundingRate), notes: asStr(r.notes) })),
+      });
     }
     if (body.criteria) {
       await tx.programCriterion.deleteMany({ where: { programId: id } });
-      for (let i = 0; i < body.criteria.length; i++) {
-        await tx.programCriterion.create({ data: { programId: id, text: body.criteria[i].text, order: i } });
-      }
+      if (body.criteria.length) await tx.programCriterion.createMany({
+        data: body.criteria.map((c, i) => ({ programId: id, text: c.text, order: i })),
+      });
     }
     if (body.deadlines) {
       await tx.programDeadline.deleteMany({ where: { programId: id } });
-      for (let i = 0; i < body.deadlines.length; i++) {
-        const d = body.deadlines[i];
-        const date = asDate(d.deadline);
-        if (!date) continue;
-        await tx.programDeadline.create({ data: { programId: id, deadline: date, description: asStr(d.description), order: i } });
-      }
+      const rows = body.deadlines
+        .map((d, i) => ({ d, date: asDate(d.deadline), i }))
+        .filter((x) => x.date)
+        .map((x) => ({ programId: id, deadline: x.date as Date, description: asStr(x.d.description), order: x.i }));
+      if (rows.length) await tx.programDeadline.createMany({ data: rows });
     }
-  }, { timeout: 60_000, maxWait: 10_000 });
+  }, { timeout: 120_000, maxWait: 10_000 });
 
   const fresh = await prisma.program.findUnique({
     where: { id },

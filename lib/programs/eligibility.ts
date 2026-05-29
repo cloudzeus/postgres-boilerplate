@@ -30,8 +30,30 @@ export interface EligibilityResult { criteria: EligibilityCriterion[]; eligible:
 
 const NA = 'δεν απαιτείται';
 
-function norm(s: string): string {
-  return s.replace(/[.\s]/g, '').toUpperCase();
+/** Remove Greek diacritics so "Αττική" === "ΑΤΤΙΚΗ" after upper-casing. */
+function stripAccents(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+/**
+ * Canonicalise a Greek legal form to a comparable token, handling abbreviation ↔ full name:
+ * "Ι.Κ.Ε.", "ΙΚΕ", "Ιδιωτική Κεφαλαιουχική Εταιρεία", "Μονοπρόσωπη ΙΚΕ" → "ΙΚΕ".
+ */
+function canonicalLegalForm(s: string): string {
+  const t = stripAccents(s).toUpperCase().replace(/[^Α-ΩA-Z]/g, '');
+  if (/ΙΔΙΩΤΙΚΗΚΕΦΑΛΑΙΟΥΧΙΚΗ/.test(t) || t === 'ΙΚΕ' || t.endsWith('ΙΚΕ')) return 'ΙΚΕ';
+  if (/ΑΝΩΝΥΜ/.test(t) || t === 'ΑΕ') return 'ΑΕ';
+  if (/ΠΕΡΙΟΡΙΣΜΕΝΗΣΕΥΘΥΝΗΣ/.test(t) || t === 'ΕΠΕ') return 'ΕΠΕ';
+  if (/ΟΜΟΡΡΥΘΜ/.test(t) || t === 'ΟΕ') return 'ΟΕ';
+  if (/ΕΤΕΡΟΡΡΥΘΜ/.test(t) || t === 'ΕΕ') return 'ΕΕ';
+  if (/ΑΤΟΜΙΚ/.test(t)) return 'ΑΤΟΜΙΚΗ';
+  if (/ΚΟΙΝΣΕΠ|ΚΟΙΝΩΝΙΚΗΣΥΝΕΤΑΙΡΙΣΤΙΚΗ/.test(t)) return 'ΚΟΙΝΣΕΠ';
+  if (/ΣΥΝΕΤΑΙΡΙΣΜ/.test(t)) return 'ΣΥΝΕΤΑΙΡΙΣΜΟΣ';
+  return t;
+}
+/** Normalise a region name: drop accents + the word "ΠΕΡΙΦΕΡΕΙΑ", keep letters only.
+ *  Καλλικράτης registry stores "ΠΕΡΙΦΕΡΕΙΑ ΑΤΤΙΚΗΣ" (genitive); programs say "Αττική". */
+function normRegion(s: string): string {
+  return stripAccents(s).toUpperCase().replace(/ΠΕΡΙΦΕΡΕΙΑ/g, '').replace(/[^Α-ΩA-Z]/g, '');
 }
 /** hierarchical dotted prefix: program "62.01" matches company "62.01.11" (and equal codes). */
 function kadMatches(programCode: string, companyCode: string): boolean {
@@ -91,8 +113,8 @@ export function evaluateEligibility(
   if (program.eligibleLegalForms.length === 0) {
     criteria.push({ key: 'legalForm', label: 'Νομική μορφή', required: null, actual: company.legalForm, pass: true, note: NA });
   } else {
-    const allowed = program.eligibleLegalForms.map(norm);
-    const pass = !!company.legalForm && allowed.includes(norm(company.legalForm));
+    const allowed = program.eligibleLegalForms.map(canonicalLegalForm);
+    const pass = !!company.legalForm && allowed.includes(canonicalLegalForm(company.legalForm));
     criteria.push({ key: 'legalForm', label: 'Νομική μορφή', required: program.eligibleLegalForms.join(', '), actual: company.legalForm, pass });
   }
 
@@ -118,9 +140,10 @@ export function evaluateEligibility(
   if (program.regions.length === 0) {
     criteria.push({ key: 'region', label: 'Περιφέρεια', required: null, actual: company.regionName, pass: true, note: NA });
   } else {
-    const allowed = program.regions.map(norm);
-    const pass = !!company.regionName && allowed.includes(norm(company.regionName));
-    criteria.push({ key: 'region', label: 'Περιφέρεια', required: program.regions.join(', '), actual: company.regionName, pass });
+    const c = company.regionName ? normRegion(company.regionName) : '';
+    // bidirectional substring: "ΑΤΤΙΚΗΣ" (registry, genitive) ⊇ "ΑΤΤΙΚΗ" (program, nominative)
+    const pass = !!c && program.regions.some((r) => { const a = normRegion(r); return !!a && (a.includes(c) || c.includes(a)); });
+    criteria.push({ key: 'region', label: 'Περιφέρεια', required: null, actual: company.regionName, pass, note: pass ? 'εντός επιλέξιμων περιφερειών' : 'εκτός επιλέξιμων περιφερειών' });
   }
 
   return { criteria, eligible: criteria.every((c) => c.pass) };
