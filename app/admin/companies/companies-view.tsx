@@ -29,6 +29,7 @@ import { CompanyTypesDialog } from './company-types-dialog';
 import { AadeLookupButton, type AadeResult } from '@/components/aade/aade-lookup-button';
 import { GemiSyncButton } from '@/components/gemi/gemi-sync-button';
 import { CountrySelect, DEFAULT_COUNTRY, countryName } from '@/components/forms/country-select';
+import { RegionField } from '@/components/regions/region-field';
 
 export type TypeOption = {
   id: string; key: string; name: string; pluralName: string;
@@ -76,6 +77,7 @@ export type CompanyRow = {
   prefectureLabel: string | null;
   municipalityId: string | null;
   municipalityLabel: string | null;
+  regionCode: string | null;
   employeeCount: number | null;
   category: string | null;
   isActive: boolean;
@@ -325,6 +327,23 @@ export function CompaniesView({
               <DropdownMenuItem onClick={() => setContactFor(c)}>
                 <FiUserPlus /> Προσθήκη επαφής
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={async () => {
+                const res = await fetch('/api/regions/match', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ address: c.address, city: c.city, district: c.district, zip: c.zip, country: c.country, municipalityId: c.municipalityId, prefectureId: c.prefectureId }),
+                });
+                if (!res.ok) { toast.error('Δεν βρέθηκε αντιστοίχιση Καλλικράτη'); return; }
+                const m = await res.json();
+                await fetch(`/api/admin/companies/${c.id}`, {
+                  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ regionCode: m.regionCode }),
+                });
+                const chain = [m.breadcrumb?.region?.nameEL, m.breadcrumb?.regionalUnit?.nameEL, m.breadcrumb?.municipality?.nameEL].filter(Boolean).join(' › ');
+                toast.success(`Αντιστοιχίστηκε: ${chain}`);
+                router.refresh();
+              }}>
+                <FiMapPin className="mr-2 h-4 w-4" /> Εντοπισμός Περιφέρειας/Νομού/Δήμου
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={() => setDeleteCompany(c)}>
                 <FiTrash2 /> Διαγραφή
@@ -450,6 +469,7 @@ function CompanyDialog({
   }, [open, lookups]);
 
   const [reloadKey, setReloadKey] = React.useState(0);
+  const [regionBreadcrumb, setRegionBreadcrumb] = React.useState<import('@/components/regions/region-field').RegionFieldValue['breadcrumb']>(null);
 
   React.useEffect(() => {
     if (!open) return;
@@ -485,6 +505,7 @@ function CompanyDialog({
             companyStatusId: c.companyStatusId ?? '',
             prefectureId: c.prefectureId ?? '',
             municipalityId: c.municipalityId ?? '',
+            regionCode: c.regionCode ?? null,
           });
           setTypeIds(c.types.map((t: any) => t.typeId));
           setActivities((c.activities ?? []).map((a: any) => ({
@@ -492,9 +513,18 @@ function CompanyDialog({
             description: a.description, kind: a.kind, order: a.order,
             requiresLicense: a.requiresLicense ?? false,
           })));
+          if (c.regionCode) {
+            fetch('/api/regions/decode', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ code: c.regionCode }),
+            }).then((r) => r.ok ? r.json() : null).then((d) => d && setRegionBreadcrumb(d.breadcrumb ?? null));
+          } else {
+            setRegionBreadcrumb(null);
+          }
         });
     } else {
       setForm({ name: '', country: 'GR', isActive: true });
+      setRegionBreadcrumb(null);
       const def = defaultTypeKey ? types.find((t) => t.key === defaultTypeKey) : null;
       setTypeIds(def ? [def.id] : []);
       setActivities([]);
@@ -543,6 +573,7 @@ function CompanyDialog({
       companyStatusId: form.companyStatusId === '' ? null : form.companyStatusId,
       prefectureId: form.prefectureId === '' ? null : form.prefectureId,
       municipalityId: form.municipalityId === '' ? null : form.municipalityId,
+      regionCode: form.regionCode || null,
       foundingDate: form.foundingDate || null,
       typeIds,
       activities,
@@ -791,6 +822,13 @@ function CompanyDialog({
                   <Field label="ΤΚ" id="c-zip"><Input id="c-zip" value={form.zip ?? ''} onChange={(e) => set('zip', e.target.value)} /></Field>
                   <Field label="Χώρα" id="c-country">
                     <CountrySelect id="c-country" value={form.country ?? DEFAULT_COUNTRY} onChange={(v) => set('country', v)} />
+                  </Field>
+                  <Field label="Περιφέρεια / Νομός / Δήμος (Καλλικράτης)" id="c-region" wide>
+                    <RegionField
+                      value={{ regionCode: form.regionCode ?? null, breadcrumb: regionBreadcrumb }}
+                      address={{ address: form.address, city: form.city, district: form.district, zip: form.zip, country: form.country, municipalityId: form.municipalityId || null, prefectureId: form.prefectureId || null, latitude: null, longitude: null }}
+                      onChange={(v) => { set('regionCode', v.regionCode); setRegionBreadcrumb(v.breadcrumb); }}
+                    />
                   </Field>
                 </Grid>
               </SectionBlock>
