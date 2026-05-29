@@ -64,6 +64,20 @@ export default async function ProgramDetailPage({ params }: { params: Promise<{ 
     deadlines: program.deadlines.map((d) => ({
       ...d, deadline: d.deadline.toISOString().slice(0, 10),
     })),
+    questionnaire: program.questionnaire ? {
+      ...program.questionnaire,
+      threshold: program.questionnaire.threshold != null ? Number(program.questionnaire.threshold) : null,
+      maxScore:  program.questionnaire.maxScore  != null ? Number(program.questionnaire.maxScore)  : null,
+      generatedAt: program.questionnaire.generatedAt?.toISOString() ?? null,
+      createdAt: program.questionnaire.createdAt.toISOString(),
+      updatedAt: program.questionnaire.updatedAt.toISOString(),
+      questions: program.questionnaire.questions.map((q) => ({
+        ...q,
+        weight:    q.weight    != null ? Number(q.weight)    : null,
+        maxPoints: q.maxPoints != null ? Number(q.maxPoints) : null,
+        options: q.options.map((o) => ({ ...o, points: Number(o.points) })),
+      })),
+    } : null,
   };
 
   return (
