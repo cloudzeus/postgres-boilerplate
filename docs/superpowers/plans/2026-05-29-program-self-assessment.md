@@ -6,7 +6,7 @@
 
 **Architecture:** Relational, editable ορισμός ερωτηματολογίου στο `Program` (Προσέγγιση C). Pure-function engines (scoring/eligibility/autofill) με TDD μέσω vitest. Δεύτερη αποκλειστική κλήση DeepSeek για τη γέννηση. Company-centric evaluation flow με entry point στο actions-dropdown εταιρίας. Αποτελέσματα σε `CompanyAssessment` (πολλές εταιρίες ανά πρόγραμμα).
 
-**Tech Stack:** Next.js (App Router), Prisma + MySQL, vitest, DeepSeek (deepseek-chat/reasoner), shadcn/ui, react-icons/fi, sonner.
+**Tech Stack:** Next.js (App Router), Prisma + PostgreSQL, vitest, DeepSeek (deepseek-chat/reasoner), shadcn/ui, react-icons/fi, sonner.
 
 **Spec:** [docs/superpowers/specs/2026-05-29-program-self-assessment-design.md](../specs/2026-05-29-program-self-assessment-design.md)
 
