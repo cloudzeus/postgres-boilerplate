@@ -12,6 +12,7 @@
     "prisma:migrate": "prisma migrate dev --name init",
     "seed:db": "node ./scripts/seed.js",
     "seed:regions": "npx tsx prisma/seeds/regions.ts",
+    "backfill:regions": "npx tsx scripts/backfill-regions.ts",
     "check-updates": "node ./scripts/check-updates.js",
     "wiki:new": "node ./scripts/wiki/new.mjs",
     "wiki:index": "node ./scripts/wiki/build-index.mjs",
