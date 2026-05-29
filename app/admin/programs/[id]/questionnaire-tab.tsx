@@ -85,7 +85,7 @@ export function QuestionnaireTab({ programId, initial }: { programId: string; in
             </span>
             <div>
               <h3 className="text-[14px] font-semibold tracking-tight text-foreground">Ρυθμίσεις βαθμολόγησης</h3>
-              <p className="text-[11px] text-muted-foreground">Μοντέλο, κατώφλι επιτυχίας & μέγιστη βαθμολογία</p>
+              <p className="text-[11px] text-muted-foreground">Μοντέλο, ελάχιστη βαθμολογία επιτυχίας & μέγιστη βαθμολογία</p>
             </div>
           </div>
           <button
@@ -104,7 +104,7 @@ export function QuestionnaireTab({ programId, initial }: { programId: string; in
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            <FieldLabel>Κατώφλι</FieldLabel>
+            <FieldLabel>Ελάχιστο</FieldLabel>
             <input type="number" className={FIELD} value={q.threshold ?? ''} onChange={(e) => setQ({ ...q, threshold: e.target.value === '' ? null : Number(e.target.value) })} />
           </label>
           <label className="flex flex-col gap-1">
@@ -175,16 +175,23 @@ export function QuestionnaireTab({ programId, initial }: { programId: string; in
             {/* Επιλογές */}
             {(item.answerType === 'SINGLE_CHOICE' || item.answerType === 'SCALE') && (
               <div className="mt-3 rounded-lg border border-border bg-muted/30 p-3">
-                <FieldLabel>Επιλογές & μόρια</FieldLabel>
-                <div className="mt-2 space-y-2">
+                <FieldLabel>Επιλογές απάντησης</FieldLabel>
+                {item.options.length > 0 && (
+                  <div className="mt-2 flex items-center gap-2 px-0.5">
+                    <span className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Επιλογή</span>
+                    <span className="w-20 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Μόρια</span>
+                    <span className="size-8 shrink-0" aria-hidden />
+                  </div>
+                )}
+                <div className="mt-1 space-y-2">
                   {item.options.map((o, oi) => (
                     <div key={oi} className="flex items-center gap-2">
                       <input
-                        className={FIELD + ' flex-1'} placeholder="Κείμενο επιλογής"
+                        className={FIELD + ' flex-1'} placeholder="Κείμενο επιλογής (π.χ. «Ναι, πλήρως»)"
                         value={o.label} onChange={(e) => patch(i, { options: item.options.map((x, j) => j === oi ? { ...x, label: e.target.value } : x) })}
                       />
                       <input
-                        type="number" className={FIELD + ' w-20 text-center'} placeholder="μόρια"
+                        type="number" className={FIELD + ' w-20 text-center'} placeholder="0" title="Μόρια που δίνει αυτή η επιλογή"
                         value={o.points} onChange={(e) => patch(i, { options: item.options.map((x, j) => j === oi ? { ...x, points: Number(e.target.value) } : x) })}
                       />
                       <button

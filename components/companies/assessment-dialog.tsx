@@ -122,7 +122,7 @@ export function AssessmentDialog({ companyId, companyName, open, onClose, preset
                 })}
                 {live && (
                   <div className={`rounded p-2 text-sm font-semibold ${live.passed ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
-                    Σκορ: {live.score.toFixed(1)} / {live.maxScore} — {live.passed ? 'PASS ✅' : 'FAIL ❌'} (κατώφλι {qn.threshold ?? '—'})
+                    Σκορ: {live.score.toFixed(1)} / {live.maxScore} — {live.passed ? 'PASS ✅' : 'FAIL ❌'} (ελάχιστο {qn.threshold ?? '—'})
                   </div>
                 )}
               </div>
