@@ -329,6 +329,7 @@ model Company {
   documents       CompanyDocument[]
   contacts        CompanyContact[]
   channels        CompanyChannel[]
+  assessments     CompanyAssessment[]
 
   @@index([legalTypeId])
   @@index([gemiOfficeId])
@@ -861,6 +862,8 @@ model Program {
   legalForms      ProgramEligibleLegalForm[]
   bonuses         ProgramBonus[]
   files           ProgramFile[]
+  questionnaire   ProgramQuestionnaire?
+  assessments     CompanyAssessment[]
 
   @@index([status])
   @@index([extractStatus])
@@ -1043,4 +1046,129 @@ model OcrInvoiceItem {
   total       Decimal?    @db.Decimal(18, 4)
 
   @@index([documentId])
+}
+
+// ============================================================
+// Self-assessment questionnaire (per Program) & company evaluation
+// ============================================================
+
+enum QuestionnaireScoringModel {
+  WEIGHTED
+  POINTS_SUM
+}
+
+enum QuestionnaireStatus {
+  DRAFT
+  READY
+}
+
+enum QuestionAnswerType {
+  BOOLEAN
+  SINGLE_CHOICE
+  NUMERIC
+  SCALE
+}
+
+enum AssessmentStatus {
+  DRAFT
+  COMPLETED
+}
+
+enum AssessmentVerdict {
+  ELIGIBLE
+  NOT_ELIGIBLE
+  NEEDS_REVIEW
+}
+
+enum AnswerSource {
+  AUTO
+  MANUAL
+}
+
+model ProgramQuestionnaire {
+  id             String   @id @default(cuid())
+  programId      String   @unique
+  program        Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  title          String?
+  description    String?  @db.Text
+  scoringModel   QuestionnaireScoringModel @default(WEIGHTED)
+  threshold      Decimal? @db.Decimal(8, 2)
+  maxScore       Decimal? @db.Decimal(8, 2)
+  sourceNote     String?
+  status         QuestionnaireStatus @default(DRAFT)
+  generatedModel String?
+  generatedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  questions      ProgramQuestion[]
+  assessments    CompanyAssessment[]
+}
+
+model ProgramQuestion {
+  id              String   @id @default(cuid())
+  questionnaireId String
+  questionnaire   ProgramQuestionnaire @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
+  code            String?
+  text            String   @db.Text
+  criterionRef    String?
+  helpText        String?  @db.Text
+  answerType      QuestionAnswerType @default(SINGLE_CHOICE)
+  weight          Decimal? @db.Decimal(8, 2)
+  maxPoints       Decimal? @db.Decimal(8, 2)
+  companyField    String?
+  order           Int      @default(0)
+  options         ProgramQuestionOption[]
+  answers         AssessmentAnswer[]
+  @@index([questionnaireId])
+}
+
+model ProgramQuestionOption {
+  id          String  @id @default(cuid())
+  questionId  String
+  question    ProgramQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  label       String
+  points      Decimal @default(0) @db.Decimal(8, 2)
+  order       Int     @default(0)
+  @@index([questionId])
+}
+
+model CompanyAssessment {
+  id                  String   @id @default(cuid())
+  companyId           String
+  company             Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  programId           String
+  program             Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  questionnaireId     String?
+  questionnaire       ProgramQuestionnaire? @relation(fields: [questionnaireId], references: [id], onDelete: SetNull)
+  eligible            Boolean?
+  eligibilityResult   Json?
+  questionnaireScore  Decimal? @db.Decimal(8, 2)
+  questionnaireMax    Decimal? @db.Decimal(8, 2)
+  questionnairePassed Boolean?
+  overallVerdict      AssessmentVerdict @default(NEEDS_REVIEW)
+  status              AssessmentStatus  @default(DRAFT)
+  notes               String?  @db.Text
+  createdById         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  answers             AssessmentAnswer[]
+  @@index([companyId])
+  @@index([programId])
+  @@index([programId, eligible])
+}
+
+model AssessmentAnswer {
+  id               String  @id @default(cuid())
+  assessmentId     String
+  assessment       CompanyAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  questionId       String
+  question         ProgramQuestion   @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  valueBool        Boolean?
+  valueNumber      Decimal? @db.Decimal(14, 4)
+  valueText        String?  @db.Text
+  selectedOptionId String?
+  pointsAwarded    Decimal? @db.Decimal(8, 2)
+  source           AnswerSource @default(MANUAL)
+  @@index([assessmentId])
+  @@index([questionId])
 }
