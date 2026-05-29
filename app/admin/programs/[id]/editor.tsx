@@ -9,6 +9,7 @@ import {
 } from 'react-icons/fi';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { QuestionnaireTab, type QuestionnaireData } from './questionnaire-tab';
 
 interface Kad { id?: string; code: string; description?: string | null; excluded?: boolean }
 interface Cat {
@@ -43,6 +44,7 @@ interface ProgramData {
   extractStatus: string; errorMessage: string | null; model: string | null;
   kads: Kad[]; expenseCats: Cat[]; regions: Region[]; criteria: Criterion[]; deadlines: Deadline[];
   legalForms: LegalForm[]; bonuses: Bonus[]; files: ProgFile[];
+  questionnaire?: any;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -276,6 +278,7 @@ export function ProgramEditor({ program, canUpdate, canDelete }: { program: Prog
               <TabsTrigger value="criteria">Κριτήρια <Badge variant="outline">{p.criteria.length}</Badge></TabsTrigger>
               <TabsTrigger value="deadlines">Προθεσμίες <Badge variant="outline">{p.deadlines.length}</Badge></TabsTrigger>
               <TabsTrigger value="files">Αρχεία <Badge variant="outline">{p.files.length}</Badge></TabsTrigger>
+              <TabsTrigger value="questionnaire">Αυτοαξιολόγηση{program.questionnaire ? <Badge variant="outline">{program.questionnaire.questions.length}</Badge> : null}</TabsTrigger>
             </TabsList>
           </div>
 
@@ -424,6 +427,24 @@ export function ProgramEditor({ program, canUpdate, canDelete }: { program: Prog
                 { key: 'deadline', label: 'Ημερομηνία', width: '160px', type: 'date' },
                 { key: 'description', label: 'Περιγραφή' },
               ]}
+            />
+          </TabsContent>
+
+          <TabsContent value="questionnaire" className="w-full p-4">
+            <QuestionnaireTab
+              programId={p.id}
+              initial={program.questionnaire ? {
+                scoringModel: program.questionnaire.scoringModel,
+                threshold: program.questionnaire.threshold == null ? null : Number(program.questionnaire.threshold),
+                maxScore: program.questionnaire.maxScore == null ? null : Number(program.questionnaire.maxScore),
+                sourceNote: program.questionnaire.sourceNote ?? null,
+                questions: program.questionnaire.questions.map((qq: any) => ({
+                  code: qq.code ?? null, text: qq.text, criterionRef: qq.criterionRef ?? null, helpText: qq.helpText ?? null,
+                  answerType: qq.answerType, weight: qq.weight == null ? null : Number(qq.weight),
+                  maxPoints: qq.maxPoints == null ? null : Number(qq.maxPoints), companyField: qq.companyField ?? null,
+                  options: (qq.options ?? []).map((o: any) => ({ label: o.label, points: Number(o.points) })),
+                })),
+              } : null}
             />
           </TabsContent>
         </Tabs>

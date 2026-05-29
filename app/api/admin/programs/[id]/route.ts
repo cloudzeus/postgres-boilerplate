@@ -22,6 +22,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       legalForms:  { orderBy: { name: 'asc' } },
       bonuses:     { orderBy: { order: 'asc' } },
       files:       { orderBy: [{ kind: 'asc' }, { uploadedAt: 'asc' }] },
+      questionnaire: { include: { questions: { orderBy: { order: 'asc' }, include: { options: { orderBy: { order: 'asc' } } } } } },
     },
   });
   if (!program) return NextResponse.json({ error: 'not found' }, { status: 404 });

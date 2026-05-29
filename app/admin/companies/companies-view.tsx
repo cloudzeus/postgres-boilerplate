@@ -8,7 +8,7 @@ import {
   FiAlertTriangle, FiSettings, FiLayers, FiMapPin, FiStar,
   FiInfo, FiFileText, FiPhone, FiCreditCard, FiTag, FiEdit3,
   FiUpload, FiArchive, FiExternalLink, FiImage, FiRefreshCw,
-  FiUserPlus, FiUser, FiMail, FiSmartphone,
+  FiUserPlus, FiUser, FiMail, FiSmartphone, FiClipboard,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { DataTable } from '@/components/ui/data-table';
@@ -30,6 +30,7 @@ import { AadeLookupButton, type AadeResult } from '@/components/aade/aade-lookup
 import { GemiSyncButton } from '@/components/gemi/gemi-sync-button';
 import { CountrySelect, DEFAULT_COUNTRY, countryName } from '@/components/forms/country-select';
 import { RegionField } from '@/components/regions/region-field';
+import { AssessmentDialog } from '@/components/companies/assessment-dialog';
 
 export type TypeOption = {
   id: string; key: string; name: string; pluralName: string;
@@ -189,6 +190,7 @@ export function CompaniesView({
   const [creating, setCreating] = React.useState(false);
   const [managingTypes, setManagingTypes] = React.useState(false);
   const [contactFor, setContactFor] = React.useState<CompanyRow | null>(null);
+  const [assessing, setAssessing] = React.useState<CompanyRow | null>(null);
   const [tab, setTab] = React.useState<string>('ALL');
 
   const columns = React.useMemo<ColumnDef<CompanyRow>[]>(() => ([
@@ -327,6 +329,9 @@ export function CompaniesView({
               <DropdownMenuItem onClick={() => setContactFor(c)}>
                 <FiUserPlus /> Προσθήκη επαφής
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setAssessing(c)}>
+                <FiClipboard /> Αξιολόγηση
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={async () => {
                 const res = await fetch('/api/regions/match', {
                   method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -426,6 +431,13 @@ export function CompaniesView({
         contact={null}
         onClose={() => setContactFor(null)}
         onSaved={() => { setContactFor(null); router.refresh(); }}
+      />
+
+      <AssessmentDialog
+        open={!!assessing}
+        companyId={assessing?.id ?? null}
+        companyName={assessing?.name ?? ''}
+        onClose={() => setAssessing(null)}
       />
 
       <CompanyTypesDialog

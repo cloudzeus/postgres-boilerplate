@@ -120,8 +120,22 @@ BAD: "Ο δικαιούχος υποχρεούται να πληροί όλες 
   "regions": [ { "name": "string", "fundingRate": number|null } ],
   "bonuses": [ { "kind": "TIME_BASED"|"EMPLOYMENT"|"SUSTAINABILITY"|"WOMEN_LED"|"YOUTH"|"R_AND_D"|"OTHER", "name": "string", "condition": "string", "bonusRate": number|null, "bonusAmount": number|null } ],
   "deadlines": [ { "deadline": "YYYY-MM-DD", "description": "string or null" } ],
+  "selfAssessment": {
+    "required": true,
+    "threshold": 75,
+    "maxScore": 100,
+    "scoringModel": "WEIGHTED",
+    "sourceNote": "Παράρτημα III"
+  },
   "criteria": ["string"]
 }
+
+# Αυτοαξιολόγηση (selfAssessment)
+
+Αν το έγγραφο απαιτεί ΕΛΑΧΙΣΤΗ ΒΑΘΜΟΛΟΓΙΑ σε αυτοαξιολόγηση/βαθμολόγηση κριτηρίων (π.χ. "βαθμολογία ≥75", "Παράρτημα αξιολόγησης", "συντελεστές βαρύτητας", "μοριοδότηση"), συμπλήρωσε το "selfAssessment":
+- "required": true, και βάλε "threshold" (το κατώφλι), "maxScore" (μέγιστο, συνήθως 100), "scoringModel" ("WEIGHTED" αν υπάρχουν συντελεστές βαρύτητας, αλλιώς "POINTS_SUM"), "sourceNote" (πού βρίσκεται, π.χ. "Παράρτημα III").
+ΑΛΛΙΩΣ "selfAssessment": { "required": false, "threshold": null, "maxScore": null, "scoringModel": null, "sourceNote": null }.
+ΜΗΝ παράγεις τις ίδιες τις ερωτήσεις εδώ — μόνο τη σηματοδότηση.
 
 # Final rules
 
