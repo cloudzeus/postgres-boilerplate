@@ -5,17 +5,18 @@ import { requirePermission } from '@/lib/rbac';
 
 const Schema = z.object({ permissionIds: z.array(z.string().cuid()) });
 
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
+export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   await requirePermission('permissions.assign');
   const body = await req.json();
   const parsed = Schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'invalid' }, { status: 400 });
 
   await prisma.$transaction(async (tx) => {
-    await tx.rolePermission.deleteMany({ where: { roleId: params.id } });
+    await tx.rolePermission.deleteMany({ where: { roleId: id } });
     if (parsed.data.permissionIds.length > 0) {
       await tx.rolePermission.createMany({
-        data: parsed.data.permissionIds.map((permissionId) => ({ roleId: params.id, permissionId })),
+        data: parsed.data.permissionIds.map((permissionId) => ({ roleId: id, permissionId })),
         skipDuplicates: true,
       });
     }

@@ -12,12 +12,13 @@ const PatchSchema = z.object({
   preferredLocales: z.array(z.string().min(2).max(8)).optional(),
 });
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const actor = await requirePermission('users.update');
   const body = await req.json();
   const parsed = PatchSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'invalid' }, { status: 400 });
-  const user = await prisma.user.update({ where: { id: params.id }, data: parsed.data });
+  const user = await prisma.user.update({ where: { id }, data: parsed.data });
   await logAudit({
     userId: actor.id, userEmail: actor.email,
     action: 'users.update', resource: 'user', resourceId: user.id,
@@ -26,13 +27,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   return NextResponse.json({ user });
 }
 
-export async function DELETE(_: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const actor = await requirePermission('users.delete');
-  const target = await prisma.user.findUnique({ where: { id: params.id }, select: { email: true } });
-  await prisma.user.delete({ where: { id: params.id } });
+  const target = await prisma.user.findUnique({ where: { id }, select: { email: true } });
+  await prisma.user.delete({ where: { id } });
   await logAudit({
     userId: actor.id, userEmail: actor.email,
-    action: 'users.delete', resource: 'user', resourceId: params.id,
+    action: 'users.delete', resource: 'user', resourceId: id,
     metadata: { email: target?.email },
   });
   return NextResponse.json({ ok: true });
