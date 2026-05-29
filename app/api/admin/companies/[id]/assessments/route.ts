@@ -25,7 +25,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 const CreateSchema = z.object({ programId: z.string().min(1) });
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  await requirePermission('programs.update');
+  const actor = await requirePermission('programs.update');
   const { id: companyId } = await params;
   const { programId } = CreateSchema.parse(await req.json());
 
@@ -83,7 +83,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       companyId, programId, questionnaireId: program.questionnaire?.id ?? null,
       eligible: elig.eligible, eligibilityResult: elig as any,
       overallVerdict: computeVerdict(elig.eligible, program.questionnaire ? false : null),
-      status: 'DRAFT',
+      status: 'DRAFT', createdById: actor.id ?? null,
     },
   });
 
