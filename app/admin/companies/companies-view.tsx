@@ -1842,6 +1842,12 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
     if (assessments || assessmentsLoading) return;
     await loadAssessments();
   }, [assessments, assessmentsLoading, loadAssessments]);
+  const deleteAssessment = React.useCallback(async (aid: string) => {
+    if (!confirm('Διαγραφή αυτής της αξιολόγησης; Η ενέργεια δεν αναιρείται.')) return;
+    const r = await fetch(`/api/admin/companies/${company.id}/assessments/${aid}`, { method: 'DELETE' });
+    if (r.ok) { toast.success('Διαγράφηκε'); loadAssessments(); }
+    else toast.error('Αποτυχία διαγραφής');
+  }, [company.id, loadAssessments]);
 
   const [assessOpen, setAssessOpen] = React.useState(false);
   const [assessPreset, setAssessPreset] = React.useState<string | null>(null);
@@ -2214,12 +2220,27 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
                         <Badge variant="outline" className={`text-[10px] ${verdict.cls}`}>{verdict.label}</Badge>
                       )}
                       <span className="tabular-nums text-muted-foreground">{score}</span>
+                      <a
+                        href={`/api/admin/companies/${company.id}/assessments/${a.id}/report`}
+                        className="inline-flex items-center gap-1 rounded border border-sisyphus-300 px-2 py-0.5 text-[11px] text-sisyphus-700 hover:bg-sisyphus-50"
+                        title="Λήψη έκθεσης Word"
+                      >
+                        <FiFileText className="size-3" /> Word
+                      </a>
                       <button
                         type="button"
                         onClick={() => { setAssessPreset(a.programId); setAssessOpen(true); }}
                         className="rounded border border-border px-2 py-0.5 text-[11px] hover:bg-muted"
                       >
                         Επανεκτέλεση
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteAssessment(a.id)}
+                        title="Διαγραφή αξιολόγησης"
+                        className="inline-flex size-6 items-center justify-center rounded text-dg-red-600 hover:bg-dg-red-500/10 hover:text-dg-red-700"
+                      >
+                        <FiTrash2 className="size-3.5" />
                       </button>
                     </li>
                   );

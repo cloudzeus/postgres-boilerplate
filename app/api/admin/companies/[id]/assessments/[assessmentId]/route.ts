@@ -83,3 +83,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const fresh = await prisma.companyAssessment.findUnique({ where: { id: assessmentId }, include: { answers: true } });
   return NextResponse.json(fresh);
 }
+
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string; assessmentId: string }> }) {
+  await requirePermission('programs.update');
+  const { assessmentId } = await params;
+  // AssessmentAnswer rows cascade via onDelete: Cascade.
+  await prisma.companyAssessment.delete({ where: { id: assessmentId } }).catch(() => null);
+  return NextResponse.json({ ok: true });
+}
