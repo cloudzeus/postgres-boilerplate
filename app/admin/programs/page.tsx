@@ -58,6 +58,7 @@ export default async function ProgramsPage() {
         title="Ευρωπαϊκά Προγράμματα"
         description="Έξυπνη εξαγωγή προσκλήσεων ΕΣΠΑ/EU με Gemini 2.5 Pro. Επεξεργασία, ΚΑΔ, δαπάνες, περιφέρειες."
         icon={<FiGlobe />}
+        helpAnchor="self-assessment"
       />
 
       {/* KPI strip */}
