@@ -333,6 +333,7 @@ export function OcrTable({
       searchKey="fileName"
       searchPlaceholder="Αναζήτηση εγγράφου…"
       persistKey="admin.ocr.table.v1"
+      enableSelection
       expandable={(row) => (
         <OcrRowDetail row={row} canCategorize={canCategorize} canPost={canPost} />
       )}

@@ -24,23 +24,25 @@ interface TemplateSchema {
 
 export const TEMPLATE_SCHEMAS: Record<DocType, TemplateSchema> = {
   invoice: {
-    systemInstructions: 'You are an expert system specialized in Greek corporate invoices. Greek invoices contain BOTH an issuer (ΕΚΔΟΤΗΣ — the supplier) AND a recipient (ΠΑΡΑΛΗΠΤΗΣ / Πελάτης / Στοιχεία πελάτη — the customer). Extract BOTH parties separately with their full details. Match visual rows accurately. Always extract subtotal (net amount before VAT), VAT amount, and the grand total separately — they appear as ΚΑΘΑΡΗ ΑΞΙΑ / ΣΥΝΟΛΟ ΦΠΑ / ΓΕΝΙΚΟ ΣΥΝΟΛΟ. Also extract the ISSUER\'s phone (ΤΗΛ / Τηλέφωνο) and email when printed on the document (only the issuer\'s, not the customer\'s). If a field is missing, output null.',
+    systemInstructions: 'You are an expert system specialized in Greek financial documents (invoices AND retail receipts). They contain an issuer (ΕΚΔΟΤΗΣ — the supplier / the store) and, on invoices, a recipient (ΠΑΡΑΛΗΠΤΗΣ / Πελάτης — the customer). Extract EVERY field you can see — even on a simple retail receipt, capture the issuer/store details. On a receipt there is usually no customer (leave customer fields null). Match visual rows accurately. Always extract subtotal (net amount before VAT), VAT amount, and the grand total separately — ΚΑΘΑΡΗ ΑΞΙΑ / ΣΥΝΟΛΟ ΦΠΑ / ΓΕΝΙΚΟ ΣΥΝΟΛΟ. Also extract the ISSUER\'s phone (ΤΗΛ / Τηλέφωνο) and email when printed (only the issuer\'s). For retail receipts also capture the time and the number of items if printed. If a field is missing, output null.',
     jsonStructure: `{
-  "companyName": "string (ΕΚΔΟΤΗΣ — Issuer / supplier legal name)",
+  "companyName": "string (ΕΚΔΟΤΗΣ — Issuer / supplier / store legal name)",
   "vatNumber":   "string (ΑΦΜ of the issuer)",
   "companyAddress": "string or null (issuer address)",
   "companyDoy":     "string or null (issuer ΔΟΥ)",
   "companyProfession": "string or null (issuer ΕΠΑΓΓΕΛΜΑ / activity)",
   "companyPhone":   "string or null (issuer phone / ΤΗΛ — only if printed)",
   "companyEmail":   "string or null (issuer email — only if printed)",
-  "customerName":   "string (ΠΑΡΑΛΗΠΤΗΣ / Πελάτης — recipient legal name)",
-  "customerVatNumber": "string (ΑΦΜ of the recipient)",
+  "customerName":   "string or null (ΠΑΡΑΛΗΠΤΗΣ / Πελάτης — recipient legal name; null on receipts)",
+  "customerVatNumber": "string or null (ΑΦΜ of the recipient; null on receipts)",
   "customerAddress": "string or null (recipient address)",
   "customerDoy":     "string or null (recipient ΔΟΥ)",
   "customerProfession": "string or null (recipient ΕΠΑΓΓΕΛΜΑ / activity)",
-  "invoiceNumber": "string",
-  "aadeMark":      "string or null (ΜΑΡΚ ΑΑΔΕ / Μ.ΑΡΚ. — unique myDATA reference printed on the invoice)",
+  "invoiceNumber": "string (invoice or receipt / document number)",
+  "aadeMark":      "string or null (ΜΑΡΚ ΑΑΔΕ / Μ.ΑΡΚ. — unique myDATA reference printed on the document)",
   "date": "string (YYYY-MM-DD)",
+  "time": "string or null (HH:MM — for retail receipts, if printed)",
+  "itemsCount": "number or null (for retail receipts — number of items, if printed)",
   "subtotal":    number,       // ΚΑΘΑΡΗ ΑΞΙΑ — sum of line nets, before VAT
   "vatAmount":   number,       // ΣΥΝΟΛΟ ΦΠΑ — total VAT charged
   "totalAmount": number,       // ΓΕΝΙΚΟ ΣΥΝΟΛΟ — grand total (subtotal + vatAmount)
@@ -93,7 +95,9 @@ export const REQUIRED_FIELDS: Record<DocType, string[]> = {
     'invoiceNumber', 'date',
     'subtotal', 'vatAmount', 'totalAmount',
   ],
-  receipt: ['storeName', 'invoiceNumber', 'vatNumber', 'date', 'totalAmount'],
+  // Receipts are extracted with the invoice (superset) schema, so the issuer is
+  // `companyName` (the store), not `storeName`.
+  receipt: ['companyName', 'invoiceNumber', 'vatNumber', 'date', 'totalAmount'],
   general_text: ['title', 'fullText'],
 };
 
@@ -115,7 +119,9 @@ export function buildSystemPrompt(
   example?: unknown,
   fieldHints?: unknown,
 ): string {
-  const tpl = TEMPLATE_SCHEMAS[docType];
+  // Always extract the full (invoice) field set for financial documents — same
+  // OCR cost, and the user reduces what is shown per chosen type afterwards.
+  const tpl = TEMPLATE_SCHEMAS[docType === 'receipt' ? 'invoice' : docType];
   const ln = SUPPORTED_LANGUAGES[lang];
   const lines = [
     'You are a highly resilient JSON document extraction node.',
