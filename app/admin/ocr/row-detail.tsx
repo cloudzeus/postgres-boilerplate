@@ -133,9 +133,9 @@ function CellInput({
 /** Pass/neutral/fail reconciliation row. */
 function CheckRow({ ok, label, got, exp }: { ok: boolean | null | undefined; label: string; got: string; exp: string }) {
   const tone = ok == null
-    ? 'border-border bg-muted/60 text-foreground/80'
+    ? 'border-border bg-muted/60 text-foreground'
     : ok
-      ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-800 dark:border-emerald-400/50 dark:bg-emerald-500/25 dark:text-emerald-200'
+      ? 'border-green-600/60 bg-green-500/20 text-green-900 dark:border-green-400/50 dark:bg-green-500/25 dark:text-green-200'
       : 'border-amber-500/60 bg-amber-500/20 text-amber-900 dark:border-amber-400/50 dark:bg-amber-500/25 dark:text-amber-200';
   return (
     <div className={cn('flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-[11px] font-medium', tone)}>
@@ -330,7 +330,7 @@ export function OcrRowDetail({
         {totalsBothPresent && (
           <div className={cn(
             'mt-1 flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[11px] font-semibold',
-            totalsOk ? 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-200' : 'bg-amber-500/20 text-amber-900 dark:text-amber-200',
+            totalsOk ? 'bg-green-500/20 text-green-900 dark:text-green-200' : 'bg-amber-500/20 text-amber-900 dark:text-amber-200',
           )}>
             <span className="inline-flex items-center gap-1">
               {totalsOk ? <FiCheck className="size-3.5" /> : <FiAlertCircle className="size-3.5" />}
