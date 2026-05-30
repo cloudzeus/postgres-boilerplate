@@ -37,15 +37,19 @@ const FIELD_SPECS: Record<string, FieldSpec[]> = {
     { key: 'totalAmount',        label: 'Γενικό Σύνολο', required: true, numeric: true, group: 'totals' },
   ],
   RECEIPT: [
-    { key: 'storeName',     label: 'Κατάστημα',     required: true, wide: true, group: 'main' },
-    { key: 'vatNumber',     label: 'ΑΦΜ εκδότη',    required: true, group: 'main' },
-    { key: 'invoiceNumber', label: 'Αρ. Αποδείξεως', required: true, group: 'main' },
-    { key: 'date',          label: 'Ημερομηνία',    required: true, group: 'main' },
-    { key: 'time',          label: 'Ώρα', group: 'main' },
-    { key: 'phone',         label: 'Τηλέφωνο', group: 'main' },
-    { key: 'email',         label: 'Email', group: 'main' },
-    { key: 'itemsCount',    label: 'Πλήθος ειδών',  numeric: true, group: 'main' },
-    { key: 'totalAmount',   label: 'Σύνολο',        required: true, numeric: true, group: 'totals' },
+    { key: 'companyName',    label: 'Κατάστημα / Εκδότης', required: true, wide: true, group: 'main' },
+    { key: 'vatNumber',      label: 'ΑΦΜ',          required: true, group: 'main' },
+    { key: 'companyDoy',     label: 'ΔΟΥ',          group: 'main' },
+    { key: 'companyAddress', label: 'Διεύθυνση',    wide: true, group: 'main' },
+    { key: 'companyPhone',   label: 'Τηλέφωνο',     group: 'main' },
+    { key: 'companyEmail',   label: 'Email',        group: 'main' },
+    { key: 'invoiceNumber',  label: 'Αρ. Αποδείξεως', required: true, group: 'main' },
+    { key: 'date',           label: 'Ημερομηνία',   required: true, group: 'main' },
+    { key: 'time',           label: 'Ώρα',          group: 'main' },
+    { key: 'itemsCount',     label: 'Πλήθος ειδών', numeric: true, group: 'main' },
+    { key: 'subtotal',       label: 'Καθαρή αξία',  numeric: true, group: 'totals' },
+    { key: 'vatAmount',      label: 'ΦΠΑ',          numeric: true, group: 'totals' },
+    { key: 'totalAmount',    label: 'Σύνολο',       required: true, numeric: true, group: 'totals' },
   ],
   GENERAL_TEXT: [
     { key: 'title',    label: 'Τίτλος',    required: true, wide: true, group: 'main' },
@@ -153,14 +157,27 @@ export function OcrRowDetail({
 }: { row: OcrRow; canCategorize: boolean; canPost: boolean }) {
   const router = useRouter();
   const data = (row.extractedData ?? {}) as Record<string, any>;
-  const specs = FIELD_SPECS[row.docType] ?? [];
-  const isInvoice = row.docType === 'INVOICE';
   const ro = !canCategorize;
+
+  // The user can re-classify the document after the scan; the full field set is
+  // always extracted, so switching type only changes which fields are shown.
+  const [docType, setDocType] = React.useState<string>(row.docType);
+  const specs = FIELD_SPECS[docType] ?? [];
+  const isInvoice = docType === 'INVOICE';
+
+  // Union of every key across all types — so values survive a type switch and the
+  // editor always has the full extracted payload in hand.
+  const ALL_SPECS = React.useMemo(() => {
+    const m = new Map<string, FieldSpec>();
+    for (const list of Object.values(FIELD_SPECS)) for (const s of list) if (!m.has(s.key)) m.set(s.key, s);
+    return [...m.values()];
+  }, []);
 
   const initialForm = React.useMemo(() => {
     const f: Record<string, string> = {};
-    for (const s of specs) {
-      const raw = data[s.key];
+    for (const s of ALL_SPECS) {
+      // Receipts used to store `storeName`; the unified schema uses `companyName`.
+      const raw = s.key === 'companyName' ? (data.companyName ?? data.storeName) : data[s.key];
       if (s.group === 'totals' || s.numeric) f[s.key] = fmt2(raw);
       else if (s.key === 'keywords' && Array.isArray(raw)) f[s.key] = raw.join(', ');
       else f[s.key] = raw != null ? String(raw) : '';
@@ -179,7 +196,7 @@ export function OcrRowDetail({
   const dirty =
     JSON.stringify(form) !== JSON.stringify(initialForm) ||
     JSON.stringify(items) !== JSON.stringify(initialItems) ||
-    category !== (row.category ?? '') || notes !== '';
+    category !== (row.category ?? '') || notes !== '' || docType !== row.docType;
 
   const missing = specs.filter((s) => s.required && !String(form[s.key] ?? '').trim());
   const fileUrl = `/api/admin/ocr/${row.id}/file`;
@@ -204,11 +221,13 @@ export function OcrRowDetail({
   }
   function addLine() { setItems((arr) => [...arr, { ...EMPTY_LINE }]); }
   function removeLine(idx: number) { setItems((arr) => arr.filter((_, i) => i !== idx)); }
-  function reset() { setForm(initialForm); setItems(initialItems); setCategory(row.category ?? ''); setNotes(''); }
+  function reset() { setForm(initialForm); setItems(initialItems); setCategory(row.category ?? ''); setNotes(''); setDocType(row.docType); }
 
   function buildExtractedData() {
     const out: Record<string, any> = { ...data };
-    for (const s of specs) {
+    // Write every known key (not just the visible subset) so edits survive a type switch.
+    for (const s of ALL_SPECS) {
+      if (!(s.key in form)) continue;
       const v = form[s.key];
       if (s.key === 'keywords') out.keywords = String(v ?? '').split(',').map((k) => k.trim()).filter(Boolean);
       else if (s.numeric || s.group === 'totals') out[s.key] = toNum(v);
@@ -228,7 +247,7 @@ export function OcrRowDetail({
     setSaving(true);
     try {
       const extractedData = buildExtractedData();
-      const body: any = { category: category || null, notes: notes || null, extractedData };
+      const body: any = { category: category || null, notes: notes || null, extractedData, docType };
       if (isInvoice) body.items = extractedData.items;
       const res = await fetch(`/api/admin/ocr/${row.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -279,6 +298,50 @@ export function OcrRowDetail({
     );
   };
   const byGroup = (g: Group) => specs.filter((s) => s.group === g);
+
+  const totalsBox = byGroup('totals').length > 0 ? (
+    <div className="ml-auto w-full max-w-md overflow-hidden rounded-lg border border-border bg-card">
+      <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-foreground">
+        Σύνολα
+      </header>
+      <div className="space-y-1 p-3">
+        {byGroup('totals').map((s) => {
+          const grand = s.key === 'totalAmount';
+          return (
+            <React.Fragment key={s.key}>
+              {grand && <div className="my-1.5 border-t border-dotted border-muted-foreground/50" />}
+              <div className={cn('flex items-center justify-between gap-3 rounded-md px-2 py-1', grand && 'bg-sisyphus-500/10')}>
+                <span className={cn('text-[12px]', grand ? 'font-bold text-sisyphus-700 dark:text-sisyphus-300' : 'font-medium text-foreground')}>
+                  {s.label}
+                </span>
+                <input
+                  type="text" inputMode="decimal" disabled={ro}
+                  value={form[s.key] ?? ''} onChange={(e) => setField(s.key, e.target.value)} onBlur={() => blurFmt(s.key)}
+                  className={cn(
+                    'w-[140px] rounded-md border border-input bg-background px-2 py-1 text-right font-mono text-[12px] tabular-nums text-foreground transition',
+                    'focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60',
+                    grand && 'border-sisyphus-500/50 font-bold text-sisyphus-700 dark:text-sisyphus-300',
+                  )}
+                />
+              </div>
+            </React.Fragment>
+          );
+        })}
+        {totalsBothPresent && (
+          <div className={cn(
+            'mt-1 flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[11px] font-semibold',
+            totalsOk ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+          )}>
+            <span className="inline-flex items-center gap-1">
+              {totalsOk ? <FiCheck className="size-3.5" /> : <FiAlertCircle className="size-3.5" />}
+              Καθαρή + ΦΠΑ {totalsOk ? '= Σύνολο ✓' : tTotal != null ? '≠ Σύνολο' : ''}
+            </span>
+            <span className="font-mono tabular-nums">{fmt2(tSum)}{!totalsOk && tTotal != null && ` / ${fmt2(tTotal)}`}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div className="bg-muted/30 p-3">
@@ -354,50 +417,15 @@ export function OcrRowDetail({
                   </div>
 
                   {/* Totals box (label left / amount right, 2 decimals, sum check) */}
-                  <div className="ml-auto w-full max-w-md overflow-hidden rounded-lg border border-border bg-card">
-                    <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-foreground">
-                      Σύνολα
-                    </header>
-                    <div className="space-y-1 p-3">
-                      {byGroup('totals').map((s) => {
-                        const grand = s.key === 'totalAmount';
-                        return (
-                          <React.Fragment key={s.key}>
-                            {grand && <div className="my-1.5 border-t border-dotted border-muted-foreground/50" />}
-                            <div className={cn('flex items-center justify-between gap-3 rounded-md px-2 py-1', grand && 'bg-sisyphus-500/10')}>
-                              <span className={cn('text-[12px]', grand ? 'font-bold text-sisyphus-700 dark:text-sisyphus-300' : 'font-medium text-foreground')}>
-                                {s.label}
-                              </span>
-                              <input
-                                type="text" inputMode="decimal" disabled={ro}
-                                value={form[s.key] ?? ''} onChange={(e) => setField(s.key, e.target.value)} onBlur={() => blurFmt(s.key)}
-                                className={cn(
-                                  'w-[140px] rounded-md border border-input bg-background px-2 py-1 text-right font-mono text-[12px] tabular-nums text-foreground transition',
-                                  'focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60',
-                                  grand && 'border-sisyphus-500/50 font-bold text-sisyphus-700 dark:text-sisyphus-300',
-                                )}
-                              />
-                            </div>
-                          </React.Fragment>
-                        );
-                      })}
-                      {totalsBothPresent && (
-                        <div className={cn(
-                          'mt-1 flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[11px] font-semibold',
-                          totalsOk ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
-                        )}>
-                          <span className="inline-flex items-center gap-1">
-                            {totalsOk ? <FiCheck className="size-3.5" /> : <FiAlertCircle className="size-3.5" />}
-                            Καθαρή + ΦΠΑ {totalsOk ? '= Σύνολο ✓' : tTotal != null ? '≠ Σύνολο' : ''}
-                          </span>
-                          <span className="font-mono tabular-nums">{fmt2(tSum)}{!totalsOk && tTotal != null && ` / ${fmt2(tTotal)}`}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  {totalsBox}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">{specs.map(field)}</div>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
+                    {specs.filter((s) => s.group !== 'totals').map(field)}
+                  </div>
+                  {totalsBox}
+                </div>
               )}
             </TabsContent>
 
@@ -511,7 +539,15 @@ export function OcrRowDetail({
 
           {/* ---- Footer ---- */}
           <div className="flex flex-col gap-2 border-t border-border bg-muted/20 px-3 py-2.5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2 lg:max-w-xl">
+            <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-3 lg:max-w-2xl">
+              <label className="flex flex-col gap-0.5">
+                <span className={LABEL_CLS}>Τύπος παραστατικού</span>
+                <select value={docType} disabled={ro} onChange={(e) => setDocType(e.target.value)} className={INPUT_CLS}>
+                  <option value="INVOICE">Τιμολόγιο</option>
+                  <option value="RECEIPT">Απόδειξη</option>
+                  <option value="GENERAL_TEXT">Ελεύθερο κείμενο</option>
+                </select>
+              </label>
               <label className="flex flex-col gap-0.5">
                 <span className={LABEL_CLS}>Κατηγορία</span>
                 <select value={category} disabled={ro} onChange={(e) => setCategory(e.target.value)} className={INPUT_CLS}>

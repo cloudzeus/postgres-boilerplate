@@ -27,7 +27,7 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
   }
 
   const fieldList = doc.docType === 'RECEIPT'
-    ? ['storeName', 'vatNumber', 'invoiceNumber', 'date', 'phone', 'email', 'totalAmount']
+    ? ['companyName', 'vatNumber', 'invoiceNumber', 'date', 'companyPhone', 'companyEmail', 'subtotal', 'vatAmount', 'totalAmount']
     : ['companyName', 'vatNumber', 'companyPhone', 'companyEmail', 'customerName', 'customerVatNumber', 'invoiceNumber', 'date', 'subtotal', 'vatAmount', 'totalAmount'];
 
   const correction = (doc.docType === 'INVOICE' || doc.docType === 'RECEIPT') ? (
@@ -90,7 +90,7 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
         {correction}
         <div className="mx-auto max-w-sm rounded-xl border border-border bg-card p-5 font-mono space-y-3 shadow-sm">
         <div className="border-b border-dashed border-border pb-3 text-center">
-          <h3 className="text-base font-bold uppercase">{data.storeName ?? 'POS'}</h3>
+          <h3 className="text-base font-bold uppercase">{data.companyName ?? data.storeName ?? 'POS'}</h3>
           <p className="text-xs text-muted-foreground">
             {data.date ?? '—'} {data.time ?? ''}
           </p>

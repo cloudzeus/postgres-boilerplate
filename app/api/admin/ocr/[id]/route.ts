@@ -12,6 +12,7 @@ const ItemSchema = z.object({
 });
 const PatchSchema = z.object({
   category: z.enum(['EXPENSE','INVOICE_IN','INVOICE_OUT','RECEIPT','CREDIT_NOTE','PAYROLL','TAX','OTHER']).nullable().optional(),
+  docType: z.enum(['INVOICE','RECEIPT','GENERAL_TEXT']).optional(),
   notes: z.string().max(4000).nullable().optional(),
   extractedData: z.record(z.string(), z.any()).optional(),
   items: z.array(ItemSchema).optional(),
