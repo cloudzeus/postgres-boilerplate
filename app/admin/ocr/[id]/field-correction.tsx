@@ -12,6 +12,8 @@ const FIELD_LABELS: Record<string, string> = {
   invoiceNumber: 'Αρ. Παραστατικού', date: 'Ημερομηνία',
   subtotal: 'Καθαρή Αξία', vatAmount: 'ΦΠΑ', totalAmount: 'Σύνολο',
   storeName: 'Κατάστημα',
+  companyPhone: 'Τηλέφωνο Εκδότη', companyEmail: 'Email Εκδότη',
+  phone: 'Τηλέφωνο', email: 'Email',
 };
 
 export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields }: {

@@ -24,13 +24,15 @@ interface TemplateSchema {
 
 export const TEMPLATE_SCHEMAS: Record<DocType, TemplateSchema> = {
   invoice: {
-    systemInstructions: 'You are an expert system specialized in Greek corporate invoices. Greek invoices contain BOTH an issuer (ΕΚΔΟΤΗΣ — the supplier) AND a recipient (ΠΑΡΑΛΗΠΤΗΣ / Πελάτης / Στοιχεία πελάτη — the customer). Extract BOTH parties separately with their full details. Match visual rows accurately. Always extract subtotal (net amount before VAT), VAT amount, and the grand total separately — they appear as ΚΑΘΑΡΗ ΑΞΙΑ / ΣΥΝΟΛΟ ΦΠΑ / ΓΕΝΙΚΟ ΣΥΝΟΛΟ. If a field is missing, output null.',
+    systemInstructions: 'You are an expert system specialized in Greek corporate invoices. Greek invoices contain BOTH an issuer (ΕΚΔΟΤΗΣ — the supplier) AND a recipient (ΠΑΡΑΛΗΠΤΗΣ / Πελάτης / Στοιχεία πελάτη — the customer). Extract BOTH parties separately with their full details. Match visual rows accurately. Always extract subtotal (net amount before VAT), VAT amount, and the grand total separately — they appear as ΚΑΘΑΡΗ ΑΞΙΑ / ΣΥΝΟΛΟ ΦΠΑ / ΓΕΝΙΚΟ ΣΥΝΟΛΟ. Also extract the ISSUER\'s phone (ΤΗΛ / Τηλέφωνο) and email when printed on the document (only the issuer\'s, not the customer\'s). If a field is missing, output null.',
     jsonStructure: `{
   "companyName": "string (ΕΚΔΟΤΗΣ — Issuer / supplier legal name)",
   "vatNumber":   "string (ΑΦΜ of the issuer)",
   "companyAddress": "string or null (issuer address)",
   "companyDoy":     "string or null (issuer ΔΟΥ)",
   "companyProfession": "string or null (issuer ΕΠΑΓΓΕΛΜΑ / activity)",
+  "companyPhone":   "string or null (issuer phone / ΤΗΛ — only if printed)",
+  "companyEmail":   "string or null (issuer email — only if printed)",
   "customerName":   "string (ΠΑΡΑΛΗΠΤΗΣ / Πελάτης — recipient legal name)",
   "customerVatNumber": "string (ΑΦΜ of the recipient)",
   "customerAddress": "string or null (recipient address)",
@@ -56,13 +58,15 @@ export const TEMPLATE_SCHEMAS: Record<DocType, TemplateSchema> = {
 }`,
   },
   receipt: {
-    systemInstructions: 'You are a system specialized in retail B2C receipts and tax-document receipts. Always extract the issuer\'s VAT number (ΑΦΜ — 9 Greek digits) and the receipt/document number when visible. Receipts are compact; preserve totals exactly.',
+    systemInstructions: 'You are a system specialized in retail B2C receipts and tax-document receipts. Always extract the issuer\'s VAT number (ΑΦΜ — 9 Greek digits) and the receipt/document number when visible. Also extract the issuer/store phone (ΤΗΛ) and email when printed. Receipts are compact; preserve totals exactly.',
     jsonStructure: `{
   "storeName": "string (Issuer name / brand)",
   "vatNumber": "string (9-digit Greek ΑΦΜ of the issuer — required if visible)",
   "invoiceNumber": "string (Receipt / document number — required if visible)",
   "date": "string (YYYY-MM-DD)",
   "time": "string (HH:MM or null)",
+  "phone": "string or null (store phone / ΤΗΛ — only if printed)",
+  "email": "string or null (store email — only if printed)",
   "itemsCount": number,
   "totalAmount": number
 }`,

@@ -27,8 +27,8 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
   }
 
   const fieldList = doc.docType === 'RECEIPT'
-    ? ['storeName', 'vatNumber', 'invoiceNumber', 'date', 'totalAmount']
-    : ['companyName', 'vatNumber', 'customerName', 'customerVatNumber', 'invoiceNumber', 'date', 'subtotal', 'vatAmount', 'totalAmount'];
+    ? ['storeName', 'vatNumber', 'invoiceNumber', 'date', 'phone', 'email', 'totalAmount']
+    : ['companyName', 'vatNumber', 'companyPhone', 'companyEmail', 'customerName', 'customerVatNumber', 'invoiceNumber', 'date', 'subtotal', 'vatAmount', 'totalAmount'];
 
   const correction = (doc.docType === 'INVOICE' || doc.docType === 'RECEIPT') ? (
     <FieldCorrection

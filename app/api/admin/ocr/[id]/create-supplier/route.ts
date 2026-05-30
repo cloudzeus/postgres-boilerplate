@@ -56,6 +56,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const data = (doc.extractedData ?? {}) as any;
   const sourceKey = role === 'CUSTOMER' ? 'customerVatNumber' : 'vatNumber';
   const afmRaw = String(data?.[sourceKey] ?? '').replace(/\D+/g, '');
+
+  // Contact info is only captured for the ISSUER (supplier), so we only flow it
+  // into a SUPPLIER company — never onto a customer record.
+  const scanPhone = role === 'SUPPLIER' ? (String(data?.companyPhone ?? data?.phone ?? '').trim() || null) : null;
+  const scanEmail = role === 'SUPPLIER' ? (String(data?.companyEmail ?? data?.email ?? '').trim() || null) : null;
   if (!/^\d{9}$/.test(afmRaw)) {
     return NextResponse.json({
       error: role === 'CUSTOMER'
@@ -78,7 +83,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       update: {},
       create: { companyId: existing.id, typeId: typeRow.id },
     });
-    return NextResponse.json({ company: existing, reused: true, role });
+    // Backfill phone/email from the scan only when the existing record lacks them.
+    const fill: { phone?: string; email?: string } = {};
+    if (scanPhone && !existing.phone) fill.phone = scanPhone;
+    if (scanEmail && !existing.email) fill.email = scanEmail;
+    const updated = Object.keys(fill).length
+      ? await prisma.company.update({ where: { id: existing.id }, data: fill })
+      : existing;
+    return NextResponse.json({ company: updated, reused: true, role });
   }
 
   // AADE lookup
@@ -135,6 +147,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       profession,
       foundingDate: validFounding,
       isActive,
+      ...(scanPhone ? { phone: scanPhone } : {}),
+      ...(scanEmail ? { email: scanEmail } : {}),
       aadeSyncedAt: new Date(),
       ...(geo ? { latitude: geo.lat, longitude: geo.lng, geocodedAt: new Date(), geocodedAddress: geo.formatted } : {}),
       types: { create: [{ typeId: typeRow.id }] },
