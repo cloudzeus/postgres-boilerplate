@@ -26,6 +26,8 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 export interface RetryOpts {
   attempts?: number;
   baseMs?: number;
+  /** Short context string for diagnostic logs (e.g. the model name). */
+  label?: string;
   /** Injectable for tests. */
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
@@ -46,6 +48,7 @@ export async function fetchWithRetry(
   const sleep = opts.sleep ?? ((ms: number) => defaultSleep(ms));
   const rand = opts.rand ?? Math.random;
 
+  const tag = opts.label ? `[ocr-fetch-retry ${opts.label}]` : '[ocr-fetch-retry]';
   let lastRes: Response | null = null;
   for (let attempt = 0; attempt < attempts; attempt++) {
     const isLast = attempt === attempts - 1;
@@ -53,14 +56,21 @@ export async function fetchWithRetry(
     try {
       res = await doFetch(url, init);
     } catch (err) {
-      if (isLast) throw err;            // network error — retry unless exhausted
-      await sleep(nextDelayMs(attempt, baseMs, rand));
+      if (isLast) { console.error(`${tag} network error on final attempt ${attempt + 1}/${attempts}:`, (err as any)?.message ?? err); throw err; }
+      const delay = nextDelayMs(attempt, baseMs, rand);
+      console.warn(`${tag} network error on attempt ${attempt + 1}/${attempts}, retrying in ${delay}ms`);
+      await sleep(delay);
       continue;
     }
-    if (!isRetryableStatus(res.status) || isLast) return res;
+    if (!isRetryableStatus(res.status) || isLast) {
+      if (isRetryableStatus(res.status)) console.error(`${tag} exhausted after ${attempts} attempts; last upstream status ${res.status}`);
+      return res;
+    }
     lastRes = res;
+    const delay = nextDelayMs(attempt, baseMs, rand);
+    console.warn(`${tag} upstream ${res.status} on attempt ${attempt + 1}/${attempts}, retrying in ${delay}ms`);
     await res.text().catch(() => {});   // free the socket before retrying
-    await sleep(nextDelayMs(attempt, baseMs, rand));
+    await sleep(delay);
   }
   // Exhausted on retryable statuses: hand back the last response so the caller
   // can surface the real upstream status/body.
