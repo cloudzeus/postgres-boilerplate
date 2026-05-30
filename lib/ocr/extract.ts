@@ -5,6 +5,7 @@ import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
 import { qualityScore, fixSwappedParties } from '@/lib/ocr/validate';
 import { resolveOwnAfm } from '@/lib/ocr/own-afm';
 import { findSupplierTemplate, mergeFromTemplatePass } from '@/lib/ocr/templates-store';
+import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
 
 export type PdfSource = 'auto' | 'digital' | 'scanned';
 
@@ -196,7 +197,7 @@ async function rasterizePdf(buffer: Buffer, maxPages = 3, scale = 2): Promise<Bu
 }
 
 async function callTextLLM(cfg: DeepSeekCfg, system: string, userContent: string) {
-  const res = await fetch(cfg.textUrl, {
+  const res = await fetchWithRetry(cfg.textUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.textKey}` },
     body: JSON.stringify({
@@ -244,7 +245,7 @@ async function callGeminiPdfNative(
   const model = modelOverride ?? cfg.visionModel;
   // Use Gemini's native v1beta endpoint (not OpenAI-compat) so we can pass inline_data with application/pdf.
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${cfg.visionKey}`;
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -285,7 +286,7 @@ async function callVisionLLM(
   if (!cfg.visionKey) throw new Error('Vision API key is not configured (settings: ai.visionApiKey).');
   const model = modelOverride ?? cfg.visionModel;
   const dataUrl = `data:${mimeType};base64,${imageBase64}`;
-  const res = await fetch(cfg.visionUrl, {
+  const res = await fetchWithRetry(cfg.visionUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.visionKey}` },
     body: JSON.stringify({

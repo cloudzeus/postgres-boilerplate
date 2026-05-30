@@ -6,6 +6,7 @@ import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { getSetting } from '@/lib/settings';
 import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
+import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -94,7 +95,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   if (!visionKey) return NextResponse.json({ error: 'vision key not configured' }, { status: 500 });
 
-  const visionRes = await fetch(visionUrl, {
+  const visionRes = await fetchWithRetry(visionUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${visionKey}` },
     body: JSON.stringify({
