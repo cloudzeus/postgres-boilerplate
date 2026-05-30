@@ -222,10 +222,10 @@ export function OcrResultModal({ open, documentId, onClose }: ResultModalProps) 
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative my-auto w-full max-w-6xl rounded-xl bg-card shadow-fluent-16 ring-1 ring-border/60 animate-slide-up overflow-hidden"
+        className="relative my-auto flex max-h-[calc(100vh-2rem)] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-card shadow-fluent-16 ring-1 ring-border/60 animate-slide-up"
       >
         {/* HEADER — hero band */}
-        <header className="relative border-b border-border bg-gradient-to-br from-sisyphus-50 via-card to-card px-6 py-4">
+        <header className="relative shrink-0 border-b border-border bg-gradient-to-br from-sisyphus-50 via-card to-card px-6 py-4">
           <div className="flex items-start gap-3">
             <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-md bg-sisyphus-500 text-white shadow-fluent-2">
               <FiZap className="size-5" />
@@ -294,9 +294,9 @@ export function OcrResultModal({ open, documentId, onClose }: ResultModalProps) 
         </header>
 
         {/* BODY — split layout */}
-        <div className="grid max-h-[calc(100vh-280px)] grid-cols-1 overflow-hidden lg:grid-cols-[42%_58%]">
+        <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[42%_58%]">
           {/* LEFT — Preview */}
-          <aside className="relative flex flex-col border-b border-border bg-neutral-6/60 dg-mica lg:border-b-0 lg:border-r">
+          <aside className="relative flex min-h-0 flex-col border-b border-border bg-neutral-6/60 dg-mica lg:border-b-0 lg:border-r">
             <div className="flex items-center justify-between px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               <span>Πρωτότυπο</span>
               {doc && (
@@ -478,7 +478,7 @@ export function OcrResultModal({ open, documentId, onClose }: ResultModalProps) 
         </div>
 
         {/* FOOTER — actions */}
-        <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-neutral-6/50 px-6 py-3">
+        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border bg-neutral-6/50 px-6 py-3">
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
