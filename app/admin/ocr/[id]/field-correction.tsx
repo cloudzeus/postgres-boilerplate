@@ -1,7 +1,7 @@
 // app/admin/ocr/[id]/field-correction.tsx
 'use client';
 import { useState, useMemo } from 'react';
-import { Button, Input } from '@/lib/design-system';
+import { Button } from '@/lib/design-system';
 import { useMarquee, type NormBox } from './use-marquee';
 
 type Hints = Record<string, { page: number; bbox: [number, number, number, number] }>;
@@ -86,11 +86,13 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
       {/* Field editors */}
       <div className="space-y-3">
         {fields.map((f) => (
-          <div key={f} className={`flex items-end gap-2 p-2 rounded-md ${activeField===f ? 'ring-2 ring-sisyphus-500' : ''}`}>
-            <div className="flex-1">
-              <Input label={FIELD_LABELS[f] ?? f} value={data[f] ?? ''}
-                onChange={(e) => setData((d) => ({ ...d, [f]: e.target.value }))} />
-            </div>
+          <div key={f} className={`flex items-end gap-2 rounded-md p-1.5 ${activeField===f ? 'ring-2 ring-sisyphus-500' : ''}`}>
+            <label className="flex flex-1 flex-col gap-0.5">
+              <span className="text-caption font-semibold uppercase tracking-wide text-muted-foreground">{FIELD_LABELS[f] ?? f}</span>
+              <input value={data[f] ?? ''}
+                onChange={(e) => setData((d) => ({ ...d, [f]: e.target.value }))}
+                className="h-9 w-full rounded-md border border-border bg-card px-2 text-body-sm focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25" />
+            </label>
             <Button size="sm" variant="subtle" type="button" disabled={busy}
               aria-label={`Μαρκάρισμα περιοχής για ${FIELD_LABELS[f] ?? f}`}
               title={`Μαρκάρισμα περιοχής για ${FIELD_LABELS[f] ?? f}`}
