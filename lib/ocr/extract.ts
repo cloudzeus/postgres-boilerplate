@@ -2,6 +2,8 @@ import sharp from 'sharp';
 import { getSetting } from '@/lib/settings';
 import { buildSystemPrompt, countMissingRequired, REQUIRED_FIELDS, type DocType, type SupportedLang } from '@/lib/ocr/templates';
 import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
+import { qualityScore, fixSwappedParties } from '@/lib/ocr/validate';
+import { resolveOwnAfm } from '@/lib/ocr/own-afm';
 
 export type PdfSource = 'auto' | 'digital' | 'scanned';
 
@@ -419,6 +421,8 @@ export async function extractDocument(input: ExtractInput): Promise<ExtractResul
     const b64 = enhanced.buffer.toString('base64');
     const out = await callVisionLLM(cfg, system, b64, enhanced.mimeType);
     let data = parseJsonLoose(out.content);
+    const ownAfm = await resolveOwnAfm();
+    data = fixSwappedParties(data, ownAfm);
     let model = out.model;
     let tokens = out.tokens;
     let passes = 1;
@@ -432,7 +436,7 @@ export async function extractDocument(input: ExtractInput): Promise<ExtractResul
         const retryData = parseJsonLoose(retry.content);
         passes = 2;
         // Keep whichever has fewer missing required fields.
-        if (countMissingRequired(retryData, input.docType) < countMissingRequired(data, input.docType)) {
+        if (qualityScore(retryData, input.docType) < qualityScore(data, input.docType)) {
           data = retryData;
           model = retry.model;
           tokens = (tokens ?? 0) + (retry.tokens ?? 0);
@@ -519,6 +523,8 @@ async function runScannedPdf(
   if (cfg.visionUrl.includes('generativelanguage.googleapis.com')) {
     const out = await callGeminiPdfNative(cfg, system, buffer);
     let data = parseJsonLoose(out.content);
+    const ownAfm = await resolveOwnAfm();
+    data = fixSwappedParties(data, ownAfm);
     let model = out.model;
     let tokens = out.tokens;
     let passes = 1;
@@ -529,7 +535,7 @@ async function runScannedPdf(
         const r = await callGeminiPdfNative(cfg, system, buffer, UPGRADED_VISION_MODEL);
         const retryData = parseJsonLoose(r.content);
         passes = 2;
-        if (countMissingRequired(retryData, docType) < countMissingRequired(data, docType)) {
+        if (qualityScore(retryData, docType) < qualityScore(data, docType)) {
           data = retryData; model = r.model;
           tokens = (tokens ?? 0) + (r.tokens ?? 0);
           retried = true;
@@ -555,6 +561,8 @@ async function runScannedPdf(
   );
   let parsed = perPage.map((p) => parseJsonLoose(p.content));
   let merged = mergePages(parsed, docType);
+  const ownAfm = await resolveOwnAfm();
+  merged = fixSwappedParties(merged, docType === 'invoice' ? ownAfm : null) as any;
   let model = perPage[0].model;
   let tokensUsed = perPage.reduce((sum, p) => sum + (p.tokens ?? 0), 0) || null;
   let passes = 1;
@@ -570,7 +578,7 @@ async function runScannedPdf(
       const retryParsed = retryPages.map((p) => parseJsonLoose(p.content));
       const retryMerged = mergePages(retryParsed, docType);
       passes = 2;
-      if (countMissingRequired(retryMerged, docType) < countMissingRequired(merged, docType)) {
+      if (qualityScore(retryMerged, docType) < qualityScore(merged, docType)) {
         merged = retryMerged;
         parsed = retryParsed;
         model = retryPages[0].model;
