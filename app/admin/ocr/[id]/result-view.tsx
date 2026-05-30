@@ -143,10 +143,10 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
 function Field({ label, value, mono, accent }: { label: string; value: any; mono?: boolean; accent?: boolean }) {
   return (
     <div>
-      <span className="block text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">{label}</span>
+      <span className="block text-caption uppercase tracking-wider font-semibold text-muted-foreground">{label}</span>
       <p className={[
         'mt-0.5 truncate',
-        mono ? 'font-mono text-sm' : 'text-sm',
+        mono ? 'font-mono text-body-sm' : 'text-body-sm',
         accent ? 'text-primary font-bold' : 'text-foreground font-semibold',
       ].join(' ')}>
         {value ?? '-'}
