@@ -12,7 +12,7 @@ import { type OcrRow } from './ocr-table';
 /* Field specs — the SAME layout for every document of a given type    */
 /* ------------------------------------------------------------------ */
 
-interface FieldSpec { key: string; label: string; required?: boolean; numeric?: boolean; wide?: boolean; textarea?: boolean }
+interface FieldSpec { key: string; label: string; required?: boolean; numeric?: boolean; wide?: boolean; textarea?: boolean; totals?: boolean }
 
 const FIELD_SPECS: Record<string, FieldSpec[]> = {
   INVOICE: [
@@ -30,9 +30,9 @@ const FIELD_SPECS: Record<string, FieldSpec[]> = {
     { key: 'invoiceNumber',      label: 'Αρ. Τιμολογίου',     required: true },
     { key: 'aadeMark',           label: 'ΜΑΡΚ ΑΑΔΕ' },
     { key: 'date',               label: 'Ημερομηνία',         required: true },
-    { key: 'subtotal',           label: 'Καθαρή αξία',        required: true, numeric: true },
-    { key: 'vatAmount',          label: 'ΦΠΑ',                required: true, numeric: true },
-    { key: 'totalAmount',        label: 'Γενικό Σύνολο',      required: true, numeric: true },
+    { key: 'subtotal',           label: 'Καθαρή αξία',        required: true, numeric: true, totals: true },
+    { key: 'vatAmount',          label: 'ΦΠΑ',                required: true, numeric: true, totals: true },
+    { key: 'totalAmount',        label: 'Γενικό Σύνολο',      required: true, numeric: true, totals: true },
   ],
   RECEIPT: [
     { key: 'storeName',     label: 'Κατάστημα',     required: true, wide: true },
@@ -274,7 +274,11 @@ export function OcrRowDetail({
             <TabsContent value="fields" className="max-h-[460px] overflow-auto p-3">
               <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
                 {specs.map((s) => (
-                  <label key={s.key} className={cn('flex flex-col gap-0.5', s.wide && 'sm:col-span-2')}>
+                  <label key={s.key} className={cn(
+                    'flex flex-col gap-0.5',
+                    (s.wide || s.totals) && 'sm:col-span-2',
+                    s.totals && 'border-b border-dotted border-[#555] pb-1',
+                  )}>
                     <span className={LABEL_CLS}>{s.label}{s.required && <span className="ml-0.5 text-dg-red-500">*</span>}</span>
                     {s.textarea ? (
                       <textarea rows={s.key === 'fullText' ? 8 : 2} disabled={ro}
@@ -283,7 +287,7 @@ export function OcrRowDetail({
                     ) : (
                       <div className={cn('rounded-md', s.required && !String(form[s.key] ?? '').trim() && 'bg-amber-500/5 ring-1 ring-amber-500/30')}>
                         <GhostInput value={form[s.key] ?? ''} onChange={(v) => setField(s.key, v)}
-                          disabled={ro} numeric={s.numeric} align={s.numeric ? 'right' : 'left'} placeholder={ro ? '—' : '…'} />
+                          disabled={ro} numeric={s.numeric} align={s.numeric && !s.totals ? 'right' : 'left'} placeholder={ro ? '—' : '…'} />
                       </div>
                     )}
                   </label>
