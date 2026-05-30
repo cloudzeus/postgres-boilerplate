@@ -46,10 +46,10 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
   async function saveCorrections() {
     setBusy(true);
     try {
-      await fetch(`/api/admin/ocr/${docId}`, { method: 'PATCH',
+      const res = await fetch(`/api/admin/ocr/${docId}`, { method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ extractedData: data, items: Array.isArray(data.items) ? data.items : undefined }) });
-      setSaved('Οι διορθώσεις αποθηκεύτηκαν.');
+      setSaved(res.ok ? 'Οι διορθώσεις αποθηκεύτηκαν.' : 'Σφάλμα αποθήκευσης.');
     } finally { setBusy(false); }
   }
   async function saveTemplate() {
@@ -85,9 +85,13 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
       <div className="space-y-3">
         {fields.map((f) => (
           <div key={f} className={`flex items-end gap-2 p-2 rounded-md ${activeField===f ? 'ring-2 ring-sisyphus-500' : ''}`}>
-            <Input label={FIELD_LABELS[f] ?? f} value={data[f] ?? ''}
-              onChange={(e) => setData((d) => ({ ...d, [f]: e.target.value }))} className="flex-1" />
+            <div className="flex-1">
+              <Input label={FIELD_LABELS[f] ?? f} value={data[f] ?? ''}
+                onChange={(e) => setData((d) => ({ ...d, [f]: e.target.value }))} />
+            </div>
             <Button size="sm" variant="subtle" type="button" disabled={busy}
+              aria-label={`Μαρκάρισμα περιοχής για ${FIELD_LABELS[f] ?? f}`}
+              title={`Μαρκάρισμα περιοχής για ${FIELD_LABELS[f] ?? f}`}
               onClick={() => setActiveField((cur) => cur===f ? null : f)}>🎯</Button>
           </div>
         ))}

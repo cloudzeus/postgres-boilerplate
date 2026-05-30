@@ -10,10 +10,11 @@ import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const norm = z.number().min(0).max(1);
 const Body = z.object({
   field: z.string().min(1),
   page: z.number().int().min(0).default(0),
-  bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]), // x,y,w,h normalized 0..1
+  bbox: z.tuple([norm, norm, norm, norm]), // x,y,w,h normalized 0..1
 });
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -56,22 +57,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     imgBuf = found;
   }
 
-  // Crop the normalized bbox.
+  // Crop the normalized bbox. Coordinates are clamped to the page so a malformed
+  // (or edge) box can never produce an out-of-bounds extract that throws a 500.
   const meta = await sharp(imgBuf).metadata();
   const W = meta.width ?? 0;
   const H = meta.height ?? 0;
+  if (W < 2 || H < 2) return NextResponse.json({ error: 'unreadable page' }, { status: 422 });
   const [nx, ny, nw, nh] = bbox;
-  const left = Math.max(0, Math.round(nx * W));
-  const top = Math.max(0, Math.round(ny * H));
-  const width = Math.min(W - left, Math.max(8, Math.round(nw * W)));
-  const height = Math.min(H - top, Math.max(8, Math.round(nh * H)));
-  const crop = await sharp(imgBuf)
-    .extract({ left, top, width, height })
-    .resize({ width: Math.max(width * 2, 400), withoutEnlargement: false })
-    .grayscale()
-    .normalize()
-    .png()
-    .toBuffer();
+  const left = Math.min(W - 1, Math.max(0, Math.round(nx * W)));
+  const top = Math.min(H - 1, Math.max(0, Math.round(ny * H)));
+  const width = Math.min(W - left, Math.max(1, Math.round(nw * W)));
+  const height = Math.min(H - top, Math.max(1, Math.round(nh * H)));
+  let crop: Buffer;
+  try {
+    crop = await sharp(imgBuf)
+      .extract({ left, top, width, height })
+      .resize({ width: Math.max(width * 2, 400), withoutEnlargement: false })
+      .grayscale()
+      .normalize()
+      .png()
+      .toBuffer();
+  } catch {
+    return NextResponse.json({ error: 'invalid region' }, { status: 422 });
+  }
 
   // Focused vision call — read ONLY this field.
   const visionKey =

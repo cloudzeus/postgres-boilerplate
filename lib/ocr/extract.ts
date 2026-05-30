@@ -423,7 +423,7 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
     const out = await callVisionLLM(cfg, system, b64, enhanced.mimeType);
     let data = parseJsonLoose(out.content);
     const ownAfm = await resolveOwnAfm();
-    data = fixSwappedParties(data, ownAfm);
+    data = fixSwappedParties(data, input.docType === 'invoice' ? ownAfm : null);
     let model = out.model;
     let tokens = out.tokens;
     let passes = 1;
@@ -471,7 +471,7 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
       }
 
       // Selectable text exists. Try digital first (cheap, fast).
-      const digital = await runDigitalPdf(cfg, system, input.buffer, started, probed);
+      const digital = await runDigitalPdf(cfg, system, input.buffer, input.docType, started, probed);
 
       // HYBRID: if digital is missing required fields, the PDF is likely mixed
       // (text + scanned image regions). Run vision on the rasterized pages and
@@ -495,7 +495,7 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
       return digital;
     }
 
-    if (mode === 'digital') return await runDigitalPdf(cfg, system, input.buffer, started);
+    if (mode === 'digital') return await runDigitalPdf(cfg, system, input.buffer, input.docType, started);
     if (mode === 'scanned') return await runScannedPdf(cfg, system, input.buffer, input.docType, started);
   }
 
@@ -503,13 +503,16 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
 }
 
 async function runDigitalPdf(
-  cfg: DeepSeekCfg, system: string, buffer: Buffer, started: number, preExtracted?: string,
+  cfg: DeepSeekCfg, system: string, buffer: Buffer, docType: DocType, started: number, preExtracted?: string,
 ): Promise<ExtractResult> {
   const text = preExtracted ?? await extractDigitalPdfText(buffer);
   if (!text) throw new Error('No selectable text discovered in PDF. Use scanned/auto mode.');
   const out = await callTextLLM(cfg, system, `Here is the digital text payload extracted from the document:\n\n${text}`);
+  let data = parseJsonLoose(out.content);
+  const ownAfm = await resolveOwnAfm();
+  data = fixSwappedParties(data, docType === 'invoice' ? ownAfm : null);
   return {
-    data: parseJsonLoose(out.content),
+    data,
     rawText: text,
     model: out.model,
     tokensUsed: out.tokens,
@@ -525,7 +528,7 @@ async function runScannedPdf(
     const out = await callGeminiPdfNative(cfg, system, buffer);
     let data = parseJsonLoose(out.content);
     const ownAfm = await resolveOwnAfm();
-    data = fixSwappedParties(data, ownAfm);
+    data = fixSwappedParties(data, docType === 'invoice' ? ownAfm : null);
     let model = out.model;
     let tokens = out.tokens;
     let passes = 1;
