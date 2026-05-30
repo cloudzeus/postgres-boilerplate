@@ -9,7 +9,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { type OcrRow } from './ocr-table';
 
 /* ------------------------------------------------------------------ */
-/* Field specs                                                         */
+/* Field specs — the SAME layout for every document of a given type    */
 /* ------------------------------------------------------------------ */
 
 interface FieldSpec { key: string; label: string; required?: boolean; numeric?: boolean; wide?: boolean; textarea?: boolean }
@@ -96,8 +96,15 @@ function toLineItems(raw: any): LineItem[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* Inline-edit input (DG typography: body-sm = 12px)                   */
+/* Typography (mirrors the company-detail modal: 12px inputs, 11px lbl)*/
 /* ------------------------------------------------------------------ */
+
+const LABEL_CLS = 'text-[11px] font-medium text-muted-foreground';
+const INPUT_CLS =
+  'w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-[12px] text-foreground transition ' +
+  'placeholder:text-muted-foreground/50 hover:border-border ' +
+  'focus:border-sisyphus-500 focus:bg-card focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 ' +
+  'disabled:cursor-default disabled:hover:border-transparent';
 
 function GhostInput({
   value, onChange, disabled, align = 'left', numeric, placeholder, className,
@@ -107,26 +114,12 @@ function GhostInput({
 }) {
   return (
     <input
-      type="text"
-      inputMode={numeric ? 'decimal' : undefined}
-      disabled={disabled}
-      value={value}
-      placeholder={placeholder}
-      onChange={(e) => onChange(e.target.value)}
-      className={cn(
-        'w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-body-sm text-foreground transition',
-        'placeholder:text-muted-foreground/50',
-        'hover:border-border focus:border-sisyphus-500 focus:bg-card focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25',
-        'disabled:cursor-default disabled:hover:border-transparent',
-        align === 'right' && 'text-right tabular-nums',
-        numeric && 'font-mono',
-        className,
-      )}
+      type="text" inputMode={numeric ? 'decimal' : undefined} disabled={disabled}
+      value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)}
+      className={cn(INPUT_CLS, align === 'right' && 'text-right tabular-nums', numeric && 'font-mono', className)}
     />
   );
 }
-
-const LABEL_CLS = 'text-caption font-semibold uppercase tracking-wide text-muted-foreground';
 
 /* ------------------------------------------------------------------ */
 /* Main component                                                      */
@@ -231,178 +224,183 @@ export function OcrRowDetail({
   }
 
   return (
-    <div className="space-y-3 bg-muted/20 p-3">
+    <div className="bg-muted/20 p-3">
       {row.status === 'FAILED' && row.errorMessage && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-body-sm">
+        <div className="mb-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px]">
           <p className="mb-0.5 font-semibold text-destructive">Σφάλμα εκτέλεσης OCR</p>
-          <pre className="whitespace-pre-wrap break-words font-mono text-caption text-destructive/90">{row.errorMessage}</pre>
+          <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-destructive/90">{row.errorMessage}</pre>
         </div>
       )}
 
-      <div className="rounded-xl border border-border bg-card shadow-fluent-2">
-        <Tabs defaultValue="fields">
-          <div className="flex items-center justify-between gap-2 border-b border-border px-3 pt-2.5">
-            <TabsList>
-              <TabsTrigger value="fields" className="text-body-sm">
-                Πεδία
-                {missing.length > 0 && (
-                  <span className="ml-1.5 inline-flex h-4 min-w-[18px] items-center justify-center rounded-full bg-amber-500/20 px-1 text-[10px] font-bold text-amber-700 dark:text-amber-300">
-                    {missing.length}
-                  </span>
-                )}
-              </TabsTrigger>
-              {isInvoice && <TabsTrigger value="items" className="text-body-sm">Γραμμές ({items.length})</TabsTrigger>}
-              <TabsTrigger value="json" className="text-body-sm">JSON</TabsTrigger>
-            </TabsList>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(300px,380px)_1fr] lg:items-stretch">
+        {/* ---- PERSISTENT preview — always visible regardless of active tab ---- */}
+        <aside className="flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-fluent-2">
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <span className={cn(LABEL_CLS, 'uppercase tracking-wide')}>Πρωτότυπο</span>
             <a href={fileUrl} target="_blank" rel="noreferrer"
-               className="inline-flex items-center gap-1 pb-2 text-caption font-medium text-sisyphus-600 hover:underline">
-              <FiExternalLink className="size-3" /> Πρωτότυπο
+               className="inline-flex items-center gap-1 text-[11px] font-medium text-sisyphus-600 hover:underline">
+              <FiExternalLink className="size-3" /> Άνοιγμα
             </a>
           </div>
+          <div className="min-h-[440px] flex-1 bg-neutral-4">
+            {isPdf ? (
+              <iframe src={fileUrl} title={row.fileName} className="size-full min-h-[440px]" />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={fileUrl} alt={row.fileName} className="size-full object-contain" />
+            )}
+          </div>
+        </aside>
 
-          {/* ---- Πεδία: compact preview + dense editable grid ---- */}
-          <TabsContent value="fields" className="p-3">
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-[260px_1fr]">
-              <div className="overflow-hidden rounded-lg border border-border bg-neutral-4">
-                {isPdf ? (
-                  <iframe src={fileUrl} title={row.fileName} className="h-[300px] w-full" />
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={fileUrl} alt={row.fileName} className="max-h-[300px] w-full object-contain" />
-                )}
-              </div>
-              <div className="grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2 xl:grid-cols-3">
+        {/* ---- Editor: tabs + always-visible footer ---- */}
+        <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-fluent-2">
+          <Tabs defaultValue="fields" className="flex min-h-0 flex-1 flex-col">
+            <div className="border-b border-border px-3 pt-2.5">
+              <TabsList>
+                <TabsTrigger value="fields" className="text-[12px]">
+                  Πεδία
+                  {missing.length > 0 && (
+                    <span className="ml-1.5 inline-flex h-4 min-w-[18px] items-center justify-center rounded-full bg-amber-500/20 px-1 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                      {missing.length}
+                    </span>
+                  )}
+                </TabsTrigger>
+                {isInvoice && <TabsTrigger value="items" className="text-[12px]">Γραμμές ({items.length})</TabsTrigger>}
+                <TabsTrigger value="json" className="text-[12px]">JSON</TabsTrigger>
+              </TabsList>
+            </div>
+
+            {/* Πεδία */}
+            <TabsContent value="fields" className="max-h-[460px] overflow-auto p-3">
+              <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
                 {specs.map((s) => (
-                  <label key={s.key} className={cn('flex flex-col gap-0.5', s.wide && 'sm:col-span-2 xl:col-span-3')}>
+                  <label key={s.key} className={cn('flex flex-col gap-0.5', s.wide && 'sm:col-span-2')}>
                     <span className={LABEL_CLS}>{s.label}{s.required && <span className="ml-0.5 text-dg-red-500">*</span>}</span>
                     {s.textarea ? (
-                      <textarea rows={s.key === 'fullText' ? 6 : 2} disabled={ro}
+                      <textarea rows={s.key === 'fullText' ? 8 : 2} disabled={ro}
                         value={form[s.key] ?? ''} onChange={(e) => setField(s.key, e.target.value)}
-                        className="w-full resize-y rounded-md border border-border bg-card px-2 py-1 text-body-sm focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60" />
+                        className="w-full resize-y rounded-md border border-border bg-card px-2 py-1 text-[12px] focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60" />
                     ) : (
                       <div className={cn('rounded-md', s.required && !String(form[s.key] ?? '').trim() && 'bg-amber-500/5 ring-1 ring-amber-500/30')}>
                         <GhostInput value={form[s.key] ?? ''} onChange={(v) => setField(s.key, v)}
-                          disabled={ro} numeric={s.numeric} align={s.numeric ? 'right' : 'left'}
-                          placeholder={ro ? '—' : '…'} />
+                          disabled={ro} numeric={s.numeric} align={s.numeric ? 'right' : 'left'} placeholder={ro ? '—' : '…'} />
                       </div>
                     )}
                   </label>
                 ))}
               </div>
-            </div>
-          </TabsContent>
-
-          {/* ---- Γραμμές: full width ---- */}
-          {isInvoice && (
-            <TabsContent value="items" className="p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-caption font-semibold uppercase tracking-wide text-muted-foreground">
-                  Γραμμές <span className="text-foreground">({items.length})</span>
-                </span>
-                {!ro && (
-                  <button type="button" onClick={addLine}
-                    className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-caption font-medium text-sisyphus-600 transition hover:bg-neutral-6/50">
-                    <FiPlus className="size-3.5" /> Προσθήκη γραμμής
-                  </button>
-                )}
-              </div>
-              <div className="overflow-x-auto rounded-lg border border-border">
-                <table className="w-full min-w-[720px]">
-                  <thead className="border-b border-border bg-neutral-6/50 text-left text-caption uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      <th className="px-3 py-1.5 font-semibold">Κωδ.</th>
-                      <th className="px-3 py-1.5 font-semibold">Περιγραφή</th>
-                      <th className="w-[78px] px-3 py-1.5 text-right font-semibold">Ποσ.</th>
-                      <th className="w-[104px] px-3 py-1.5 text-right font-semibold">Τιμή</th>
-                      <th className="w-[92px] px-3 py-1.5 text-right font-semibold">Έκπτ.</th>
-                      <th className="w-[72px] px-3 py-1.5 text-right font-semibold">ΦΠΑ %</th>
-                      <th className="w-[112px] px-3 py-1.5 text-right font-semibold">Σύνολο</th>
-                      {!ro && <th className="w-[40px] px-2 py-1.5" />}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {items.length === 0 ? (
-                      <tr><td colSpan={ro ? 7 : 8} className="px-3 py-5 text-center text-body-sm text-muted-foreground">Δεν υπάρχουν γραμμές.</td></tr>
-                    ) : items.map((it, i) => (
-                      <tr key={i} className="hover:bg-neutral-6/30">
-                        <td className="px-1 py-0.5"><GhostInput value={it.code} onChange={(v) => setLine(i, 'code', v)} disabled={ro} className="font-mono" /></td>
-                        <td className="px-1 py-0.5"><GhostInput value={it.name} onChange={(v) => setLine(i, 'name', v)} disabled={ro} /></td>
-                        <td className="px-1 py-0.5"><GhostInput value={it.quantity} onChange={(v) => setLine(i, 'quantity', v)} disabled={ro} numeric align="right" /></td>
-                        <td className="px-1 py-0.5"><GhostInput value={it.price} onChange={(v) => setLine(i, 'price', v)} disabled={ro} numeric align="right" /></td>
-                        <td className="px-1 py-0.5"><GhostInput value={it.discount} onChange={(v) => setLine(i, 'discount', v)} disabled={ro} numeric align="right" /></td>
-                        <td className="px-1 py-0.5"><GhostInput value={it.vatRate} onChange={(v) => setLine(i, 'vatRate', v)} disabled={ro} numeric align="right" /></td>
-                        <td className="px-1 py-0.5"><GhostInput value={it.total} onChange={(v) => setLine(i, 'total', v)} disabled={ro} numeric align="right" className="font-semibold" /></td>
-                        {!ro && (
-                          <td className="px-2 py-0.5 text-center">
-                            <button type="button" onClick={() => removeLine(i)} title="Διαγραφή γραμμής"
-                              className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-dg-red-500/10 hover:text-dg-red-500">
-                              <FiTrash2 className="size-3.5" />
-                            </button>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="border-t border-border bg-neutral-6/40">
-                    <tr className="text-body-sm">
-                      <td colSpan={ro ? 6 : 7} className="px-3 py-1.5 text-right font-medium text-muted-foreground">Άθροισμα γραμμών (καθαρό)</td>
-                      <td className="px-3 py-1.5 text-right font-bold tabular-nums">{fmtMoney(linesNet)}</td>
-                      {!ro && <td />}
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-              {toNum(form.subtotal) != null && Math.abs((toNum(form.subtotal) ?? 0) - linesNet) > 0.02 && (
-                <p className="mt-2 inline-flex items-center gap-1.5 text-caption text-amber-700 dark:text-amber-300">
-                  <FiAlertCircle className="size-3.5 shrink-0" />
-                  Το άθροισμα γραμμών ({fmtMoney(linesNet)}) διαφέρει από την Καθαρή αξία ({fmtMoney(form.subtotal)}).
-                </p>
-              )}
             </TabsContent>
-          )}
 
-          {/* ---- JSON ---- */}
-          <TabsContent value="json" className="p-3">
-            <pre className="max-h-[360px] overflow-auto rounded-lg border border-border bg-neutral-4 p-3 text-caption font-mono leading-relaxed">
-{JSON.stringify(buildExtractedData(), null, 2)}
-            </pre>
-          </TabsContent>
-        </Tabs>
-
-        {/* ---- Footer actions (always visible) ---- */}
-        <div className="flex flex-col gap-2 border-t border-border px-3 py-2.5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2 lg:max-w-xl">
-            <label className="flex flex-col gap-0.5">
-              <span className={LABEL_CLS}>Κατηγορία</span>
-              <select value={category} disabled={ro} onChange={(e) => setCategory(e.target.value)}
-                className="h-8 rounded-md border border-border bg-background px-2 text-body-sm focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60">
-                <option value="">— Επιλογή —</option>
-                {CATEGORY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </label>
-            <label className="flex flex-col gap-0.5">
-              <span className={LABEL_CLS}>Σημειώσεις</span>
-              <input type="text" disabled={ro} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Προαιρετικά…"
-                className="h-8 rounded-md border border-border bg-background px-2 text-body-sm focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60" />
-            </label>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {dirty && !ro && (
-              <button type="button" onClick={reset}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-body-sm font-medium text-foreground transition hover:bg-neutral-6/50">
-                <FiRotateCcw className="size-3.5" /> Επαναφορά
-              </button>
+            {/* Γραμμές */}
+            {isInvoice && (
+              <TabsContent value="items" className="max-h-[460px] overflow-auto p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className={cn(LABEL_CLS, 'uppercase tracking-wide')}>Γραμμές <span className="text-foreground">({items.length})</span></span>
+                  {!ro && (
+                    <button type="button" onClick={addLine}
+                      className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] font-medium text-sisyphus-600 transition hover:bg-neutral-6/50">
+                      <FiPlus className="size-3.5" /> Προσθήκη γραμμής
+                    </button>
+                  )}
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full min-w-[680px]">
+                    <thead className="border-b border-border bg-neutral-6/50 text-left text-[11px] font-medium text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-1.5">Κωδ.</th>
+                        <th className="px-3 py-1.5">Περιγραφή</th>
+                        <th className="w-[78px] px-3 py-1.5 text-right">Ποσ.</th>
+                        <th className="w-[104px] px-3 py-1.5 text-right">Τιμή</th>
+                        <th className="w-[92px] px-3 py-1.5 text-right">Έκπτ.</th>
+                        <th className="w-[72px] px-3 py-1.5 text-right">ΦΠΑ %</th>
+                        <th className="w-[112px] px-3 py-1.5 text-right">Σύνολο</th>
+                        {!ro && <th className="w-[40px] px-2 py-1.5" />}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {items.length === 0 ? (
+                        <tr><td colSpan={ro ? 7 : 8} className="px-3 py-5 text-center text-[12px] text-muted-foreground">Δεν υπάρχουν γραμμές.</td></tr>
+                      ) : items.map((it, i) => (
+                        <tr key={i} className="hover:bg-neutral-6/30">
+                          <td className="px-1 py-0.5"><GhostInput value={it.code} onChange={(v) => setLine(i, 'code', v)} disabled={ro} className="font-mono" /></td>
+                          <td className="px-1 py-0.5"><GhostInput value={it.name} onChange={(v) => setLine(i, 'name', v)} disabled={ro} /></td>
+                          <td className="px-1 py-0.5"><GhostInput value={it.quantity} onChange={(v) => setLine(i, 'quantity', v)} disabled={ro} numeric align="right" /></td>
+                          <td className="px-1 py-0.5"><GhostInput value={it.price} onChange={(v) => setLine(i, 'price', v)} disabled={ro} numeric align="right" /></td>
+                          <td className="px-1 py-0.5"><GhostInput value={it.discount} onChange={(v) => setLine(i, 'discount', v)} disabled={ro} numeric align="right" /></td>
+                          <td className="px-1 py-0.5"><GhostInput value={it.vatRate} onChange={(v) => setLine(i, 'vatRate', v)} disabled={ro} numeric align="right" /></td>
+                          <td className="px-1 py-0.5"><GhostInput value={it.total} onChange={(v) => setLine(i, 'total', v)} disabled={ro} numeric align="right" className="font-semibold" /></td>
+                          {!ro && (
+                            <td className="px-2 py-0.5 text-center">
+                              <button type="button" onClick={() => removeLine(i)} title="Διαγραφή γραμμής"
+                                className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-dg-red-500/10 hover:text-dg-red-500">
+                                <FiTrash2 className="size-3.5" />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t border-border bg-neutral-6/40">
+                      <tr className="text-[12px]">
+                        <td colSpan={ro ? 6 : 7} className="px-3 py-1.5 text-right font-medium text-muted-foreground">Άθροισμα γραμμών (καθαρό)</td>
+                        <td className="px-3 py-1.5 text-right font-bold tabular-nums">{fmtMoney(linesNet)}</td>
+                        {!ro && <td />}
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                {toNum(form.subtotal) != null && Math.abs((toNum(form.subtotal) ?? 0) - linesNet) > 0.02 && (
+                  <p className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-300">
+                    <FiAlertCircle className="size-3.5 shrink-0" />
+                    Το άθροισμα γραμμών ({fmtMoney(linesNet)}) διαφέρει από την Καθαρή αξία ({fmtMoney(form.subtotal)}).
+                  </p>
+                )}
+              </TabsContent>
             )}
-            <button type="button" disabled={ro || saving || !dirty} onClick={save}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-sisyphus-500 px-3.5 text-body-sm font-semibold text-white shadow-fluent-2 transition hover:bg-sisyphus-600 active:bg-sisyphus-700 disabled:opacity-50 disabled:hover:bg-sisyphus-500">
-              <FiSave className="size-3.5" /> {saving ? 'Αποθήκευση…' : 'Αποθήκευση'}
-            </button>
-            <button type="button"
-              disabled={!canPost || posting || row.status !== 'COMPLETED' || !category || row.postStatus === 'POSTED'}
-              onClick={post}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 text-body-sm font-semibold text-emerald-800 transition hover:bg-emerald-500/20 disabled:opacity-50 dark:text-emerald-300">
-              <FiSend className="size-3.5" /> {posting ? 'Ανάρτηση…' : row.postStatus === 'POSTED' ? 'Αναρτήθηκε' : 'Ανάρτηση'}
-            </button>
+
+            {/* JSON */}
+            <TabsContent value="json" className="p-3">
+              <pre className="max-h-[440px] overflow-auto rounded-lg border border-border bg-neutral-4 p-3 text-[11px] font-mono leading-relaxed">
+{JSON.stringify(buildExtractedData(), null, 2)}
+              </pre>
+            </TabsContent>
+          </Tabs>
+
+          {/* Footer — always visible */}
+          <div className="flex flex-col gap-2 border-t border-border px-3 py-2.5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2 lg:max-w-xl">
+              <label className="flex flex-col gap-0.5">
+                <span className={LABEL_CLS}>Κατηγορία</span>
+                <select value={category} disabled={ro} onChange={(e) => setCategory(e.target.value)}
+                  className="h-8 rounded-md border border-border bg-background px-2 text-[12px] focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60">
+                  <option value="">— Επιλογή —</option>
+                  {CATEGORY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-0.5">
+                <span className={LABEL_CLS}>Σημειώσεις</span>
+                <input type="text" disabled={ro} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Προαιρετικά…"
+                  className="h-8 rounded-md border border-border bg-background px-2 text-[12px] focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60" />
+              </label>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {dirty && !ro && (
+                <button type="button" onClick={reset}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[12px] font-medium text-foreground transition hover:bg-neutral-6/50">
+                  <FiRotateCcw className="size-3.5" /> Επαναφορά
+                </button>
+              )}
+              <button type="button" disabled={ro || saving || !dirty} onClick={save}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-sisyphus-500 px-3.5 text-[12px] font-semibold text-white shadow-fluent-2 transition hover:bg-sisyphus-600 active:bg-sisyphus-700 disabled:opacity-50 disabled:hover:bg-sisyphus-500">
+                <FiSave className="size-3.5" /> {saving ? 'Αποθήκευση…' : 'Αποθήκευση'}
+              </button>
+              <button type="button"
+                disabled={!canPost || posting || row.status !== 'COMPLETED' || !category || row.postStatus === 'POSTED'}
+                onClick={post}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 text-[12px] font-semibold text-emerald-800 transition hover:bg-emerald-500/20 disabled:opacity-50 dark:text-emerald-300">
+                <FiSend className="size-3.5" /> {posting ? 'Ανάρτηση…' : row.postStatus === 'POSTED' ? 'Αναρτήθηκε' : 'Ανάρτηση'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
