@@ -133,10 +133,10 @@ function CellInput({
 /** Pass/neutral/fail reconciliation row. */
 function CheckRow({ ok, label, got, exp }: { ok: boolean | null | undefined; label: string; got: string; exp: string }) {
   const tone = ok == null
-    ? 'border-border bg-muted/30 text-muted-foreground'
+    ? 'border-border bg-muted/60 text-foreground/80'
     : ok
-      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-      : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300';
+      ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-800 dark:border-emerald-400/50 dark:bg-emerald-500/25 dark:text-emerald-200'
+      : 'border-amber-500/60 bg-amber-500/20 text-amber-900 dark:border-amber-400/50 dark:bg-amber-500/25 dark:text-amber-200';
   return (
     <div className={cn('flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-[11px] font-medium', tone)}>
       <span className="inline-flex items-center gap-1.5">
@@ -330,7 +330,7 @@ export function OcrRowDetail({
         {totalsBothPresent && (
           <div className={cn(
             'mt-1 flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[11px] font-semibold',
-            totalsOk ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+            totalsOk ? 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-200' : 'bg-amber-500/20 text-amber-900 dark:text-amber-200',
           )}>
             <span className="inline-flex items-center gap-1">
               {totalsOk ? <FiCheck className="size-3.5" /> : <FiAlertCircle className="size-3.5" />}
