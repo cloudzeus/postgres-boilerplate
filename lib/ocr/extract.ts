@@ -5,6 +5,8 @@ import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
 import { qualityScore, fixSwappedParties } from '@/lib/ocr/validate';
 import { resolveOwnAfm } from '@/lib/ocr/own-afm';
 import { findSupplierTemplate, mergeFromTemplatePass } from '@/lib/ocr/templates-store';
+import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
+import { buildModelChain, tryModels } from '@/lib/ocr/model-fallback';
 
 export type PdfSource = 'auto' | 'digital' | 'scanned';
 
@@ -89,6 +91,7 @@ interface DeepSeekCfg {
   visionKey: string;
   visionUrl: string;
   visionModel: string;
+  visionFallbackModels: string[];
 }
 
 async function resolveCfg(): Promise<DeepSeekCfg> {
@@ -105,7 +108,13 @@ async function resolveCfg(): Promise<DeepSeekCfg> {
     ?? 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
   const visionModel = (await getSetting<string>('ai.visionModel'))
     ?? 'gemini-2.5-flash';
-  return { textKey, textUrl, textModel, visionKey, visionUrl, visionModel };
+  // On sustained per-model overload (Gemini 503 UNAVAILABLE), fall back to a
+  // different model with a separate capacity pool. Configurable via setting
+  // `ai.visionFallbackModels` (comma-separated); empty string disables fallback.
+  const fallbackRaw = await getSetting<string>('ai.visionFallbackModels');
+  const visionFallbackModels = (fallbackRaw ?? 'gemini-2.0-flash,gemini-2.5-flash-lite')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  return { textKey, textUrl, textModel, visionKey, visionUrl, visionModel, visionFallbackModels };
 }
 
 function parseJsonLoose(s: string): any {
@@ -196,7 +205,7 @@ async function rasterizePdf(buffer: Buffer, maxPages = 3, scale = 2): Promise<Bu
 }
 
 async function callTextLLM(cfg: DeepSeekCfg, system: string, userContent: string) {
-  const res = await fetch(cfg.textUrl, {
+  const res = await fetchWithRetry(cfg.textUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.textKey}` },
     body: JSON.stringify({
@@ -241,41 +250,42 @@ async function callGeminiPdfNative(
   if (!cfg.visionUrl.includes('generativelanguage.googleapis.com')) {
     throw new Error('Native PDF path requires Gemini provider.');
   }
-  const model = modelOverride ?? cfg.visionModel;
-  // Use Gemini's native v1beta endpoint (not OpenAI-compat) so we can pass inline_data with application/pdf.
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${cfg.visionKey}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents: [{
-        role: 'user',
-        parts: [
-          { inline_data: { mime_type: 'application/pdf', data: pdfBuffer.toString('base64') } },
-          { text: 'Execute JSON data extraction from this PDF.' },
-        ],
-      }],
-      generationConfig: {
-        temperature: 0.1,
-        responseMimeType: 'application/json',
-      },
-    }),
+  const primary = modelOverride ?? cfg.visionModel;
+  const pdfB64 = pdfBuffer.toString('base64');
+  return tryModels(buildModelChain(primary, cfg.visionFallbackModels), async (model) => {
+    try {
+      // Native v1beta endpoint (not OpenAI-compat) so we can pass inline_data with application/pdf.
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${cfg.visionKey}`;
+      const res = await fetchWithRetry(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{
+            role: 'user',
+            parts: [
+              { inline_data: { mime_type: 'application/pdf', data: pdfB64 } },
+              { text: 'Execute JSON data extraction from this PDF.' },
+            ],
+          }],
+          generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
+        }),
+      }, { label: `pdf:${model}` });
+      if (!res.ok) return { ok: false, error: new Error(`Gemini PDF ${res.status}: ${(await res.text()).slice(0, 300)}`) };
+      const data = await res.json();
+      const content = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join('') ?? '';
+      const u = data?.usageMetadata ?? {};
+      void logAiUsage({
+        scope: modelOverride ? 'OCR_VISION_RETRY' : 'OCR_VISION',
+        provider: 'gemini', model, operation: 'ocr.pdf_native',
+        inputTokens: u.promptTokenCount ?? 0, outputTokens: u.candidatesTokenCount ?? 0,
+        totalTokens: u.totalTokenCount ?? 0,
+      });
+      return { ok: true, value: { content, tokens: u.totalTokenCount ?? null, model } };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err : new Error(String(err)) };
+    }
   });
-  if (!res.ok) throw new Error(`Gemini PDF ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const data = await res.json();
-  const content = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join('') ?? '';
-  const u = data?.usageMetadata ?? {};
-  void logAiUsage({
-    scope: modelOverride ? 'OCR_VISION_RETRY' : 'OCR_VISION',
-    provider: 'gemini',
-    model,
-    operation: 'ocr.pdf_native',
-    inputTokens: u.promptTokenCount ?? 0,
-    outputTokens: u.candidatesTokenCount ?? 0,
-    totalTokens: u.totalTokenCount ?? 0,
-  });
-  return { content, tokens: u.totalTokenCount ?? null, model };
 }
 
 async function callVisionLLM(
@@ -283,44 +293,43 @@ async function callVisionLLM(
   modelOverride?: string,
 ) {
   if (!cfg.visionKey) throw new Error('Vision API key is not configured (settings: ai.visionApiKey).');
-  const model = modelOverride ?? cfg.visionModel;
+  const primary = modelOverride ?? cfg.visionModel;
   const dataUrl = `data:${mimeType};base64,${imageBase64}`;
-  const res = await fetch(cfg.visionUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.visionKey}` },
-    body: JSON.stringify({
-      model,
-      temperature: 0.1,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: system },
-        {
-          role: 'user',
-          content: [
-            { type: 'image_url', image_url: { url: dataUrl } },
-            { type: 'text', text: 'Execute JSON data extraction from this visual canvas.' },
+  return tryModels(buildModelChain(primary, cfg.visionFallbackModels), async (model) => {
+    try {
+      const res = await fetchWithRetry(cfg.visionUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.visionKey}` },
+        body: JSON.stringify({
+          model,
+          temperature: 0.1,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: system },
+            {
+              role: 'user',
+              content: [
+                { type: 'image_url', image_url: { url: dataUrl } },
+                { type: 'text', text: 'Execute JSON data extraction from this visual canvas.' },
+              ],
+            },
           ],
-        },
-      ],
-    }),
+        }),
+      }, { label: `vision:${model}` });
+      if (!res.ok) return { ok: false, error: new Error(`Vision OCR ${res.status}: ${(await res.text()).slice(0, 300)}`) };
+      const data = await res.json();
+      const u = data?.usage ?? {};
+      void logAiUsage({
+        scope: modelOverride ? 'OCR_VISION_RETRY' : 'OCR_VISION',
+        provider: providerFromUrl(cfg.visionUrl), model, operation: 'ocr.vision',
+        inputTokens: u.prompt_tokens ?? 0, outputTokens: u.completion_tokens ?? 0,
+        totalTokens: u.total_tokens ?? 0,
+      });
+      return { ok: true, value: { content: data?.choices?.[0]?.message?.content as string, tokens: u.total_tokens ?? null, model } };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err : new Error(String(err)) };
+    }
   });
-  if (!res.ok) throw new Error(`Vision OCR ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const data = await res.json();
-  const u = data?.usage ?? {};
-  void logAiUsage({
-    scope: modelOverride ? 'OCR_VISION_RETRY' : 'OCR_VISION',
-    provider: providerFromUrl(cfg.visionUrl),
-    model,
-    operation: 'ocr.vision',
-    inputTokens: u.prompt_tokens ?? 0,
-    outputTokens: u.completion_tokens ?? 0,
-    totalTokens: u.total_tokens ?? 0,
-  });
-  return {
-    content: data?.choices?.[0]?.message?.content as string,
-    tokens: u.total_tokens ?? null,
-    model,
-  };
 }
 
 /**
