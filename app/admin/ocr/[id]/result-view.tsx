@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { FieldCorrection } from './field-correction';
 
 type DocWithItems = Prisma.OcrDocumentGetPayload<{ include: { items: true } }>;
 
@@ -25,9 +26,24 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
     );
   }
 
+  const fieldList = doc.docType === 'RECEIPT'
+    ? ['storeName', 'vatNumber', 'invoiceNumber', 'date', 'totalAmount']
+    : ['companyName', 'vatNumber', 'customerName', 'customerVatNumber', 'invoiceNumber', 'date', 'subtotal', 'vatAmount', 'totalAmount'];
+
+  const correction = (doc.docType === 'INVOICE' || doc.docType === 'RECEIPT') ? (
+    <FieldCorrection
+      docId={doc.id}
+      mimeType={doc.mimeType}
+      fileUrl={`/api/admin/ocr/${doc.id}/file`}
+      initialData={(doc.extractedData ?? {}) as any}
+      fields={fieldList}
+    />
+  ) : null;
+
   if (doc.docType === 'INVOICE') {
     return (
       <section className="space-y-4">
+        {correction}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 rounded-xl border border-border bg-card p-4">
           <Field label="Εκδότης" value={data.companyName} />
           <Field label="Αριθμός" value={data.invoiceNumber} mono />
@@ -70,7 +86,9 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
 
   if (doc.docType === 'RECEIPT') {
     return (
-      <section className="mx-auto max-w-sm rounded-xl border border-border bg-card p-5 font-mono space-y-3 shadow-sm">
+      <section className="space-y-4">
+        {correction}
+        <div className="mx-auto max-w-sm rounded-xl border border-border bg-card p-5 font-mono space-y-3 shadow-sm">
         <div className="border-b border-dashed border-border pb-3 text-center">
           <h3 className="text-base font-bold uppercase">{data.storeName ?? 'POS'}</h3>
           <p className="text-xs text-muted-foreground">
@@ -80,6 +98,7 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
         <div className="flex justify-between text-sm"><span>Είδη:</span><span>{data.itemsCount ?? 0}</span></div>
         <div className="flex justify-between border-t border-dashed border-border pt-2 text-base font-bold">
           <span>ΣΥΝΟΛΟ:</span><span>{fmtMoney(data.totalAmount)}</span>
+        </div>
         </div>
       </section>
     );
