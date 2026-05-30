@@ -3,53 +3,54 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { FiSend, FiSave, FiExternalLink, FiAlertCircle, FiPlus, FiTrash2, FiRotateCcw } from 'react-icons/fi';
+import { FiSend, FiSave, FiExternalLink, FiAlertCircle, FiPlus, FiTrash2, FiRotateCcw, FiCheck } from 'react-icons/fi';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { type OcrRow } from './ocr-table';
 
 /* ------------------------------------------------------------------ */
-/* Field specs — the SAME layout for every document of a given type    */
+/* Field specs — same standardized layout for every document          */
 /* ------------------------------------------------------------------ */
 
-interface FieldSpec { key: string; label: string; required?: boolean; numeric?: boolean; wide?: boolean; textarea?: boolean; totals?: boolean }
+type Group = 'issuer' | 'customer' | 'meta' | 'totals' | 'main';
+interface FieldSpec { key: string; label: string; required?: boolean; numeric?: boolean; wide?: boolean; textarea?: boolean; group?: Group }
 
 const FIELD_SPECS: Record<string, FieldSpec[]> = {
   INVOICE: [
-    { key: 'companyName',        label: 'Εκδότης',           required: true, wide: true },
-    { key: 'vatNumber',          label: 'ΑΦΜ Εκδότη',         required: true },
-    { key: 'companyDoy',         label: 'ΔΟΥ Εκδότη' },
-    { key: 'companyPhone',       label: 'Τηλέφωνο Εκδότη' },
-    { key: 'companyEmail',       label: 'Email Εκδότη' },
-    { key: 'companyAddress',     label: 'Διεύθυνση Εκδότη',   wide: true },
-    { key: 'companyProfession',  label: 'Επάγγελμα Εκδότη',   wide: true },
-    { key: 'customerName',       label: 'Πελάτης',            required: true, wide: true },
-    { key: 'customerVatNumber',  label: 'ΑΦΜ Πελάτη',         required: true },
-    { key: 'customerDoy',        label: 'ΔΟΥ Πελάτη' },
-    { key: 'customerAddress',    label: 'Διεύθυνση Πελάτη',   wide: true },
-    { key: 'invoiceNumber',      label: 'Αρ. Τιμολογίου',     required: true },
-    { key: 'aadeMark',           label: 'ΜΑΡΚ ΑΑΔΕ' },
-    { key: 'date',               label: 'Ημερομηνία',         required: true },
-    { key: 'subtotal',           label: 'Καθαρή αξία',        required: true, numeric: true, totals: true },
-    { key: 'vatAmount',          label: 'ΦΠΑ',                required: true, numeric: true, totals: true },
-    { key: 'totalAmount',        label: 'Γενικό Σύνολο',      required: true, numeric: true, totals: true },
+    { key: 'companyName',        label: 'Επωνυμία',     required: true, wide: true, group: 'issuer' },
+    { key: 'vatNumber',          label: 'ΑΦΜ',          required: true, group: 'issuer' },
+    { key: 'companyDoy',         label: 'ΔΟΥ',          group: 'issuer' },
+    { key: 'companyPhone',       label: 'Τηλέφωνο',     group: 'issuer' },
+    { key: 'companyEmail',       label: 'Email',        group: 'issuer' },
+    { key: 'companyAddress',     label: 'Διεύθυνση',    wide: true, group: 'issuer' },
+    { key: 'companyProfession',  label: 'Δραστηριότητα', wide: true, group: 'issuer' },
+    { key: 'customerName',       label: 'Επωνυμία',     required: true, wide: true, group: 'customer' },
+    { key: 'customerVatNumber',  label: 'ΑΦΜ',          required: true, group: 'customer' },
+    { key: 'customerDoy',        label: 'ΔΟΥ',          group: 'customer' },
+    { key: 'customerAddress',    label: 'Διεύθυνση',    wide: true, group: 'customer' },
+    { key: 'invoiceNumber',      label: 'Αρ. Τιμολογίου', required: true, group: 'meta' },
+    { key: 'date',               label: 'Ημερομηνία',   required: true, group: 'meta' },
+    { key: 'aadeMark',           label: 'ΜΑΡΚ ΑΑΔΕ',    group: 'meta' },
+    { key: 'subtotal',           label: 'Καθαρή αξία',  required: true, numeric: true, group: 'totals' },
+    { key: 'vatAmount',          label: 'ΦΠΑ',          required: true, numeric: true, group: 'totals' },
+    { key: 'totalAmount',        label: 'Γενικό Σύνολο', required: true, numeric: true, group: 'totals' },
   ],
   RECEIPT: [
-    { key: 'storeName',     label: 'Κατάστημα',     required: true, wide: true },
-    { key: 'vatNumber',     label: 'ΑΦΜ εκδότη',    required: true },
-    { key: 'invoiceNumber', label: 'Αρ. Αποδείξεως', required: true },
-    { key: 'date',          label: 'Ημερομηνία',    required: true },
-    { key: 'time',          label: 'Ώρα' },
-    { key: 'phone',         label: 'Τηλέφωνο' },
-    { key: 'email',         label: 'Email' },
-    { key: 'itemsCount',    label: 'Πλήθος ειδών',  numeric: true },
-    { key: 'totalAmount',   label: 'Σύνολο',        required: true, numeric: true },
+    { key: 'storeName',     label: 'Κατάστημα',     required: true, wide: true, group: 'main' },
+    { key: 'vatNumber',     label: 'ΑΦΜ εκδότη',    required: true, group: 'main' },
+    { key: 'invoiceNumber', label: 'Αρ. Αποδείξεως', required: true, group: 'main' },
+    { key: 'date',          label: 'Ημερομηνία',    required: true, group: 'main' },
+    { key: 'time',          label: 'Ώρα', group: 'main' },
+    { key: 'phone',         label: 'Τηλέφωνο', group: 'main' },
+    { key: 'email',         label: 'Email', group: 'main' },
+    { key: 'itemsCount',    label: 'Πλήθος ειδών',  numeric: true, group: 'main' },
+    { key: 'totalAmount',   label: 'Σύνολο',        required: true, numeric: true, group: 'totals' },
   ],
   GENERAL_TEXT: [
-    { key: 'title',    label: 'Τίτλος',    required: true, wide: true },
-    { key: 'summary',  label: 'Περίληψη',  wide: true, textarea: true },
-    { key: 'keywords', label: 'Keywords (χωρισμένα με κόμμα)', wide: true },
-    { key: 'fullText', label: 'Verbatim',  wide: true, textarea: true },
+    { key: 'title',    label: 'Τίτλος',    required: true, wide: true, group: 'main' },
+    { key: 'summary',  label: 'Περίληψη',  wide: true, textarea: true, group: 'main' },
+    { key: 'keywords', label: 'Keywords (χωρισμένα με κόμμα)', wide: true, group: 'main' },
+    { key: 'fullText', label: 'Verbatim',  wide: true, textarea: true, group: 'main' },
   ],
 };
 
@@ -82,6 +83,10 @@ function fmtMoney(v: unknown): string {
   if (n == null) return '—';
   return new Intl.NumberFormat('el-GR', { style: 'currency', currency: 'EUR' }).format(n);
 }
+function fmt2(v: unknown): string {
+  const n = toNum(v);
+  return n == null ? '' : n.toFixed(2).replace('.', ',');
+}
 function toLineItems(raw: any): LineItem[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((it) => ({
@@ -96,26 +101,25 @@ function toLineItems(raw: any): LineItem[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* Typography (mirrors the company-detail modal: 12px inputs, 11px lbl)*/
+/* High-contrast input primitives (12px, solid, dark text on white)   */
 /* ------------------------------------------------------------------ */
 
-const LABEL_CLS = 'text-[11px] font-medium text-muted-foreground';
+const LABEL_CLS = 'text-[11px] font-semibold text-muted-foreground';
 const INPUT_CLS =
-  'w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-[12px] text-foreground transition ' +
-  'placeholder:text-muted-foreground/50 hover:border-border ' +
-  'focus:border-sisyphus-500 focus:bg-card focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 ' +
-  'disabled:cursor-default disabled:hover:border-transparent';
+  'h-8 w-full rounded-md border border-input bg-background px-2 text-[12px] text-foreground ' +
+  'placeholder:text-muted-foreground/60 transition focus:border-sisyphus-500 focus:outline-none ' +
+  'focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60';
 
-function GhostInput({
-  value, onChange, disabled, align = 'left', numeric, placeholder, className,
+function CellInput({
+  value, onChange, onBlur, disabled, align = 'left', numeric, className,
 }: {
-  value: string; onChange: (v: string) => void; disabled?: boolean;
-  align?: 'left' | 'right'; numeric?: boolean; placeholder?: string; className?: string;
+  value: string; onChange: (v: string) => void; onBlur?: () => void; disabled?: boolean;
+  align?: 'left' | 'right'; numeric?: boolean; className?: string;
 }) {
   return (
     <input
       type="text" inputMode={numeric ? 'decimal' : undefined} disabled={disabled}
-      value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)}
+      value={value} onChange={(e) => onChange(e.target.value)} onBlur={onBlur}
       className={cn(INPUT_CLS, align === 'right' && 'text-right tabular-nums', numeric && 'font-mono', className)}
     />
   );
@@ -138,7 +142,9 @@ export function OcrRowDetail({
     const f: Record<string, string> = {};
     for (const s of specs) {
       const raw = data[s.key];
-      f[s.key] = s.key === 'keywords' && Array.isArray(raw) ? raw.join(', ') : raw != null ? String(raw) : '';
+      if (s.group === 'totals' || s.numeric) f[s.key] = fmt2(raw);
+      else if (s.key === 'keywords' && Array.isArray(raw)) f[s.key] = raw.join(', ');
+      else f[s.key] = raw != null ? String(raw) : '';
     }
     return f;
   }, [row.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -161,7 +167,13 @@ export function OcrRowDetail({
   const isPdf = row.mimeType === 'application/pdf';
   const linesNet = items.reduce((sum, it) => sum + (toNum(it.total) ?? 0), 0);
 
+  const tNet = toNum(form.subtotal), tVat = toNum(form.vatAmount), tTotal = toNum(form.totalAmount);
+  const tSum = (tNet ?? 0) + (tVat ?? 0);
+  const totalsBothPresent = tNet != null && tVat != null;
+  const totalsOk = totalsBothPresent && tTotal != null && Math.abs(tSum - tTotal) <= 0.02;
+
   function setField(key: string, v: string) { setForm((f) => ({ ...f, [key]: v })); }
+  function blurFmt(key: string) { setForm((f) => ({ ...f, [key]: fmt2(f[key]) })); }
   function setLine(idx: number, key: keyof LineItem, v: string) {
     setItems((arr) => arr.map((it, i) => (i === idx ? { ...it, [key]: v } : it)));
   }
@@ -174,7 +186,7 @@ export function OcrRowDetail({
     for (const s of specs) {
       const v = form[s.key];
       if (s.key === 'keywords') out.keywords = String(v ?? '').split(',').map((k) => k.trim()).filter(Boolean);
-      else if (s.numeric) out[s.key] = toNum(v);
+      else if (s.numeric || s.group === 'totals') out[s.key] = toNum(v);
       else out[s.key] = String(v ?? '').trim() || null;
     }
     if (isInvoice) {
@@ -223,8 +235,28 @@ export function OcrRowDetail({
     } finally { setPosting(false); }
   }
 
+  /* ---- render helpers ---- */
+  const field = (s: FieldSpec) => {
+    const invalid = s.required && !String(form[s.key] ?? '').trim();
+    return (
+      <label key={s.key} className={cn('flex flex-col gap-0.5', s.wide && 'sm:col-span-2')}>
+        <span className={LABEL_CLS}>{s.label}{s.required && <span className="ml-0.5 text-dg-red-500">*</span>}</span>
+        {s.textarea ? (
+          <textarea rows={s.key === 'fullText' ? 8 : 2} disabled={ro}
+            value={form[s.key] ?? ''} onChange={(e) => setField(s.key, e.target.value)}
+            className={cn(INPUT_CLS, 'h-auto resize-y py-1')} />
+        ) : (
+          <CellInput value={form[s.key] ?? ''} onChange={(v) => setField(s.key, v)}
+            disabled={ro} numeric={s.numeric} align={s.numeric ? 'right' : 'left'}
+            className={cn(invalid && 'border-amber-400 bg-amber-50 dark:bg-amber-950/30')} />
+        )}
+      </label>
+    );
+  };
+  const byGroup = (g: Group) => specs.filter((s) => s.group === g);
+
   return (
-    <div className="bg-muted/20 p-3">
+    <div className="bg-muted/30 p-3">
       {row.status === 'FAILED' && row.errorMessage && (
         <div className="mb-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px]">
           <p className="mb-0.5 font-semibold text-destructive">Σφάλμα εκτέλεσης OCR</p>
@@ -233,16 +265,16 @@ export function OcrRowDetail({
       )}
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(300px,380px)_1fr] lg:items-stretch">
-        {/* ---- PERSISTENT preview — always visible regardless of active tab ---- */}
-        <aside className="flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-fluent-2">
-          <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <span className={cn(LABEL_CLS, 'uppercase tracking-wide')}>Πρωτότυπο</span>
+        {/* ---- PERSISTENT preview ---- */}
+        <aside className="flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-2">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-foreground">Πρωτότυπο</span>
             <a href={fileUrl} target="_blank" rel="noreferrer"
-               className="inline-flex items-center gap-1 text-[11px] font-medium text-sisyphus-600 hover:underline">
+               className="inline-flex items-center gap-1 text-[11px] font-semibold text-sisyphus-600 hover:underline">
               <FiExternalLink className="size-3" /> Άνοιγμα
             </a>
           </div>
-          <div className="min-h-[440px] flex-1 bg-neutral-4">
+          <div className="min-h-[440px] flex-1 bg-muted">
             {isPdf ? (
               <iframe src={fileUrl} title={row.fileName} className="size-full min-h-[440px]" />
             ) : (
@@ -252,10 +284,10 @@ export function OcrRowDetail({
           </div>
         </aside>
 
-        {/* ---- Editor: tabs + always-visible footer ---- */}
-        <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-fluent-2">
+        {/* ---- Editor ---- */}
+        <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <Tabs defaultValue="fields" className="flex min-h-0 flex-1 flex-col">
-            <div className="border-b border-border px-3 pt-2.5">
+            <div className="border-b border-border bg-muted/30 px-3 pt-2.5">
               <TabsList>
                 <TabsTrigger value="fields" className="text-[12px]">
                   Πεδία
@@ -270,54 +302,103 @@ export function OcrRowDetail({
               </TabsList>
             </div>
 
-            {/* Πεδία */}
-            <TabsContent value="fields" className="max-h-[460px] overflow-auto p-3">
-              <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
-                {specs.map((s) => (
-                  <label key={s.key} className={cn(
-                    'flex flex-col gap-0.5',
-                    (s.wide || s.totals) && 'sm:col-span-2',
-                    s.totals && 'border-b border-dotted border-[#555] pb-1',
-                  )}>
-                    <span className={LABEL_CLS}>{s.label}{s.required && <span className="ml-0.5 text-dg-red-500">*</span>}</span>
-                    {s.textarea ? (
-                      <textarea rows={s.key === 'fullText' ? 8 : 2} disabled={ro}
-                        value={form[s.key] ?? ''} onChange={(e) => setField(s.key, e.target.value)}
-                        className="w-full resize-y rounded-md border border-border bg-card px-2 py-1 text-[12px] focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60" />
-                    ) : (
-                      <div className={cn('rounded-md', s.required && !String(form[s.key] ?? '').trim() && 'bg-amber-500/5 ring-1 ring-amber-500/30')}>
-                        <GhostInput value={form[s.key] ?? ''} onChange={(v) => setField(s.key, v)}
-                          disabled={ro} numeric={s.numeric} align={s.numeric && !s.totals ? 'right' : 'left'} placeholder={ro ? '—' : '…'} />
-                      </div>
-                    )}
-                  </label>
-                ))}
-              </div>
+            {/* ---------- Πεδία: invoice-styled ---------- */}
+            <TabsContent value="fields" className="max-h-[480px] overflow-auto p-3">
+              {isInvoice ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    {/* Issuer */}
+                    <section className="overflow-hidden rounded-lg border border-sisyphus-500/40 bg-card">
+                      <header className="border-b border-sisyphus-500/30 bg-sisyphus-500/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-sisyphus-700 dark:text-sisyphus-300">
+                        Εκδότης
+                      </header>
+                      <div className="grid grid-cols-1 gap-x-3 gap-y-1.5 p-3 sm:grid-cols-2">{byGroup('issuer').map(field)}</div>
+                    </section>
+                    {/* Customer */}
+                    <section className="overflow-hidden rounded-lg border border-emerald-500/40 bg-card">
+                      <header className="border-b border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                        Πελάτης
+                      </header>
+                      <div className="grid grid-cols-1 gap-x-3 gap-y-1.5 p-3 sm:grid-cols-2">{byGroup('customer').map(field)}</div>
+                    </section>
+                  </div>
+
+                  {/* Meta strip */}
+                  <div className="grid grid-cols-1 gap-x-3 gap-y-1.5 rounded-lg border border-border bg-muted/40 p-3 sm:grid-cols-3">
+                    {byGroup('meta').map(field)}
+                  </div>
+
+                  {/* Totals box (label left / amount right, 2 decimals, sum check) */}
+                  <div className="ml-auto w-full max-w-md overflow-hidden rounded-lg border border-border bg-card">
+                    <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-foreground">
+                      Σύνολα
+                    </header>
+                    <div className="space-y-1 p-3">
+                      {byGroup('totals').map((s) => {
+                        const grand = s.key === 'totalAmount';
+                        return (
+                          <React.Fragment key={s.key}>
+                            {grand && <div className="my-1.5 border-t border-dotted border-muted-foreground/50" />}
+                            <div className={cn('flex items-center justify-between gap-3 rounded-md px-2 py-1', grand && 'bg-sisyphus-500/10')}>
+                              <span className={cn('text-[12px]', grand ? 'font-bold text-sisyphus-700 dark:text-sisyphus-300' : 'font-medium text-foreground')}>
+                                {s.label}
+                              </span>
+                              <input
+                                type="text" inputMode="decimal" disabled={ro}
+                                value={form[s.key] ?? ''} onChange={(e) => setField(s.key, e.target.value)} onBlur={() => blurFmt(s.key)}
+                                className={cn(
+                                  'w-[140px] rounded-md border border-input bg-background px-2 py-1 text-right font-mono text-[12px] tabular-nums text-foreground transition',
+                                  'focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60',
+                                  grand && 'border-sisyphus-500/50 font-bold text-sisyphus-700 dark:text-sisyphus-300',
+                                )}
+                              />
+                            </div>
+                          </React.Fragment>
+                        );
+                      })}
+                      {totalsBothPresent && (
+                        <div className={cn(
+                          'mt-1 flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[11px] font-semibold',
+                          totalsOk ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+                        )}>
+                          <span className="inline-flex items-center gap-1">
+                            {totalsOk ? <FiCheck className="size-3.5" /> : <FiAlertCircle className="size-3.5" />}
+                            Καθαρή + ΦΠΑ {totalsOk ? '= Σύνολο ✓' : tTotal != null ? '≠ Σύνολο' : ''}
+                          </span>
+                          <span className="font-mono tabular-nums">{fmt2(tSum)}{!totalsOk && tTotal != null && ` / ${fmt2(tTotal)}`}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">{specs.map(field)}</div>
+              )}
             </TabsContent>
 
-            {/* Γραμμές */}
+            {/* ---------- Γραμμές ---------- */}
             {isInvoice && (
-              <TabsContent value="items" className="max-h-[460px] overflow-auto p-3">
+              <TabsContent value="items" className="max-h-[480px] overflow-auto p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <span className={cn(LABEL_CLS, 'uppercase tracking-wide')}>Γραμμές <span className="text-foreground">({items.length})</span></span>
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-foreground">Γραμμές <span className="text-foreground">({items.length})</span></span>
                   {!ro && (
                     <button type="button" onClick={addLine}
-                      className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] font-medium text-sisyphus-600 transition hover:bg-neutral-6/50">
+                      className="inline-flex items-center gap-1 rounded-md border border-sisyphus-500/40 bg-sisyphus-500/10 px-2 py-1 text-[11px] font-semibold text-sisyphus-700 transition hover:bg-sisyphus-500/20 dark:text-sisyphus-300">
                       <FiPlus className="size-3.5" /> Προσθήκη γραμμής
                     </button>
                   )}
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-border">
                   <table className="w-full min-w-[680px]">
-                    <thead className="border-b border-border bg-neutral-6/50 text-left text-[11px] font-medium text-muted-foreground">
+                    <thead className="border-b border-border bg-sisyphus-500/10 text-left text-[11px] font-bold uppercase tracking-wide text-sisyphus-700 dark:text-sisyphus-300">
                       <tr>
                         <th className="px-3 py-1.5">Κωδ.</th>
                         <th className="px-3 py-1.5">Περιγραφή</th>
-                        <th className="w-[78px] px-3 py-1.5 text-right">Ποσ.</th>
-                        <th className="w-[104px] px-3 py-1.5 text-right">Τιμή</th>
-                        <th className="w-[92px] px-3 py-1.5 text-right">Έκπτ.</th>
-                        <th className="w-[72px] px-3 py-1.5 text-right">ΦΠΑ %</th>
-                        <th className="w-[112px] px-3 py-1.5 text-right">Σύνολο</th>
+                        <th className="w-[86px] px-3 py-1.5 text-right">Ποσ.</th>
+                        <th className="w-[110px] px-3 py-1.5 text-right">Τιμή</th>
+                        <th className="w-[96px] px-3 py-1.5 text-right">Έκπτ.</th>
+                        <th className="w-[78px] px-3 py-1.5 text-right">ΦΠΑ %</th>
+                        <th className="w-[118px] px-3 py-1.5 text-right">Σύνολο</th>
                         {!ro && <th className="w-[40px] px-2 py-1.5" />}
                       </tr>
                     </thead>
@@ -325,16 +406,16 @@ export function OcrRowDetail({
                       {items.length === 0 ? (
                         <tr><td colSpan={ro ? 7 : 8} className="px-3 py-5 text-center text-[12px] text-muted-foreground">Δεν υπάρχουν γραμμές.</td></tr>
                       ) : items.map((it, i) => (
-                        <tr key={i} className="hover:bg-neutral-6/30">
-                          <td className="px-1 py-0.5"><GhostInput value={it.code} onChange={(v) => setLine(i, 'code', v)} disabled={ro} className="font-mono" /></td>
-                          <td className="px-1 py-0.5"><GhostInput value={it.name} onChange={(v) => setLine(i, 'name', v)} disabled={ro} /></td>
-                          <td className="px-1 py-0.5"><GhostInput value={it.quantity} onChange={(v) => setLine(i, 'quantity', v)} disabled={ro} numeric align="right" /></td>
-                          <td className="px-1 py-0.5"><GhostInput value={it.price} onChange={(v) => setLine(i, 'price', v)} disabled={ro} numeric align="right" /></td>
-                          <td className="px-1 py-0.5"><GhostInput value={it.discount} onChange={(v) => setLine(i, 'discount', v)} disabled={ro} numeric align="right" /></td>
-                          <td className="px-1 py-0.5"><GhostInput value={it.vatRate} onChange={(v) => setLine(i, 'vatRate', v)} disabled={ro} numeric align="right" /></td>
-                          <td className="px-1 py-0.5"><GhostInput value={it.total} onChange={(v) => setLine(i, 'total', v)} disabled={ro} numeric align="right" className="font-semibold" /></td>
+                        <tr key={i} className="odd:bg-muted/20 hover:bg-sisyphus-500/5">
+                          <td className="px-1.5 py-1"><CellInput value={it.code} onChange={(v) => setLine(i, 'code', v)} disabled={ro} className="font-mono" /></td>
+                          <td className="px-1.5 py-1"><CellInput value={it.name} onChange={(v) => setLine(i, 'name', v)} disabled={ro} /></td>
+                          <td className="px-1.5 py-1"><CellInput value={it.quantity} onChange={(v) => setLine(i, 'quantity', v)} disabled={ro} numeric align="right" /></td>
+                          <td className="px-1.5 py-1"><CellInput value={it.price} onChange={(v) => setLine(i, 'price', v)} disabled={ro} numeric align="right" /></td>
+                          <td className="px-1.5 py-1"><CellInput value={it.discount} onChange={(v) => setLine(i, 'discount', v)} disabled={ro} numeric align="right" /></td>
+                          <td className="px-1.5 py-1"><CellInput value={it.vatRate} onChange={(v) => setLine(i, 'vatRate', v)} disabled={ro} numeric align="right" /></td>
+                          <td className="px-1.5 py-1"><CellInput value={it.total} onChange={(v) => setLine(i, 'total', v)} disabled={ro} numeric align="right" className="font-semibold" /></td>
                           {!ro && (
-                            <td className="px-2 py-0.5 text-center">
+                            <td className="px-2 py-1 text-center">
                               <button type="button" onClick={() => removeLine(i)} title="Διαγραφή γραμμής"
                                 className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-dg-red-500/10 hover:text-dg-red-500">
                                 <FiTrash2 className="size-3.5" />
@@ -344,17 +425,17 @@ export function OcrRowDetail({
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot className="border-t border-border bg-neutral-6/40">
+                    <tfoot className="border-t border-border bg-muted/50">
                       <tr className="text-[12px]">
-                        <td colSpan={ro ? 6 : 7} className="px-3 py-1.5 text-right font-medium text-muted-foreground">Άθροισμα γραμμών (καθαρό)</td>
-                        <td className="px-3 py-1.5 text-right font-bold tabular-nums">{fmtMoney(linesNet)}</td>
+                        <td colSpan={ro ? 6 : 7} className="px-3 py-1.5 text-right font-semibold text-foreground">Άθροισμα γραμμών (καθαρό)</td>
+                        <td className="px-3 py-1.5 text-right font-bold tabular-nums text-foreground">{fmtMoney(linesNet)}</td>
                         {!ro && <td />}
                       </tr>
                     </tfoot>
                   </table>
                 </div>
-                {toNum(form.subtotal) != null && Math.abs((toNum(form.subtotal) ?? 0) - linesNet) > 0.02 && (
-                  <p className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-300">
+                {tNet != null && Math.abs(tNet - linesNet) > 0.02 && (
+                  <p className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
                     <FiAlertCircle className="size-3.5 shrink-0" />
                     Το άθροισμα γραμμών ({fmtMoney(linesNet)}) διαφέρει από την Καθαρή αξία ({fmtMoney(form.subtotal)}).
                   </p>
@@ -362,46 +443,44 @@ export function OcrRowDetail({
               </TabsContent>
             )}
 
-            {/* JSON */}
+            {/* ---------- JSON ---------- */}
             <TabsContent value="json" className="p-3">
-              <pre className="max-h-[440px] overflow-auto rounded-lg border border-border bg-neutral-4 p-3 text-[11px] font-mono leading-relaxed">
+              <pre className="max-h-[440px] overflow-auto rounded-lg border border-border bg-muted p-3 text-[11px] font-mono leading-relaxed text-foreground">
 {JSON.stringify(buildExtractedData(), null, 2)}
               </pre>
             </TabsContent>
           </Tabs>
 
-          {/* Footer — always visible */}
-          <div className="flex flex-col gap-2 border-t border-border px-3 py-2.5 lg:flex-row lg:items-end lg:justify-between">
+          {/* ---- Footer ---- */}
+          <div className="flex flex-col gap-2 border-t border-border bg-muted/20 px-3 py-2.5 lg:flex-row lg:items-end lg:justify-between">
             <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2 lg:max-w-xl">
               <label className="flex flex-col gap-0.5">
                 <span className={LABEL_CLS}>Κατηγορία</span>
-                <select value={category} disabled={ro} onChange={(e) => setCategory(e.target.value)}
-                  className="h-8 rounded-md border border-border bg-background px-2 text-[12px] focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60">
+                <select value={category} disabled={ro} onChange={(e) => setCategory(e.target.value)} className={INPUT_CLS}>
                   <option value="">— Επιλογή —</option>
                   {CATEGORY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </label>
               <label className="flex flex-col gap-0.5">
                 <span className={LABEL_CLS}>Σημειώσεις</span>
-                <input type="text" disabled={ro} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Προαιρετικά…"
-                  className="h-8 rounded-md border border-border bg-background px-2 text-[12px] focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60" />
+                <input type="text" disabled={ro} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Προαιρετικά…" className={INPUT_CLS} />
               </label>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {dirty && !ro && (
                 <button type="button" onClick={reset}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[12px] font-medium text-foreground transition hover:bg-neutral-6/50">
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-[12px] font-semibold text-foreground transition hover:bg-muted">
                   <FiRotateCcw className="size-3.5" /> Επαναφορά
                 </button>
               )}
               <button type="button" disabled={ro || saving || !dirty} onClick={save}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-sisyphus-500 px-3.5 text-[12px] font-semibold text-white shadow-fluent-2 transition hover:bg-sisyphus-600 active:bg-sisyphus-700 disabled:opacity-50 disabled:hover:bg-sisyphus-500">
+                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-sisyphus-500 px-3.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-sisyphus-600 active:bg-sisyphus-700 disabled:opacity-50 disabled:hover:bg-sisyphus-500">
                 <FiSave className="size-3.5" /> {saving ? 'Αποθήκευση…' : 'Αποθήκευση'}
               </button>
               <button type="button"
                 disabled={!canPost || posting || row.status !== 'COMPLETED' || !category || row.postStatus === 'POSTED'}
                 onClick={post}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 text-[12px] font-semibold text-emerald-800 transition hover:bg-emerald-500/20 disabled:opacity-50 dark:text-emerald-300">
+                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 text-[12px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50">
                 <FiSend className="size-3.5" /> {posting ? 'Ανάρτηση…' : row.postStatus === 'POSTED' ? 'Αναρτήθηκε' : 'Ανάρτηση'}
               </button>
             </div>
