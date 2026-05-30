@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { FiSend, FiSave, FiExternalLink, FiAlertCircle, FiPlus, FiTrash2, FiRotateCcw, FiCheck } from 'react-icons/fi';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { reconcileInvoice, analyzeLine } from '@/lib/ocr/invoice-math';
 import { type OcrRow } from './ocr-table';
 
 /* ------------------------------------------------------------------ */
@@ -125,6 +126,24 @@ function CellInput({
   );
 }
 
+/** Pass/neutral/fail reconciliation row. */
+function CheckRow({ ok, label, got, exp }: { ok: boolean | null | undefined; label: string; got: string; exp: string }) {
+  const tone = ok == null
+    ? 'border-border bg-muted/30 text-muted-foreground'
+    : ok
+      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+      : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300';
+  return (
+    <div className={cn('flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-[11px] font-medium', tone)}>
+      <span className="inline-flex items-center gap-1.5">
+        {ok ? <FiCheck className="size-3.5" /> : <FiAlertCircle className={cn('size-3.5', ok == null && 'opacity-50')} />}
+        {label}
+      </span>
+      <span className="font-mono tabular-nums">{got}{ok === false ? ` ≠ ${exp}` : ''}</span>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Main component                                                      */
 /* ------------------------------------------------------------------ */
@@ -171,6 +190,12 @@ export function OcrRowDetail({
   const tSum = (tNet ?? 0) + (tVat ?? 0);
   const totalsBothPresent = tNet != null && tVat != null;
   const totalsOk = totalsBothPresent && tTotal != null && Math.abs(tSum - tTotal) <= 0.02;
+
+  // Full invoice reconciliation: lines→net, VAT per rate (multi-VAT), grand total.
+  const recon = React.useMemo(
+    () => reconcileInvoice({ items, subtotal: form.subtotal, vatAmount: form.vatAmount, totalAmount: form.totalAmount }),
+    [items, form.subtotal, form.vatAmount, form.totalAmount],
+  );
 
   function setField(key: string, v: string) { setForm((f) => ({ ...f, [key]: v })); }
   function blurFmt(key: string) { setForm((f) => ({ ...f, [key]: fmt2(f[key]) })); }
@@ -405,15 +430,19 @@ export function OcrRowDetail({
                     <tbody className="divide-y divide-border">
                       {items.length === 0 ? (
                         <tr><td colSpan={ro ? 7 : 8} className="px-3 py-5 text-center text-[12px] text-muted-foreground">Δεν υπάρχουν γραμμές.</td></tr>
-                      ) : items.map((it, i) => (
-                        <tr key={i} className="odd:bg-muted/20 hover:bg-sisyphus-500/5">
+                      ) : items.map((it, i) => {
+                        const la = analyzeLine(it);
+                        const dTitle = la.discountKind === 'percent' ? 'Έκπτωση επί τοις %' : la.discountKind === 'amount' ? 'Έκπτωση ως ποσό' : undefined;
+                        return (
+                        <tr key={i} className={cn('hover:bg-sisyphus-500/5', !la.consistent ? 'bg-amber-500/5' : 'odd:bg-muted/20')}>
                           <td className="px-1.5 py-1"><CellInput value={it.code} onChange={(v) => setLine(i, 'code', v)} disabled={ro} className="font-mono" /></td>
                           <td className="px-1.5 py-1"><CellInput value={it.name} onChange={(v) => setLine(i, 'name', v)} disabled={ro} /></td>
                           <td className="px-1.5 py-1"><CellInput value={it.quantity} onChange={(v) => setLine(i, 'quantity', v)} disabled={ro} numeric align="right" /></td>
                           <td className="px-1.5 py-1"><CellInput value={it.price} onChange={(v) => setLine(i, 'price', v)} disabled={ro} numeric align="right" /></td>
-                          <td className="px-1.5 py-1"><CellInput value={it.discount} onChange={(v) => setLine(i, 'discount', v)} disabled={ro} numeric align="right" /></td>
+                          <td className="px-1.5 py-1" title={dTitle}><CellInput value={it.discount} onChange={(v) => setLine(i, 'discount', v)} disabled={ro} numeric align="right" className={cn(la.discountKind === 'percent' && 'text-sisyphus-700 dark:text-sisyphus-300')} /></td>
                           <td className="px-1.5 py-1"><CellInput value={it.vatRate} onChange={(v) => setLine(i, 'vatRate', v)} disabled={ro} numeric align="right" /></td>
-                          <td className="px-1.5 py-1"><CellInput value={it.total} onChange={(v) => setLine(i, 'total', v)} disabled={ro} numeric align="right" className="font-semibold" /></td>
+                          <td className="px-1.5 py-1"><CellInput value={it.total} onChange={(v) => setLine(i, 'total', v)} disabled={ro} numeric align="right"
+                            className={cn('font-semibold', !la.consistent && 'border-amber-400 bg-amber-50 dark:bg-amber-950/30')} /></td>
                           {!ro && (
                             <td className="px-2 py-1 text-center">
                               <button type="button" onClick={() => removeLine(i)} title="Διαγραφή γραμμής"
@@ -423,7 +452,7 @@ export function OcrRowDetail({
                             </td>
                           )}
                         </tr>
-                      ))}
+                        ); })}
                     </tbody>
                     <tfoot className="border-t border-border bg-muted/50">
                       <tr className="text-[12px]">
@@ -434,12 +463,41 @@ export function OcrRowDetail({
                     </tfoot>
                   </table>
                 </div>
-                {tNet != null && Math.abs(tNet - linesNet) > 0.02 && (
-                  <p className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                    <FiAlertCircle className="size-3.5 shrink-0" />
-                    Το άθροισμα γραμμών ({fmtMoney(linesNet)}) διαφέρει από την Καθαρή αξία ({fmtMoney(form.subtotal)}).
-                  </p>
-                )}
+                {/* Reconciliation: lines→net, VAT per rate (multi-VAT), grand total */}
+                <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  {recon.vatGroups.length > 0 && (
+                    <div className="overflow-hidden rounded-lg border border-border">
+                      <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-foreground">
+                        ΦΠΑ ανά συντελεστή{recon.hasMultipleRates && <span className="ml-1.5 font-semibold text-sisyphus-600">• πολλαπλά</span>}
+                      </header>
+                      <table className="w-full text-[12px]">
+                        <thead className="text-left text-[11px] text-muted-foreground">
+                          <tr><th className="px-3 py-1 font-semibold">Συντ/στής</th><th className="px-3 py-1 text-right font-semibold">Καθαρή</th><th className="px-3 py-1 text-right font-semibold">ΦΠΑ</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {recon.vatGroups.map((g) => (
+                            <tr key={g.rate}>
+                              <td className="px-3 py-1 tabular-nums">{g.rate}%</td>
+                              <td className="px-3 py-1 text-right tabular-nums">{fmtMoney(g.net)}</td>
+                              <td className="px-3 py-1 text-right tabular-nums">{fmtMoney(g.vat)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="border-t border-border bg-muted/30 font-semibold">
+                          <tr><td className="px-3 py-1">Σύνολο ΦΠΑ (υπολ.)</td><td /><td className="px-3 py-1 text-right tabular-nums">{fmtMoney(recon.vatComputed)}</td></tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                  <div className="space-y-1.5">
+                    <CheckRow ok={recon.linesVsSubtotal?.ok ?? null} label="Άθροισμα γραμμών = Καθαρή αξία"
+                      got={fmtMoney(recon.sumNet)} exp={recon.subtotal != null ? fmtMoney(recon.subtotal) : '—'} />
+                    <CheckRow ok={recon.vatOk} label="Υπολ. ΦΠΑ = δηλωμένο ΦΠΑ"
+                      got={fmtMoney(recon.vatComputed)} exp={recon.vatField != null ? fmtMoney(recon.vatField) : '—'} />
+                    <CheckRow ok={recon.totalOk} label="Καθαρή + ΦΠΑ = Γενικό Σύνολο"
+                      got={recon.totalComputed != null ? fmtMoney(recon.totalComputed) : '—'} exp={recon.totalField != null ? fmtMoney(recon.totalField) : '—'} />
+                  </div>
+                </div>
               </TabsContent>
             )}
 
