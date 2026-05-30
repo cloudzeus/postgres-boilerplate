@@ -363,7 +363,7 @@ export function OcrResultModal({ open, documentId, onClose }: ResultModalProps) 
                         {f.present ? (
                           <div className="flex items-start gap-1.5">
                             <FiCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />
-                            <span className="break-words font-mono text-[13px] text-foreground">{f.value}</span>
+                            <span className="break-words font-mono text-[12px] text-foreground">{f.value}</span>
                           </div>
                         ) : f.missing ? (
                           <span className="inline-flex items-center gap-1 text-[12px] font-medium italic text-amber-700 dark:text-amber-400">
