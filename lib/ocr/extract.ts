@@ -2,6 +2,9 @@ import sharp from 'sharp';
 import { getSetting } from '@/lib/settings';
 import { buildSystemPrompt, countMissingRequired, REQUIRED_FIELDS, type DocType, type SupportedLang } from '@/lib/ocr/templates';
 import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
+import { qualityScore, fixSwappedParties } from '@/lib/ocr/validate';
+import { resolveOwnAfm } from '@/lib/ocr/own-afm';
+import { findSupplierTemplate, mergeFromTemplatePass } from '@/lib/ocr/templates-store';
 
 export type PdfSource = 'auto' | 'digital' | 'scanned';
 
@@ -403,7 +406,7 @@ function mergePages(pages: any[], docType: DocType): any {
   };
 }
 
-export async function extractDocument(input: ExtractInput): Promise<ExtractResult> {
+async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
   const cfg = await resolveCfg();
   if (!cfg.textKey) throw new Error('DeepSeek API key is not configured (settings: ai.deepseekApiKey).');
 
@@ -419,6 +422,8 @@ export async function extractDocument(input: ExtractInput): Promise<ExtractResul
     const b64 = enhanced.buffer.toString('base64');
     const out = await callVisionLLM(cfg, system, b64, enhanced.mimeType);
     let data = parseJsonLoose(out.content);
+    const ownAfm = await resolveOwnAfm();
+    data = fixSwappedParties(data, input.docType === 'invoice' ? ownAfm : null);
     let model = out.model;
     let tokens = out.tokens;
     let passes = 1;
@@ -432,7 +437,7 @@ export async function extractDocument(input: ExtractInput): Promise<ExtractResul
         const retryData = parseJsonLoose(retry.content);
         passes = 2;
         // Keep whichever has fewer missing required fields.
-        if (countMissingRequired(retryData, input.docType) < countMissingRequired(data, input.docType)) {
+        if (qualityScore(retryData, input.docType) < qualityScore(data, input.docType)) {
           data = retryData;
           model = retry.model;
           tokens = (tokens ?? 0) + (retry.tokens ?? 0);
@@ -466,7 +471,7 @@ export async function extractDocument(input: ExtractInput): Promise<ExtractResul
       }
 
       // Selectable text exists. Try digital first (cheap, fast).
-      const digital = await runDigitalPdf(cfg, system, input.buffer, started, probed);
+      const digital = await runDigitalPdf(cfg, system, input.buffer, input.docType, started, probed);
 
       // HYBRID: if digital is missing required fields, the PDF is likely mixed
       // (text + scanned image regions). Run vision on the rasterized pages and
@@ -490,7 +495,7 @@ export async function extractDocument(input: ExtractInput): Promise<ExtractResul
       return digital;
     }
 
-    if (mode === 'digital') return await runDigitalPdf(cfg, system, input.buffer, started);
+    if (mode === 'digital') return await runDigitalPdf(cfg, system, input.buffer, input.docType, started);
     if (mode === 'scanned') return await runScannedPdf(cfg, system, input.buffer, input.docType, started);
   }
 
@@ -498,13 +503,16 @@ export async function extractDocument(input: ExtractInput): Promise<ExtractResul
 }
 
 async function runDigitalPdf(
-  cfg: DeepSeekCfg, system: string, buffer: Buffer, started: number, preExtracted?: string,
+  cfg: DeepSeekCfg, system: string, buffer: Buffer, docType: DocType, started: number, preExtracted?: string,
 ): Promise<ExtractResult> {
   const text = preExtracted ?? await extractDigitalPdfText(buffer);
   if (!text) throw new Error('No selectable text discovered in PDF. Use scanned/auto mode.');
   const out = await callTextLLM(cfg, system, `Here is the digital text payload extracted from the document:\n\n${text}`);
+  let data = parseJsonLoose(out.content);
+  const ownAfm = await resolveOwnAfm();
+  data = fixSwappedParties(data, docType === 'invoice' ? ownAfm : null);
   return {
-    data: parseJsonLoose(out.content),
+    data,
     rawText: text,
     model: out.model,
     tokensUsed: out.tokens,
@@ -519,6 +527,8 @@ async function runScannedPdf(
   if (cfg.visionUrl.includes('generativelanguage.googleapis.com')) {
     const out = await callGeminiPdfNative(cfg, system, buffer);
     let data = parseJsonLoose(out.content);
+    const ownAfm = await resolveOwnAfm();
+    data = fixSwappedParties(data, docType === 'invoice' ? ownAfm : null);
     let model = out.model;
     let tokens = out.tokens;
     let passes = 1;
@@ -529,7 +539,7 @@ async function runScannedPdf(
         const r = await callGeminiPdfNative(cfg, system, buffer, UPGRADED_VISION_MODEL);
         const retryData = parseJsonLoose(r.content);
         passes = 2;
-        if (countMissingRequired(retryData, docType) < countMissingRequired(data, docType)) {
+        if (qualityScore(retryData, docType) < qualityScore(data, docType)) {
           data = retryData; model = r.model;
           tokens = (tokens ?? 0) + (r.tokens ?? 0);
           retried = true;
@@ -555,6 +565,8 @@ async function runScannedPdf(
   );
   let parsed = perPage.map((p) => parseJsonLoose(p.content));
   let merged = mergePages(parsed, docType);
+  const ownAfm = await resolveOwnAfm();
+  merged = fixSwappedParties(merged, docType === 'invoice' ? ownAfm : null) as any;
   let model = perPage[0].model;
   let tokensUsed = perPage.reduce((sum, p) => sum + (p.tokens ?? 0), 0) || null;
   let passes = 1;
@@ -570,7 +582,7 @@ async function runScannedPdf(
       const retryParsed = retryPages.map((p) => parseJsonLoose(p.content));
       const retryMerged = mergePages(retryParsed, docType);
       passes = 2;
-      if (countMissingRequired(retryMerged, docType) < countMissingRequired(merged, docType)) {
+      if (qualityScore(retryMerged, docType) < qualityScore(merged, docType)) {
         merged = retryMerged;
         parsed = retryParsed;
         model = retryPages[0].model;
@@ -589,4 +601,51 @@ async function runScannedPdf(
     passes,
     retried,
   };
+}
+
+/**
+ * After a normal pass, if required fields are still missing AND we have a verified
+ * template for this issuer ΑΦΜ, run ONE more pass with a few-shot prompt and merge
+ * in only the fields pass 1 missed. Extra model call only for known suppliers with
+ * incomplete first passes.
+ */
+async function applySupplierTemplate(input: ExtractInput, base: ExtractResult): Promise<ExtractResult> {
+  if (countMissingRequired(base.data, input.docType) === 0) return base;
+  const issuerAfm = String(base.data?.vatNumber ?? '').replace(/\D+/g, '');
+  if (!/^\d{9}$/.test(issuerAfm)) return base;
+  const tpl = await findSupplierTemplate(issuerAfm, input.docType);
+  if (!tpl) return base;
+
+  const cfg = await resolveCfg();
+  const system = buildSystemPrompt(input.docType, input.language, tpl.example, tpl.fieldHints);
+  let pass2: any = null;
+  try {
+    if (input.mimeType === 'application/pdf'
+        && cfg.visionUrl.includes('generativelanguage.googleapis.com')) {
+      const out = await callGeminiPdfNative(cfg, system, input.buffer, UPGRADED_VISION_MODEL);
+      pass2 = parseJsonLoose(out.content);
+    } else if (input.mimeType.startsWith('image/')) {
+      const enhanced = await enhanceForOcr(input.buffer);
+      const out = await callVisionLLM(cfg, system, enhanced.buffer.toString('base64'),
+        enhanced.mimeType, UPGRADED_VISION_MODEL);
+      pass2 = parseJsonLoose(out.content);
+    } else if (base.rawText) {
+      const out = await callTextLLM(cfg, system,
+        `Here is the digital text payload extracted from the document:\n\n${base.rawText}`);
+      pass2 = parseJsonLoose(out.content);
+    }
+  } catch { return base; }
+  if (!pass2) return base;
+
+  const merged = mergeFromTemplatePass(base.data, pass2, input.docType);
+  try {
+    const { prisma } = await import('@/lib/db');
+    await prisma.supplierTemplate.update({ where: { id: tpl.id }, data: { timesUsed: { increment: 1 } } });
+  } catch { /* best effort */ }
+  return { ...base, data: merged, model: `${base.model} + template`, retried: true };
+}
+
+export async function extractDocument(input: ExtractInput): Promise<ExtractResult> {
+  const base = await extractDocumentRaw(input);
+  return applySupplierTemplate(input, base);
 }

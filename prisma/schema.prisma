@@ -1048,6 +1048,23 @@ model OcrInvoiceItem {
   @@index([documentId])
 }
 
+model SupplierTemplate {
+  id           String      @id @default(cuid())
+  vatNumber    String
+  docType      OcrDocType
+  supplierName String?
+  example      Json
+  fieldHints   Json?
+  sampleDocId  String?
+  thumbUrl     String?
+  timesUsed    Int      @default(0)
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@unique([vatNumber, docType])
+  @@index([vatNumber])
+}
+
 // ============================================================
 // Self-assessment questionnaire (per Program) & company evaluation
 // ============================================================

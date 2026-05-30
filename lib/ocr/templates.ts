@@ -105,10 +105,15 @@ export function countMissingRequired(data: any, docType: DocType): number {
   return n;
 }
 
-export function buildSystemPrompt(docType: DocType, lang: SupportedLang): string {
+export function buildSystemPrompt(
+  docType: DocType,
+  lang: SupportedLang,
+  example?: unknown,
+  fieldHints?: unknown,
+): string {
   const tpl = TEMPLATE_SCHEMAS[docType];
   const ln = SUPPORTED_LANGUAGES[lang];
-  return [
+  const lines = [
     'You are a highly resilient JSON document extraction node.',
     tpl.systemInstructions,
     ln.instruction,
@@ -119,5 +124,19 @@ export function buildSystemPrompt(docType: DocType, lang: SupportedLang): string
     '',
     'Blueprint:',
     tpl.jsonStructure,
-  ].join('\n');
+  ];
+  if (example != null) {
+    lines.push(
+      '',
+      'Reference example — a previously VERIFIED document from this SAME issuer had',
+      'the structure below. Use it ONLY to locate and disambiguate fields (e.g. which',
+      'block is the issuer vs the recipient, where the ΑΦΜ sits). Do NOT copy values —',
+      'μην αντιγράφεις τιμές — read the ACTUAL document in front of you:',
+      JSON.stringify(example),
+    );
+    if (fieldHints != null) {
+      lines.push('Field location hints (page/position notes):', JSON.stringify(fieldHints));
+    }
+  }
+  return lines.join('\n');
 }
