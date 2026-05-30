@@ -130,17 +130,20 @@ function CellInput({
   );
 }
 
-/** Pass/neutral/fail reconciliation row. */
+/** Pass/neutral/fail reconciliation row. Colors are inline (hex) so they never
+ * depend on whether a given Tailwind palette is generated in this build. */
+const BADGE_STYLE = {
+  ok:      { backgroundColor: '#dcfce7', color: '#14532d', borderColor: '#4ade80' }, // green-100 / green-900 / green-400
+  fail:    { backgroundColor: '#fef3c7', color: '#78350f', borderColor: '#fbbf24' }, // amber-100 / amber-900 / amber-400
+  neutral: { backgroundColor: '#f3f4f6', color: '#374151', borderColor: '#d1d5db' }, // gray-100 / gray-700 / gray-300
+} as const;
+
 function CheckRow({ ok, label, got, exp }: { ok: boolean | null | undefined; label: string; got: string; exp: string }) {
-  const tone = ok == null
-    ? 'border-border bg-muted/60 text-foreground'
-    : ok
-      ? 'border-green-600/60 bg-green-500/20 text-green-900 dark:border-green-400/50 dark:bg-green-500/25 dark:text-green-200'
-      : 'border-amber-500/60 bg-amber-500/20 text-amber-900 dark:border-amber-400/50 dark:bg-amber-500/25 dark:text-amber-200';
+  const style = ok == null ? BADGE_STYLE.neutral : ok ? BADGE_STYLE.ok : BADGE_STYLE.fail;
   return (
-    <div className={cn('flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-[11px] font-medium', tone)}>
+    <div style={style} className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold">
       <span className="inline-flex items-center gap-1.5">
-        {ok ? <FiCheck className="size-3.5" /> : <FiAlertCircle className={cn('size-3.5', ok == null && 'opacity-50')} />}
+        {ok ? <FiCheck className="size-3.5" /> : <FiAlertCircle className={cn('size-3.5', ok == null && 'opacity-60')} />}
         {label}
       </span>
       <span className="font-mono tabular-nums">{got}{ok === false ? ` ≠ ${exp}` : ''}</span>
@@ -328,10 +331,8 @@ export function OcrRowDetail({
           );
         })}
         {totalsBothPresent && (
-          <div className={cn(
-            'mt-1 flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[11px] font-semibold',
-            totalsOk ? 'bg-green-500/20 text-green-900 dark:text-green-200' : 'bg-amber-500/20 text-amber-900 dark:text-amber-200',
-          )}>
+          <div style={totalsOk ? BADGE_STYLE.ok : BADGE_STYLE.fail}
+            className="mt-1 flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[11px] font-semibold">
             <span className="inline-flex items-center gap-1">
               {totalsOk ? <FiCheck className="size-3.5" /> : <FiAlertCircle className="size-3.5" />}
               Καθαρή + ΦΠΑ {totalsOk ? '= Σύνολο ✓' : tTotal != null ? '≠ Σύνολο' : ''}
