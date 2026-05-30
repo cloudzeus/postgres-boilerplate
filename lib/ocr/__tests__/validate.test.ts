@@ -17,3 +17,53 @@ describe('isValidAfm', () => {
     expect(isValidAfm('094 014 201')).toBe(true);
   });
 });
+
+import { checkTotals, fixSwappedParties, qualityScore } from '../validate';
+
+describe('checkTotals', () => {
+  it('passes when subtotal + vat == total within tolerance', () => {
+    expect(checkTotals({ subtotal: 100, vatAmount: 24, totalAmount: 124 }).ok).toBe(true);
+    expect(checkTotals({ subtotal: 100, vatAmount: 24, totalAmount: 124.01 }).ok).toBe(true);
+  });
+  it('fails when the arithmetic is off beyond tolerance', () => {
+    const r = checkTotals({ subtotal: 100, vatAmount: 24, totalAmount: 130 });
+    expect(r.ok).toBe(false);
+    expect(r.issues.length).toBeGreaterThan(0);
+  });
+  it('is neutral (ok) when any total is missing', () => {
+    expect(checkTotals({ subtotal: 100, vatAmount: null, totalAmount: 124 }).ok).toBe(true);
+  });
+});
+
+describe('fixSwappedParties', () => {
+  const ownAfm = '094014201';
+  it('swaps issuer/recipient when the issuer ΑΦΜ is our own ΑΦΜ', () => {
+    const out = fixSwappedParties(
+      { companyName: 'US', vatNumber: ownAfm, customerName: 'THEM', customerVatNumber: '123456789' },
+      ownAfm,
+    );
+    expect(out.vatNumber).toBe('123456789');
+    expect(out.customerVatNumber).toBe(ownAfm);
+    expect(out.companyName).toBe('THEM');
+    expect(out.customerName).toBe('US');
+  });
+  it('leaves data unchanged when the issuer is not us', () => {
+    const data = { vatNumber: '123456789', customerVatNumber: ownAfm };
+    expect(fixSwappedParties(data, ownAfm)).toEqual(data);
+  });
+  it('no-ops when ownAfm is null', () => {
+    const data = { vatNumber: '094014201' };
+    expect(fixSwappedParties(data, null)).toEqual(data);
+  });
+});
+
+describe('qualityScore', () => {
+  it('ranks a fully-correct invoice better (lower) than one with a wrong ΑΦΜ', () => {
+    const good = { companyName:'A', vatNumber:'094014201', customerName:'B', customerVatNumber:'090000045',
+      invoiceNumber:'1', date:'2026-01-01', subtotal:100, vatAmount:24, totalAmount:124 };
+    const badAfm = { ...good, vatNumber:'094014202' };               // present but invalid
+    const badMath = { ...good, totalAmount: 999 };                   // present but wrong total
+    expect(qualityScore(good, 'invoice')).toBeLessThan(qualityScore(badAfm, 'invoice'));
+    expect(qualityScore(good, 'invoice')).toBeLessThan(qualityScore(badMath, 'invoice'));
+  });
+});
