@@ -7,6 +7,7 @@ import { requirePermission } from '@/lib/rbac';
 import { getSetting } from '@/lib/settings';
 import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
 import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
+import { bunnyDownload } from '@/lib/bunny';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,10 +27,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const doc = await prisma.ocrDocument.findUnique({ where: { id } });
   if (!doc) return NextResponse.json({ error: 'not found' }, { status: 404 });
 
-  // Fetch original bytes from CDN.
-  const fileRes = await fetch(doc.publicUrl, { cache: 'no-store' });
-  if (!fileRes.ok) return NextResponse.json({ error: 'file unavailable' }, { status: 502 });
-  let imgBuf = Buffer.from(await fileRes.arrayBuffer());
+  // Fetch original bytes from Bunny private storage (publicUrl is a `bunny:<key>`
+  // reference, not an HTTP URL — download via the storage key like the file route).
+  let imgBuf: Buffer;
+  try {
+    const dl = await bunnyDownload(doc.storageKey);
+    imgBuf = Buffer.isBuffer(dl) ? dl : Buffer.from(dl as ArrayBuffer);
+  } catch {
+    return NextResponse.json({ error: 'file unavailable' }, { status: 502 });
+  }
 
   // For PDFs, rasterize the requested page first (mirrors lib/ocr/extract.ts rasterizePdf).
   if (doc.mimeType === 'application/pdf') {
