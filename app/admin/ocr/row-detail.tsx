@@ -3,11 +3,14 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { FiSend, FiSave, FiExternalLink, FiAlertCircle, FiPlus, FiTrash2, FiRotateCcw, FiCheck } from 'react-icons/fi';
+import { FiSend, FiSave, FiExternalLink, FiAlertCircle, FiPlus, FiTrash2, FiRotateCcw, FiCheck, FiPlusCircle } from 'react-icons/fi';
+import { CreateSoftoneItemModal } from '@/components/admin/create-softone-item-modal';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { reconcileInvoice, analyzeLine } from '@/lib/ocr/invoice-math';
-import { type OcrRow } from './ocr-table';
+import { SoftoneChecksStrip } from '@/components/admin/softone-checks-strip';
+import { ZoomablePreview } from '@/components/admin/zoomable-preview';
+import { type OcrRow, type SeriesOption } from './ocr-table';
 
 /* ------------------------------------------------------------------ */
 /* Field specs — same standardized layout for every document          */
@@ -156,8 +159,8 @@ function CheckRow({ ok, label, got, exp }: { ok: boolean | null | undefined; lab
 /* ------------------------------------------------------------------ */
 
 export function OcrRowDetail({
-  row, canCategorize, canPost,
-}: { row: OcrRow; canCategorize: boolean; canPost: boolean }) {
+  row, canCategorize, canPost, seriesOptions = [],
+}: { row: OcrRow; canCategorize: boolean; canPost: boolean; seriesOptions?: SeriesOption[] }) {
   const router = useRouter();
   const data = (row.extractedData ?? {}) as Record<string, any>;
   const ro = !canCategorize;
@@ -192,14 +195,14 @@ export function OcrRowDetail({
   const [form, setForm] = React.useState<Record<string, string>>(initialForm);
   const [items, setItems] = React.useState<LineItem[]>(initialItems);
   const [category, setCategory] = React.useState(row.category ?? '');
-  const [notes, setNotes] = React.useState('');
+  const [softoneSeries, setSoftoneSeries] = React.useState(row.softoneSeries ?? '');
   const [saving, setSaving] = React.useState(false);
   const [posting, setPosting] = React.useState(false);
 
   const dirty =
     JSON.stringify(form) !== JSON.stringify(initialForm) ||
     JSON.stringify(items) !== JSON.stringify(initialItems) ||
-    category !== (row.category ?? '') || notes !== '' || docType !== row.docType;
+    category !== (row.category ?? '') || softoneSeries !== (row.softoneSeries ?? '') || docType !== row.docType;
 
   const missing = specs.filter((s) => s.required && !String(form[s.key] ?? '').trim());
   const fileUrl = `/api/admin/ocr/${row.id}/file`;
@@ -224,7 +227,8 @@ export function OcrRowDetail({
   }
   function addLine() { setItems((arr) => [...arr, { ...EMPTY_LINE }]); }
   function removeLine(idx: number) { setItems((arr) => arr.filter((_, i) => i !== idx)); }
-  function reset() { setForm(initialForm); setItems(initialItems); setCategory(row.category ?? ''); setNotes(''); setDocType(row.docType); }
+  const [createLine, setCreateLine] = React.useState<{ code: string; name: string; service: boolean; vat: string } | null>(null);
+  function reset() { setForm(initialForm); setItems(initialItems); setCategory(row.category ?? ''); setSoftoneSeries(row.softoneSeries ?? ''); setDocType(row.docType); }
 
   function buildExtractedData() {
     const out: Record<string, any> = { ...data };
@@ -250,7 +254,7 @@ export function OcrRowDetail({
     setSaving(true);
     try {
       const extractedData = buildExtractedData();
-      const body: any = { category: category || null, notes: notes || null, extractedData, docType };
+      const body: any = { category: category || null, softoneSeries: softoneSeries || null, extractedData, docType };
       if (isInvoice) body.items = extractedData.items;
       const res = await fetch(`/api/admin/ocr/${row.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -353,6 +357,13 @@ export function OcrRowDetail({
         </div>
       )}
 
+      {/* Consolidated SoftOne checks — the decision surface, first thing the user sees. */}
+      {row.status === 'COMPLETED' && (
+        <div className="mb-3">
+          <SoftoneChecksStrip docId={row.id} />
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(300px,380px)_1fr] lg:items-stretch">
         {/* ---- PERSISTENT preview ---- */}
         <aside className="flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -363,14 +374,12 @@ export function OcrRowDetail({
               <FiExternalLink className="size-3" /> Άνοιγμα
             </a>
           </div>
-          <div className="min-h-[440px] flex-1 bg-muted">
-            {isPdf ? (
-              <iframe src={fileUrl} title={row.fileName} className="size-full min-h-[440px]" />
-            ) : (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={fileUrl} alt={row.fileName} className="size-full object-contain" />
-            )}
-          </div>
+          <ZoomablePreview
+            src={isPdf ? `/api/admin/ocr/${row.id}/page-image?scale=3` : fileUrl}
+            alt={row.fileName}
+            fallbackHref={fileUrl}
+            className="min-h-[440px] flex-1 bg-muted"
+          />
         </aside>
 
         {/* ---- Editor ---- */}
@@ -473,11 +482,18 @@ export function OcrRowDetail({
                           <td className="px-1.5 py-1"><CellInput value={it.total} onChange={(v) => setLine(i, 'total', v)} disabled={ro} numeric align="right"
                             className={cn('font-semibold', !la.consistent && 'border-amber-400 bg-amber-50 dark:bg-amber-950/30')} /></td>
                           {!ro && (
-                            <td className="px-2 py-1 text-center">
-                              <button type="button" onClick={() => removeLine(i)} title="Διαγραφή γραμμής"
-                                className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-dg-red-500/10 hover:text-dg-red-500">
-                                <FiTrash2 className="size-3.5" />
-                              </button>
+                            <td className="px-2 py-1">
+                              <div className="flex items-center justify-center gap-0.5">
+                                <button type="button" onClick={() => setCreateLine({ code: it.code, name: it.name, service: false, vat: it.vatRate })}
+                                  title="Δημιουργία είδους/υπηρεσίας στο SoftOne"
+                                  className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-sisyphus-500/10 hover:text-sisyphus-600">
+                                  <FiPlusCircle className="size-3.5" />
+                                </button>
+                                <button type="button" onClick={() => removeLine(i)} title="Διαγραφή γραμμής"
+                                  className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-dg-red-500/10 hover:text-dg-red-500">
+                                  <FiTrash2 className="size-3.5" />
+                                </button>
+                              </div>
                             </td>
                           )}
                         </tr>
@@ -538,27 +554,26 @@ export function OcrRowDetail({
             </TabsContent>
           </Tabs>
 
-          {/* ---- Footer ---- */}
-          <div className="flex flex-col gap-2 border-t border-border bg-muted/20 px-3 py-2.5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-3 lg:max-w-2xl">
-              <label className="flex flex-col gap-0.5">
-                <span className={LABEL_CLS}>Τύπος παραστατικού</span>
-                <select value={docType} disabled={ro} onChange={(e) => setDocType(e.target.value)} className={INPUT_CLS}>
-                  <option value="INVOICE">Τιμολόγιο</option>
-                  <option value="RECEIPT">Απόδειξη</option>
-                  <option value="GENERAL_TEXT">Ελεύθερο κείμενο</option>
+          {/* ---- Footer (sticky action bar — always visible) ---- */}
+          <div className="sticky bottom-0 z-20 flex flex-col gap-2 border-t border-border bg-card/95 px-3 py-2.5 shadow-[0_-2px_10px_rgba(0,0,0,0.06)] backdrop-blur lg:flex-row lg:items-end lg:justify-between">
+            <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2 lg:max-w-xl">
+              <label className="flex min-w-0 flex-col gap-0.5">
+                <span className={LABEL_CLS}>Τύπος παραστατικού (SoftOne)</span>
+                <select value={softoneSeries} disabled={ro} onChange={(e) => setSoftoneSeries(e.target.value)} className={cn(INPUT_CLS, 'w-full')}>
+                  <option value="">— Επιλογή σειράς —</option>
+                  {seriesOptions.map((o) => (
+                    <option key={o.code} value={o.code}>
+                      {o.abbrev ? `${o.abbrev} · ` : ''}{o.name}
+                    </option>
+                  ))}
                 </select>
               </label>
-              <label className="flex flex-col gap-0.5">
+              <label className="flex min-w-0 flex-col gap-0.5">
                 <span className={LABEL_CLS}>Κατηγορία</span>
-                <select value={category} disabled={ro} onChange={(e) => setCategory(e.target.value)} className={INPUT_CLS}>
+                <select value={category} disabled={ro} onChange={(e) => setCategory(e.target.value)} className={cn(INPUT_CLS, 'w-full')}>
                   <option value="">— Επιλογή —</option>
                   {CATEGORY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
-              </label>
-              <label className="flex flex-col gap-0.5">
-                <span className={LABEL_CLS}>Σημειώσεις</span>
-                <input type="text" disabled={ro} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Προαιρετικά…" className={INPUT_CLS} />
               </label>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -582,6 +597,16 @@ export function OcrRowDetail({
           </div>
         </div>
       </div>
+
+      <CreateSoftoneItemModal
+        open={createLine != null}
+        onOpenChange={(o) => { if (!o) setCreateLine(null); }}
+        initialCode={createLine?.code}
+        initialName={createLine?.name}
+        defaultService={createLine?.service}
+        initialVatRate={createLine?.vat}
+        onCreated={() => { setCreateLine(null); router.refresh(); }}
+      />
     </div>
   );
 }

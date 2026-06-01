@@ -59,6 +59,22 @@ export interface DataTableProps<TData, TValue> {
   /** When set, column visibility + order are persisted to localStorage under this key. */
   persistKey?: string;
   className?: string;
+  /**
+   * Optional row grouping. When provided, a full-width group-header row is rendered
+   * before the first row of each group on the current page. `rows` is every row in
+   * that group across the entire (filtered) dataset, not just the current page — so
+   * the header can show accurate totals even when a group spans pages.
+   */
+  groupBy?: {
+    getKey: (row: TData) => string;
+    renderHeader: (key: string, rows: TData[], ctx: GroupHeaderCtx) => React.ReactNode;
+  };
+}
+
+/** Context handed to a group header so it can drive collapse state from the shared table. */
+export interface GroupHeaderCtx {
+  collapsed: boolean;
+  toggleCollapsed: () => void;
 }
 
 export function DataTable<TData, TValue>({
@@ -74,6 +90,7 @@ export function DataTable<TData, TValue>({
   initialColumnVisibility,
   persistKey,
   className,
+  groupBy,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
@@ -81,6 +98,15 @@ export function DataTable<TData, TValue>({
   const [rowSelection, setRowSelection] = React.useState({});
   const [expanded, setExpanded] = React.useState<ExpandedState>({});
   const [globalFilter, setGlobalFilter] = React.useState('');
+  const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(() => new Set());
+
+  const toggleGroupCollapsed = React.useCallback((key: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
 
   // ---- Persisted state: visibility + order keyed by persistKey ----
   const visibilityKey = persistKey ? `dt:${persistKey}:visibility` : null;
@@ -200,6 +226,20 @@ export function DataTable<TData, TValue>({
   const currentPage = table.getState().pagination.pageIndex + 1;
   const pageCount = table.getPageCount();
 
+  // Rows per group across the full filtered dataset (not just the current page),
+  // so group headers can show accurate totals even when a group spans pages.
+  const groupRows = React.useMemo(() => {
+    if (!groupBy) return null;
+    const map = new Map<string, TData[]>();
+    for (const r of table.getFilteredRowModel().rows) {
+      const key = groupBy.getKey(r.original);
+      const list = map.get(key);
+      if (list) list.push(r.original); else map.set(key, [r.original]);
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupBy, data, globalFilter, columnFilters]);
+
   return (
     <div className={cn('flex flex-col gap-3', className)}>
       {/* Toolbar */}
@@ -304,8 +344,36 @@ export function DataTable<TData, TValue>({
                   </td>
                 </tr>
               ) : (
-                table.getRowModel().rows.map((row) => (
+                (() => {
+                  const pageRows = table.getRowModel().rows;
+                  let prevGroupKey: string | null = null;
+                  return pageRows.map((row) => {
+                    let groupHeader: React.ReactNode = null;
+                    let isCollapsed = false;
+                    if (groupBy) {
+                      const key = groupBy.getKey(row.original);
+                      isCollapsed = collapsedGroups.has(key);
+                      if (key !== prevGroupKey) {
+                        prevGroupKey = key;
+                        groupHeader = (
+                          <tr className="border-y border-sisyphus-500/25 bg-sisyphus-500/10 dark:bg-sisyphus-500/20">
+                            <td
+                              colSpan={row.getVisibleCells().length}
+                              className="h-9 px-2.5 text-[11px] font-semibold text-foreground"
+                            >
+                              {groupBy.renderHeader(key, groupRows?.get(key) ?? [], {
+                                collapsed: isCollapsed,
+                                toggleCollapsed: () => toggleGroupCollapsed(key),
+                              })}
+                            </td>
+                          </tr>
+                        );
+                      }
+                    }
+                    if (isCollapsed) return <React.Fragment key={row.id}>{groupHeader}</React.Fragment>;
+                    return (
                   <React.Fragment key={row.id}>
+                    {groupHeader}
                     <tr
                       data-state={row.getIsSelected() ? 'selected' : undefined}
                       className="border-b border-border dark:border-border last:border-0 hover:bg-muted/40 dark:hover:bg-muted/50 data-[state=selected]:bg-[var(--cx-accent-soft)]/50 dark:data-[state=selected]:bg-[var(--cx-accent-soft)]/30 transition-colors duration-200"
@@ -334,7 +402,9 @@ export function DataTable<TData, TValue>({
                       </tr>
                     )}
                   </React.Fragment>
-                ))
+                    );
+                  });
+                })()
               )}
             </tbody>
           </table>

@@ -16,6 +16,10 @@ const PatchSchema = z.object({
   notes: z.string().max(4000).nullable().optional(),
   extractedData: z.record(z.string(), z.any()).optional(),
   items: z.array(ItemSchema).optional(),
+  // Hybrid reconciliation lock: null = auto-derived, RESOLVED = ολοκληρώθηκε, IGNORED = αγνοήθηκε.
+  reconOverride: z.enum(['RESOLVED', 'IGNORED']).nullable().optional(),
+  // Chosen SoftOne document SERIES (PurchaseDocType.code).
+  softoneSeries: z.string().max(64).nullable().optional(),
 });
 
 export const runtime = 'nodejs';

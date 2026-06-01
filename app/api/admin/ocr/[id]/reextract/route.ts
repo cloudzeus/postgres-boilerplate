@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { bunnyDownload } from '@/lib/bunny';
 import { extractDocument } from '@/lib/ocr/extract';
+import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
 import { getSetting } from '@/lib/settings';
 
 export const runtime = 'nodejs';
@@ -52,6 +53,9 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
     const items = doc.docType === 'INVOICE' && Array.isArray(result.data?.items) ? result.data.items : [];
 
+    // Re-check the SoftOne supplier match (issuer ΑΦΜ → TRDR SODTYPE=12). Best-effort.
+    const softone = await buildSoftoneMatch(result.data?.vatNumber);
+
     await prisma.$transaction([
       prisma.ocrInvoiceItem.deleteMany({ where: { documentId: id } }),
       prisma.ocrDocument.update({
@@ -65,6 +69,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
           durationMs: result.durationMs,
           completedAt: new Date(),
           errorMessage: null,
+          ...softone,
         },
       }),
       ...items.map((it: any, idx: number) =>
@@ -81,6 +86,15 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         }),
       ),
     ]);
+
+    // Auto-match invoice lines to SoftOne items (products + services).
+    await matchDocItems(id).catch(() => null);
+
+    // PURDOC duplicate check (best-effort).
+    if (softone.softoneTrdr) {
+      const dup = await buildDuplicateCheck(softone.softoneTrdr, result.data?.invoiceNumber, result.data?.date);
+      await prisma.ocrDocument.update({ where: { id }, data: dup }).catch(() => null);
+    }
 
     return NextResponse.json({ ok: true, model: result.model, data: result.data });
   } catch (err: any) {

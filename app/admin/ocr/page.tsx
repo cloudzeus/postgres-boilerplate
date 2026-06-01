@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 export default async function AdminOcrPage() {
   await requirePermission('ocr.read');
 
-  const [docs, canCategorize, canPost, canDelete, canCreateCompany] = await Promise.all([
+  const [docs, canCategorize, canPost, canDelete, canCreateCompany, seriesRows] = await Promise.all([
     prisma.ocrDocument.findMany({
       orderBy: { createdAt: 'desc' },
       take: 500,
@@ -22,12 +22,21 @@ export default async function AdminOcrPage() {
         thumbUrl: true,
         extractedData: true,
         errorMessage: true,
+        softoneTrdr: true, softoneCode: true, softoneName: true, softoneKind: true, softoneChecked: true,
+        softoneDocExists: true,
+        reconOverride: true, itemsTotal: true, itemsMatched: true,
+        softoneSeries: true,
       },
     }),
     hasPermission('ocr.categorize'),
     hasPermission('ocr.post'),
     hasPermission('ocr.delete'),
     hasPermission('companies.create'),
+    prisma.purchaseDocType.findMany({
+      where: { isActive: true },
+      orderBy: [{ order: 'asc' }, { code: 'asc' }],
+      select: { code: true, abbrev: true, name: true, section: true },
+    }),
   ]);
 
   const rows: OcrRow[] = docs.map((d) => {
@@ -53,6 +62,16 @@ export default async function AdminOcrPage() {
       total: typeof data?.totalAmount === 'number' ? data.totalAmount : null,
       extractedData: data,
       errorMessage: d.errorMessage,
+      softoneTrdr: d.softoneTrdr,
+      softoneCode: d.softoneCode,
+      softoneName: d.softoneName,
+      softoneKind: d.softoneKind,
+      softoneChecked: d.softoneChecked ? d.softoneChecked.toISOString() : null,
+      softoneDocExists: d.softoneDocExists,
+      reconOverride: d.reconOverride,
+      itemsTotal: d.itemsTotal,
+      itemsMatched: d.itemsMatched,
+      softoneSeries: d.softoneSeries,
     };
   });
 
@@ -82,6 +101,7 @@ export default async function AdminOcrPage() {
         canPost={canPost}
         canDelete={canDelete}
         canCreateCompany={canCreateCompany}
+        seriesOptions={seriesRows}
       />
     </div>
   );

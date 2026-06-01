@@ -6,6 +6,7 @@ import { requirePermission, hasPermission } from '@/lib/rbac';
 import { Badge } from '@/components/ui/badge';
 import { OcrResultView } from './result-view';
 import { DeleteButton } from './delete-button';
+import { SoftoneChecksStrip } from '@/components/admin/softone-checks-strip';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,6 +59,8 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
           </pre>
         )}
       </header>
+
+      {doc.status === 'COMPLETED' && <SoftoneChecksStrip docId={doc.id} />}
 
       <OcrResultView doc={doc} />
     </div>

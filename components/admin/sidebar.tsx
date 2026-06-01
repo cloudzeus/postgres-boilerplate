@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   FiGrid, FiUsers, FiShield, FiKey, FiUpload, FiImage,
-  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiTag, FiLayers, FiCpu, FiGlobe, FiBookOpen, FiMapPin,
+  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiTag, FiLayers, FiCpu, FiGlobe, FiBookOpen, FiMapPin, FiUserCheck, FiTruck, FiBox, FiTool, FiUploadCloud, FiFolder, FiLink, FiAlertCircle,
 } from 'react-icons/fi';
 
 type IconType = React.ComponentType<{ className?: string }>;
@@ -19,6 +19,8 @@ type NavItem = {
   /** When set, only users with this role.key can see this item. */
   requireRoleKey?: string;
   badgeKey?: keyof Badges;
+  /** Opens in a new tab (e.g. the public SaaS demo). */
+  newTab?: boolean;
 };
 type NavGroup = { label: string; items: NavItem[] };
 
@@ -32,6 +34,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Επισκόπηση',
     items: [
       { href: '/admin', label: 'Dashboard', icon: FiGrid, exact: true },
+      { href: '/saas-ocr', label: 'SaaS OCR', icon: FiUploadCloud, newTab: true },
     ],
   },
   {
@@ -46,12 +49,19 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Δεδομένα',
     items: [
       { href: '/admin/companies', label: 'Εταιρίες', icon: FiBriefcase, permissions: ['companies.read'] },
+      { href: '/admin/customers', label: 'Πελάτες', icon: FiUserCheck, permissions: ['metadata.read'] },
+      { href: '/admin/suppliers', label: 'Προμηθευτές', icon: FiTruck, permissions: ['metadata.read'] },
+      { href: '/admin/items', label: 'Είδη', icon: FiBox, permissions: ['metadata.read'] },
+      { href: '/admin/services', label: 'Υπηρεσίες', icon: FiTool, permissions: ['metadata.read'] },
       { href: '/admin/kad-codes', label: 'Μητρώο ΚΑΔ', icon: FiTag, permissions: ['kad.read'] },
       { href: '/admin/regions', label: 'Μητρώο Περιφερειών', icon: FiMapPin, permissions: ['metadata.read'] },
       { href: '/admin/reference-data', label: 'Μητρώα αναφοράς', icon: FiLayers, permissions: ['metadata.read'] },
       { href: '/admin/imports', label: 'Excel Imports', icon: FiUpload, permissions: ['imports.read'], badgeKey: 'newImports' },
       { href: '/admin/media', label: 'Media', icon: FiImage },
-      { href: '/admin/ocr', label: 'OCR / Έγγραφα', icon: FiCpu, permissions: ['ocr.read'] },
+      { href: '/admin/ocr', label: 'OCR / Έγγραφα', icon: FiCpu, permissions: ['ocr.read'], exact: true },
+      { href: '/admin/ocr/batches', label: 'Φάκελοι OCR', icon: FiFolder, permissions: ['ocr.read'] },
+      { href: '/admin/ocr/matching', label: 'Αντιστοιχίσεις SoftOne', icon: FiLink, permissions: ['ocr.read'] },
+      { href: '/admin/ocr/pending', label: 'Εκκρεμότητες OCR', icon: FiAlertCircle, permissions: ['ocr.read'] },
       { href: '/admin/programs', label: 'Ευρωπαϊκά Προγράμματα', icon: FiGlobe, permissions: ['programs.read'] },
     ],
   },
@@ -127,6 +137,8 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
                     <li key={item.href}>
                       <Link
                         href={item.href}
+                        target={item.newTab ? '_blank' : undefined}
+                        rel={item.newTab ? 'noreferrer' : undefined}
                         className={cn(
                           'group/item relative flex h-8 items-center gap-2.5 rounded-sm px-2 text-[13px] font-medium cx-transition',
                           active

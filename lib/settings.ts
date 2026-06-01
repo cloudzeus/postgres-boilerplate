@@ -79,11 +79,15 @@ export const SETTING_CATALOG: SettingDef[] = [
   { key: 'ai.visionUrl',      category: 'ai', label: 'Vision OCR endpoint',     type: 'url',  defaultValue: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions' },
   { key: 'ai.visionModel',    category: 'ai', label: 'Vision OCR model',        type: 'text', defaultValue: 'gemini-2.5-flash' },
 
-  // Integrations
-  { key: 'integrations.softoneSerial',  category: 'integrations', label: 'SoftOne Serial',  type: 'text' },
-  { key: 'integrations.softoneAppId',   category: 'integrations', label: 'SoftOne App ID',  type: 'text' },
-  { key: 'integrations.softoneUser',    category: 'integrations', label: 'SoftOne Username',type: 'text' },
-  { key: 'integrations.softonePass',    category: 'integrations', label: 'SoftOne Password',type: 'password', isSecret: true },
+  // Integrations — SoftOne ERP Web Services (two-step login → authenticate)
+  { key: 'integrations.softoneSerial',  category: 'integrations', label: 'SoftOne Subdomain', description: 'Το subdomain πριν το .oncloud.gr (π.χ. kolleris). Από αυτό προκύπτει το endpoint https://<subdomain>.oncloud.gr/s1services.', type: 'text' },
+  { key: 'integrations.softoneAppId',   category: 'integrations', label: 'SoftOne App ID', description: 'Το AppID (≥1000) που έχει οριστεί στο SoftOne → Web & Mobile → Web Services.', type: 'text' },
+  { key: 'integrations.softoneUser',    category: 'integrations', label: 'SoftOne Username', description: 'Web Account username.', type: 'text' },
+  { key: 'integrations.softonePass',    category: 'integrations', label: 'SoftOne Password', type: 'password', isSecret: true },
+  { key: 'integrations.softoneCompany', category: 'integrations', label: 'SoftOne Company',  description: 'Κωδικός εταιρίας για το authenticate (π.χ. 1001). Αν κενό, το Test εμφανίζει τις διαθέσιμες εταιρίες.', type: 'text' },
+  { key: 'integrations.softoneBranch',  category: 'integrations', label: 'SoftOne Branch',   description: 'Κωδικός υποκαταστήματος (π.χ. 1000 = Έδρα).', type: 'text' },
+  { key: 'integrations.softoneModule',  category: 'integrations', label: 'SoftOne Module',   description: 'Κωδικός module (π.χ. 0 = Εμπορικό).', type: 'text', defaultValue: '0' },
+  { key: 'integrations.softoneRefid',   category: 'integrations', label: 'SoftOne RefID',    description: 'Κωδικός χρήστη/δικαιωμάτων (refid) για το authenticate.', type: 'text' },
   { key: 'integrations.gemiApiKey',     category: 'integrations', label: 'ΓΕΜΗ API Key', description: 'API Key για το Γενικό Εμπορικό Μητρώο (Μητρώο Επιχειρήσεων).', type: 'password', isSecret: true },
 
   // Backups

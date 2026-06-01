@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { bunnyUploadPrivate } from '@/lib/bunny';
 import { extractDocument } from '@/lib/ocr/extract';
+import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
 import { ensureOcrThumbnail } from '@/lib/ocr/thumbnail';
 import { type DocType, type SupportedLang } from '@/lib/ocr/templates';
 
@@ -58,6 +59,7 @@ export async function POST(req: Request) {
   const docType = String(form.get('docType') ?? 'invoice') as DocType;
   const language = String(form.get('language') ?? 'el') as SupportedLang;
   const pdfSource = String(form.get('pdfSource') ?? 'auto') as 'auto' | 'digital' | 'scanned';
+  const batchId = form.get('batchId') ? String(form.get('batchId')) : null;
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: 'file is required (multipart/form-data)' }, { status: 400 });
@@ -101,6 +103,7 @@ export async function POST(req: Request) {
         : null,
       language,
       status: 'PROCESSING',
+      batchId,
       createdById: user.id,
     },
   });
@@ -115,6 +118,9 @@ export async function POST(req: Request) {
     // Persist invoice line items if present.
     const items = docType === 'invoice' && Array.isArray(result.data?.items) ? result.data.items : [];
 
+    // Tag with the SoftOne supplier (issuer ΑΦΜ → TRDR SODTYPE=12). Best-effort.
+    const softone = await buildSoftoneMatch(result.data?.vatNumber);
+
     await prisma.$transaction([
       prisma.ocrDocument.update({
         where: { id: doc.id },
@@ -126,6 +132,7 @@ export async function POST(req: Request) {
           tokensUsed: result.tokensUsed,
           durationMs: result.durationMs,
           completedAt: new Date(),
+          ...softone,
           // Reflect the path actually taken: rawText present ⇒ digital, otherwise scanned.
           pdfSource: file.type === 'application/pdf'
             ? (result.rawText ? 'DIGITAL' : 'SCANNED')
@@ -148,6 +155,15 @@ export async function POST(req: Request) {
         }),
       ),
     ]);
+
+    // Auto-match invoice lines to SoftOne items (cheap local lookup; manual matches preserved).
+    await matchDocItems(doc.id).catch(() => null);
+
+    // PURDOC duplicate check (supplier + αριθμός παραστατικού + ημ/νία). Best-effort.
+    if (softone.softoneTrdr) {
+      const dup = await buildDuplicateCheck(softone.softoneTrdr, result.data?.invoiceNumber, result.data?.date);
+      await prisma.ocrDocument.update({ where: { id: doc.id }, data: dup }).catch(() => null);
+    }
 
     // Best-effort thumbnail generation (don't fail the request if it errors).
     ensureOcrThumbnail(doc.id).catch(() => null);

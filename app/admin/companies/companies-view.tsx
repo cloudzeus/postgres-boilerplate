@@ -8,8 +8,9 @@ import {
   FiAlertTriangle, FiSettings, FiLayers, FiMapPin, FiStar,
   FiInfo, FiFileText, FiPhone, FiCreditCard, FiTag, FiEdit3,
   FiUpload, FiArchive, FiExternalLink, FiImage, FiRefreshCw,
-  FiUserPlus, FiUser, FiMail, FiSmartphone, FiClipboard,
+  FiUserPlus, FiUser, FiMail, FiSmartphone, FiClipboard, FiSearch,
 } from 'react-icons/fi';
+import { SoftoneAfmDialog } from '@/components/admin/softone-afm-dialog';
 import { toast } from 'sonner';
 import { DataTable } from '@/components/ui/data-table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -192,6 +193,8 @@ export function CompaniesView({
   const [contactFor, setContactFor] = React.useState<CompanyRow | null>(null);
   const [assessing, setAssessing] = React.useState<CompanyRow | null>(null);
   const [tab, setTab] = React.useState<string>('ALL');
+  const [lookupAfm, setLookupAfm] = React.useState<string | null>(null);
+  const [lookupCtx, setLookupCtx] = React.useState<string | undefined>(undefined);
 
   const columns = React.useMemo<ColumnDef<CompanyRow>[]>(() => ([
     {
@@ -332,6 +335,12 @@ export function CompaniesView({
               <DropdownMenuItem onClick={() => setAssessing(c)}>
                 <FiClipboard /> Αξιολόγηση
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => { setLookupCtx(c.name); setLookupAfm(c.afm); }}
+                disabled={!c.afm}
+              >
+                <FiSearch /> Έλεγχος ΑΦΜ στο SoftOne
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={async () => {
                 const res = await fetch('/api/regions/match', {
                   method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -446,6 +455,8 @@ export function CompaniesView({
         onClose={() => setManagingTypes(false)}
         onChanged={() => router.refresh()}
       />
+
+      <SoftoneAfmDialog afm={lookupAfm} contextLabel={lookupCtx} onClose={() => setLookupAfm(null)} />
     </div>
   );
 }

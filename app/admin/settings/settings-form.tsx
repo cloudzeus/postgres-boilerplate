@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { FiSave, FiEye, FiEyeOff } from 'react-icons/fi';
+import { FiSave, FiEye, FiEyeOff, FiZap, FiCheckCircle, FiXCircle, FiCopy } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +29,20 @@ type Item = {
 };
 type Category = { id: string; label: string };
 
+// Mirror of lib/softone.ts SoftoneTestResult (server-only module can't be imported here).
+type SoftoneTestResult = {
+  ok: boolean;
+  endpoint: string;
+  stage: 'login' | 'authenticate';
+  clientID?: string;
+  tempClientID?: string;
+  authenticated: boolean;
+  ver?: string;
+  sn?: string;
+  companies?: Array<Record<string, unknown>>;
+  error?: string;
+};
+
 export function SettingsForm({ items, categories }: { items: Item[]; categories: Category[] }) {
   const router = useRouter();
   const [values, setValues] = React.useState<Record<string, unknown>>(
@@ -37,6 +51,8 @@ export function SettingsForm({ items, categories }: { items: Item[]; categories:
   const [revealed, setRevealed] = React.useState<Record<string, boolean>>({});
   const [saving, setSaving] = React.useState(false);
   const [dirty, setDirty] = React.useState<Set<string>>(new Set());
+  const [s1Testing, setS1Testing] = React.useState(false);
+  const [s1Result, setS1Result] = React.useState<SoftoneTestResult | null>(null);
 
   const update = (key: string, v: unknown) => {
     setValues((prev) => ({ ...prev, [key]: v }));
@@ -54,6 +70,30 @@ export function SettingsForm({ items, categories }: { items: Item[]; categories:
     setSaving(false);
     if (res.ok) { toast.success(`Αποθηκεύτηκαν ${dirty.size} ρυθμίσεις`); setDirty(new Set()); router.refresh(); }
     else toast.error('Αποτυχία αποθήκευσης');
+  };
+
+  const testSoftone = async () => {
+    if (dirty.size > 0) {
+      toast.info('Αποθήκευσε πρώτα τις αλλαγές για να δοκιμάσεις τις τρέχουσες ρυθμίσεις');
+      return;
+    }
+    setS1Testing(true);
+    setS1Result(null);
+    try {
+      const res = await fetch('/api/admin/settings/softone-test', { method: 'POST' });
+      const data: SoftoneTestResult = await res.json();
+      setS1Result(data);
+      if (data.ok) {
+        toast.success(data.authenticated ? 'Σύνδεση SoftOne OK — μόνιμο token' : 'Login OK — προσωρινό token');
+      } else {
+        toast.error(data.error || 'Αποτυχία σύνδεσης SoftOne');
+      }
+    } catch {
+      setS1Result({ ok: false, endpoint: '', stage: 'login', authenticated: false, error: 'Σφάλμα δικτύου' });
+      toast.error('Σφάλμα δικτύου');
+    } finally {
+      setS1Testing(false);
+    }
   };
 
   const renderField = (item: Item) => {
@@ -193,6 +233,113 @@ export function SettingsForm({ items, categories }: { items: Item[]; categories:
                 </div>
               ))}
             </div>
+
+            {cat.id === 'integrations' && (
+              <div className="mt-5 border-t border-border pt-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <p className="text-[13px] font-semibold text-foreground">Δοκιμή σύνδεσης SoftOne</p>
+                    <p className="text-[11px] text-muted-foreground leading-tight">
+                      Εκτελεί login → authenticate με τις αποθηκευμένες ρυθμίσεις και εμφανίζει το token (clientID).
+                    </p>
+                  </div>
+                  <Button type="button" variant="secondary" onClick={testSoftone} disabled={s1Testing}>
+                    <FiZap /> {s1Testing ? 'Δοκιμή…' : 'Δοκιμή σύνδεσης'}
+                  </Button>
+                </div>
+
+                {s1Result && (
+                  <div
+                    className={`mt-3 rounded-lg border p-3 text-[12px] ${
+                      s1Result.ok
+                        ? 'border-emerald-500/30 bg-emerald-500/5'
+                        : 'border-destructive/30 bg-destructive/5'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 font-semibold">
+                      {s1Result.ok ? (
+                        <FiCheckCircle className="h-4 w-4 text-emerald-600" />
+                      ) : (
+                        <FiXCircle className="h-4 w-4 text-destructive" />
+                      )}
+                      <span className={s1Result.ok ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}>
+                        {s1Result.ok
+                          ? s1Result.authenticated
+                            ? 'Μόνιμο token (authenticate)'
+                            : 'Προσωρινό token (login)'
+                          : 'Αποτυχία σύνδεσης'}
+                      </span>
+                    </div>
+
+                    {s1Result.error && <p className="mt-1.5 text-destructive">{s1Result.error}</p>}
+
+                    {s1Result.clientID && (
+                      <div className="mt-2">
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                          Token (clientID)
+                        </Label>
+                        <div className="mt-1 flex items-center gap-2">
+                          <code className="flex-1 break-all rounded bg-muted px-2 py-1 font-mono text-[12px] text-foreground">
+                            {s1Result.clientID}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(s1Result.clientID!);
+                              toast.success('Αντιγράφηκε');
+                            }}
+                            className="text-muted-foreground hover:text-foreground"
+                            aria-label="Αντιγραφή token"
+                          >
+                            <FiCopy className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {(s1Result.endpoint || s1Result.ver || s1Result.sn) && (
+                      <div className="mt-2 grid gap-0.5 text-[11px] text-muted-foreground">
+                        {s1Result.endpoint && <span>Endpoint: {s1Result.endpoint}</span>}
+                        {s1Result.ver && <span>Version: {s1Result.ver}</span>}
+                        {s1Result.sn && <span>Serial: {s1Result.sn}</span>}
+                      </div>
+                    )}
+
+                    {!s1Result.authenticated && s1Result.companies && s1Result.companies.length > 0 && (
+                      <div className="mt-2">
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                          Διαθέσιμες εταιρίες (συμπλήρωσε Company/Branch/Module/RefID)
+                        </Label>
+                        <div className="mt-1 max-h-40 overflow-auto rounded border border-border">
+                          <table className="w-full text-[11px]">
+                            <thead className="bg-muted/50 text-muted-foreground">
+                              <tr>
+                                <th className="px-2 py-1 text-left font-semibold">Company</th>
+                                <th className="px-2 py-1 text-left font-semibold">Branch</th>
+                                <th className="px-2 py-1 text-left font-semibold">Module</th>
+                                <th className="px-2 py-1 text-left font-semibold">RefID</th>
+                                <th className="px-2 py-1 text-left font-semibold">Όνομα</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {s1Result.companies.map((c, i) => (
+                                <tr key={i} className="border-t border-border">
+                                  <td className="px-2 py-1">{String(c.COMPANY ?? c.company ?? '')}</td>
+                                  <td className="px-2 py-1">{String(c.BRANCH ?? c.branch ?? '')}</td>
+                                  <td className="px-2 py-1">{String(c.MODULE ?? c.module ?? '')}</td>
+                                  <td className="px-2 py-1">{String(c.REFID ?? c.refid ?? '')}</td>
+                                  <td className="px-2 py-1">{String(c.COMPANYNAME ?? c.BRANCHNAME ?? c.name ?? '')}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         );
       })}
