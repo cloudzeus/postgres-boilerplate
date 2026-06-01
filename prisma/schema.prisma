@@ -401,6 +401,104 @@ model VatCategory {
   @@index([order])
 }
 
+// Τύποι παραστατικών αγορών — σειρές (SERIES) της ενότητας Αγορών (PURDOC) από SoftOne.
+model PurchaseDocType {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique          // SoftOne SERIES (αριθμός σειράς)
+  abbrev    String?                   // CODE (σύντμηση)
+  name      String                    // NAME (Περιγραφή)
+  section   String?                   // Υποενότητα (SOREDIR)
+  isActive  Boolean  @default(true)
+  order     Int      @default(0)
+
+  @@index([order])
+}
+
+// Πελάτες (TRDR SODTYPE=13) από SoftOne via GetTable — μητρώο αναφοράς.
+model SoftoneCustomer {
+  id         Int     @id @default(autoincrement())
+  trdr       Int     @unique           // SoftOne TRDR id
+  code       String                    // CODE (κωδικός)
+  name       String                    // NAME (επωνυμία)
+  kind       String?                   // Πελάτης/Προμηθευτής/Πιστωτής (SODTYPE)
+  afm        String?                   // Α.Φ.Μ.
+  doy        String?                   // IRSDATA (Δ.Ο.Υ.)
+  profession String?                   // JOBTYPETRD (επάγγελμα)
+  address    String?
+  district   String?
+  zip        String?
+  city       String?
+  phone      String?                   // PHONE01
+  phone2     String?                   // PHONE02
+  fax        String?
+  email      String?
+  webpage    String?
+  isActive   Boolean @default(true)
+
+  @@index([name])
+  @@index([code])
+  @@index([afm])
+}
+
+// Προμηθευτές (TRDR SODTYPE=12) από SoftOne via GetTable — μητρώο αναφοράς.
+model SoftoneSupplier {
+  id         Int     @id @default(autoincrement())
+  trdr       Int     @unique           // SoftOne TRDR id
+  code       String                    // CODE (κωδικός)
+  name       String                    // NAME (επωνυμία)
+  kind       String?                   // Πελάτης/Προμηθευτής/Πιστωτής (SODTYPE)
+  afm        String?                   // Α.Φ.Μ.
+  doy        String?                   // IRSDATA (Δ.Ο.Υ.)
+  profession String?                   // JOBTYPETRD (επάγγελμα)
+  address    String?
+  district   String?
+  zip        String?
+  city       String?
+  phone      String?                   // PHONE01
+  phone2     String?                   // PHONE02
+  fax        String?
+  email      String?
+  webpage    String?
+  isActive   Boolean @default(true)
+
+  @@index([name])
+  @@index([code])
+  @@index([afm])
+}
+
+// Είδη & Υπηρεσίες (MTRL SODTYPE 51=είδος, 52=υπηρεσία) από SoftOne via GetTable.
+model SoftoneItem {
+  id         Int     @id @default(autoincrement())
+  mtrl       Int     @unique           // SoftOne MTRL id
+  code       String                    // CODE (κύριος κωδικός)
+  code1      String?                   // CODE1 (Barcode / EAN)
+  code2      String?                   // CODE2 (Κωδ. εργοστασίου)
+  name       String                    // NAME (περιγραφή)
+  name2      String?                   // NAME1 (περιγραφή 2)
+  price      Float?                    // PRICER (λιανικής)
+  isService  Boolean @default(false)   // SODTYPE=52
+  isActive   Boolean @default(true)
+
+  @@index([name])
+  @@index([code])
+  @@index([code1])
+  @@index([code2])
+  @@index([isService])
+}
+
+// Γενικοί βοηθητικοί πίνακες SoftOne (ΦΠΑ, μονάδες, ομάδες, κατηγορίες, κατασκευαστές, μάρκες…)
+// για combo boxes / γενική χρήση. kind = το όνομα του SoftOne πίνακα.
+model SoftoneLookup {
+  id    Int    @id @default(autoincrement())
+  kind  String                // π.χ. VAT | MTRUNIT | MTRGROUP | MTRCATEGORY | MTRMANFCTR | MTRMARK
+  code  String                // SoftOne id/code
+  name  String                // περιγραφή (combo label)
+  order Int    @default(0)
+
+  @@unique([kind, code])
+  @@index([kind])
+}
+
 model Municipality {
   id            String     @id        // GEMI municipality.id (string)
   prefectureId  String?
@@ -772,12 +870,48 @@ model OcrDocument {
   postedAt      DateTime?
   postedRef     String?                                 // SoftOne FINDOC ref / external doc id
   postError     String?       @db.Text
+  // SoftOne supplier match (issuer ΑΦΜ → TRDR SODTYPE=12), filled on extraction.
+  softoneTrdr    Int?                                    // matched supplier TRDR id
+  softoneCode    String?                                 // matched supplier CODE
+  softoneName    String?                                 // matched supplier NAME
+  softoneKind    String?                                 // Προμηθευτής / Πιστωτής (SODTYPE)
+  softoneChecked DateTime?                               // when the SoftOne lookup ran (null = not yet)
+  invoiceKind    String?                                 // DeepSeek: service | product | mixed
+  // PURDOC duplicate check (supplier + αριθμός + ημ/νία already in SoftOne).
+  softoneDocExists  Boolean?                              // true = πιθανό διπλό βρέθηκε
+  softoneDocRef     String?                               // FINCODE του υπάρχοντος παραστατικού
+  softoneDocChecked DateTime?
+  // Reconciliation / εκκρεμότητα. The display status is *derived* (see lib/ocr/recon-status.ts);
+  // reconOverride is the manual hybrid lock: null = auto, RESOLVED = ολοκληρώθηκε, IGNORED = αγνοήθηκε.
+  reconOverride String?                                   // null | RESOLVED | IGNORED
+  itemsTotal    Int?                                      // # invoice lines (persisted at correlation)
+  itemsMatched  Int?                                      // # lines matched to SoftOne MTRL
+  // Chosen SoftOne document SERIES (PurchaseDocType.code) for posting. Replaces the
+  // old free-text "Τύπος παραστατικού" with the real SoftOne series.
+  softoneSeries String?
+  // Folder/batch this document belongs to (folder upload).
+  batchId       String?
+  batch         OcrBatch?     @relation(fields: [batchId], references: [id], onDelete: SetNull)
   items         OcrInvoiceItem[]
 
   @@index([status])
   @@index([docType])
   @@index([category])
   @@index([postStatus])
+  @@index([createdAt])
+  @@index([batchId])
+}
+
+// A folder/batch of uploaded documents processed together.
+model OcrBatch {
+  id          String        @id @default(cuid())
+  name        String                                    // folder name
+  docType     OcrDocType    @default(INVOICE)
+  language    String        @default("el")
+  createdById String?
+  createdAt   DateTime      @default(now())
+  documents   OcrDocument[]
+
   @@index([createdAt])
 }
 
@@ -859,6 +993,7 @@ model Program {
   regions         ProgramRegion[]
   criteria        ProgramCriterion[]
   deadlines       ProgramDeadline[]
+  phases          ProgramPhase[]
   legalForms      ProgramEligibleLegalForm[]
   bonuses         ProgramBonus[]
   files           ProgramFile[]
@@ -997,6 +1132,57 @@ model ProgramDeadline {
 }
 
 // ============================================================
+// Supporting documents — catalog, program phases, requirements
+// ============================================================
+
+/// Global catalog of supporting-document types (δικαιολογητικά), reused across all programs.
+model DocumentType {
+  id             String   @id @default(cuid())
+  name           String   @unique
+  description    String?
+  category       String?
+  requiresExpiry Boolean  @default(true)
+  notifyExpiry   Boolean  @default(true)
+  active         Boolean  @default(true)
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  requirements PhaseDocumentRequirement[]
+
+  @@index([active])
+}
+
+/// Free-form phases of a program (e.g. Υποβολή → Ένταξη → Υλοποίηση → Ολοκλήρωση). No dates here.
+model ProgramPhase {
+  id        String   @id @default(cuid())
+  programId String
+  program   Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  name      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  requirements PhaseDocumentRequirement[]
+
+  @@index([programId])
+}
+
+/// Which document types are required at which phase, and whether mandatory.
+model PhaseDocumentRequirement {
+  id             String       @id @default(cuid())
+  phaseId        String
+  phase          ProgramPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  documentTypeId String
+  documentType   DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+  mandatory      Boolean      @default(true)
+  notes          String?
+
+  @@unique([phaseId, documentTypeId])
+  @@index([phaseId])
+  @@index([documentTypeId])
+}
+
+// ============================================================
 // AI usage & cost tracking (SUPER_ADMIN only)
 // ============================================================
 
@@ -1044,8 +1230,15 @@ model OcrInvoiceItem {
   discount    Decimal?    @db.Decimal(18, 4)
   vatRate     Decimal?    @db.Decimal(5, 2)
   total       Decimal?    @db.Decimal(18, 4)
+  // SoftOne item match (filled by correlation; null = δεν βρέθηκε).
+  softoneMtrl      Int?
+  softoneCode      String?
+  softoneName      String?
+  softoneIsService Boolean?
+  softoneMatchedBy String?                              // code2 | code1 | code | manual
 
   @@index([documentId])
+  @@index([softoneMtrl])
 }
 
 model SupplierTemplate {
