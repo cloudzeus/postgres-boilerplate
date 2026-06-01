@@ -10,6 +10,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { QuestionnaireTab, type QuestionnaireData } from './questionnaire-tab';
+import { PhasesTab } from './phases-tab';
 
 interface Kad { id?: string; code: string; description?: string | null; excluded?: boolean }
 interface Cat {
@@ -51,7 +52,7 @@ const STATUS_LABEL: Record<string, string> = {
   DRAFT: 'Πρόχειρο', REVIEWING: 'Σε επεξεργασία', PUBLISHED: 'Δημοσιευμένο', ARCHIVED: 'Αρχείο',
 };
 
-export function ProgramEditor({ program, canUpdate, canDelete }: { program: ProgramData; canUpdate: boolean; canDelete: boolean }) {
+export function ProgramEditor({ program, canUpdate, canDelete, docTypes }: { program: ProgramData; canUpdate: boolean; canDelete: boolean; docTypes: { id: string; name: string }[] }) {
   const router = useRouter();
   const [p, setP] = React.useState<ProgramData>(program);
   const [saving, setSaving] = React.useState(false);
@@ -279,6 +280,7 @@ export function ProgramEditor({ program, canUpdate, canDelete }: { program: Prog
               <TabsTrigger value="deadlines">Προθεσμίες <Badge variant="outline">{p.deadlines.length}</Badge></TabsTrigger>
               <TabsTrigger value="files">Αρχεία <Badge variant="outline">{p.files.length}</Badge></TabsTrigger>
               <TabsTrigger value="questionnaire">Αυτοαξιολόγηση{program.questionnaire ? <Badge variant="outline">{program.questionnaire.questions.length}</Badge> : null}</TabsTrigger>
+              <TabsTrigger value="phases">Φάσεις & Δικαιολογητικά</TabsTrigger>
             </TabsList>
           </div>
 
@@ -446,6 +448,10 @@ export function ProgramEditor({ program, canUpdate, canDelete }: { program: Prog
                 })),
               } : null}
             />
+          </TabsContent>
+
+          <TabsContent value="phases" className="w-full p-4">
+            <PhasesTab programId={p.id} docTypes={docTypes} canManage={canUpdate} />
           </TabsContent>
         </Tabs>
       </section>

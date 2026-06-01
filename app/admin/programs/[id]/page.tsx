@@ -30,6 +30,12 @@ export default async function ProgramDetailPage({ params }: { params: Promise<{ 
   const canUpdate = await hasPermission('programs.update');
   const canDelete = await hasPermission('programs.delete');
 
+  const docTypes = await prisma.documentType.findMany({
+    where: { active: true },
+    orderBy: [{ order: 'asc' }, { name: 'asc' }],
+    select: { id: true, name: true },
+  });
+
   // Coerce Decimal/Date to JSON-safe primitives for the client component.
   const serialized = {
     ...program,
@@ -97,7 +103,7 @@ export default async function ProgramDetailPage({ params }: { params: Promise<{ 
         )}
       </div>
 
-      <ProgramEditor program={serialized as any} canUpdate={canUpdate} canDelete={canDelete} />
+      <ProgramEditor program={serialized as any} canUpdate={canUpdate} canDelete={canDelete} docTypes={docTypes} />
     </div>
   );
 }
