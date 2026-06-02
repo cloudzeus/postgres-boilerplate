@@ -4,6 +4,7 @@ export interface DocumentTypeInput {
   name?: unknown;
   description?: unknown;
   category?: unknown;
+  categoryId?: unknown;
   requiresExpiry?: unknown;
   notifyExpiry?: unknown;
   active?: unknown;
@@ -14,6 +15,7 @@ export interface NormalizedDocumentType {
   name: string;
   description: string | null;
   category: string | null;
+  categoryId: string | null;
   requiresExpiry: boolean;
   notifyExpiry: boolean;
   active: boolean;
@@ -44,6 +46,7 @@ export function normalizeDocumentTypeInput(input: DocumentTypeInput): NormalizeR
       name,
       description: strOrNull(input.description),
       category: strOrNull(input.category),
+      categoryId: typeof input.categoryId === 'string' && input.categoryId.trim() ? input.categoryId.trim() : null,
       requiresExpiry: boolOr(input.requiresExpiry, true),
       notifyExpiry: boolOr(input.notifyExpiry, true),
       active: boolOr(input.active, true),

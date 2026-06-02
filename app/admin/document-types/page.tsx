@@ -10,8 +10,9 @@ export default async function DocumentTypesPage() {
   await requirePermission('metadata.read');
   const canManage = await hasPermission('metadata.manage');
   const types = await prisma.documentType.findMany({ orderBy: [{ order: 'asc' }, { name: 'asc' }] });
+  const categories = await prisma.documentCategory.findMany({ where: { active: true }, orderBy: [{ order: 'asc' }, { name: 'asc' }], select: { id: true, name: true } });
   const rows: DocumentTypeRow[] = types.map((t) => ({
-    id: t.id, name: t.name, description: t.description, category: t.category,
+    id: t.id, name: t.name, description: t.description, category: t.category, categoryId: t.categoryId,
     requiresExpiry: t.requiresExpiry, notifyExpiry: t.notifyExpiry, active: t.active, order: t.order,
   }));
   return (
@@ -22,7 +23,7 @@ export default async function DocumentTypesPage() {
         description="Κατάλογος τύπων δικαιολογητικών που χρησιμοποιούνται σε όλα τα προγράμματα και τις εταιρίες."
         helpAnchor="document-types"
       />
-      <DocumentTypesClient rows={rows} canManage={canManage} />
+      <DocumentTypesClient rows={rows} canManage={canManage} categories={categories} />
     </div>
   );
 }
