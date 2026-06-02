@@ -487,6 +487,7 @@ function CompanyDialog({
     prefectures: { id: string; descr: string }[];
     municipalities: { id: string; descr: string; prefectureId: string | null }[];
     vatCategories: { id: number; code: string; descr: string; rate: number | null }[];
+    businessTypes: { id: string; code: string; name: string }[];
   } | null>(null);
   React.useEffect(() => {
     if (!open || lookups) return;
@@ -525,6 +526,8 @@ function CompanyDialog({
             logoUrl: c.logoUrl ?? null,
             employeeCount: c.employeeCount ?? '',
             legalTypeId: c.legalTypeId ?? '',
+            businessTypeId: c.businessTypeId ?? '',
+            businessTypeOverride: c.businessTypeOverride ?? false,
             vatCategoryId: c.vatCategoryId ?? '',
             gemiOfficeId: c.gemiOfficeId ?? '',
             companyStatusId: c.companyStatusId ?? '',
@@ -620,6 +623,8 @@ function CompanyDialog({
       employeeCount: form.employeeCount === '' ? null : form.employeeCount,
       legalTypeId: form.legalTypeId === '' ? null : form.legalTypeId,
       vatCategoryId: form.vatCategoryId === '' ? null : form.vatCategoryId,
+      businessTypeId: form.businessTypeId === '' ? null : form.businessTypeId,
+      businessTypeOverride: form.businessTypeOverride === true,
       gemiOfficeId: form.gemiOfficeId === '' ? null : form.gemiOfficeId,
       companyStatusId: form.companyStatusId === '' ? null : form.companyStatusId,
       prefectureId: form.prefectureId === '' ? null : form.prefectureId,
@@ -811,6 +816,17 @@ function CompanyDialog({
                       }}
                       placeholder="Επίλεξε (π.χ. ΕΠΕ, ΙΚΕ, ΑΕ)"
                     />
+                  </Field>
+                  <Field label="Τύπος (νομική μορφή) για δικαιολογητικά" id="c-btype">
+                    <select
+                      id="c-btype"
+                      className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-body-sm"
+                      value={form.businessTypeId ?? ''}
+                      onChange={(e) => { set('businessTypeId', e.target.value); set('businessTypeOverride', e.target.value !== ''); }}
+                    >
+                      <option value="">(αυτόματα από τη νομική μορφή)</option>
+                      {(lookups?.businessTypes ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
                   </Field>
                   <Field label="Εργαζόμενοι" id="c-emp">
                     <Input id="c-emp" type="number" min={0} value={form.employeeCount ?? ''} onChange={(e) => set('employeeCount', e.target.value)} className="tabular-nums" />

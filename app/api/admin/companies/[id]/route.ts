@@ -5,6 +5,7 @@ import { requirePermission } from '@/lib/rbac';
 import { geocodeAddress } from '@/lib/geocode';
 import { resolveKadForActivity } from '@/lib/kad/resolve';
 import { matchRegion } from '@/lib/regions/match';
+import { resolveBusinessTypeId } from '@/lib/companies/business-type';
 
 const UpdateSchema = z.object({
   code: z.string().optional().nullable(),
@@ -45,6 +46,8 @@ const UpdateSchema = z.object({
   municipalityId: z.string().optional().nullable(),
   regionCode: z.string().optional().nullable(),
   vatCategoryId: z.coerce.number().int().optional().nullable(),
+  businessTypeId: z.string().optional().nullable(),
+  businessTypeOverride: z.boolean().optional(),
   foundingDate: z.string().optional().nullable(),
   aadeStatus: z.string().optional().nullable(),
   aadeFirmKind: z.string().optional().nullable(),
@@ -183,6 +186,21 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     }
     return updated;
   });
+
+  // Resolve businessTypeId from legal form (unless manually overridden).
+  {
+    const companyId = id;
+    const override = body.businessTypeOverride === true;
+    if (override) {
+      await prisma.company.update({ where: { id: companyId }, data: { businessTypeOverride: true, businessTypeId: typeof body.businessTypeId === 'string' && body.businessTypeId ? body.businessTypeId : null } });
+    } else {
+      const saved = await prisma.company.findUnique({ where: { id: companyId }, select: { legalForm: true, businessTypeId: true, legalTypeRef: { select: { descr: true } } } });
+      const catalog = await prisma.businessType.findMany({ select: { id: true, code: true } });
+      const next = resolveBusinessTypeId({ legalForm: saved?.legalForm ?? null, legalTypeDescr: saved?.legalTypeRef?.descr ?? null, businessTypeId: saved?.businessTypeId ?? null, businessTypeOverride: false }, catalog);
+      await prisma.company.update({ where: { id: companyId }, data: { businessTypeOverride: false, businessTypeId: next } });
+    }
+  }
+
   return NextResponse.json({ company });
 }
 
