@@ -57,6 +57,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/regions', label: 'Μητρώο Περιφερειών', icon: FiMapPin, permissions: ['metadata.read'] },
       { href: '/admin/reference-data', label: 'Μητρώα αναφοράς', icon: FiLayers, permissions: ['metadata.read'] },
       { href: '/admin/document-types', label: 'Τύποι Δικαιολογητικών', icon: FiFileText, permissions: ['metadata.read'] },
+      { href: '/admin/business-types', label: 'Νομικές Μορφές', icon: FiBriefcase, permissions: ['metadata.read'] },
       { href: '/admin/imports', label: 'Excel Imports', icon: FiUpload, permissions: ['imports.read'], badgeKey: 'newImports' },
       { href: '/admin/media', label: 'Media', icon: FiImage },
       { href: '/admin/ocr', label: 'OCR / Έγγραφα', icon: FiCpu, permissions: ['ocr.read'], exact: true },
