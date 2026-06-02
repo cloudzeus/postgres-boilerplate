@@ -11,7 +11,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const phases = await prisma.programPhase.findMany({
     where: { programId: id },
     orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
-    include: { requirements: { include: { documentType: { select: { id: true, name: true } } } } },
+    include: {
+      requirements: {
+        include: {
+          documentType: { select: { id: true, name: true } },
+          businessTypes: { select: { businessTypeId: true } },
+        },
+      },
+    },
   });
   return NextResponse.json({ data: phases });
 }
