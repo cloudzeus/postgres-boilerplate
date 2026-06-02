@@ -17,6 +17,17 @@ export function AssessmentDialog({ companyId, companyName, open, onClose, preset
   const [assessment, setAssessment] = React.useState<any>(null);
   const [answers, setAnswers] = React.useState<Record<string, ScoringAnswer>>({});
   const [busy, setBusy] = React.useState(false);
+  const [reqDocs, setReqDocs] = React.useState<{ businessTypeName: string | null; phases: { phaseId: string; phaseName: string; requirements: { id: string; name: string; mandatory: boolean }[] }[] } | null>(null);
+
+  React.useEffect(() => {
+    if (!companyId || !programId) { setReqDocs(null); return; }
+    let ignore = false;
+    fetch(`/api/admin/companies/${companyId}/required-documents?programId=${programId}`)
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+      .then((data) => { if (!ignore) setReqDocs(data); })
+      .catch(() => { if (!ignore) setReqDocs(null); });
+    return () => { ignore = true; };
+  }, [companyId, programId]);
 
   React.useEffect(() => {
     if (!open) { setProgramId(''); setAssessment(null); setAnswers({}); return; }
@@ -125,6 +136,27 @@ export function AssessmentDialog({ companyId, companyName, open, onClose, preset
                     Σκορ: {live.score.toFixed(1)} / {live.maxScore} — {live.passed ? 'PASS ✅' : 'FAIL ❌'} (ελάχιστο {qn.threshold ?? '—'})
                   </div>
                 )}
+              </div>
+            )}
+
+            {reqDocs && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold">Απαιτούμενα δικαιολογητικά {reqDocs.businessTypeName ? <Badge variant="outline">{reqDocs.businessTypeName}</Badge> : null}</h4>
+                {!reqDocs.businessTypeName && (
+                  <p className="text-xs text-amber-600">⚠ Η εταιρία δεν έχει αναγνωρισμένη νομική μορφή — όρισέ τη στην καρτέλα εταιρίας ώστε να φιλτράρονται σωστά τα δικαιολογητικά.</p>
+                )}
+                {reqDocs.phases.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Κανένα δικαιολογητικό για αυτόν τον τύπο εταιρίας.</p>
+                ) : reqDocs.phases.map((ph) => (
+                  <div key={ph.phaseId}>
+                    <div className="text-xs font-medium text-muted-foreground">{ph.phaseName}</div>
+                    <ul className="ml-3 list-disc">
+                      {ph.requirements.map((r) => (
+                        <li key={r.id} className="text-body-sm">{r.name} {r.mandatory ? <Badge variant="secondary" className="ml-1">Υποχρεωτικό</Badge> : <span className="text-xs text-muted-foreground">(προαιρετικό)</span>}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
               </div>
             )}
 
