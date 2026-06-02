@@ -54,6 +54,19 @@ const PERMISSIONS = [
   { key: 'programs.delete', resource: 'programs', action: 'delete', description: 'Delete programs' },
 ];
 
+const BUSINESS_TYPES = [
+  { code: 'ΑΕ',            name: 'Ανώνυμη Εταιρεία (Α.Ε.)',                 order: 1 },
+  { code: 'ΕΠΕ',           name: 'Εταιρεία Περιορισμένης Ευθύνης (Ε.Π.Ε.)', order: 2 },
+  { code: 'ΙΚΕ',           name: 'Ιδιωτική Κεφαλαιουχική Εταιρεία (Ι.Κ.Ε.)', order: 3 },
+  { code: 'ΟΕ',            name: 'Ομόρρυθμη Εταιρεία (Ο.Ε.)',               order: 4 },
+  { code: 'ΕΕ',            name: 'Ετερόρρυθμη Εταιρεία (Ε.Ε.)',             order: 5 },
+  { code: 'ΑΤΟΜΙΚΗ',       name: 'Ατομική Επιχείρηση',                      order: 6 },
+  { code: 'ΣΥΝΕΤΑΙΡΙΣΜΟΣ', name: 'Συνεταιρισμός',                           order: 7 },
+  { code: 'ΚΟΙΝΣΕΠ',       name: 'Κοιν.Σ.Επ.',                              order: 8 },
+  { code: 'ΚΟΙΣΠΕ',        name: 'Κοι.Σ.Π.Ε.',                              order: 9 },
+  { code: 'ΑΜΚΕ',          name: 'Αστική Μη Κερδοσκοπική Εταιρεία',         order: 10 },
+];
+
 const VAT_CATEGORIES = [
   { code: 'NORMAL', descr: 'Κανονικό (24%)', rate: 24, order: 0 },
   { code: 'REDUCED', descr: 'Μειωμένο (13%)', rate: 13, order: 1 },
@@ -163,6 +176,17 @@ async function seedCompanyTypes() {
   console.log(`✓ Seeded ${SYSTEM_COMPANY_TYPES.length} system company types`);
 }
 
+async function seedBusinessTypes() {
+  for (const b of BUSINESS_TYPES) {
+    await prisma.businessType.upsert({
+      where: { code: b.code },
+      update: { name: b.name, order: b.order },
+      create: { code: b.code, name: b.name, order: b.order, active: true },
+    });
+  }
+  console.log(`✓ Seeded ${BUSINESS_TYPES.length} business types`);
+}
+
 async function seedVatCategories() {
   for (const v of VAT_CATEGORIES) {
     await prisma.vatCategory.upsert({
@@ -181,6 +205,7 @@ async function main() {
   await seedSuperAdmin();
   await seedCompanyTypes();
   await seedVatCategories();
+  await seedBusinessTypes();
 }
 
 main()
