@@ -305,8 +305,11 @@ model Company {
   createdAt       DateTime                @default(now())
   updatedAt       DateTime                @updatedAt
   // FK to lookup tables (nullable; text counterparts above act as denormalized cache)
-  legalTypeId       Int?
-  legalTypeRef      LegalType?        @relation(fields: [legalTypeId], references: [id])
+  legalTypeId          Int?
+  legalTypeRef         LegalType?        @relation(fields: [legalTypeId], references: [id])
+  businessTypeId       String?
+  businessType         BusinessType?     @relation(fields: [businessTypeId], references: [id], onDelete: SetNull)
+  businessTypeOverride Boolean           @default(false)
   gemiOfficeId      Int?
   gemiOfficeRef     GemiOfficeRef?    @relation(fields: [gemiOfficeId], references: [id])
   companyStatusId   Int?
@@ -332,6 +335,7 @@ model Company {
   assessments     CompanyAssessment[]
 
   @@index([legalTypeId])
+  @@index([businessTypeId])
   @@index([gemiOfficeId])
   @@index([companyStatusId])
   @@index([prefectureId])
@@ -1147,20 +1151,25 @@ model DocumentType {
   order          Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  categoryId     String?
+  categoryRef    DocumentCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
   requirements PhaseDocumentRequirement[]
 
   @@index([active])
+  @@index([categoryId])
 }
 
 /// Free-form phases of a program (e.g. Υποβολή → Ένταξη → Υλοποίηση → Ολοκλήρωση). No dates here.
 model ProgramPhase {
-  id        String   @id @default(cuid())
-  programId String
-  program   Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
-  name      String
-  order     Int      @default(0)
-  createdAt DateTime @default(now())
+  id              String   @id @default(cuid())
+  programId       String
+  program         Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  name            String
+  order           Int      @default(0)
+  createdAt       DateTime @default(now())
+  phaseTemplateId String?
+  phaseTemplate   PhaseTemplate? @relation(fields: [phaseTemplateId], references: [id], onDelete: SetNull)
 
   requirements PhaseDocumentRequirement[]
 
@@ -1176,10 +1185,67 @@ model PhaseDocumentRequirement {
   documentType   DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
   mandatory      Boolean      @default(true)
   notes          String?
+  appliesToAll   Boolean      @default(false)
+  businessTypes  RequirementBusinessType[]
 
   @@unique([phaseId, documentTypeId])
   @@index([phaseId])
   @@index([documentTypeId])
+}
+
+model BusinessType {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  order     Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companies    Company[]
+  requirements RequirementBusinessType[]
+
+  @@index([active])
+  @@index([order])
+}
+
+model DocumentCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  order     Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documentTypes DocumentType[]
+
+  @@index([active])
+}
+
+model PhaseTemplate {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  order     Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  phases ProgramPhase[]
+
+  @@index([active])
+  @@index([order])
+}
+
+model RequirementBusinessType {
+  id             String   @id @default(cuid())
+  requirementId  String
+  requirement    PhaseDocumentRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  businessTypeId String
+  businessType   BusinessType @relation(fields: [businessTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([requirementId, businessTypeId])
+  @@index([requirementId])
+  @@index([businessTypeId])
 }
 
 // ============================================================
