@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Combobox } from '@/components/ui/combobox';
 
 type DocTypeOption = { id: string; name: string };
-type Requirement = { id: string; documentTypeId: string; mandatory: boolean; documentType: { id: string; name: string } };
+type Requirement = { id: string; documentTypeId: string; mandatory: boolean; appliesToAll: boolean; businessTypes: { businessTypeId: string }[]; documentType: { id: string; name: string } };
 type Phase = { id: string; name: string; order: number; requirements: Requirement[] };
 
 export function PhasesTab({ programId, docTypes, canManage }: { programId: string; docTypes: DocTypeOption[]; canManage: boolean }) {
@@ -15,6 +15,8 @@ export function PhasesTab({ programId, docTypes, canManage }: { programId: strin
   const [loading, setLoading] = React.useState(true);
   const [templates, setTemplates] = React.useState<{ id: string; name: string }[]>([]);
   React.useEffect(() => { fetch('/api/admin/phase-templates').then((r) => r.json()).then((j) => setTemplates(j.data ?? [])); }, []);
+  const [bizTypes, setBizTypes] = React.useState<{ id: string; code: string; name: string }[]>([]);
+  React.useEffect(() => { fetch(`/api/admin/programs/${programId}/eligible-business-types`).then((r) => r.json()).then((j) => setBizTypes(j.data ?? [])); }, [programId]);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -55,6 +57,13 @@ export function PhasesTab({ programId, docTypes, canManage }: { programId: strin
   }
   async function removeReq(phaseId: string, documentTypeId: string) {
     await fetch(`/api/admin/programs/${programId}/phases/${phaseId}/requirements?documentTypeId=${encodeURIComponent(documentTypeId)}`, { method: 'DELETE' });
+    load();
+  }
+  async function setScope(phaseId: string, reqId: string, appliesToAll: boolean, businessTypeIds: string[]) {
+    await fetch(`/api/admin/programs/${programId}/phases/${phaseId}/requirements/${reqId}/business-types`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ appliesToAll, businessTypeIds }),
+    });
     load();
   }
 
@@ -109,14 +118,42 @@ export function PhasesTab({ programId, docTypes, canManage }: { programId: strin
             <div className="space-y-1.5">
               {p.requirements.length === 0 && <p className="text-xs text-muted-foreground">Κανένα δικαιολογητικό σε αυτή τη φάση.</p>}
               {p.requirements.map((r) => (
-                <div key={r.id} className="flex items-center gap-2 text-body-sm">
-                  <span className="flex-1">{r.documentType.name}</span>
-                  {canManage ? (
-                    <>
-                      <Button size="sm" variant={r.mandatory ? 'default' : 'outline'} onClick={() => toggleMandatory(p.id, r.documentTypeId, !r.mandatory)}>{r.mandatory ? 'Υποχρεωτικό' : 'Προαιρετικό'}</Button>
-                      <Button size="icon" variant="ghost" onClick={() => removeReq(p.id, r.documentTypeId)} aria-label="Αφαίρεση"><FiTrash2 /></Button>
-                    </>
-                  ) : (<Badge variant={r.mandatory ? 'default' : 'outline'}>{r.mandatory ? 'Υποχρεωτικό' : 'Προαιρετικό'}</Badge>)}
+                <div key={r.id} className="flex flex-col gap-1 text-body-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="flex-1">{r.documentType.name}</span>
+                    {canManage ? (
+                      <>
+                        <Button size="sm" variant={r.mandatory ? 'default' : 'outline'} onClick={() => toggleMandatory(p.id, r.documentTypeId, !r.mandatory)}>{r.mandatory ? 'Υποχρεωτικό' : 'Προαιρετικό'}</Button>
+                        <Button size="icon" variant="ghost" onClick={() => removeReq(p.id, r.documentTypeId)} aria-label="Αφαίρεση"><FiTrash2 /></Button>
+                      </>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">{r.appliesToAll ? 'Όλες οι μορφές' : `${r.businessTypes.length} μορφές`}</span>
+                        <Badge variant={r.mandatory ? 'default' : 'outline'}>{r.mandatory ? 'Υποχρεωτικό' : 'Προαιρετικό'}</Badge>
+                      </div>
+                    )}
+                  </div>
+                  {canManage && (
+                    <div className="mt-1 flex w-full flex-wrap items-center gap-1.5 pl-1">
+                      <label className="flex items-center gap-1 text-xs">
+                        <input type="checkbox" checked={r.appliesToAll} onChange={(e) => setScope(p.id, r.id, e.target.checked, e.target.checked ? [] : r.businessTypes.map((b) => b.businessTypeId))} className="h-3.5 w-3.5" />
+                        Όλες οι μορφές
+                      </label>
+                      {!r.appliesToAll && bizTypes.map((b) => {
+                        const on = r.businessTypes.some((x) => x.businessTypeId === b.id);
+                        return (
+                          <button key={b.id} type="button"
+                            onClick={() => setScope(p.id, r.id, false, on ? r.businessTypes.filter((x) => x.businessTypeId !== b.id).map((x) => x.businessTypeId) : [...r.businessTypes.map((x) => x.businessTypeId), b.id])}
+                            className={`rounded-full border px-2 py-0.5 text-xs ${on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}>
+                            {b.code}
+                          </button>
+                        );
+                      })}
+                      {!r.appliesToAll && r.businessTypes.length === 0 && (
+                        <span className="text-xs text-amber-600">⚠ δεν θα ζητηθεί από καμία εταιρία</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
