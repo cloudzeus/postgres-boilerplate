@@ -1,9 +1,10 @@
 'use client';
 import * as React from 'react';
-import { FiPlus, FiTrash2, FiChevronUp, FiChevronDown } from 'react-icons/fi';
+import { FiTrash2, FiChevronUp, FiChevronDown } from 'react-icons/fi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Combobox } from '@/components/ui/combobox';
 
 type DocTypeOption = { id: string; name: string };
 type Requirement = { id: string; documentTypeId: string; mandatory: boolean; documentType: { id: string; name: string } };
@@ -12,7 +13,8 @@ type Phase = { id: string; name: string; order: number; requirements: Requiremen
 export function PhasesTab({ programId, docTypes, canManage }: { programId: string; docTypes: DocTypeOption[]; canManage: boolean }) {
   const [phases, setPhases] = React.useState<Phase[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [newName, setNewName] = React.useState('');
+  const [templates, setTemplates] = React.useState<{ id: string; name: string }[]>([]);
+  React.useEffect(() => { fetch('/api/admin/phase-templates').then((r) => r.json()).then((j) => setTemplates(j.data ?? [])); }, []);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -23,12 +25,6 @@ export function PhasesTab({ programId, docTypes, canManage }: { programId: strin
   }, [programId]);
   React.useEffect(() => { load(); }, [load]);
 
-  async function addPhase() {
-    const name = newName.trim();
-    if (!name) return;
-    await fetch(`/api/admin/programs/${programId}/phases`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-    setNewName(''); load();
-  }
   async function renamePhase(phaseId: string, name: string) {
     await fetch(`/api/admin/programs/${programId}/phases/${phaseId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
   }
@@ -67,9 +63,29 @@ export function PhasesTab({ programId, docTypes, canManage }: { programId: strin
   return (
     <div className="space-y-4">
       {canManage && (
-        <div className="flex gap-2">
-          <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Νέα φάση (π.χ. Υποβολή)" onKeyDown={(e) => e.key === 'Enter' && addPhase()} />
-          <Button onClick={addPhase}><FiPlus className="mr-1.5" /> Προσθήκη φάσης</Button>
+        <div className="flex gap-2 items-center">
+          <div className="w-72">
+            <Combobox
+              value={null}
+              items={templates.map((t) => ({ value: t.id, label: t.name }))}
+              placeholder="Προσθήκη φάσης (π.χ. Υποβολή)…"
+              allowCreate
+              onSelect={async (id) => {
+                const t = templates.find((x) => x.id === id); if (!t) return;
+                await fetch(`/api/admin/programs/${programId}/phases`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: t.name, phaseTemplateId: t.id }) });
+                load();
+              }}
+              onCreate={async (label) => {
+                const res = await fetch('/api/admin/phase-templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: label }) });
+                const json = await res.json();
+                if (json.data) {
+                  setTemplates((p) => p.some((x) => x.id === json.data.id) ? p : [...p, { id: json.data.id, name: json.data.name }]);
+                  await fetch(`/api/admin/programs/${programId}/phases`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: json.data.name, phaseTemplateId: json.data.id }) });
+                  load();
+                }
+              }}
+            />
+          </div>
         </div>
       )}
       {phases.length === 0 && <p className="text-body-sm text-muted-foreground">Δεν υπάρχουν φάσεις ακόμη.</p>}
