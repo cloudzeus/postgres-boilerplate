@@ -38,7 +38,7 @@ function stripAccents(s: string): string {
  * Canonicalise a Greek legal form to a comparable token, handling abbreviation ↔ full name:
  * "Ι.Κ.Ε.", "ΙΚΕ", "Ιδιωτική Κεφαλαιουχική Εταιρεία", "Μονοπρόσωπη ΙΚΕ" → "ΙΚΕ".
  */
-function canonicalLegalForm(s: string): string {
+export function canonicalLegalForm(s: string): string {
   const t = stripAccents(s).toUpperCase().replace(/[^Α-ΩA-Z]/g, '');
   // Κ.ΑΛ.Ο. / κοινωνικοί φορείς FIRST — many contain "Περιορισμένης Ευθύνης" or "Εταιρεία"
   // and must NOT be mistaken for ΕΠΕ / ΑΕ.
