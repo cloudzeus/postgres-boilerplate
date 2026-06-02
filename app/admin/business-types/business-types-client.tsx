@@ -20,6 +20,17 @@ export function BusinessTypesClient({ rows, canManage }: { rows: BusinessTypeRow
   const [form, setForm] = React.useState<FormState>(EMPTY);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [resyncing, setResyncing] = React.useState(false);
+
+  async function resync() {
+    setResyncing(true);
+    const res = await fetch('/api/admin/business-types/resolve', { method: 'POST' });
+    setResyncing(false);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(json.error ?? 'Σφάλμα'); return; }
+    alert(`Ενημερώθηκαν ${json.changed ?? 0} εταιρίες.`);
+    router.refresh();
+  }
 
   function openCreate() { setForm(EMPTY); setCreating(true); setError(null); }
   function openEdit(r: BusinessTypeRow) { setForm({ code: r.code, name: r.name, order: r.order, active: r.active }); setEditing(r); setError(null); }
@@ -43,7 +54,7 @@ export function BusinessTypesClient({ rows, canManage }: { rows: BusinessTypeRow
 
   return (
     <div className="space-y-4">
-      {canManage && (<div className="flex justify-end"><Button onClick={openCreate}><FiPlus className="mr-1.5" /> Νέα μορφή</Button></div>)}
+      {canManage && (<div className="flex justify-end gap-2"><Button variant="outline" onClick={resync} disabled={resyncing} title="Επαναϋπολογισμός τύπου για όλες τις εταιρίες χωρίς χειροκίνητη επιλογή">{resyncing ? 'Συγχρονισμός…' : 'Re-sync εταιρίες'}</Button><Button onClick={openCreate}><FiPlus className="mr-1.5" /> Νέα μορφή</Button></div>)}
       <div className="rounded-md border border-border overflow-hidden">
         <table className="w-full text-body-sm">
           <thead className="bg-muted/50 text-muted-foreground">
