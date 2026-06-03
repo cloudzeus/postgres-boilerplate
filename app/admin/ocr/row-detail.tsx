@@ -378,6 +378,7 @@ export function OcrRowDetail({
             src={isPdf ? `/api/admin/ocr/${row.id}/page-image?scale=3` : fileUrl}
             alt={row.fileName}
             fallbackHref={fileUrl}
+            pdfFallbackHref={isPdf ? fileUrl : undefined}
             className="min-h-[440px] flex-1 bg-muted"
           />
         </aside>

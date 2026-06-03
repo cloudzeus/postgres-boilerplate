@@ -12,13 +12,16 @@ import { FiZoomIn, FiMaximize } from 'react-icons/fi';
  * zoom+pan — full interaction is still available via the «Άνοιγμα» link).
  */
 export function ZoomablePreview({
-  src, alt, className, fallbackHref,
+  src, alt, className, fallbackHref, pdfFallbackHref,
 }: {
   src: string;
   alt: string;
   className?: string;
   /** Shown if the high-res raster fails to load (e.g. the original PDF). */
   fallbackHref?: string;
+  /** If the raster fails AND this is set, embed the original PDF (browser-native
+   *  viewer) instead of a dead-end message — so the scan is always visible. */
+  pdfFallbackHref?: string;
 }) {
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const [t, setT] = React.useState({ s: 1, x: 0, y: 0 });
@@ -61,6 +64,17 @@ export function ZoomablePreview({
   };
   const endDrag = () => { drag.current = null; };
   const reset = () => setT({ s: 1, x: 0, y: 0 });
+
+  // Raster failed but we have the original PDF → embed the browser-native viewer
+  // (its own zoom/scroll). Reliable even when server-side rasterization is broken,
+  // and bypasses our wheel/drag handlers so the native PDF scroll works.
+  if (errored && pdfFallbackHref) {
+    return (
+      <div className={className} style={{ position: 'relative', overflow: 'hidden' }}>
+        <iframe src={pdfFallbackHref} title={alt} className="size-full border-0 bg-white" />
+      </div>
+    );
+  }
 
   const transform = `translate(${t.x}px, ${t.y}px) scale(${t.s})`;
   const zoomed = t.s > 1;
