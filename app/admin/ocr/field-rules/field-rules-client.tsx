@@ -9,9 +9,12 @@ export type FieldRuleRow = {
   id: string; vatNumber: string; supplierName: string | null;
   docType: 'INVOICE' | 'RECEIPT' | 'GENERAL_TEXT';
   label: string; description: string | null; isActive: boolean; timesUsed: number;
+  scope: string; valueType: string;
 };
 
 const DOC_LABEL: Record<string, string> = { INVOICE: 'Τιμολόγιο', RECEIPT: 'Απόδειξη', GENERAL_TEXT: '—' };
+const SCOPE_LABEL: Record<string, string> = { document: 'Έγγραφο', line: 'Γραμμή' };
+const VALUE_LABEL: Record<string, string> = { text: 'Μία τιμή', list: 'Λίστα' };
 
 export function FieldRulesClient({ rows, canManage }: { rows: FieldRuleRow[]; canManage: boolean }) {
   const router = useRouter();
@@ -51,6 +54,8 @@ export function FieldRulesClient({ rows, canManage }: { rows: FieldRuleRow[]; ca
           <tr>
             <th className="px-3 py-2">Προμηθευτής</th>
             <th className="px-3 py-2">Τύπος</th>
+            <th className="px-3 py-2">Εμβέλεια</th>
+            <th className="px-3 py-2">Τιμή</th>
             <th className="px-3 py-2">Πεδίο</th>
             <th className="px-3 py-2">Οδηγία</th>
             <th className="px-3 py-2 text-right">Χρήσεις</th>
@@ -66,6 +71,8 @@ export function FieldRulesClient({ rows, canManage }: { rows: FieldRuleRow[]; ca
                 <div className="font-mono text-[11px] text-muted-foreground">{r.vatNumber}</div>
               </td>
               <td className="px-3 py-2">{DOC_LABEL[r.docType]}</td>
+              <td className="px-3 py-2">{SCOPE_LABEL[r.scope] ?? r.scope}</td>
+              <td className="px-3 py-2">{VALUE_LABEL[r.valueType] ?? r.valueType}</td>
               <td className="px-3 py-2 font-semibold">
                 {editing?.id === r.id
                   ? <input className="w-full rounded border border-input bg-background px-2 py-1 text-[12px]" value={editing.label} onChange={(e) => setEditing({ ...editing, label: e.target.value })} />

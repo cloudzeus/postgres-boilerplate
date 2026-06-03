@@ -16,6 +16,7 @@ export default async function OcrFieldRulesPage() {
     id: r.id, vatNumber: r.vatNumber, supplierName: r.supplierName,
     docType: r.docType, label: r.label, description: r.description,
     isActive: r.isActive, timesUsed: r.timesUsed,
+    scope: r.scope, valueType: r.valueType,
   }));
   return (
     <div className="w-full">
