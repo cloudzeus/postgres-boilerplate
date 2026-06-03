@@ -5,6 +5,7 @@ import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
 import { qualityScore, fixSwappedParties, normalizeAfmFields } from '@/lib/ocr/validate';
 import { resolveOwnAfm } from '@/lib/ocr/own-afm';
 import { findSupplierTemplate, mergeFromTemplatePass } from '@/lib/ocr/templates-store';
+import { findActiveFieldRules, buildCustomFieldsPrompt, mergeCustomFields } from '@/lib/ocr/field-rules';
 import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
 import { buildModelChain, tryModels } from '@/lib/ocr/model-fallback';
 
@@ -654,11 +655,59 @@ async function applySupplierTemplate(input: ExtractInput, base: ExtractResult): 
   return { ...base, data: merged, model: `${base.model} + template`, retried: true };
 }
 
+/**
+ * After the standard extraction has resolved the issuer ΑΦΜ, run ONE targeted
+ * pass asking only for this supplier's active custom-field rules and store the
+ * values under data.customFields. Best-effort: never throws, costs nothing when
+ * the supplier has no active rules. Uses the default vision model.
+ */
+async function applyCustomFieldRules(input: ExtractInput, base: ExtractResult): Promise<ExtractResult> {
+  try {
+    const data = base.data;
+    if (!data) return base;
+    const rules = await findActiveFieldRules(String(data.vatNumber ?? ''), input.docType);
+    if (rules.length === 0) return base;
+
+    const cfg = await resolveCfg();
+    const system = buildCustomFieldsPrompt(rules.map((r) => ({
+      key: r.key, label: r.label, description: r.description, regionHint: r.regionHint,
+    })));
+
+    let parsed: Record<string, unknown> | null = null;
+    if (input.mimeType === 'application/pdf'
+        && cfg.visionUrl.includes('generativelanguage.googleapis.com')) {
+      const out = await callGeminiPdfNative(cfg, system, input.buffer);
+      parsed = parseJsonLoose(out.content);
+    } else if (input.mimeType.startsWith('image/')) {
+      const enhanced = await enhanceForOcr(input.buffer);
+      const out = await callVisionLLM(cfg, system, enhanced.buffer.toString('base64'), enhanced.mimeType);
+      parsed = parseJsonLoose(out.content);
+    } else if (base.rawText) {
+      const out = await callTextLLM(cfg, system,
+        `Here is the digital text payload extracted from the document:\n\n${base.rawText}`);
+      parsed = parseJsonLoose(out.content);
+    }
+
+    if (!parsed) return base;
+
+    const merged = mergeCustomFields(data, parsed, rules);
+    const { prisma } = await import('@/lib/db');
+    await prisma.supplierFieldRule.updateMany({
+      where: { id: { in: rules.map((r) => r.id) } },
+      data: { timesUsed: { increment: 1 } },
+    }).catch(() => null);
+    return { ...base, data: merged };
+  } catch {
+    return base; // best-effort
+  }
+}
+
 export async function extractDocument(input: ExtractInput): Promise<ExtractResult> {
   const base = await extractDocumentRaw(input);
-  const result = await applySupplierTemplate(input, base);
+  const withTemplate = await applySupplierTemplate(input, base);
   // Strip country prefixes (EL999863881 → 999863881) so the stored ΑΦΜ is what
   // AADE / SoftOne searches expect — everything downstream reads this value.
-  if (result.data) normalizeAfmFields(result.data);
-  return result;
+  if (withTemplate.data) normalizeAfmFields(withTemplate.data);
+  // Supplier-specific custom fields (best-effort, after ΑΦΜ is resolved+normalized).
+  return applyCustomFieldRules(input, withTemplate);
 }
