@@ -5,6 +5,8 @@ export type FieldRuleLite = {
   label: string;
   description?: string | null;
   regionHint?: unknown;
+  scope?: 'document' | 'line';
+  valueType?: 'text' | 'list';
 };
 
 const GREEK_MAP: Record<string, string> = {
@@ -25,6 +27,21 @@ export function slugifyFieldKey(label: string): string {
     out = `field_${h.toString(36)}`;
   }
   return out.slice(0, 60);
+}
+
+/** Coerce a raw model value to the rule's declared value type. */
+export function coerceFieldValue(raw: unknown, valueType: 'text' | 'list'): string | string[] | null {
+  if (valueType === 'list') {
+    let arr: string[];
+    if (Array.isArray(raw)) arr = raw.map((x) => String(x ?? '').trim());
+    else if (raw == null || raw === '') arr = [];
+    else arr = String(raw).split(/[,;\n]+/).map((s) => s.trim());
+    arr = arr.filter(Boolean);
+    return arr.length ? arr : null;
+  }
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  return s || null;
 }
 
 /** Focused system prompt for the targeted custom-fields pass. */
@@ -48,16 +65,62 @@ export function buildCustomFieldsPrompt(rules: FieldRuleLite[]): string {
   ].join('\n');
 }
 
+/** Focused prompt for the per-line targeted pass (lines enumerated by index). */
+export function buildLineFieldsPrompt(
+  rules: FieldRuleLite[],
+  lines: { index: number; code: string | null; name: string }[],
+): string {
+  const fields = rules.map((r) => ({
+    key: r.key, label: r.label, description: r.description ?? null, type: r.valueType ?? 'text',
+  }));
+  const shape = `{ "lines": [ { "index": 0${rules
+    .map((r) => `, "${r.key}": ${r.valueType === 'list' ? '["…"]' : '"…"'}`)
+    .join('')} } ] }`;
+  return [
+    'You are a precise per-line field extractor for a Greek invoice.',
+    'For EACH line listed below, extract the requested fields from the document.',
+    'Fields with type "list" (e.g. serial numbers) MUST be a JSON array of strings; "text" a string. Use null when a line has no value.',
+    '',
+    'Requested fields:',
+    JSON.stringify(fields, null, 2),
+    '',
+    'The document lines (match strictly by index):',
+    JSON.stringify(lines, null, 2),
+    '',
+    'Respond with raw JSON of EXACTLY this shape (no markdown fences):',
+    shape,
+  ].join('\n');
+}
+
 /** Merge a parsed targeted-pass result into customFields — returns a shallow copy, does NOT mutate input. */
 export function mergeCustomFields<T extends Record<string, any>>(
-  data: T, parsed: Record<string, unknown> | null | undefined, rules: { key: string }[],
+  data: T, parsed: Record<string, unknown> | null | undefined,
+  rules: { key: string; valueType?: 'text' | 'list' }[],
 ): T {
   const cf: Record<string, unknown> = { ...((data as any).customFields ?? {}) };
   for (const r of rules) {
-    const v = parsed?.[r.key];
-    cf[r.key] = v == null || v === '' ? null : v;
+    cf[r.key] = coerceFieldValue(parsed?.[r.key], r.valueType ?? 'text');
   }
   return { ...data, customFields: cf } as T;
+}
+
+/** Merge per-line parsed values into data.items[i].customFields (pure, index-aligned). */
+export function mergeLineCustomFields<T extends Record<string, any>>(
+  data: T,
+  parsedLines: Array<Record<string, unknown>> | null | undefined,
+  rules: { key: string; valueType?: 'text' | 'list' }[],
+): T {
+  const items = (data as any).items;
+  if (!Array.isArray(items) || !Array.isArray(parsedLines)) return data;
+  const next = items.map((it: any) => ({ ...it }));
+  for (const entry of parsedLines) {
+    const idx = Number((entry as any)?.index);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= next.length) continue;
+    const cf: Record<string, unknown> = { ...(next[idx].customFields ?? {}) };
+    for (const r of rules) cf[r.key] = coerceFieldValue((entry as any)[r.key], r.valueType ?? 'text');
+    next[idx] = { ...next[idx], customFields: cf };
+  }
+  return { ...data, items: next } as T;
 }
 
 const docTypeToEnum: Record<DocType, 'INVOICE' | 'RECEIPT' | 'GENERAL_TEXT'> = {
@@ -79,7 +142,7 @@ export async function findActiveFieldRules(vatNumber: string, docType: DocType) 
 export async function upsertFieldRule(args: {
   vatNumber: string; docType: DocType; key: string; label: string;
   description?: string | null; regionHint?: unknown; supplierName?: string | null;
-  createdById?: string | null;
+  createdById?: string | null; scope?: 'document' | 'line'; valueType?: 'text' | 'list';
 }) {
   const { prisma } = await import('@/lib/db');
   const afm = String(args.vatNumber ?? '').replace(/\D+/g, '');
@@ -90,6 +153,7 @@ export async function upsertFieldRule(args: {
       vatNumber: afm, docType: enumType, key: args.key, label: args.label,
       description: args.description ?? null, regionHint: (args.regionHint ?? null) as any,
       supplierName: args.supplierName ?? null, createdById: args.createdById ?? null,
+      scope: args.scope ?? 'document', valueType: args.valueType ?? 'text',
     },
     update: {
       label: args.label, description: args.description ?? null,

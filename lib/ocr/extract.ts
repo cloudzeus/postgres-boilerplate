@@ -690,7 +690,7 @@ async function applyCustomFieldRules(input: ExtractInput, base: ExtractResult): 
 
     if (!parsed) return base;
 
-    const merged = mergeCustomFields(data, parsed, rules);
+    const merged = mergeCustomFields(data, parsed, rules as { key: string; valueType?: 'text' | 'list' }[]);
     const { prisma } = await import('@/lib/db');
     await prisma.supplierFieldRule.updateMany({
       where: { id: { in: rules.map((r) => r.id) } },
