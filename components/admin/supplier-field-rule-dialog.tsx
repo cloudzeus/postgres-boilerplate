@@ -70,13 +70,13 @@ export function SupplierFieldRuleDialog({ open, onOpenChange, docId, mimeType, s
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="flex h-[92vh] w-[96vw] max-w-[1500px] flex-col overflow-hidden sm:max-w-[1500px]">
         <DialogHeader>
           <DialogTitle>Νέο ειδικό πεδίο{supplierName ? ` — ${supplierName}` : ''}</DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="space-y-3">
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 md:grid-cols-[340px_minmax(0,1fr)]">
+          <div className="space-y-3 overflow-auto pr-1">
             <label className="flex flex-col gap-1">
               <span className="text-[11px] font-semibold text-muted-foreground">Όνομα πεδίου</span>
               <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="π.χ. Αριθμός Παραγγελίας" />
@@ -123,9 +123,9 @@ export function SupplierFieldRuleDialog({ open, onOpenChange, docId, mimeType, s
             )}
           </div>
 
-          <div className="relative max-h-[420px] overflow-auto rounded-lg border border-border bg-muted">
+          <div className="relative min-h-0 h-full overflow-auto rounded-lg border border-border bg-muted">
             {docId && (isPdf ? (
-              <iframe src={fileUrl} title="doc" className="h-[420px] w-full border-0 bg-white" />
+              <iframe src={fileUrl} title="doc" className="h-full min-h-[60vh] w-full border-0 bg-white" />
             ) : (
               <div ref={ref} {...(marking ? handlers : {})} className="relative select-none" style={{ cursor: marking ? 'crosshair' : 'default' }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
