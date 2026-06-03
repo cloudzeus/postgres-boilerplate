@@ -3,6 +3,7 @@ import { FiCpu, FiDownload } from 'react-icons/fi';
 import { prisma } from '@/lib/db';
 import { getCurrentUserWithPermissions } from '@/lib/rbac';
 import { getSetting } from '@/lib/settings';
+import { getUsdToEurLatest, getUsdToEurSeries, usdToEurOnDay, dayKey } from '@/lib/ai/fx';
 import { PageHeader } from '@/components/admin/page-header';
 
 export const dynamic = 'force-dynamic';
@@ -35,9 +36,9 @@ export default async function AiUsagePage() {
   if (!u) redirect('/auth/signin');
   if (u.role.key !== 'SUPER_ADMIN') redirect('/admin');
 
-  // USD (stored) → EUR (displayed), admin-configurable rate.
-  const usdToEur = Number(await getSetting<number>('ai.usdToEur', 0.92)) || 0.92;
-  const toEur = (usd: number) => usd * usdToEur;
+  // USD (stored) → EUR (displayed). Live ECB rates via Frankfurter; the
+  // ai.usdToEur setting is only a fallback when the API is unreachable.
+  const fallbackRate = Number(await getSetting<number>('ai.usdToEur', 0.92)) || 0.92;
 
   const now = new Date();
   const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -87,10 +88,19 @@ export default async function AiUsagePage() {
     `,
   ]);
 
+  // Live FX: latest rate for cumulative/current totals; per-day series for the
+  // daily chart and per-record rows (each converted with that day's ECB rate).
+  const latestRate = await getUsdToEurLatest(fallbackRate);
+  const fxSeries = await getUsdToEurSeries(dayKey(start30d), dayKey(now));
+  const toEur = (usd: number) => usd * latestRate;
+
   const totalCostAll   = Number(overall._sum.totalCost ?? 0);
   const totalCostMonth = Number(monthRows._sum.totalCost ?? 0);
   const totalCostToday = Number(today._sum.totalCost ?? 0);
-  const maxDailyCost = Math.max(...dailyRows.map((r) => Number(r.cost ?? 0)), 0.0001);
+  const maxDailyCost = Math.max(
+    ...dailyRows.map((r) => usdToEurOnDay(Number(r.cost ?? 0), r.day, fxSeries, latestRate)),
+    0.0001,
+  );
 
   return (
     <div className="space-y-5 p-6">
@@ -159,20 +169,20 @@ export default async function AiUsagePage() {
       {/* Daily sparkline */}
       <section className="rounded-xl border border-border bg-card p-4 shadow-fluent-2">
         <h3 className="text-[14px] font-semibold tracking-tight">Τελευταίες 30 μέρες</h3>
-        <p className="text-[11px] text-muted-foreground">€/ημέρα · ισοτιμία 1 USD = {fmtEur(usdToEur)}</p>
+        <p className="text-[11px] text-muted-foreground">€/ημέρα · μετατροπή ανά ημέρα με ισοτιμία ΕΚΤ (Frankfurter) · τρέχουσα 1 USD = {fmtEur(latestRate)}</p>
         <div className="mt-3 flex h-32 items-end gap-1.5">
           {dailyRows.length === 0 ? (
             <p className="text-xs text-muted-foreground">Δεν υπάρχουν δεδομένα ακόμη.</p>
           ) : dailyRows.map((d) => {
-            const cost = Number(d.cost ?? 0);
-            const pct = Math.max(2, (cost / maxDailyCost) * 100);
+            const costEur = usdToEurOnDay(Number(d.cost ?? 0), d.day, fxSeries, latestRate);
+            const pct = Math.max(2, (costEur / maxDailyCost) * 100);
             const label = new Date(d.day).toLocaleDateString('el-GR', { day: '2-digit', month: '2-digit' });
             return (
               <div key={String(d.day)} className="flex flex-1 flex-col items-center gap-1 group">
                 <div
                   className="w-full rounded-t-sm bg-sisyphus-500 transition group-hover:bg-sisyphus-600"
                   style={{ height: `${pct}%` }}
-                  title={`${label}: ${fmtEur(toEur(cost))} · ${fmtNum(Number(d.tokens ?? 0))} tokens · ${Number(d.calls)} κλήσεις`}
+                  title={`${label}: ${fmtEur(costEur)} · ${fmtNum(Number(d.tokens ?? 0))} tokens · ${Number(d.calls)} κλήσεις`}
                 />
                 <span className="text-[9px] tabular-nums text-muted-foreground">{label.slice(0, 5)}</span>
               </div>
@@ -239,7 +249,7 @@ export default async function AiUsagePage() {
                   <td className="px-3 py-2 text-right tabular-nums">{fmtNum(r.outputTokens)}</td>
                   <td className="px-3 py-2 text-right tabular-nums font-medium">{fmtNum(r.totalTokens)}</td>
                   <td className="px-3 py-2 text-right tabular-nums font-semibold">
-                    {r.totalCost != null ? fmtEur(toEur(Number(r.totalCost))) : <span className="text-muted-foreground">—</span>}
+                    {r.totalCost != null ? fmtEur(usdToEurOnDay(Number(r.totalCost), r.createdAt, fxSeries, latestRate)) : <span className="text-muted-foreground">—</span>}
                   </td>
                 </tr>
               ))}

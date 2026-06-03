@@ -78,7 +78,7 @@ export const SETTING_CATALOG: SettingDef[] = [
   { key: 'ai.visionApiKey',   category: 'ai', label: 'Vision OCR API Key (Gemini/DeepInfra/OpenAI)', type: 'password', isSecret: true, description: 'Για scanned images. Default: Gemini 2.0 Flash. Αν κενό, διαβάζεται από GEMINI_API_KEY στο .env.' },
   { key: 'ai.visionUrl',      category: 'ai', label: 'Vision OCR endpoint',     type: 'url',  defaultValue: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions' },
   { key: 'ai.visionModel',    category: 'ai', label: 'Vision OCR model',        type: 'text', defaultValue: 'gemini-2.5-flash' },
-  { key: 'ai.usdToEur',       category: 'ai', label: 'Ισοτιμία USD→EUR', description: 'Συντελεστής μετατροπής δολαρίων σε ευρώ για την οθόνη κόστους AI (π.χ. 0.92). Μόνο για εμφάνιση.', type: 'number', defaultValue: 0.92 },
+  { key: 'ai.usdToEur',       category: 'ai', label: 'Ισοτιμία USD→EUR (fallback)', description: 'Εφεδρική ισοτιμία δολαρίου→ευρώ για την οθόνη κόστους AI. Κανονικά οι ισοτιμίες λαμβάνονται ζωντανά από το Frankfurter (ΕΚΤ), ανά ημέρα· αυτή χρησιμοποιείται μόνο αν το API δεν είναι διαθέσιμο.', type: 'number', defaultValue: 0.92 },
 
   // Integrations — SoftOne ERP Web Services (two-step login → authenticate)
   { key: 'integrations.softoneSerial',  category: 'integrations', label: 'SoftOne Subdomain', description: 'Το subdomain πριν το .oncloud.gr (π.χ. kolleris). Από αυτό προκύπτει το endpoint https://<subdomain>.oncloud.gr/s1services.', type: 'text' },

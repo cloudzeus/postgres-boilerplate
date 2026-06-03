@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { prisma } from '@/lib/db';
 import { getCurrentUserWithPermissions } from '@/lib/rbac';
 import { getSetting } from '@/lib/settings';
+import { getUsdToEurLatest, getUsdToEurSeries, usdToEurOnDay, dayKey } from '@/lib/ai/fx';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,13 +20,21 @@ export async function GET() {
   const u = await getCurrentUserWithPermissions();
   if (!u || u.role.key !== 'SUPER_ADMIN') redirect('/admin');
 
-  // Stored costs are USD → display EUR via the admin-configurable rate.
-  const usdToEur = Number(await getSetting<number>('ai.usdToEur', 0.92)) || 0.92;
-  const toEur = (usd: number) => usd * usdToEur;
+  // Stored costs are USD → display EUR. Live ECB rates via Frankfurter; the
+  // ai.usdToEur setting is only a fallback when the API is unreachable.
+  const fallbackRate = Number(await getSetting<number>('ai.usdToEur', 0.92)) || 0.92;
 
   const now = new Date();
   const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const start30d = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+  // FX: latest for cumulative totals, per-day series (2y back to cover the
+  // monthly/daily/log sheets) for date-specific conversions.
+  const fxStart = new Date(now.getFullYear() - 2, now.getMonth(), 1);
+  const [latestRate, fxSeries] = await Promise.all([
+    getUsdToEurLatest(fallbackRate),
+    getUsdToEurSeries(dayKey(fxStart), dayKey(now)),
+  ]);
+  const toEur = (usd: number) => usd * latestRate;
 
   const [overall, monthAgg, scopeRows, modelRows, monthlyRows, dailyRows, recent] = await Promise.all([
     prisma.aiUsage.aggregate({
@@ -156,7 +165,7 @@ export async function GET() {
       month: new Date(r.month).toLocaleDateString('el-GR', { month: '2-digit', year: 'numeric' }),
       calls: Number(r.calls),
       totalTokens: Number(r.tokens ?? 0),
-      totalCost: toEur(Number(r.cost ?? 0)),
+      totalCost: usdToEurOnDay(Number(r.cost ?? 0), r.month, fxSeries, latestRate),
     });
   }
 
@@ -174,7 +183,7 @@ export async function GET() {
       day: new Date(r.day).toLocaleDateString('el-GR'),
       calls: Number(r.calls),
       totalTokens: Number(r.tokens ?? 0),
-      totalCost: toEur(Number(r.cost ?? 0)),
+      totalCost: usdToEurOnDay(Number(r.cost ?? 0), r.day, fxSeries, latestRate),
     });
   }
 
@@ -204,7 +213,7 @@ export async function GET() {
       inputTokens: r.inputTokens,
       outputTokens: r.outputTokens,
       totalTokens: r.totalTokens,
-      totalCost: r.totalCost ? toEur(Number(r.totalCost)) : 0,
+      totalCost: r.totalCost ? usdToEurOnDay(Number(r.totalCost), r.createdAt, fxSeries, latestRate) : 0,
       durationMs: r.durationMs ?? '',
       ref: r.refId ? `${r.refType ?? ''}:${r.refId}` : '',
     });
