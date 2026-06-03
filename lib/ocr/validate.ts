@@ -30,6 +30,27 @@ export function inferDocKind(data: any): 'invoice' | 'receipt' {
   return hasRecipient ? 'invoice' : 'receipt';
 }
 
+/**
+ * Normalize an ΑΦΜ / VAT string to the bare number AADE and SoftOne expect.
+ * Strips an optional country prefix (e.g. "EL" / "GR" for Greece) and every other
+ * non-digit character: "EL999863881" or "ΑΦΜ: 999 863 881" → "999863881".
+ * Returns null if no digits remain.
+ */
+export function normalizeAfm(input: unknown): string | null {
+  const digits = String(input ?? '').replace(/\D+/g, '');
+  return digits || null;
+}
+
+/** Overwrite issuer/recipient ΑΦΜ fields in-place with their normalized form. */
+export function normalizeAfmFields<T extends Record<string, any>>(data: T): T {
+  if (!data || typeof data !== 'object') return data;
+  for (const key of ['vatNumber', 'customerVatNumber'] as const) {
+    const n = normalizeAfm((data as any)[key]);
+    if (n) (data as any)[key] = n;
+  }
+  return data;
+}
+
 const TOTALS_TOLERANCE = 0.02;
 
 function num(v: unknown): number | null {

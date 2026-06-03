@@ -16,6 +16,8 @@ type FirmAct = {
 export async function POST(request: Request) {
   await requirePermission('companies.read');
   const body = await request.json();
+  // Tolerate a country prefix / formatting: "EL999863881" → "999863881".
+  if (body && typeof body.afm === 'string') body.afm = body.afm.replace(/\D+/g, '');
   const parsed = Schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'invalid', issues: parsed.error.issues }, { status: 400 });
 

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
+import { normalizeAfm } from '@/lib/ocr/validate';
 
 // Consolidated status of the 3 mandatory SoftOne checks for a document:
 // duplicate (PURDOC), supplier, items. Powers the <SoftoneChecksStrip>.
@@ -32,7 +33,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       checked: doc.softoneChecked != null,
       found: doc.softoneTrdr != null,
       name: doc.softoneName, code: doc.softoneCode, kind: doc.softoneKind,
-      afm: String(ed.vatNumber ?? ''),
+      afm: normalizeAfm(ed.vatNumber) ?? '',
     },
     items: {
       total: doc.items.length,

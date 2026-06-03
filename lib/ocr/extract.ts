@@ -2,7 +2,7 @@ import sharp from 'sharp';
 import { getSetting } from '@/lib/settings';
 import { buildSystemPrompt, countMissingRequired, REQUIRED_FIELDS, type DocType, type SupportedLang } from '@/lib/ocr/templates';
 import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
-import { qualityScore, fixSwappedParties } from '@/lib/ocr/validate';
+import { qualityScore, fixSwappedParties, normalizeAfmFields } from '@/lib/ocr/validate';
 import { resolveOwnAfm } from '@/lib/ocr/own-afm';
 import { findSupplierTemplate, mergeFromTemplatePass } from '@/lib/ocr/templates-store';
 import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
@@ -656,5 +656,9 @@ async function applySupplierTemplate(input: ExtractInput, base: ExtractResult): 
 
 export async function extractDocument(input: ExtractInput): Promise<ExtractResult> {
   const base = await extractDocumentRaw(input);
-  return applySupplierTemplate(input, base);
+  const result = await applySupplierTemplate(input, base);
+  // Strip country prefixes (EL999863881 → 999863881) so the stored ΑΦΜ is what
+  // AADE / SoftOne searches expect — everything downstream reads this value.
+  if (result.data) normalizeAfmFields(result.data);
+  return result;
 }

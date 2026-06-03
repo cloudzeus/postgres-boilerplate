@@ -18,7 +18,24 @@ describe('isValidAfm', () => {
   });
 });
 
-import { checkTotals, fixSwappedParties, qualityScore } from '../validate';
+import { checkTotals, fixSwappedParties, qualityScore, normalizeAfm } from '../validate';
+
+describe('normalizeAfm', () => {
+  it('strips the EL country prefix', () => {
+    expect(normalizeAfm('EL999863881')).toBe('999863881');
+  });
+  it('strips spaces, dots and other formatting', () => {
+    expect(normalizeAfm('ΑΦΜ: 999 863.881')).toBe('999863881');
+  });
+  it('leaves a bare ΑΦΜ untouched', () => {
+    expect(normalizeAfm('094014201')).toBe('094014201');
+  });
+  it('returns null when there are no digits', () => {
+    expect(normalizeAfm('')).toBeNull();
+    expect(normalizeAfm(null)).toBeNull();
+    expect(normalizeAfm('EL')).toBeNull();
+  });
+});
 
 describe('checkTotals', () => {
   it('passes when subtotal + vat == total within tolerance', () => {

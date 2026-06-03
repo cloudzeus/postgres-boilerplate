@@ -374,13 +374,22 @@ export function OcrRowDetail({
               <FiExternalLink className="size-3" /> Άνοιγμα
             </a>
           </div>
-          <ZoomablePreview
-            src={isPdf ? `/api/admin/ocr/${row.id}/page-image?scale=3` : fileUrl}
-            alt={row.fileName}
-            fallbackHref={fileUrl}
-            pdfFallbackHref={isPdf ? fileUrl : undefined}
-            className="min-h-[440px] flex-1 bg-muted"
-          />
+          {isPdf ? (
+            // Native PDF viewer — crisp vector zoom for verification, no dependency
+            // on server-side rasterization (which can OOM on large scans).
+            <iframe
+              src={fileUrl}
+              title={row.fileName}
+              className="min-h-[440px] w-full flex-1 border-0 bg-white"
+            />
+          ) : (
+            <ZoomablePreview
+              src={fileUrl}
+              alt={row.fileName}
+              fallbackHref={fileUrl}
+              className="min-h-[440px] flex-1 bg-muted"
+            />
+          )}
         </aside>
 
         {/* ---- Editor ---- */}
