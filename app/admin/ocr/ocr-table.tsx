@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { type ColumnDef } from '@tanstack/react-table';
 import { FiMoreVertical, FiFile, FiExternalLink, FiSend, FiTrash2, FiEye, FiUserPlus, FiRefreshCw, FiSearch, FiCheck, FiChevronDown, FiChevronRight, FiAlertCircle, FiCheckCircle, FiSlash, FiRotateCcw } from 'react-icons/fi';
 import { SoftoneAfmDialog } from '@/components/admin/softone-afm-dialog';
+import { SupplierFieldRuleDialog } from '@/components/admin/supplier-field-rule-dialog';
 import { OcrDayProblemsModal } from '@/components/admin/ocr-day-problems-modal';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -165,6 +166,7 @@ export function OcrTable({
   const [lookupAfm, setLookupAfm] = React.useState<string | null>(null);
   const [lookupCtx, setLookupCtx] = React.useState<string | undefined>(undefined);
   const [problemsDay, setProblemsDay] = React.useState<{ label: string; rows: OcrRow[] } | null>(null);
+  const [fieldRuleDoc, setFieldRuleDoc] = React.useState<OcrRow | null>(null);
 
   async function handlePost(row: OcrRow) {
     if (!row.category) { toast.error('Όρισε πρώτα κατηγορία (κάνε expand τη γραμμή).'); return; }
@@ -496,6 +498,11 @@ export function OcrTable({
                   <FiExternalLink className="size-4" /> Άνοιγμα πρωτότυπου
                 </a>
               </DropdownMenuItem>
+              {r.docType !== 'GENERAL_TEXT' && r.vatNumber && (
+                <DropdownMenuItem onClick={() => setFieldRuleDoc(r)}>
+                  Νέο ειδικό πεδίο…
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={() => { setLookupCtx(r.vatNumber ? `Εκδότης ${r.vatNumber}` : undefined); setLookupAfm(r.vatNumber); }}
                 disabled={!r.vatNumber}
@@ -649,6 +656,13 @@ export function OcrTable({
         )}
       />
       <SoftoneAfmDialog afm={lookupAfm} contextLabel={lookupCtx} onClose={() => setLookupAfm(null)} />
+      <SupplierFieldRuleDialog
+        open={fieldRuleDoc != null}
+        onOpenChange={(o) => { if (!o) setFieldRuleDoc(null); }}
+        docId={fieldRuleDoc?.id ?? null}
+        mimeType={fieldRuleDoc?.mimeType ?? null}
+        supplierName={null}
+      />
       <OcrDayProblemsModal
         open={problemsDay !== null}
         onOpenChange={(v) => { if (!v) setProblemsDay(null); }}
