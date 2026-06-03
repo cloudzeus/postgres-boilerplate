@@ -83,6 +83,11 @@ export default async function AdminOcrPage() {
         title="OCR & εξαγωγή δεδομένων"
         description="Έξυπνη αναγνώριση τιμολογίων, αποδείξεων και ελεύθερου κειμένου με ένα drop."
         icon={<FiFileText />}
+        actions={
+          <a href="/admin/ocr/field-rules" className="inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-[12px] font-semibold hover:bg-muted">
+            Ειδικά πεδία
+          </a>
+        }
       />
 
       {/* Stats strip */}
