@@ -46,9 +46,12 @@ export function PhasesTab({ programId, docTypes, canManage }: { programId: strin
     ]);
     load();
   }
-  async function addReq(phaseId: string, documentTypeId: string) {
-    if (!documentTypeId) return;
-    await fetch(`/api/admin/programs/${programId}/phases/${phaseId}/requirements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ documentTypeId }) });
+  async function addReqs(phaseId: string, documentTypeIds: string[]) {
+    const ids = documentTypeIds.filter(Boolean);
+    if (ids.length === 0) return;
+    await Promise.all(ids.map((documentTypeId) =>
+      fetch(`/api/admin/programs/${programId}/phases/${phaseId}/requirements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ documentTypeId }) })
+    ));
     load();
   }
   async function toggleMandatory(phaseId: string, documentTypeId: string, mandatory: boolean) {
@@ -144,7 +147,7 @@ export function PhasesTab({ programId, docTypes, canManage }: { programId: strin
                         return (
                           <button key={b.id} type="button"
                             onClick={() => setScope(p.id, r.id, false, on ? r.businessTypes.filter((x) => x.businessTypeId !== b.id).map((x) => x.businessTypeId) : [...r.businessTypes.map((x) => x.businessTypeId), b.id])}
-                            className={`rounded-full border px-2 py-0.5 text-xs ${on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}>
+                            className={`rounded-full border px-2 py-0.5 text-xs ${on ? 'border-blue-600 bg-blue-600 font-bold text-white' : 'border-border text-muted-foreground'}`}>
                             {b.code}
                           </button>
                         );
@@ -158,14 +161,65 @@ export function PhasesTab({ programId, docTypes, canManage }: { programId: strin
               ))}
             </div>
             {canManage && available.length > 0 && (
-              <select className="text-body-sm rounded-md border border-border bg-background px-2 py-1" value="" onChange={(e) => addReq(p.id, e.target.value)}>
-                <option value="">+ Προσθήκη δικαιολογητικού…</option>
-                {available.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
+              <AddRequirements available={available} onAdd={(ids) => addReqs(p.id, ids)} />
             )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function AddRequirements({ available, onAdd }: { available: DocTypeOption[]; onAdd: (ids: string[]) => void | Promise<void> }) {
+  const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState('');
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [saving, setSaving] = React.useState(false);
+
+  function reset() { setOpen(false); setQuery(''); setSelected(new Set()); }
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  const q = query.toLocaleLowerCase('el').trim();
+  const filtered = q ? available.filter((d) => d.name.toLocaleLowerCase('el').includes(q)) : available;
+
+  async function submit() {
+    if (selected.size === 0) return;
+    setSaving(true);
+    try { await onAdd(Array.from(selected)); reset(); }
+    finally { setSaving(false); }
+  }
+
+  if (!open) {
+    return (
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>+ Προσθήκη δικαιολογητικών</Button>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-border p-2 space-y-2">
+      <Input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Αναζήτηση δικαιολογητικού…" className="h-8" />
+      <div className="max-h-56 overflow-y-auto space-y-0.5">
+        {filtered.length === 0 && <p className="text-xs text-muted-foreground px-1 py-2">Δεν βρέθηκαν δικαιολογητικά.</p>}
+        {filtered.map((d) => (
+          <label key={d.id} className="flex items-center gap-2 rounded px-1.5 py-1 text-body-sm hover:bg-muted cursor-pointer">
+            <input type="checkbox" checked={selected.has(d.id)} onChange={() => toggle(d.id)} className="h-3.5 w-3.5" />
+            <span className="flex-1">{d.name}</span>
+          </label>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        <Button size="sm" onClick={submit} disabled={selected.size === 0 || saving}>
+          {saving ? 'Προσθήκη…' : `Προσθήκη${selected.size ? ` (${selected.size})` : ''}`}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={reset} disabled={saving}>Άκυρο</Button>
+      </div>
     </div>
   );
 }
