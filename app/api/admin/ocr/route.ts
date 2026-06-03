@@ -6,6 +6,7 @@ import { bunnyUploadPrivate } from '@/lib/bunny';
 import { extractDocument } from '@/lib/ocr/extract';
 import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
 import { ensureOcrThumbnail } from '@/lib/ocr/thumbnail';
+import { inferDocKind } from '@/lib/ocr/validate';
 import { type DocType, type SupportedLang } from '@/lib/ocr/templates';
 
 export const runtime = 'nodejs';
@@ -118,6 +119,15 @@ export async function POST(req: Request) {
     // Persist invoice line items if present.
     const items = docType === 'invoice' && Array.isArray(result.data?.items) ? result.data.items : [];
 
+    // Auto-classify: a financial doc with no recipient block is a receipt (ΑΠΟΔΕΙΞΗ),
+    // otherwise an invoice (τιμολόγιο / δελτίο αποστολής). general_text is left as-is.
+    const resolvedDocType =
+      docType === 'general_text'
+        ? 'GENERAL_TEXT'
+        : inferDocKind(result.data) === 'receipt'
+          ? 'RECEIPT'
+          : 'INVOICE';
+
     // Tag with the SoftOne supplier (issuer ΑΦΜ → TRDR SODTYPE=12). Best-effort.
     const softone = await buildSoftoneMatch(result.data?.vatNumber);
 
@@ -126,6 +136,7 @@ export async function POST(req: Request) {
         where: { id: doc.id },
         data: {
           status: 'COMPLETED',
+          docType: resolvedDocType,
           extractedData: result.data,
           rawText: result.rawText,
           model: result.model,

@@ -27,8 +27,8 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
   }
 
   const fieldList = doc.docType === 'RECEIPT'
-    ? ['companyName', 'vatNumber', 'invoiceNumber', 'date', 'companyPhone', 'companyEmail', 'subtotal', 'vatAmount', 'totalAmount']
-    : ['companyName', 'vatNumber', 'companyPhone', 'companyEmail', 'customerName', 'customerVatNumber', 'invoiceNumber', 'date', 'subtotal', 'vatAmount', 'totalAmount'];
+    ? ['companyName', 'vatNumber', 'documentTypeLabel', 'invoiceNumber', 'date', 'companyPhone', 'companyEmail', 'subtotal', 'vatAmount', 'totalAmount']
+    : ['companyName', 'vatNumber', 'documentTypeLabel', 'companyPhone', 'companyEmail', 'customerName', 'customerVatNumber', 'invoiceNumber', 'date', 'subtotal', 'vatAmount', 'totalAmount'];
 
   const correction = (doc.docType === 'INVOICE' || doc.docType === 'RECEIPT') ? (
     <FieldCorrection
@@ -46,6 +46,7 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
         {correction}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 rounded-xl border border-border bg-card p-4">
           <Field label="Εκδότης" value={data.companyName} />
+          <Field label="Τύπος" value={data.documentTypeLabel} />
           <Field label="Αριθμός" value={data.invoiceNumber} mono />
           <Field label="ΑΦΜ" value={data.vatNumber} mono />
           <Field label="Ημερομηνία" value={data.date} />
@@ -80,6 +81,8 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
             </tbody>
           </table>
         </div>
+
+        <BankAccounts accounts={data.bankAccounts} />
       </section>
     );
   }
@@ -100,6 +103,8 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
           <span>ΣΥΝΟΛΟ:</span><span>{fmtMoney(data.totalAmount)}</span>
         </div>
         </div>
+
+        <BankAccounts accounts={data.bankAccounts} />
       </section>
     );
   }
@@ -137,6 +142,28 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
         </div>
       )}
     </section>
+  );
+}
+
+function BankAccounts({ accounts }: { accounts: any }) {
+  const list = Array.isArray(accounts)
+    ? accounts.filter((a) => a && (a.iban || a.bank))
+    : [];
+  if (list.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        Τραπεζικοί λογαριασμοί εκδότη
+      </p>
+      <ul className="space-y-1">
+        {list.map((a: any, i: number) => (
+          <li key={i} className="flex flex-wrap items-baseline gap-x-2 text-sm">
+            <span className="font-semibold text-foreground">{a.bank ?? '—'}</span>
+            <span className="font-mono text-body-sm text-muted-foreground">{a.iban ?? ''}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

@@ -15,6 +15,21 @@ export function isValidAfm(input: string | null | undefined): boolean {
   return check === d[8];
 }
 
+/**
+ * Classify a financial document from its extracted payload.
+ *
+ * The recipient/Πελάτης is always us (the company running the app), so its
+ * PRESENCE — not its value — is the signal: a document that names a recipient is
+ * a proper invoice (τιμολόγιο / τιμολόγιο–δελτίο αποστολής), while one with no
+ * recipient block at all is a retail receipt (ΑΠΟΔΕΙΞΗ). Returns 'receipt' only
+ * for inputs that were financial to begin with; callers pass through general_text.
+ */
+export function inferDocKind(data: any): 'invoice' | 'receipt' {
+  const has = (v: unknown) => v != null && String(v).trim() !== '';
+  const hasRecipient = has(data?.customerName) || has(data?.customerVatNumber);
+  return hasRecipient ? 'invoice' : 'receipt';
+}
+
 const TOTALS_TOLERANCE = 0.02;
 
 function num(v: unknown): number | null {

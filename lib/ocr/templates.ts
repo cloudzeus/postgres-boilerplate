@@ -24,7 +24,7 @@ interface TemplateSchema {
 
 export const TEMPLATE_SCHEMAS: Record<DocType, TemplateSchema> = {
   invoice: {
-    systemInstructions: 'You are an expert system specialized in Greek financial documents (invoices AND retail receipts). They contain an issuer (ΕΚΔΟΤΗΣ — the supplier / the store) and, on invoices, a recipient (ΠΑΡΑΛΗΠΤΗΣ / Πελάτης — the customer). Extract EVERY field you can see — even on a simple retail receipt, capture the issuer/store details. On a receipt there is usually no customer (leave customer fields null). Match visual rows accurately. Always extract subtotal (net amount before VAT), VAT amount, and the grand total separately — ΚΑΘΑΡΗ ΑΞΙΑ / ΣΥΝΟΛΟ ΦΠΑ / ΓΕΝΙΚΟ ΣΥΝΟΛΟ. Also extract the ISSUER\'s phone (ΤΗΛ / Τηλέφωνο) and email when printed (only the issuer\'s). For retail receipts also capture the time and the number of items if printed. If a field is missing, output null.',
+    systemInstructions: 'You are an expert system specialized in Greek financial documents (invoices AND retail receipts). They contain an issuer (ΕΚΔΟΤΗΣ — the supplier / the store) and, on invoices, a recipient (ΠΑΡΑΛΗΠΤΗΣ / Πελάτης — the customer / buyer). Extract EVERY field you can see — even on a simple retail receipt, capture the issuer/store details. CUSTOMER/RECIPIENT RULE: the recipient is the buyer; if the document has NO recipient/customer block at all, it is a retail receipt (ΑΠΟΔΕΙΞΗ) and you MUST leave every customer field null — never invent or copy the issuer into the customer slot. DOCUMENT TYPE: ALWAYS capture the printed document type EXACTLY as written (almost always at the top), into `documentTypeLabel` — e.g. «ΤΙΜΟΛΟΓΙΟ», «ΤΙΜΟΛΟΓΙΟ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ», «ΤΙΜΟΛΟΓΙΟ – ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ», «ΑΠΟΔΕΙΞΗ ΛΙΑΝΙΚΗΣ ΠΩΛΗΣΗΣ», «ΠΙΣΤΩΤΙΚΟ ΤΙΜΟΛΟΓΙΟ». BANK DETAILS: ALWAYS look for the ISSUER\'s bank account details (ΤΡΑΠΕΖΑ / IBAN), usually printed in the footer or payment-terms area, and list EVERY one found in `bankAccounts`. Match visual rows accurately. Always extract subtotal (net amount before VAT), VAT amount, and the grand total separately — ΚΑΘΑΡΗ ΑΞΙΑ / ΣΥΝΟΛΟ ΦΠΑ / ΓΕΝΙΚΟ ΣΥΝΟΛΟ. Also extract the ISSUER\'s phone (ΤΗΛ / Τηλέφωνο) and email when printed (only the issuer\'s). For retail receipts also capture the time and the number of items if printed. If a field is missing, output null.',
     jsonStructure: `{
   "companyName": "string (ΕΚΔΟΤΗΣ — Issuer / supplier / store legal name)",
   "vatNumber":   "string (ΑΦΜ of the issuer)",
@@ -38,6 +38,7 @@ export const TEMPLATE_SCHEMAS: Record<DocType, TemplateSchema> = {
   "customerAddress": "string or null (recipient address)",
   "customerDoy":     "string or null (recipient ΔΟΥ)",
   "customerProfession": "string or null (recipient ΕΠΑΓΓΕΛΜΑ / activity)",
+  "documentTypeLabel": "string or null (the EXACT printed παραστατικό type, verbatim — e.g. ΤΙΜΟΛΟΓΙΟ, ΤΙΜΟΛΟΓΙΟ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ, ΤΙΜΟΛΟΓΙΟ – ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ, ΑΠΟΔΕΙΞΗ ΛΙΑΝΙΚΗΣ ΠΩΛΗΣΗΣ, ΠΙΣΤΩΤΙΚΟ ΤΙΜΟΛΟΓΙΟ)",
   "invoiceNumber": "string (invoice or receipt / document number)",
   "aadeMark":      "string or null (ΜΑΡΚ ΑΑΔΕ / Μ.ΑΡΚ. — unique myDATA reference printed on the document)",
   "date": "string (YYYY-MM-DD)",
@@ -46,6 +47,12 @@ export const TEMPLATE_SCHEMAS: Record<DocType, TemplateSchema> = {
   "subtotal":    number,       // ΚΑΘΑΡΗ ΑΞΙΑ — sum of line nets, before VAT
   "vatAmount":   number,       // ΣΥΝΟΛΟ ΦΠΑ — total VAT charged
   "totalAmount": number,       // ΓΕΝΙΚΟ ΣΥΝΟΛΟ — grand total (subtotal + vatAmount)
+  "bankAccounts": [
+    {
+      "bank": "string or null (ISSUER's bank name — ΤΡΑΠΕΖΑ)",
+      "iban": "string (ISSUER's IBAN, as printed)"
+    }
+  ],                            // every bank account of the ISSUER printed on the document; [] if none
   "items": [
     {
       "code": "string or null",
@@ -89,9 +96,12 @@ export const TEMPLATE_SCHEMAS: Record<DocType, TemplateSchema> = {
  * with a stronger model. Keep aligned with TEMPLATE_SCHEMAS above.
  */
 export const REQUIRED_FIELDS: Record<DocType, string[]> = {
+  // The recipient/customer is intentionally NOT required: on purchase documents the
+  // recipient is always us (the company running the app), and on retail receipts
+  // there is no recipient at all. Absence of a customer is a classification signal
+  // (→ receipt), not a missing field — so it must not trigger model auto-retries.
   invoice: [
     'companyName', 'vatNumber',
-    'customerName', 'customerVatNumber',
     'invoiceNumber', 'date',
     'subtotal', 'vatAmount', 'totalAmount',
   ],

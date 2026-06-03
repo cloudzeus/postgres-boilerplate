@@ -9,6 +9,7 @@ type Hints = Record<string, { page: number; bbox: [number, number, number, numbe
 const FIELD_LABELS: Record<string, string> = {
   companyName: 'Επωνυμία Εκδότη', vatNumber: 'ΑΦΜ Εκδότη',
   customerName: 'Επωνυμία Πελάτη', customerVatNumber: 'ΑΦΜ Πελάτη',
+  documentTypeLabel: 'Τύπος παραστατικού',
   invoiceNumber: 'Αρ. Παραστατικού', date: 'Ημερομηνία',
   subtotal: 'Καθαρή Αξία', vatAmount: 'ΦΠΑ', totalAmount: 'Σύνολο',
   storeName: 'Κατάστημα',
