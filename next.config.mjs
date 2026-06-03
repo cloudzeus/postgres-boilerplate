@@ -1,6 +1,7 @@
 import path from 'path';
 
 const nextConfig = {
+  output: 'standalone',
   reactStrictMode: true,
   sassOptions: {
     includePaths: [path.join(process.cwd(), 'styles')],

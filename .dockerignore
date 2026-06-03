@@ -1,0 +1,40 @@
+# Dependencies & build output (rebuilt inside the image)
+node_modules
+.next
+out
+build
+dist
+
+# Version control & CI
+.git
+.gitignore
+.github
+
+# Local env & secrets — NEVER bake into the image
+.env
+.env.*
+!.env.example
+.s1session.json
+
+# Tooling / planning / editor
+.planning
+.claude
+.vscode
+.idea
+*.log
+npm-debug.log*
+
+# Tests & coverage
+coverage
+.vitest
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# NOTE: docs/ is intentionally NOT ignored — lib/wiki/loader.ts reads
+# docs/wiki/*.mdx from disk at runtime (process.cwd()/docs/wiki).
+
+# Large local assets / scratch
+mobile-app
+tsconfig.tsbuildinfo
