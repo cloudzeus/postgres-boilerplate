@@ -17,6 +17,10 @@ describe('slugifyFieldKey', () => {
     expect(a).toBe(b);
     expect(a.startsWith('field_')).toBe(true);
   });
+  it('returns a deterministic hash key for an empty/untransliterable label', () => {
+    expect(slugifyFieldKey('')).toBe(slugifyFieldKey(''));
+    expect(slugifyFieldKey('').startsWith('field_')).toBe(true);
+  });
 });
 
 describe('buildCustomFieldsPrompt', () => {
@@ -42,5 +46,12 @@ describe('mergeCustomFields', () => {
     const data: any = { customFields: { old: 'keep' } };
     const out = mergeCustomFields(data, { po: 'PO-2' }, [{ key: 'po' }] as any);
     expect(out.customFields).toEqual({ old: 'keep', po: 'PO-2' });
+  });
+  it('does not mutate the input data object', () => {
+    const data: any = { customFields: { old: 'keep' } };
+    const out = mergeCustomFields(data, { po: 'PO-9' }, [{ key: 'po' }] as any);
+    expect(data.customFields).toEqual({ old: 'keep' }); // unchanged
+    expect(out).not.toBe(data);
+    expect(out.customFields).toEqual({ old: 'keep', po: 'PO-9' });
   });
 });

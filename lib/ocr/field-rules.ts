@@ -48,7 +48,7 @@ export function buildCustomFieldsPrompt(rules: FieldRuleLite[]): string {
   ].join('\n');
 }
 
-/** Merge a parsed targeted-pass result into data.customFields (in place). */
+/** Merge a parsed targeted-pass result into customFields — returns a shallow copy, does NOT mutate input. */
 export function mergeCustomFields<T extends Record<string, any>>(
   data: T, parsed: Record<string, unknown> | null | undefined, rules: { key: string }[],
 ): T {
@@ -57,8 +57,7 @@ export function mergeCustomFields<T extends Record<string, any>>(
     const v = parsed?.[r.key];
     cf[r.key] = v == null || v === '' ? null : v;
   }
-  (data as any).customFields = cf;
-  return data;
+  return { ...data, customFields: cf } as T;
 }
 
 const docTypeToEnum: Record<DocType, 'INVOICE' | 'RECEIPT' | 'GENERAL_TEXT'> = {
