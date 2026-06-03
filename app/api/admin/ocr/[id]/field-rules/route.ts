@@ -15,6 +15,8 @@ const Body = z.object({
   label: z.string().trim().min(1).max(120),
   description: z.string().trim().max(1000).optional(),
   regionHint: z.object({ page: z.number().int().min(0), bbox: z.tuple([norm, norm, norm, norm]) }).optional(),
+  scope: z.enum(['document', 'line']).optional(),
+  valueType: z.enum(['text', 'list']).optional(),
 });
 
 const docEnumToType = { INVOICE: 'invoice', RECEIPT: 'receipt', GENERAL_TEXT: 'general_text' } as const;
@@ -43,6 +45,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     vatNumber: afm, docType, key, label: body.label,
     description: body.description ?? null, regionHint: body.regionHint ?? null,
     supplierName: data?.companyName ?? data?.storeName ?? null, createdById: user.id,
+    scope: body.scope ?? 'document',
+    valueType: body.valueType ?? 'text',
   });
 
   // Immediately apply to THIS document so the user sees the value now.
@@ -56,7 +60,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       language: (doc.language as any) ?? 'el',
       pdfSource: doc.mimeType === 'application/pdf' ? 'auto' : undefined,
     });
-    value = (result.data?.customFields ?? {})[key] ?? null;
+    if ((body.scope ?? 'document') === 'line') {
+      const items = Array.isArray(result.data?.items) ? result.data.items : [];
+      const matchedLines = items.filter((it: any) => {
+        const v = it?.customFields?.[key];
+        return v != null && (!Array.isArray(v) || v.length > 0);
+      }).length;
+      value = { matchedLines };
+    } else {
+      value = (result.data?.customFields ?? {})[key] ?? null;
+    }
     await prisma.ocrDocument.update({ where: { id: doc.id }, data: { extractedData: result.data } });
   } catch {
     // Rule is saved; immediate apply is best-effort.
