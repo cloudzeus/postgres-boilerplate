@@ -83,6 +83,7 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
         </div>
 
         <BankAccounts accounts={data.bankAccounts} />
+        <CustomFieldsBlock data={data} />
       </section>
     );
   }
@@ -105,6 +106,7 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
         </div>
 
         <BankAccounts accounts={data.bankAccounts} />
+        <CustomFieldsBlock data={data} />
       </section>
     );
   }
@@ -141,6 +143,28 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
           />
         </div>
       )}
+    </section>
+  );
+}
+
+function CustomFieldsBlock({ data }: { data: Record<string, any> }) {
+  const cf = (data?.customFields ?? {}) as Record<string, unknown>;
+  const entries = Object.entries(cf);
+  if (entries.length === 0) return null;
+  const human = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return (
+    <section className="overflow-hidden rounded-lg border border-border bg-card">
+      <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-foreground">
+        Ειδικά πεδία
+      </header>
+      <dl className="grid grid-cols-1 gap-x-3 gap-y-1.5 p-3 sm:grid-cols-2">
+        {entries.map(([k, v]) => (
+          <div key={k} className="flex flex-col">
+            <dt className="text-[11px] font-semibold text-muted-foreground">{human(k)}</dt>
+            <dd className="text-[12px] text-foreground">{v == null || v === '' ? '—' : String(v)}</dd>
+          </div>
+        ))}
+      </dl>
     </section>
   );
 }

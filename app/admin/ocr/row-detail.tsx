@@ -141,6 +141,28 @@ const BADGE_STYLE = {
   neutral: { backgroundColor: '#f3f4f6', color: '#374151', borderColor: '#d1d5db' }, // gray-100 / gray-700 / gray-300
 } as const;
 
+function CustomFieldsBlock({ data }: { data: Record<string, any> }) {
+  const cf = (data?.customFields ?? {}) as Record<string, unknown>;
+  const entries = Object.entries(cf);
+  if (entries.length === 0) return null;
+  const human = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return (
+    <section className="overflow-hidden rounded-lg border border-border bg-card">
+      <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-foreground">
+        Ειδικά πεδία
+      </header>
+      <dl className="grid grid-cols-1 gap-x-3 gap-y-1.5 p-3 sm:grid-cols-2">
+        {entries.map(([k, v]) => (
+          <div key={k} className="flex flex-col">
+            <dt className="text-[11px] font-semibold text-muted-foreground">{human(k)}</dt>
+            <dd className="text-[12px] text-foreground">{v == null || v === '' ? '—' : String(v)}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 function CheckRow({ ok, label, got, exp }: { ok: boolean | null | undefined; label: string; got: string; exp: string }) {
   const style = ok == null ? BADGE_STYLE.neutral : ok ? BADGE_STYLE.ok : BADGE_STYLE.fail;
   return (
@@ -438,6 +460,7 @@ export function OcrRowDetail({
 
                   {/* Totals box (label left / amount right, 2 decimals, sum check) */}
                   {totalsBox}
+                  <CustomFieldsBlock data={data} />
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -445,6 +468,7 @@ export function OcrRowDetail({
                     {specs.filter((s) => s.group !== 'totals').map(field)}
                   </div>
                   {totalsBox}
+                  <CustomFieldsBlock data={data} />
                 </div>
               )}
             </TabsContent>
