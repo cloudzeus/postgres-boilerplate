@@ -13,7 +13,6 @@ type Props = {
   docId: string | null;
   mimeType: string | null;
   supplierName?: string | null;
-  vatNumber?: string | null;
 };
 
 export function SupplierFieldRuleDialog({ open, onOpenChange, docId, mimeType, supplierName }: Props) {
@@ -80,6 +79,7 @@ export function SupplierFieldRuleDialog({ open, onOpenChange, docId, mimeType, s
             </label>
             <button
               type="button" onClick={() => setMarking((m) => !m)}
+              aria-label="Μαρκάρισμα περιοχής" title="Μαρκάρισμα περιοχής"
               className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2.5 py-1 text-[12px] font-semibold hover:bg-muted"
             >
               🎯 {region ? 'Περιοχή ορίστηκε — ξανά' : marking ? 'Σύρε πλαίσιο στο έγγραφο…' : 'Μαρκάρισμα περιοχής (προαιρετικό)'}
