@@ -19,13 +19,15 @@ export function SupplierFieldRuleDialog({ open, onOpenChange, docId, mimeType, s
   const router = useRouter();
   const [label, setLabel] = React.useState('');
   const [description, setDescription] = React.useState('');
+  const [scope, setScope] = React.useState<'document' | 'line'>('document');
+  const [valueType, setValueType] = React.useState<'text' | 'list'>('text');
   const [region, setRegion] = React.useState<{ page: number; bbox: [number, number, number, number] } | null>(null);
   const [marking, setMarking] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [foundValue, setFoundValue] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (open) { setLabel(''); setDescription(''); setRegion(null); setMarking(false); setFoundValue(null); }
+    if (open) { setLabel(''); setDescription(''); setRegion(null); setMarking(false); setFoundValue(null); setScope('document'); setValueType('text'); }
   }, [open, docId]);
 
   const onMarqueeComplete = React.useCallback((b: NormBox) => {
@@ -43,11 +45,21 @@ export function SupplierFieldRuleDialog({ open, onOpenChange, docId, mimeType, s
     try {
       const res = await fetch(`/api/admin/ocr/${docId}/field-rules`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: label.trim(), description: description.trim() || undefined, regionHint: region ?? undefined }),
+        body: JSON.stringify({
+          label: label.trim(),
+          description: description.trim() || undefined,
+          regionHint: scope === 'document' ? (region ?? undefined) : undefined,
+          scope, valueType,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
-      setFoundValue(json.value != null ? String(json.value) : '—');
+      if (scope === 'line') {
+        const n = json?.value?.matchedLines ?? 0;
+        setFoundValue(`βρέθηκε σε ${n} γραμμές`);
+      } else {
+        setFoundValue(json.value != null ? String(json.value) : '—');
+      }
       toast.success('Ο κανόνας αποθηκεύτηκε.');
       router.refresh();
     } catch (err: unknown) {
@@ -77,13 +89,33 @@ export function SupplierFieldRuleDialog({ open, onOpenChange, docId, mimeType, s
                 className="rounded-md border border-input bg-background p-2 text-[12px]"
               />
             </label>
-            <button
-              type="button" onClick={() => setMarking((m) => !m)}
-              aria-label="Μαρκάρισμα περιοχής" title="Μαρκάρισμα περιοχής"
-              className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2.5 py-1 text-[12px] font-semibold hover:bg-muted"
-            >
-              🎯 {region ? 'Περιοχή ορίστηκε — ξανά' : marking ? 'Σύρε πλαίσιο στο έγγραφο…' : 'Μαρκάρισμα περιοχής (προαιρετικό)'}
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-semibold text-muted-foreground">Εμβέλεια</span>
+                <select value={scope} onChange={(e) => setScope(e.target.value as 'document' | 'line')}
+                  className="h-8 rounded-md border border-input bg-background px-2 text-[12px]">
+                  <option value="document">Έγγραφο</option>
+                  <option value="line">Γραμμή</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-semibold text-muted-foreground">Τύπος τιμής</span>
+                <select value={valueType} onChange={(e) => setValueType(e.target.value as 'text' | 'list')}
+                  className="h-8 rounded-md border border-input bg-background px-2 text-[12px]">
+                  <option value="text">Μία τιμή</option>
+                  <option value="list">Λίστα (π.χ. serials)</option>
+                </select>
+              </label>
+            </div>
+            {scope === 'document' && (
+              <button
+                type="button" onClick={() => setMarking((m) => !m)}
+                aria-label="Μαρκάρισμα περιοχής" title="Μαρκάρισμα περιοχής"
+                className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2.5 py-1 text-[12px] font-semibold hover:bg-muted"
+              >
+                🎯 {region ? 'Περιοχή ορίστηκε — ξανά' : marking ? 'Σύρε πλαίσιο στο έγγραφο…' : 'Μαρκάρισμα περιοχής (προαιρετικό)'}
+              </button>
+            )}
             {foundValue !== null && (
               <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 text-[12px]">
                 Βρέθηκε: <strong>{foundValue}</strong>
