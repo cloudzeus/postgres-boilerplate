@@ -29,7 +29,7 @@ export { Input, Textarea } from './components/input';
 // ========== UTILITY TYPES ==========
 export type ComponentSize = 'xs' | 'sm' | 'md' | 'lg';
 export type ButtonVariant = 'primary' | 'secondary' | 'subtle' | 'ghost' | 'danger' | 'brand';
-export type BadgeVariant = 'neutral' | 'blue' | 'green' | 'orange' | 'red' | 'purple' | 'info' | 'success' | 'warning' | 'danger';
+// BadgeVariant is re-exported above from ./components/badge (single source of truth).
 
 // ========== SETUP INSTRUCTIONS ==========
 /**

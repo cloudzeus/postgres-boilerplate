@@ -96,8 +96,9 @@ async function walkUp(code: string) {
   let current: string | null = code;
   // Cap depth to avoid pathological cycles.
   for (let i = 0; i < 10 && current; i++) {
+    const lookupCode: string = current;
     const node = await prisma.kadCode.findUnique({
-      where: { code: current },
+      where: { code: lookupCode },
       select: {
         code: true, title: true, description: true,
         level: true, sector: true, parentCode: true,

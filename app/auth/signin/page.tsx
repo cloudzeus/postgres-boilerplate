@@ -77,7 +77,7 @@ export default async function SignInPage({
           {otpMode ? 'Σύνδεση με κωδικό' : 'Σύνδεση με OTP'}
         </Link>
         <Link
-          href="/api/auth/signin/microsoft"
+          href="/api/auth/signin/microsoft-entra-id"
           className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card text-sm font-semibold text-foreground transition-colors hover:bg-muted"
         >
           <FaMicrosoft className="text-[var(--color-brand-blue)]" /> Σύνδεση με Microsoft

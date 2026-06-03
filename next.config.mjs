@@ -3,10 +3,9 @@ import path from 'path';
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
-  // Pre-existing Next 16 type/lint debt blocks production `next build`.
-  // Unblock deploys here; fix the underlying types (e.g. lib/auth.ts providers)
-  // separately, then remove these two escape hatches.
-  typescript: { ignoreBuildErrors: true },
+  // Types are clean (verified via `tsc --noEmit`), so the build enforces them.
+  // ESLint is intentionally not run during the production build — lint belongs
+  // in CI, and `next build` would otherwise fail on lint errors.
   eslint: { ignoreDuringBuilds: true },
   sassOptions: {
     includePaths: [path.join(process.cwd(), 'styles')],

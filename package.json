@@ -87,10 +87,12 @@
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.14.2",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "@types/swagger-ui-react": "^5.18.0",
+    "@types/update-notifier": "^6.0.8",
     "@typescript-eslint/eslint-plugin": "^8.59.4",
     "@typescript-eslint/parser": "^8.59.4",
     "autoprefixer": "^10.4.19",

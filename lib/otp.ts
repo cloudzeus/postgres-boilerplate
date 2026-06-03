@@ -33,7 +33,7 @@ export async function createOtpToken(
 }
 
 export async function verifyOtpToken(email: string, code: string, type: 'register' | 'reset' | 'login') {
-  const token = await prisma.oTpToken.findFirst({
+  const token = await prisma.otpToken.findFirst({
     where: {
       email,
       type,
@@ -47,6 +47,6 @@ export async function verifyOtpToken(email: string, code: string, type: 'registe
   const valid = await bcrypt.compare(code, token.codeHash);
   if (!valid) return false;
 
-  await prisma.oTpToken.update({ where: { id: token.id }, data: { used: true } });
+  await prisma.otpToken.update({ where: { id: token.id }, data: { used: true } });
   return true;
 }
