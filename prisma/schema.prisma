@@ -1324,6 +1324,25 @@ model SupplierTemplate {
   @@index([vatNumber])
 }
 
+model SupplierFieldRule {
+  id           String     @id @default(cuid())
+  vatNumber    String                 // issuer ΑΦΜ (normalized, 9 digits)
+  docType      OcrDocType             // INVOICE | RECEIPT (never GENERAL_TEXT)
+  key          String                 // stable machine key (slug) → extractedData.customFields[key]
+  label        String                 // user-facing field name, e.g. "Αριθμός Παραγγελίας"
+  description  String?    @db.Text     // instruction to the AI (what / where to look)
+  regionHint   Json?                  // optional { page, bbox:[x,y,w,h] } from the 🎯 marker
+  isActive     Boolean    @default(true)
+  supplierName String?                // denormalized for the list page
+  timesUsed    Int        @default(0)
+  createdById  String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([vatNumber, docType, key])
+  @@index([vatNumber, docType])
+}
+
 // ============================================================
 // Self-assessment questionnaire (per Program) & company evaluation
 // ============================================================
