@@ -163,6 +163,14 @@ function CustomFieldsBlock({ data }: { data: Record<string, any> }) {
   );
 }
 
+function lineCustomFieldsText(cf: Record<string, unknown> | undefined): { label: string; text: string }[] {
+  if (!cf) return [];
+  const human = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return Object.entries(cf)
+    .map(([k, v]) => ({ label: human(k), text: Array.isArray(v) ? v.join(', ') : v == null || v === '' ? '' : String(v) }))
+    .filter((e) => e.text !== '');
+}
+
 function CheckRow({ ok, label, got, exp }: { ok: boolean | null | undefined; label: string; got: string; exp: string }) {
   const style = ok == null ? BADGE_STYLE.neutral : ok ? BADGE_STYLE.ok : BADGE_STYLE.fail;
   return (
@@ -505,8 +513,10 @@ export function OcrRowDetail({
                       ) : items.map((it, i) => {
                         const la = analyzeLine(it);
                         const dTitle = la.discountKind === 'percent' ? 'Έκπτωση επί τοις %' : la.discountKind === 'amount' ? 'Έκπτωση ως ποσό' : undefined;
+                        const lineCf = lineCustomFieldsText((data.items?.[i]?.customFields) as Record<string, unknown> | undefined);
                         return (
-                        <tr key={i} className={cn('hover:bg-sisyphus-500/5', !la.consistent ? 'bg-amber-500/5' : 'odd:bg-muted/20')}>
+                        <React.Fragment key={i}>
+                        <tr className={cn('hover:bg-sisyphus-500/5', !la.consistent ? 'bg-amber-500/5' : 'odd:bg-muted/20')}>
                           <td className="px-1.5 py-1"><CellInput value={it.code} onChange={(v) => setLine(i, 'code', v)} disabled={ro} className="font-mono" /></td>
                           <td className="px-1.5 py-1"><CellInput value={it.name} onChange={(v) => setLine(i, 'name', v)} disabled={ro} /></td>
                           <td className="px-1.5 py-1"><CellInput value={it.quantity} onChange={(v) => setLine(i, 'quantity', v)} disabled={ro} numeric align="right" /></td>
@@ -531,6 +541,16 @@ export function OcrRowDetail({
                             </td>
                           )}
                         </tr>
+                        {lineCf.length > 0 && (
+                          <tr className="bg-sisyphus-500/5">
+                            <td colSpan={ro ? 7 : 8} className="px-3 py-1.5 text-[11px] text-muted-foreground">
+                              {lineCf.map((e) => (
+                                <span key={e.label} className="mr-3"><strong className="text-foreground">{e.label}:</strong> {e.text}</span>
+                              ))}
+                            </td>
+                          </tr>
+                        )}
+                        </React.Fragment>
                         ); })}
                     </tbody>
                     <tfoot className="border-t border-border bg-muted/50">

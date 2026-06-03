@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { Prisma } from '@prisma/client';
 import { FieldCorrection } from './field-correction';
 
@@ -68,16 +69,30 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
             <tbody className="divide-y divide-border">
               {doc.items.length === 0 ? (
                 <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Δεν εξήχθησαν γραμμές.</td></tr>
-              ) : doc.items.map((it) => (
-                <tr key={it.id} className="hover:bg-muted/30">
-                  <td className="px-3 py-2 font-mono text-xs">{it.code ?? '-'}</td>
-                  <td className="px-3 py-2 font-medium">{it.name}</td>
-                  <td className="px-3 py-2 text-right">{fmtNum(it.quantity)}</td>
-                  <td className="px-3 py-2 text-right">{fmtMoney(it.price)}</td>
-                  <td className="px-3 py-2 text-right text-destructive">{fmtNum(it.discount)}</td>
-                  <td className="px-3 py-2 text-right font-semibold">{fmtMoney(it.total)}</td>
-                </tr>
-              ))}
+              ) : doc.items.map((it, idx) => {
+                const lineCf = lineCustomFieldsText(((data.items?.[idx] ?? {}) as any).customFields as Record<string, unknown> | undefined);
+                return (
+                  <React.Fragment key={it.id}>
+                    <tr className="hover:bg-muted/30">
+                      <td className="px-3 py-2 font-mono text-xs">{it.code ?? '-'}</td>
+                      <td className="px-3 py-2 font-medium">{it.name}</td>
+                      <td className="px-3 py-2 text-right">{fmtNum(it.quantity)}</td>
+                      <td className="px-3 py-2 text-right">{fmtMoney(it.price)}</td>
+                      <td className="px-3 py-2 text-right text-destructive">{fmtNum(it.discount)}</td>
+                      <td className="px-3 py-2 text-right font-semibold">{fmtMoney(it.total)}</td>
+                    </tr>
+                    {lineCf.length > 0 && (
+                      <tr key={`${it.id}-cf`} className="bg-muted/20">
+                        <td colSpan={6} className="px-3 py-1.5 text-[11px] text-muted-foreground">
+                          {lineCf.map((e) => (
+                            <span key={e.label} className="mr-3"><strong className="text-foreground">{e.label}:</strong> {e.text}</span>
+                          ))}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -145,6 +160,14 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
       )}
     </section>
   );
+}
+
+function lineCustomFieldsText(cf: Record<string, unknown> | undefined): { label: string; text: string }[] {
+  if (!cf) return [];
+  const human = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return Object.entries(cf)
+    .map(([k, v]) => ({ label: human(k), text: Array.isArray(v) ? v.join(', ') : v == null || v === '' ? '' : String(v) }))
+    .filter((e) => e.text !== '');
 }
 
 function CustomFieldsBlock({ data }: { data: Record<string, any> }) {
