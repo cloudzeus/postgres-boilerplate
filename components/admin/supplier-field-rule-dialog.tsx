@@ -25,9 +25,10 @@ export function SupplierFieldRuleDialog({ open, onOpenChange, docId, mimeType, s
   const [marking, setMarking] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [foundValue, setFoundValue] = React.useState<string | null>(null);
+  const [previewError, setPreviewError] = React.useState(false);
 
   React.useEffect(() => {
-    if (open) { setLabel(''); setDescription(''); setRegion(null); setMarking(false); setFoundValue(null); setScope('document'); setValueType('text'); }
+    if (open) { setLabel(''); setDescription(''); setRegion(null); setMarking(false); setFoundValue(null); setScope('document'); setValueType('text'); setPreviewError(false); }
   }, [open, docId]);
 
   const onMarqueeComplete = React.useCallback((b: NormBox) => {
@@ -38,6 +39,9 @@ export function SupplierFieldRuleDialog({ open, onOpenChange, docId, mimeType, s
 
   const fileUrl = docId ? `/api/admin/ocr/${docId}/file` : '';
   const isPdf = mimeType === 'application/pdf';
+  // For marking we need a raster the user can drag over: PDFs → rasterized page,
+  // images → the original. (A native PDF iframe can't be marqueed reliably.)
+  const previewSrc = docId ? (isPdf ? `/api/admin/ocr/${docId}/page-image?scale=2` : fileUrl) : '';
 
   async function submit() {
     if (!docId || !label.trim()) { toast.error('Δώσε όνομα πεδίου.'); return; }
@@ -124,21 +128,33 @@ export function SupplierFieldRuleDialog({ open, onOpenChange, docId, mimeType, s
           </div>
 
           <div className="relative min-h-0 h-full overflow-auto rounded-lg border border-border bg-muted">
-            {docId && (isPdf ? (
-              <iframe src={fileUrl} title="doc" className="h-full min-h-[60vh] w-full border-0 bg-white" />
-            ) : (
-              <div ref={ref} {...(marking ? handlers : {})} className="relative select-none" style={{ cursor: marking ? 'crosshair' : 'default' }}>
+            {docId && !previewError ? (
+              <div
+                ref={ref}
+                {...(marking ? handlers : {})}
+                className="relative w-full select-none"
+                style={{ cursor: marking ? 'crosshair' : 'default', touchAction: marking ? 'none' : undefined }}
+              >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={fileUrl} alt="" className="w-full" draggable={false} />
+                <img src={previewSrc} alt="" className="block w-full" draggable={false} onError={() => setPreviewError(true)} />
+                {/* live selection */}
                 {marking && active && box && (
                   <div className="pointer-events-none absolute border-2 border-sisyphus-500 bg-sisyphus-500/10"
                     style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%` }} />
                 )}
+                {/* persisted selection */}
+                {!active && region && (
+                  <div className="pointer-events-none absolute border-2 border-emerald-500 bg-emerald-500/10"
+                    style={{ left: `${region.bbox[0] * 100}%`, top: `${region.bbox[1] * 100}%`, width: `${region.bbox[2] * 100}%`, height: `${region.bbox[3] * 100}%` }} />
+                )}
               </div>
-            ))}
-            {isPdf && marking && (
-              <p className="p-2 text-[11px] text-muted-foreground">Το μαρκάρισμα περιοχής υποστηρίζεται σε εικόνες· για PDF δώσε οδηγία με κείμενο.</p>
-            )}
+            ) : docId ? (
+              <div className="space-y-2 p-3 text-[12px] text-muted-foreground">
+                <p>Δεν ήταν δυνατή η εικόνα για μαρκάρισμα.</p>
+                <a href={fileUrl} target="_blank" rel="noreferrer" className="font-semibold text-sisyphus-600 hover:underline">Άνοιγμα πρωτότυπου</a>
+                <p>Δώσε οδηγία με κείμενο για να το βρει το AI.</p>
+              </div>
+            ) : null}
           </div>
         </div>
 

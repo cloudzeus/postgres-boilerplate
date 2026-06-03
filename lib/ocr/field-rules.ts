@@ -44,12 +44,22 @@ export function coerceFieldValue(raw: unknown, valueType: 'text' | 'list'): stri
   return s || null;
 }
 
+/** Human hint for a normalized region marked on the document (top-left origin). */
+function regionHintText(regionHint: unknown): string | null {
+  const rh = regionHint as { page?: number; bbox?: [number, number, number, number] } | null;
+  if (!rh || !Array.isArray(rh.bbox) || rh.bbox.length !== 4) return null;
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  const [x, y, w, h] = rh.bbox;
+  return `located around the page region starting at left ${pct(x)}, top ${pct(y)}, width ${pct(w)}, height ${pct(h)} (top-left origin)${rh.page ? `, page ${rh.page + 1}` : ''}`;
+}
+
 /** Focused system prompt for the targeted custom-fields pass. */
 export function buildCustomFieldsPrompt(rules: FieldRuleLite[]): string {
   const fields = rules.map((r) => ({
     key: r.key,
     label: r.label,
     description: r.description ?? null,
+    location: regionHintText(r.regionHint),
   }));
   return [
     'You are a precise field extractor for a Greek financial document.',
