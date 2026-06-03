@@ -271,11 +271,15 @@ export function OcrRowDetail({
       else out[s.key] = String(v ?? '').trim() || null;
     }
     if (isInvoice) {
-      out.items = items.map((it) => ({
-        code: it.code.trim() || null, name: it.name.trim(),
-        quantity: toNum(it.quantity), price: toNum(it.price), discount: toNum(it.discount),
-        vatRate: toNum(it.vatRate), total: toNum(it.total),
-      })).filter((it) => it.name || it.code || it.total != null);
+      out.items = items.map((it, i) => {
+        const prevCf = (data.items?.[i] as any)?.customFields;
+        return {
+          code: it.code.trim() || null, name: it.name.trim(),
+          quantity: toNum(it.quantity), price: toNum(it.price), discount: toNum(it.discount),
+          vatRate: toNum(it.vatRate), total: toNum(it.total),
+          ...(prevCf ? { customFields: prevCf } : {}),
+        };
+      }).filter((it) => it.name || it.code || it.total != null);
     }
     return out;
   }
