@@ -17,18 +17,28 @@ const Patch = z.object({
 export async function PATCH(req: Request, { params }: { params: Promise<{ ruleId: string }> }) {
   await requirePermission('ocr.categorize');
   const { ruleId } = await params;
-  const body = Patch.parse(await req.json());
+  let body: z.infer<typeof Patch>;
+  try {
+    body = Patch.parse(await req.json());
+  } catch {
+    return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
+  }
   // key is immutable (keeps already-stored values linked) — never updated here.
-  const rule = await prisma.supplierFieldRule.update({
-    where: { id: ruleId },
-    data: {
-      ...(body.label !== undefined ? { label: body.label } : {}),
-      ...(body.description !== undefined ? { description: body.description } : {}),
-      ...(body.regionHint !== undefined ? { regionHint: (body.regionHint ?? null) as any } : {}),
-      ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
-    },
-  });
-  return NextResponse.json({ ok: true, rule });
+  try {
+    const rule = await prisma.supplierFieldRule.update({
+      where: { id: ruleId },
+      data: {
+        ...(body.label !== undefined ? { label: body.label } : {}),
+        ...(body.description !== undefined ? { description: body.description } : {}),
+        ...(body.regionHint !== undefined ? { regionHint: (body.regionHint ?? null) as any } : {}),
+        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+      },
+    });
+    return NextResponse.json({ ok: true, rule });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return NextResponse.json({ error: 'not_found' }, { status: 404 });
+    throw e;
+  }
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ ruleId: string }> }) {
