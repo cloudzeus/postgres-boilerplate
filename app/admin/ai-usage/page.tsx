@@ -5,6 +5,7 @@ import { getCurrentUserWithPermissions } from '@/lib/rbac';
 import { getSetting } from '@/lib/settings';
 import { getUsdToEurLatest, getUsdToEurSeries, usdToEurOnDay, dayKey } from '@/lib/ai/fx';
 import { PageHeader } from '@/components/admin/page-header';
+import { AiUsageDailyChart, type DailyPoint } from '@/components/admin/ai-usage-daily-chart';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,7 +46,7 @@ export default async function AiUsagePage() {
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const start30d = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
 
-  const [overall, today, monthRows, scopeRows, modelRows, recent, dailyRows] = await Promise.all([
+  const [overall, today, monthRows, scopeRows, modelRows, recent, dailyRows, docRows] = await Promise.all([
     prisma.aiUsage.aggregate({
       _count: { _all: true },
       _sum: { totalTokens: true, totalCost: true },
@@ -86,6 +87,13 @@ export default async function AiUsagePage() {
       GROUP  BY 1
       ORDER  BY 1 ASC
     `,
+    // 30-day daily document counts (OcrDocument) for the chart's "documents" line
+    prisma.$queryRaw<Array<{ day: Date; docs: bigint }>>`
+      SELECT date_trunc('day', "createdAt") AS day, COUNT(*) AS docs
+      FROM   "OcrDocument"
+      WHERE  "createdAt" >= ${start30d}
+      GROUP  BY 1
+    `,
   ]);
 
   // Live FX: latest rate for cumulative/current totals; per-day series for the
@@ -97,10 +105,22 @@ export default async function AiUsagePage() {
   const totalCostAll   = Number(overall._sum.totalCost ?? 0);
   const totalCostMonth = Number(monthRows._sum.totalCost ?? 0);
   const totalCostToday = Number(today._sum.totalCost ?? 0);
-  const maxDailyCost = Math.max(
-    ...dailyRows.map((r) => usdToEurOnDay(Number(r.cost ?? 0), r.day, fxSeries, latestRate)),
-    0.0001,
-  );
+
+  // Unified continuous 30-day series for the chart: cost/day (EUR, per-day rate),
+  // documents/day (OcrDocument count) and the daily USD→EUR rate.
+  const costByDay = new Map(dailyRows.map((r) => [dayKey(r.day), Number(r.cost ?? 0)]));
+  const docsByDay = new Map(docRows.map((r) => [dayKey(r.day), Number(r.docs)]));
+  const todayUtcMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const dailySeries: DailyPoint[] = Array.from({ length: 30 }, (_, k) => {
+    const dt = new Date(todayUtcMs - (29 - k) * 86400000);
+    const iso = dt.toISOString().slice(0, 10);
+    return {
+      label: dt.toLocaleDateString('el-GR', { day: '2-digit', month: '2-digit' }),
+      costEur: usdToEurOnDay(costByDay.get(iso) ?? 0, iso, fxSeries, latestRate),
+      docs: docsByDay.get(iso) ?? 0,
+      rate: fxSeries[iso] ?? latestRate,
+    };
+  });
 
   return (
     <div className="space-y-5 p-6">
@@ -166,29 +186,13 @@ export default async function AiUsagePage() {
         )}
       </section>
 
-      {/* Daily sparkline */}
+      {/* Daily chart: cost (EUR) + documents + FX rate */}
       <section className="rounded-xl border border-border bg-card p-4 shadow-fluent-2">
         <h3 className="text-[14px] font-semibold tracking-tight">Τελευταίες 30 μέρες</h3>
-        <p className="text-[11px] text-muted-foreground">€/ημέρα · μετατροπή ανά ημέρα με ισοτιμία ΕΚΤ (Frankfurter) · τρέχουσα 1 USD = {fmtEur(latestRate)}</p>
-        <div className="mt-3 flex h-32 items-end gap-1.5">
-          {dailyRows.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Δεν υπάρχουν δεδομένα ακόμη.</p>
-          ) : dailyRows.map((d) => {
-            const costEur = usdToEurOnDay(Number(d.cost ?? 0), d.day, fxSeries, latestRate);
-            const pct = Math.max(2, (costEur / maxDailyCost) * 100);
-            const label = new Date(d.day).toLocaleDateString('el-GR', { day: '2-digit', month: '2-digit' });
-            return (
-              <div key={String(d.day)} className="flex flex-1 flex-col items-center gap-1 group">
-                <div
-                  className="w-full rounded-t-sm bg-sisyphus-500 transition group-hover:bg-sisyphus-600"
-                  style={{ height: `${pct}%` }}
-                  title={`${label}: ${fmtEur(costEur)} · ${fmtNum(Number(d.tokens ?? 0))} tokens · ${Number(d.calls)} κλήσεις`}
-                />
-                <span className="text-[9px] tabular-nums text-muted-foreground">{label.slice(0, 5)}</span>
-              </div>
-            );
-          })}
-        </div>
+        <p className="mb-3 text-[11px] text-muted-foreground">
+          Κόστος ανά ημέρα (EUR), έγγραφα ανά ημέρα και ισοτιμία USD→EUR (ΕΚΤ/Frankfurter, ανά ημέρα)
+        </p>
+        <AiUsageDailyChart data={dailySeries} />
       </section>
 
       {/* By scope + by model */}
