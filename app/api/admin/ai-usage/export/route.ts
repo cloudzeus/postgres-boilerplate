@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import ExcelJS from 'exceljs';
 import { prisma } from '@/lib/db';
 import { getCurrentUserWithPermissions } from '@/lib/rbac';
+import { getSetting } from '@/lib/settings';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,10 @@ const SCOPE_LABELS: Record<string, string> = {
 export async function GET() {
   const u = await getCurrentUserWithPermissions();
   if (!u || u.role.key !== 'SUPER_ADMIN') redirect('/admin');
+
+  // Stored costs are USD → display EUR via the admin-configurable rate.
+  const usdToEur = Number(await getSetting<number>('ai.usdToEur', 0.92)) || 0.92;
+  const toEur = (usd: number) => usd * usdToEur;
 
   const now = new Date();
   const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -83,13 +88,13 @@ export async function GET() {
   summary.addRow(['Σύνολο tokens (lifetime)', Number(overall._sum.totalTokens ?? 0)]);
   summary.addRow(['Σύνολο input tokens', Number(overall._sum.inputTokens ?? 0)]);
   summary.addRow(['Σύνολο output tokens', Number(overall._sum.outputTokens ?? 0)]);
-  summary.addRow(['Σύνολο κόστους (USD)', Number(overall._sum.totalCost ?? 0)])
-    .getCell(2).numFmt = '$#,##0.000000';
+  summary.addRow(['Σύνολο κόστους (EUR)', toEur(Number(overall._sum.totalCost ?? 0))])
+    .getCell(2).numFmt = '#,##0.000000" €"';
   summary.addRow([]);
   summary.addRow(['Τρέχων μήνας — κλήσεις', monthAgg._count._all]);
   summary.addRow(['Τρέχων μήνας — tokens', Number(monthAgg._sum.totalTokens ?? 0)]);
-  summary.addRow(['Τρέχων μήνας — κόστος (USD)', Number(monthAgg._sum.totalCost ?? 0)])
-    .getCell(2).numFmt = '$#,##0.000000';
+  summary.addRow(['Τρέχων μήνας — κόστος (EUR)', toEur(Number(monthAgg._sum.totalCost ?? 0))])
+    .getCell(2).numFmt = '#,##0.000000" €"';
 
   // ───────────────────── Ανά μοντέλο
   const sModel = wb.addWorksheet('Ανά μοντέλο');
@@ -100,7 +105,7 @@ export async function GET() {
     { header: 'Input tokens', key: 'inputTokens',  width: 16 },
     { header: 'Output tokens',key: 'outputTokens', width: 16 },
     { header: 'Σύνολο tokens',key: 'totalTokens',  width: 18 },
-    { header: 'Κόστος (USD)', key: 'totalCost',    width: 16, style: { numFmt: '$#,##0.000000' } },
+    { header: 'Κόστος (EUR)', key: 'totalCost',    width: 16, style: { numFmt: '#,##0.000000" €"' } },
   ];
   sModel.getRow(1).font = { bold: true };
   for (const r of modelRows) {
@@ -111,7 +116,7 @@ export async function GET() {
       inputTokens: Number(r._sum.inputTokens ?? 0),
       outputTokens: Number(r._sum.outputTokens ?? 0),
       totalTokens: Number(r._sum.totalTokens ?? 0),
-      totalCost: Number(r._sum.totalCost ?? 0),
+      totalCost: toEur(Number(r._sum.totalCost ?? 0)),
     });
   }
 
@@ -123,7 +128,7 @@ export async function GET() {
     { header: 'Input tokens',  key: 'inputTokens',  width: 16 },
     { header: 'Output tokens', key: 'outputTokens', width: 16 },
     { header: 'Σύνολο tokens', key: 'totalTokens',  width: 18 },
-    { header: 'Κόστος (USD)',  key: 'totalCost',    width: 16, style: { numFmt: '$#,##0.000000' } },
+    { header: 'Κόστος (EUR)',  key: 'totalCost',    width: 16, style: { numFmt: '#,##0.000000" €"' } },
   ];
   sScope.getRow(1).font = { bold: true };
   for (const r of scopeRows) {
@@ -133,7 +138,7 @@ export async function GET() {
       inputTokens: Number(r._sum.inputTokens ?? 0),
       outputTokens: Number(r._sum.outputTokens ?? 0),
       totalTokens: Number(r._sum.totalTokens ?? 0),
-      totalCost: Number(r._sum.totalCost ?? 0),
+      totalCost: toEur(Number(r._sum.totalCost ?? 0)),
     });
   }
 
@@ -143,7 +148,7 @@ export async function GET() {
     { header: 'Μήνας',         key: 'month',       width: 14 },
     { header: 'Κλήσεις',       key: 'calls',       width: 12 },
     { header: 'Σύνολο tokens', key: 'totalTokens', width: 18 },
-    { header: 'Κόστος (USD)',  key: 'totalCost',   width: 16, style: { numFmt: '$#,##0.000000' } },
+    { header: 'Κόστος (EUR)',  key: 'totalCost',   width: 16, style: { numFmt: '#,##0.000000" €"' } },
   ];
   sMonthly.getRow(1).font = { bold: true };
   for (const r of monthlyRows) {
@@ -151,7 +156,7 @@ export async function GET() {
       month: new Date(r.month).toLocaleDateString('el-GR', { month: '2-digit', year: 'numeric' }),
       calls: Number(r.calls),
       totalTokens: Number(r.tokens ?? 0),
-      totalCost: Number(r.cost ?? 0),
+      totalCost: toEur(Number(r.cost ?? 0)),
     });
   }
 
@@ -161,7 +166,7 @@ export async function GET() {
     { header: 'Ημερομηνία',    key: 'day',         width: 14 },
     { header: 'Κλήσεις',       key: 'calls',       width: 12 },
     { header: 'Σύνολο tokens', key: 'totalTokens', width: 18 },
-    { header: 'Κόστος (USD)',  key: 'totalCost',   width: 16, style: { numFmt: '$#,##0.000000' } },
+    { header: 'Κόστος (EUR)',  key: 'totalCost',   width: 16, style: { numFmt: '#,##0.000000" €"' } },
   ];
   sDaily.getRow(1).font = { bold: true };
   for (const r of dailyRows) {
@@ -169,7 +174,7 @@ export async function GET() {
       day: new Date(r.day).toLocaleDateString('el-GR'),
       calls: Number(r.calls),
       totalTokens: Number(r.tokens ?? 0),
-      totalCost: Number(r.cost ?? 0),
+      totalCost: toEur(Number(r.cost ?? 0)),
     });
   }
 
@@ -184,7 +189,7 @@ export async function GET() {
     { header: 'Input tokens',  key: 'inputTokens',  width: 14 },
     { header: 'Output tokens', key: 'outputTokens', width: 14 },
     { header: 'Total tokens',  key: 'totalTokens',  width: 14 },
-    { header: 'Κόστος (USD)',  key: 'totalCost',    width: 16, style: { numFmt: '$#,##0.000000' } },
+    { header: 'Κόστος (EUR)',  key: 'totalCost',    width: 16, style: { numFmt: '#,##0.000000" €"' } },
     { header: 'Duration (ms)', key: 'durationMs',   width: 14 },
     { header: 'Ref',           key: 'ref',          width: 28 },
   ];
@@ -199,7 +204,7 @@ export async function GET() {
       inputTokens: r.inputTokens,
       outputTokens: r.outputTokens,
       totalTokens: r.totalTokens,
-      totalCost: r.totalCost ? Number(r.totalCost) : 0,
+      totalCost: r.totalCost ? toEur(Number(r.totalCost)) : 0,
       durationMs: r.durationMs ?? '',
       ref: r.refId ? `${r.refType ?? ''}:${r.refId}` : '',
     });

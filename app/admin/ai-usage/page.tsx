@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { FiCpu, FiDownload } from 'react-icons/fi';
 import { prisma } from '@/lib/db';
 import { getCurrentUserWithPermissions } from '@/lib/rbac';
+import { getSetting } from '@/lib/settings';
 import { PageHeader } from '@/components/admin/page-header';
 
 export const dynamic = 'force-dynamic';
@@ -12,8 +13,10 @@ interface Aggregate {
   totalCost: number;
 }
 
-function fmtUsd(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 4 }).format(n);
+// Stored costs are USD (lib/ai/pricing.ts). We display EUR using an
+// admin-configurable rate (setting `ai.usdToEur`). Format in el-GR EUR.
+function fmtEur(n: number) {
+  return new Intl.NumberFormat('el-GR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 4 }).format(n);
 }
 function fmtNum(n: number) {
   return new Intl.NumberFormat('el-GR').format(n);
@@ -31,6 +34,10 @@ export default async function AiUsagePage() {
   const u = await getCurrentUserWithPermissions();
   if (!u) redirect('/auth/signin');
   if (u.role.key !== 'SUPER_ADMIN') redirect('/admin');
+
+  // USD (stored) → EUR (displayed), admin-configurable rate.
+  const usdToEur = Number(await getSetting<number>('ai.usdToEur', 0.92)) || 0.92;
+  const toEur = (usd: number) => usd * usdToEur;
 
   const now = new Date();
   const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -104,9 +111,9 @@ export default async function AiUsagePage() {
 
       {/* KPI strip */}
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Kpi label="Σήμερα"     value={fmtUsd(totalCostToday)} sub={`${fmtNum(today._count._all)} κλήσεις`} accent="sisyphus" />
-        <Kpi label="Τρέχων μήνας" value={fmtUsd(totalCostMonth)} sub={`${fmtNum(monthRows._count._all)} κλήσεις`} accent="emerald" />
-        <Kpi label="Σύνολο"     value={fmtUsd(totalCostAll)}   sub={`${fmtNum(overall._count._all)} κλήσεις`} accent="amber" />
+        <Kpi label="Σήμερα"     value={fmtEur(toEur(totalCostToday))} sub={`${fmtNum(today._count._all)} κλήσεις`} accent="sisyphus" />
+        <Kpi label="Τρέχων μήνας" value={fmtEur(toEur(totalCostMonth))} sub={`${fmtNum(monthRows._count._all)} κλήσεις`} accent="emerald" />
+        <Kpi label="Σύνολο"     value={fmtEur(toEur(totalCostAll))}   sub={`${fmtNum(overall._count._all)} κλήσεις`} accent="amber" />
         <Kpi label="Tokens (μήνας)" value={fmtNum(Number(monthRows._sum.totalTokens ?? 0))} sub="input + output" accent="sisyphus" />
       </section>
 
@@ -140,7 +147,7 @@ export default async function AiUsagePage() {
                     {fmtNum(tokens)}
                   </div>
                   <div className="w-[80px] shrink-0 text-right text-[11px] tabular-nums font-semibold">
-                    {fmtUsd(cost)}
+                    {fmtEur(toEur(cost))}
                   </div>
                 </div>
               );
@@ -152,7 +159,7 @@ export default async function AiUsagePage() {
       {/* Daily sparkline */}
       <section className="rounded-xl border border-border bg-card p-4 shadow-fluent-2">
         <h3 className="text-[14px] font-semibold tracking-tight">Τελευταίες 30 μέρες</h3>
-        <p className="text-[11px] text-muted-foreground">USD/ημέρα</p>
+        <p className="text-[11px] text-muted-foreground">€/ημέρα · ισοτιμία 1 USD = {fmtEur(usdToEur)}</p>
         <div className="mt-3 flex h-32 items-end gap-1.5">
           {dailyRows.length === 0 ? (
             <p className="text-xs text-muted-foreground">Δεν υπάρχουν δεδομένα ακόμη.</p>
@@ -165,7 +172,7 @@ export default async function AiUsagePage() {
                 <div
                   className="w-full rounded-t-sm bg-sisyphus-500 transition group-hover:bg-sisyphus-600"
                   style={{ height: `${pct}%` }}
-                  title={`${label}: ${fmtUsd(cost)} · ${fmtNum(Number(d.tokens ?? 0))} tokens · ${Number(d.calls)} κλήσεις`}
+                  title={`${label}: ${fmtEur(toEur(cost))} · ${fmtNum(Number(d.tokens ?? 0))} tokens · ${Number(d.calls)} κλήσεις`}
                 />
                 <span className="text-[9px] tabular-nums text-muted-foreground">{label.slice(0, 5)}</span>
               </div>
@@ -184,7 +191,7 @@ export default async function AiUsagePage() {
             sublabel: null,
             count: r._count._all,
             tokens: Number(r._sum.totalTokens ?? 0),
-            cost: Number(r._sum.totalCost ?? 0),
+            cost: toEur(Number(r._sum.totalCost ?? 0)),
           }))}
         />
         <BreakdownTable
@@ -195,7 +202,7 @@ export default async function AiUsagePage() {
             sublabel: r.provider,
             count: r._count._all,
             tokens: Number(r._sum.totalTokens ?? 0),
-            cost: Number(r._sum.totalCost ?? 0),
+            cost: toEur(Number(r._sum.totalCost ?? 0)),
           }))}
         />
       </section>
@@ -232,7 +239,7 @@ export default async function AiUsagePage() {
                   <td className="px-3 py-2 text-right tabular-nums">{fmtNum(r.outputTokens)}</td>
                   <td className="px-3 py-2 text-right tabular-nums font-medium">{fmtNum(r.totalTokens)}</td>
                   <td className="px-3 py-2 text-right tabular-nums font-semibold">
-                    {r.totalCost != null ? fmtUsd(Number(r.totalCost)) : <span className="text-muted-foreground">—</span>}
+                    {r.totalCost != null ? fmtEur(toEur(Number(r.totalCost))) : <span className="text-muted-foreground">—</span>}
                   </td>
                 </tr>
               ))}
@@ -292,7 +299,7 @@ function BreakdownTable({
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{new Intl.NumberFormat('el-GR').format(r.count)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{new Intl.NumberFormat('el-GR').format(r.tokens)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmtUsd(r.cost)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmtEur(r.cost)}</td>
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-2">
                       <div className="h-1.5 flex-1 rounded-full bg-neutral-8 overflow-hidden">
