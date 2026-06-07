@@ -1441,7 +1441,10 @@ model CompanyFinancialValue {
   fieldKey         String
   templateId       String?
   year             Int
-  value            Decimal  @db.Decimal(18, 2)
+  value            Decimal? @db.Decimal(18, 2)   // numeric value (SINGLE/SERIES point)
+  valueText        String?  @db.Text             // for DATE / free text values
+  valueJson        Json?                          // for TABLE (records): array of objects
+  kind             TaxFieldKind @default(SINGLE)
   valueType        FinancialValueType
   source           FinancialValueSource @default(OCR)
   sourceDocumentId String?

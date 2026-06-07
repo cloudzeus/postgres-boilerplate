@@ -4,6 +4,7 @@ import {
 } from '@/lib/ocr/extract';
 import { cropRegionToImage } from '@/lib/ocr/rasterize';
 import { regionHintText, type TemplateFieldLite } from '@/lib/tax/template-prompt';
+import type { FinancialValueTypeStr } from '@/lib/greek-format';
 
 export type SeriesPoint = { year: number | null; value: string | null };
 
@@ -124,6 +125,51 @@ export async function extractTaxForm(
     }
   }
   return { values, series, model, tokensUsed: tokens, durationMs: Date.now() - started };
+}
+
+export type FieldDef = {
+  fieldKey: string;
+  label: string;
+  valueType: FinancialValueTypeStr;
+  kind: 'SINGLE' | 'SERIES' | 'TABLE';
+  aiHint?: string | null;
+  regionHint?: { page: number; bbox: [number, number, number, number] } | null;
+  config?: { columns: string[] } | null;
+};
+
+export type FieldExtract =
+  | { fieldKey: string; label: string; kind: 'SINGLE'; valueType: FinancialValueTypeStr; raw: string | null }
+  | { fieldKey: string; label: string; kind: 'SERIES'; valueType: FinancialValueTypeStr; series: { year: number | null; raw: string | null }[] }
+  | { fieldKey: string; label: string; kind: 'TABLE'; columns: string[]; records: Record<string, string>[] };
+
+/** Extracts ONE field from a company document by cropping its region (reliable) and dispatching by kind. */
+export async function extractField(buffer: Buffer, mimeType: string, field: FieldDef): Promise<FieldExtract> {
+  const region = field.regionHint;
+  if (!region) {
+    if (field.kind === 'TABLE') return { fieldKey: field.fieldKey, label: field.label, kind: 'TABLE', columns: field.config?.columns ?? [], records: [] };
+    if (field.kind === 'SERIES') return { fieldKey: field.fieldKey, label: field.label, kind: 'SERIES', valueType: field.valueType, series: [] };
+    return { fieldKey: field.fieldKey, label: field.label, kind: 'SINGLE', valueType: field.valueType, raw: null };
+  }
+  const crop = await cropRegionToImage(buffer, mimeType, region);
+
+  if (field.kind === 'TABLE') {
+    const t = await scanTable(crop, 'image/png', { page: 0, bbox: [0, 0, 1, 1] });
+    const columns = field.config?.columns?.length ? field.config.columns : t.headers;
+    const records = t.grid.map((row) => {
+      const o: Record<string, string> = {};
+      columns.forEach((c, i) => { o[c] = row[i] ?? ''; });
+      return o;
+    });
+    return { fieldKey: field.fieldKey, label: field.label, kind: 'TABLE', columns, records };
+  }
+
+  const r = await extractTaxForm(crop, 'image/png', [{
+    fieldKey: field.fieldKey, label: field.label, aiHint: field.aiHint ?? null, regionHint: undefined, valueType: field.valueType, kind: field.kind,
+  }]);
+  if (field.kind === 'SERIES') {
+    return { fieldKey: field.fieldKey, label: field.label, kind: 'SERIES', valueType: field.valueType, series: (r.series[field.fieldKey] ?? []).map((p) => ({ year: p.year, raw: p.value })) };
+  }
+  return { fieldKey: field.fieldKey, label: field.label, kind: 'SINGLE', valueType: field.valueType, raw: r.values[field.fieldKey] ?? null };
 }
 
 /** Reads a marked TABLE region into a generic grid (columns + labeled rows) for template mapping. */

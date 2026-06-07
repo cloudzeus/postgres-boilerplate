@@ -2,8 +2,22 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { bunnyUploadPrivate } from '@/lib/bunny';
-import { extractTaxForm } from '@/lib/ocr/tax-extract';
+import { extractField, type FieldExtract, type FieldDef } from '@/lib/ocr/tax-extract';
 import type { Prisma } from '@prisma/client';
+
+/** Runs async tasks with bounded concurrency. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -70,35 +84,29 @@ export async function POST(
   }
 
   try {
-    const result = await extractTaxForm(
-      buf,
-      file.type,
-      template.fields.map((f) => ({
-        fieldKey: f.fieldKey,
-        label: f.label,
-        aiHint: f.aiHint ?? undefined,
-        regionHint: f.regionHint ?? undefined,
-        valueType: f.valueType,
-        kind: f.kind,
-      })),
-    );
+    const defs: FieldDef[] = template.fields.map((f) => ({
+      fieldKey: f.fieldKey,
+      label: f.label,
+      aiHint: f.aiHint ?? null,
+      regionHint: f.regionHint as FieldDef['regionHint'],
+      valueType: f.valueType as FieldDef['valueType'],
+      kind: f.kind as FieldDef['kind'],
+      config: f.config as FieldDef['config'],
+    }));
+
+    // Crop + OCR each field's own region (reliable), with bounded concurrency.
+    const extracted: FieldExtract[] = await mapLimit(defs, 3, (d) => extractField(buf, file.type, d));
 
     await prisma.ocrDocument.update({
       where: { id: doc.id },
       data: {
         status: 'COMPLETED',
-        extractedData: result.values as Prisma.InputJsonValue,
-        model: result.model,
-        tokensUsed: result.tokensUsed ?? undefined,
+        extractedData: extracted as unknown as Prisma.InputJsonValue,
         completedAt: new Date(),
       },
     });
 
-    return NextResponse.json({
-      documentId: doc.id,
-      values: result.values,
-      fields: template.fields,
-    });
+    return NextResponse.json({ documentId: doc.id, fiscalYear, fields: extracted });
   } catch (e: any) {
     await prisma.ocrDocument.update({
       where: { id: doc.id },
