@@ -32,7 +32,7 @@ const UPGRADED_VISION_MODEL = 'gemini-2.5-pro';
  *   - re-encode as high-quality PNG (lossless, lets the VLM see edges cleanly)
  * Failures bubble up the original buffer untouched.
  */
-async function enhanceForOcr(input: Buffer | Uint8Array | ArrayBuffer): Promise<{ buffer: Buffer; mimeType: string }> {
+export async function enhanceForOcr(input: Buffer | Uint8Array | ArrayBuffer): Promise<{ buffer: Buffer; mimeType: string }> {
   // sharp's napi binding errors with "Value is none of these types `String`,
   // `Path`,..." if it receives anything other than a real Node Buffer. Coerce
   // aggressively and validate before touching sharp.
@@ -88,7 +88,7 @@ export interface ExtractResult {
   retried?: boolean;
 }
 
-interface DeepSeekCfg {
+export interface DeepSeekCfg {
   textKey: string;
   textUrl: string;
   textModel: string;
@@ -98,7 +98,7 @@ interface DeepSeekCfg {
   visionFallbackModels: string[];
 }
 
-async function resolveCfg(): Promise<DeepSeekCfg> {
+export async function resolveCfg(): Promise<DeepSeekCfg> {
   const textKey = (await getSetting<string>('ai.deepseekApiKey')) ?? process.env.DEEPSEEK_API_KEY ?? '';
   const textUrl = (await getSetting<string>('ai.deepseekUrl'))    ?? process.env.DEEPSEEK_API_URL ?? 'https://api.deepseek.com/v1/chat/completions';
   const textModel = (await getSetting<string>('ai.deepseekTextModel')) ?? 'deepseek-chat';
@@ -121,7 +121,7 @@ async function resolveCfg(): Promise<DeepSeekCfg> {
   return { textKey, textUrl, textModel, visionKey, visionUrl, visionModel, visionFallbackModels };
 }
 
-function parseJsonLoose(s: string): any {
+export function parseJsonLoose(s: string): any {
   if (!s) throw new Error('Empty LLM response');
   // Strip code fences if model returned them anyway.
   const cleaned = s.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
@@ -175,7 +175,7 @@ async function extractDigitalPdfText(buffer: Buffer): Promise<string> {
  * (pdfjs-dist + sharp, no native canvas dep).
  * Returns base64 PNGs.
  */
-async function rasterizePdf(buffer: Buffer, maxPages = 3, scale = 2): Promise<Buffer[]> {
+export async function rasterizePdf(buffer: Buffer, maxPages = 3, scale = 2): Promise<Buffer[]> {
   // Force-set the pdfjs worker path BEFORE pdf-to-img loads.
   try {
     const { createRequire } = await import('node:module');
@@ -247,7 +247,7 @@ async function callTextLLM(cfg: DeepSeekCfg, system: string, userContent: string
  * when pdf-to-img/canvas chokes on a PDF, especially mixed PDFs with weird
  * embedded image streams.
  */
-async function callGeminiPdfNative(
+export async function callGeminiPdfNative(
   cfg: DeepSeekCfg, system: string, pdfBuffer: Buffer, modelOverride?: string,
 ): Promise<{ content: string; tokens: number | null; model: string }> {
   if (!cfg.visionKey) throw new Error('Vision API key not configured.');
@@ -292,7 +292,7 @@ async function callGeminiPdfNative(
   });
 }
 
-async function callVisionLLM(
+export async function callVisionLLM(
   cfg: DeepSeekCfg, system: string, imageBase64: string, mimeType: string,
   modelOverride?: string,
 ) {

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import sharp from 'sharp';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { bunnyDownload } from '@/lib/bunny';
+import { rasterizeToWebp } from '@/lib/ocr/rasterize';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,44 +32,18 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ error: 'file unavailable' }, { status: 502 });
   }
 
-  if (doc.mimeType === 'application/pdf') {
-    try {
-      // Point pdfjs at its worker (mirrors lib/ocr/thumbnail.ts / read-region).
-      try {
-        const { createRequire } = await import('node:module');
-        const req2 = createRequire(import.meta.url);
-        const workerPath = req2.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
-        const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-        (pdfjs as any).GlobalWorkerOptions.workerSrc = workerPath;
-      } catch { /* pdf-to-img will fall back to its own worker */ }
-
-      const { pdf } = await import('pdf-to-img');
-      const document = await pdf(buf, { scale });
-      let i = 0;
-      let found: Buffer | null = null;
-      for await (const p of document) {
-        if (i === page) {
-          const raw = p as Uint8Array;
-          found = Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength);
-          break;
-        }
-        i++;
-      }
-      if (!found) return NextResponse.json({ error: 'page out of range' }, { status: 422 });
-      buf = found;
-    } catch (err: any) {
-      return NextResponse.json({ error: `render failed: ${err?.message ?? err}` }, { status: 502 });
+  let out: Buffer;
+  try {
+    out = await rasterizeToWebp(buf, doc.mimeType, { page, scale });
+  } catch (err: any) {
+    if (err?.message === 'page out of range') {
+      return NextResponse.json({ error: 'page out of range' }, { status: 422 });
     }
-  } else if (!doc.mimeType.startsWith('image/')) {
-    return NextResponse.json({ error: 'unsupported type' }, { status: 415 });
+    if (err?.message === 'unsupported type') {
+      return NextResponse.json({ error: 'unsupported type' }, { status: 415 });
+    }
+    return NextResponse.json({ error: `render failed: ${err?.message ?? err}` }, { status: 502 });
   }
-
-  // Re-encode to WebP — crisp but much smaller than PNG. Cap the long edge so very
-  // large rasters stay reasonable while remaining readable at zoom.
-  const out = await sharp(buf)
-    .resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true })
-    .webp({ quality: 82 })
-    .toBuffer();
 
   return new NextResponse(new Uint8Array(out), {
     headers: {
