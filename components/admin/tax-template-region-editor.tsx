@@ -47,7 +47,7 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
   const [scanning, setScanning] = React.useState(false);
   const [scanResult, setScanResult] = React.useState<ScanResult | null>(null);
   const [tableRegion, setTableRegion] = React.useState<Region | null>(null);
-  const [tableScan, setTableScan] = React.useState<{ name: string; columns: string[]; rows: TableReviewRow[]; headers: string[]; grid: string[][] } | null>(null);
+  const [tableScan, setTableScan] = React.useState<{ name: string; code: string; columns: string[]; rows: TableReviewRow[]; headers: string[]; grid: string[][] } | null>(null);
   const [tableMode, setTableMode] = React.useState<'fields' | 'records'>('fields');
   const [scanningTable, setScanningTable] = React.useState(false);
   const [showJson, setShowJson] = React.useState(false);
@@ -118,7 +118,7 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
       // Heuristic: many text columns + no per-row codes ⇒ likely a records list (e.g. bank accounts).
       const looksRecords = headers.length >= 3 && rows.every((r) => !r.code) && columns.length >= 2;
       setTableMode(looksRecords ? 'records' : 'fields');
-      setTableScan({ name: typeof json.name === 'string' ? json.name : '', columns, rows, headers, grid });
+      setTableScan({ name: typeof json.name === 'string' ? json.name : '', code: typeof json.code === 'string' ? json.code : '', columns, rows, headers, grid });
       if (rows.length === 0 && grid.length === 0) toast.error('Δεν εντοπίστηκαν γραμμές. Δοκίμασε πιο ακριβές πλαίσιο.');
     } catch (err: unknown) { toast.error(err instanceof Error ? err.message : String(err)); }
     finally { setScanningTable(false); }
@@ -151,7 +151,7 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
     const columns = tableScan.headers.filter((h) => h.trim());
     if (columns.length === 0) { toast.error('Δεν βρέθηκαν στήλες.'); return; }
     setFields((prev) => [...prev, {
-      localId: crypto.randomUUID(), fieldKey: '', label: tableScan.name.trim() || 'Πίνακας', section: '',
+      localId: crypto.randomUUID(), fieldKey: tableScan.code.trim(), label: tableScan.name.trim() || 'Πίνακας', section: '',
       valueType: 'NUMBER', kind: 'TABLE', config: { columns }, regionHint: tableRegion, aiHint: '', required: false, order: prev.length,
     } as LocalField]);
     toast.success('Δημιουργήθηκε πεδίο πίνακα (λίστα εγγραφών). Πάτησε «Αποθήκευση».');
@@ -212,7 +212,7 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
 
       {showJson && (
         <div className="border-b border-border bg-muted/20 p-3">
-          <pre className="max-h-64 overflow-auto rounded-lg bg-background p-3 text-[10px] leading-relaxed text-foreground">{JSON.stringify(fields.map((f) => ({ fieldKey: f.fieldKey.trim() || '(auto)', label: f.label, kind: f.kind, valueType: f.valueType, section: f.section || undefined, region: f.regionHint ? { page: f.regionHint.page + 1, bbox: f.regionHint.bbox.map((v) => +v.toFixed(3)) } : null })), null, 2)}</pre>
+          <pre className="max-h-64 overflow-auto rounded-lg bg-background p-3 text-[10px] leading-relaxed text-foreground">{JSON.stringify(fields.map((f) => ({ fieldKey: f.fieldKey.trim() || '(auto)', label: f.label, kind: f.kind, valueType: f.valueType, section: f.section || undefined, columns: f.kind === 'TABLE' ? (f.config?.columns ?? []) : undefined, region: f.regionHint ? { page: f.regionHint.page + 1, bbox: f.regionHint.bbox.map((v) => +v.toFixed(3)) } : null })), null, 2)}</pre>
         </div>
       )}
 
@@ -265,8 +265,12 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
                     <p className="text-[13px] font-semibold text-foreground">Έλεγχος πίνακα</p>
                     <button type="button" onClick={() => { setTableScan(null); setTableRegion(null); }} className="inline-flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"><FiX className="size-4" /></button>
                   </div>
-                  <input value={tableScan.name} onChange={(e) => setTableScan((p) => p ? { ...p, name: e.target.value } : p)}
-                    placeholder="Όνομα πίνακα (π.χ. Απασχολούμενο Προσωπικό)" className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-[12px] font-semibold" />
+                  <div className="flex gap-1.5">
+                    <input value={tableScan.code} onChange={(e) => setTableScan((p) => p ? { ...p, code: e.target.value } : p)}
+                      placeholder="040" title="Κωδικός πίνακα (γίνεται κλειδί)" className="h-8 w-16 shrink-0 rounded-lg border border-input bg-background px-1.5 text-center text-[12px] font-semibold" />
+                    <input value={tableScan.name} onChange={(e) => setTableScan((p) => p ? { ...p, name: e.target.value } : p)}
+                      placeholder="Όνομα πίνακα (π.χ. Ενεργοί Λογαριασμοί)" className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-background px-2.5 text-[12px] font-semibold" />
+                  </div>
                   <p className="mt-1.5 text-[11px] text-muted-foreground">Στήλες: {tableScan.columns.join(' · ') || '—'}{tableScan.columns.length >= 2 ? ' · σειρά ετών' : ''} · ο κωδικός γίνεται το κλειδί</p>
                   <div className="mt-2 inline-flex overflow-hidden rounded-lg border border-input text-[11px]">
                     <button type="button" onClick={() => setTableMode('fields')} className={`px-2.5 py-1 font-semibold ${tableMode === 'fields' ? 'bg-sisyphus-500 text-white' : 'bg-background hover:bg-muted'}`}>Γραμμές → πεδία</button>

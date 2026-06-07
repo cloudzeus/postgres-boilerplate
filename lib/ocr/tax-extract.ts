@@ -17,6 +17,7 @@ export type TaxExtractResult = {
 
 export type ScanTableResult = {
   name: string;                                   // table title
+  code: string;                                   // the table's own Ε3 code (e.g. 040), if any
   columns: string[];                              // value-column headers (e.g. years)
   rows: { label: string; code: string; values: string[] }[]; // label + Ε3 code + values
   headers: string[];                              // ALL column titles (for records mode)
@@ -137,9 +138,10 @@ export async function scanTable(
     'The image is a CROP of ONE table from a Greek tax form (Ε3/Ε1).',
     'Read ONLY what is visible in this image.',
     'Return a single raw JSON object (no markdown) with this shape:',
-    '{ "name": "<table title>", "headers": ["<all column titles in order>"], "grid": [["<cell>", ...], ...], "columns": ["<value column headers>"], "rows": [ { "label": "<row description>", "code": "<Ε3 line code or empty>", "values": ["<v1>", ...] } ] }',
+    '{ "name": "<table title>", "code": "<table code or empty>", "headers": ["<all column titles in order>"], "grid": [["<cell>", ...], ...], "columns": ["<value column headers>"], "rows": [ { "label": "<row description>", "code": "<Ε3 line code or empty>", "values": ["<v1>", ...] } ] }',
     'Rules:',
     '- "name" = the table heading/title (e.g. "Απασχολούμενο Προσωπικό", "Ενεργοί Επαγγελματικοί Λογαριασμοί").',
+    '- "code" = the code printed in the table\'s TITLE/header box (e.g. "040", "041", "045"). "" if the table title has no code.',
     '- "headers" = EVERY column title in order, including the leftmost description column. "grid" = every data row as an array of ALL cell strings in column order (faithful copy).',
     '- "columns" = headers of the VALUE columns only (e.g. years). If a single unlabeled value column, use ["Τιμή"].',
     '- "label" = the descriptive row text on the left.',
@@ -152,6 +154,7 @@ export async function scanTable(
   const crop = await cropRegionToImage(buffer, mimeType, regionHint);
   const { parsed, model, tokens } = await runVision(cfg, system, crop, 'image/png');
   const name = parsed.name == null ? '' : String(parsed.name);
+  const code = parsed.code == null ? '' : String(parsed.code).replace(/[^\dA-Za-z]/g, '');
   const columns = Array.isArray(parsed.columns) ? (parsed.columns as unknown[]).map((c) => String(c)) : [];
   const rowsRaw = Array.isArray(parsed.rows) ? (parsed.rows as unknown[]) : [];
   const rows = rowsRaw
@@ -168,5 +171,5 @@ export async function scanTable(
   const grid = Array.isArray(parsed.grid)
     ? (parsed.grid as unknown[]).map((row) => (Array.isArray(row) ? (row as unknown[]).map((c) => (c == null ? '' : String(c))) : []))
     : [];
-  return { name, columns, rows, headers, grid, model, tokensUsed: tokens, durationMs: Date.now() - started };
+  return { name, code, columns, rows, headers, grid, model, tokensUsed: tokens, durationMs: Date.now() - started };
 }
