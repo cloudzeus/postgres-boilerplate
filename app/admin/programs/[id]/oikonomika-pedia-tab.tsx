@@ -58,11 +58,15 @@ const FIELD_CLS =
 export function OikonomikaPediaTab({ programId }: { programId: string }) {
   const [templates, setTemplates] = React.useState<TaxTemplate[]>([]);
   const [loadedFields, setLoadedFields] = React.useState<Record<string, TaxField[]>>({});
+  // Ref mirror of loadedFields so the lazy-load effect can guard without
+  // depending on the state value (which would re-run on every template load).
+  const loadedFieldsRef = React.useRef<Record<string, TaxField[]>>({});
   const [selections, setSelections] = React.useState<SelectionMap>({});
   const [activeTemplateId, setActiveTemplateId] = React.useState<string | null>(null);
   const [loadingTemplate, setLoadingTemplate] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [initialising, setInitialising] = React.useState(true);
+  const [bootError, setBootError] = React.useState<string | null>(null);
 
   // ── Boot: load templates list + current required-fields ──────────────────
   React.useEffect(() => {
@@ -74,6 +78,10 @@ export function OikonomikaPediaTab({ programId }: { programId: string }) {
           fetch(`/api/admin/programs/${programId}/required-fields`),
         ]);
         if (!alive) return;
+
+        if (!tplRes.ok || !rfRes.ok) {
+          throw new Error(`HTTP ${!tplRes.ok ? tplRes.status : rfRes.status}`);
+        }
 
         const tplData = await tplRes.json();
         const rfData: RequiredField[] = await rfRes.json();
@@ -97,6 +105,7 @@ export function OikonomikaPediaTab({ programId }: { programId: string }) {
         const firstUsed = rfData[0]?.templateId ?? tpls[0]?.id ?? null;
         if (firstUsed) setActiveTemplateId(firstUsed);
       } catch {
+        if (alive) setBootError('Αδυναμία φόρτωσης δεδομένων');
         toast.error('Αδυναμία φόρτωσης δεδομένων');
       } finally {
         if (alive) setInitialising(false);
@@ -108,19 +117,21 @@ export function OikonomikaPediaTab({ programId }: { programId: string }) {
   // ── Lazy-load template fields when a template is selected ─────────────────
   React.useEffect(() => {
     if (!activeTemplateId) return;
-    if (loadedFields[activeTemplateId]) return;          // already cached
+    if (loadedFieldsRef.current[activeTemplateId]) return;   // already cached (ref guard, no dep needed)
     let alive = true;
     setLoadingTemplate(true);
     fetch(`/api/admin/tax-templates/${activeTemplateId}`)
       .then((r) => r.json())
       .then((data: TaxTemplate) => {
         if (!alive) return;
-        setLoadedFields((prev) => ({ ...prev, [activeTemplateId]: data.fields ?? [] }));
+        const fields = data.fields ?? [];
+        loadedFieldsRef.current[activeTemplateId] = fields;
+        setLoadedFields((prev) => ({ ...prev, [activeTemplateId]: fields }));
       })
       .catch(() => toast.error('Αδυναμία φόρτωσης πεδίων'))
       .finally(() => { if (alive) setLoadingTemplate(false); });
     return () => { alive = false; };
-  }, [activeTemplateId, loadedFields]);
+  }, [activeTemplateId]);
 
   // ── Toggle field selection ─────────────────────────────────────────────────
   function toggleField(templateId: string, fieldKey: string, checked: boolean) {
@@ -169,6 +180,14 @@ export function OikonomikaPediaTab({ programId }: { programId: string }) {
     return (
       <div className="flex items-center justify-center py-16 text-[12px] text-muted-foreground">
         Φόρτωση…
+      </div>
+    );
+  }
+
+  if (bootError) {
+    return (
+      <div className="rounded-xl border border-dashed border-dg-red-500/40 bg-dg-red-500/5 p-8 text-center text-[12px] text-dg-red-700">
+        {bootError}
       </div>
     );
   }

@@ -51,7 +51,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         },
       });
     }
-  });
+  }, { timeout: 60_000, maxWait: 10_000 });
 
   const fresh = await prisma.programRequiredField.findMany({
     where: { programId },
