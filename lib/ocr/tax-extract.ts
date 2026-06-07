@@ -3,7 +3,7 @@ import {
 } from '@/lib/ocr/extract';
 import { buildCustomFieldsPrompt } from '@/lib/ocr/field-rules';
 import { templateFieldsToRules, type TemplateFieldLite } from '@/lib/tax/template-prompt';
-import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
+
 
 export type TaxExtractResult = {
   values: Record<string, string | null>; // fieldKey → raw value
@@ -60,9 +60,5 @@ export async function extractTaxForm(
     values[f.fieldKey] = v == null ? null : String(v);
   }
   const durationMs = Date.now() - started;
-  void logAiUsage({
-    scope: 'TAX_FORM', provider: providerFromUrl(cfg.visionUrl), model,
-    operation: 'tax.form_extraction', totalTokens: tokens ?? 0, durationMs, refType: 'CompanyFinancialValue',
-  });
   return { values, model, tokensUsed: tokens, durationMs };
 }
