@@ -2,6 +2,7 @@ import {
   resolveCfg, callVisionLLM, callGeminiPdfNative, rasterizePdf, enhanceForOcr, parseJsonLoose,
   type DeepSeekCfg,
 } from '@/lib/ocr/extract';
+import { cropRegionToImage } from '@/lib/ocr/rasterize';
 import { regionHintText, type TemplateFieldLite } from '@/lib/tax/template-prompt';
 
 export type SeriesPoint = { year: number | null; value: string | null };
@@ -128,10 +129,9 @@ export async function scanTable(
 ): Promise<ScanTableResult> {
   const cfg = await resolveCfg();
   const started = Date.now();
-  const loc = regionHintText(regionHint) ?? 'the marked region';
   const system = [
-    'You are reading ONE table from a Greek financial/tax document (Ε3/Ε1).',
-    `The table is located at ${loc}. Focus ONLY on that table.`,
+    'The image is a CROP of ONE table from a Greek financial/tax document (Ε3/Ε1).',
+    'Read ONLY what is visible in this image.',
     'Return a single raw JSON object (no markdown) with this shape:',
     '{ "columns": ["<header1>", "<header2>", ...], "rows": [ { "label": "<row label, leftmost cell>", "values": ["<v1>", "<v2>", ...] } ] }',
     'Rules:',
@@ -141,7 +141,9 @@ export async function scanTable(
     '- Include every data row. Skip purely decorative/empty rows.',
   ].join('\n');
 
-  const { parsed, model, tokens } = await runVision(cfg, system, buffer, mimeType);
+  // Crop to the marked region so the model sees ONLY this table (reliable).
+  const crop = await cropRegionToImage(buffer, mimeType, regionHint);
+  const { parsed, model, tokens } = await runVision(cfg, system, crop, 'image/png');
   const columns = Array.isArray(parsed.columns) ? (parsed.columns as unknown[]).map((c) => String(c)) : [];
   const rowsRaw = Array.isArray(parsed.rows) ? (parsed.rows as unknown[]) : [];
   const rows = rowsRaw

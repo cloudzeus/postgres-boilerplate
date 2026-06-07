@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { bunnyDownload } from '@/lib/bunny';
-import { isPdfBuffer } from '@/lib/ocr/rasterize';
+import { isPdfBuffer, cropRegionToImage } from '@/lib/ocr/rasterize';
 import { extractTaxForm } from '@/lib/ocr/tax-extract';
 import { coerceFinancialValue, type FinancialValueTypeStr } from '@/lib/greek-format';
 
@@ -45,9 +45,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const kind = body.kind ?? 'SINGLE';
 
   try {
-    const result = await extractTaxForm(buf, mime, [{
+    // Crop to the marked region so the model reads ONLY this cell/row.
+    const crop = await cropRegionToImage(buf, mime, body.regionHint);
+    const result = await extractTaxForm(crop, 'image/png', [{
       fieldKey: key, label: body.label, aiHint: body.aiHint ?? null,
-      regionHint: body.regionHint, valueType: vt, kind,
+      regionHint: undefined, valueType: vt, kind,
     }]);
     if (kind === 'SERIES') {
       const series = (result.series[key] ?? []).map((p) => ({ year: p.year, raw: p.value, value: coerceFinancialValue(p.value, vt) }));
