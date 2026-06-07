@@ -79,6 +79,7 @@ export async function POST(
         aiHint: f.aiHint ?? undefined,
         regionHint: f.regionHint ?? undefined,
         valueType: f.valueType,
+        kind: f.kind,
       })),
     );
 

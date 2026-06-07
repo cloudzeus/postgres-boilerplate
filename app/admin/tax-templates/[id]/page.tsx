@@ -36,6 +36,7 @@ export default async function TaxTemplateDetailPage({ params }: { params: Promis
       label: f.label,
       section: f.section,
       valueType: f.valueType as 'CURRENCY' | 'NUMBER' | 'PERCENT' | 'INTEGER' | 'DATE' | 'BOOLEAN',
+      kind: f.kind as 'SINGLE' | 'SERIES',
       regionHint: f.regionHint as { page: number; bbox: [number, number, number, number] } | null,
       aiHint: f.aiHint,
       required: f.required,

@@ -4,24 +4,19 @@ import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { bunnyDownload } from '@/lib/bunny';
 import { isPdfBuffer } from '@/lib/ocr/rasterize';
-import { extractTaxForm } from '@/lib/ocr/tax-extract';
-import { coerceFinancialValue, type FinancialValueTypeStr } from '@/lib/greek-format';
+import { scanTable } from '@/lib/ocr/tax-extract';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const BodySchema = z.object({
-  label: z.string().min(1),
-  valueType: z.enum(['CURRENCY', 'NUMBER', 'PERCENT', 'INTEGER', 'DATE', 'BOOLEAN']),
-  kind: z.enum(['SINGLE', 'SERIES']).optional(),
-  aiHint: z.string().nullable().optional(),
   regionHint: z.object({
     page: z.number().int().min(0),
     bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]),
   }),
 });
 
-// POST /api/admin/tax-templates/[id]/test-field — OCR a single field's region on the sample
+// POST /api/admin/tax-templates/[id]/scan-table — OCR a marked table region into columns + rows
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   await requirePermission('ocr.create');
   const { id } = await params;
@@ -40,23 +35,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const mime = isPdfBuffer(buf) || template.sampleStorageKey.endsWith('.pdf') ? 'application/pdf' : 'image/png';
-  const key = 'test';
-  const vt = body.valueType as FinancialValueTypeStr;
-  const kind = body.kind ?? 'SINGLE';
 
   try {
-    const result = await extractTaxForm(buf, mime, [{
-      fieldKey: key, label: body.label, aiHint: body.aiHint ?? null,
-      regionHint: body.regionHint, valueType: vt, kind,
-    }]);
-    if (kind === 'SERIES') {
-      const series = (result.series[key] ?? []).map((p) => ({ year: p.year, raw: p.value, value: coerceFinancialValue(p.value, vt) }));
-      return NextResponse.json({ kind: 'SERIES', series, model: result.model });
-    }
-    const raw = result.values[key] ?? null;
-    return NextResponse.json({ kind: 'SINGLE', raw, value: coerceFinancialValue(raw, vt), model: result.model });
+    const result = await scanTable(buf, mime, body.regionHint);
+    return NextResponse.json({ columns: result.columns, rows: result.rows, model: result.model });
   } catch (err: any) {
-    console.error('[tax test-field] extract failed', { key: template.sampleStorageKey, message: err?.message });
+    console.error('[tax scan-table] failed', { key: template.sampleStorageKey, message: err?.message });
     return NextResponse.json({ error: `scan failed: ${err?.message ?? err}` }, { status: 502 });
   }
 }

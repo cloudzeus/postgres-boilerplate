@@ -6,7 +6,17 @@ export type TemplateFieldLite = {
   aiHint?: string | null;
   regionHint?: unknown;
   valueType: FinancialValueTypeStr;
+  kind?: 'SINGLE' | 'SERIES';
 };
+
+/** Human-readable description of a region hint, for the vision prompt. */
+export function regionHintText(regionHint: unknown): string | null {
+  const r = regionHint as { page?: number; bbox?: [number, number, number, number] } | null | undefined;
+  if (!r || !Array.isArray(r.bbox)) return null;
+  const [x, y, w, h] = r.bbox;
+  const pct = (n: number) => `${Math.round(n * 100)}%`;
+  return `page ${(r.page ?? 0) + 1}, area at left ${pct(x)}, top ${pct(y)}, width ${pct(w)}, height ${pct(h)} (top-left origin)`;
+}
 
 export type FieldRuleLite = {
   key: string;

@@ -12,6 +12,7 @@ export interface TemplateField {
   label: string;
   section: string | null | undefined;
   valueType: ValueType;
+  kind: 'SINGLE' | 'SERIES';
   regionHint: { page: number; bbox: [number, number, number, number] } | null | undefined;
   aiHint: string | null | undefined;
   required: boolean;
