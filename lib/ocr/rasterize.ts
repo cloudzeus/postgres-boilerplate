@@ -1,36 +1,32 @@
 import sharp from 'sharp';
+import { PDFiumLibrary } from '@hyzyla/pdfium';
 
 /** True if the buffer begins with the PDF magic header (`%PDF-`). */
 export function isPdfBuffer(buf: Buffer): boolean {
   return buf.subarray(0, 5).toString('latin1') === '%PDF-';
 }
 
-/** Point pdfjs at its bundled worker before pdf-to-img loads (best-effort). */
-async function setupPdfWorker(): Promise<void> {
-  try {
-    const { createRequire } = await import('node:module');
-    const req = createRequire(import.meta.url);
-    const workerPath = req.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    (pdfjs as any).GlobalWorkerOptions.workerSrc = workerPath;
-  } catch {
-    /* pdf-to-img falls back to its own bundled worker */
-  }
+// PDFium (Chrome's PDF engine, WASM) renders embedded fonts reliably — unlike the
+// pdf-to-img canvas backend, which throws on TrueType glyphs ("Value is none of
+// these types String, Path" at paintChar). The WASM library is initialized once
+// and reused across requests.
+let _libPromise: Promise<Awaited<ReturnType<typeof PDFiumLibrary.init>>> | null = null;
+function getLibrary() {
+  if (!_libPromise) _libPromise = PDFiumLibrary.init();
+  return _libPromise;
 }
 
 /** Counts the pages of a PDF buffer. Returns 1 on failure (never throws). */
 export async function countPdfPages(buf: Buffer): Promise<number> {
   try {
-    await setupPdfWorker();
-    const { pdf } = await import('pdf-to-img');
-    const doc = await pdf(buf, { scale: 1 });
-    // pdf-to-img exposes `length` (page count) on the returned document.
-    if (typeof (doc as any).length === 'number' && (doc as any).length > 0) {
-      return (doc as any).length;
+    const library = await getLibrary();
+    const doc = await library.loadDocument(new Uint8Array(buf));
+    try {
+      const n = doc.getPageCount();
+      return n > 0 ? n : 1;
+    } finally {
+      doc.destroy();
     }
-    let n = 0;
-    for await (const _ of doc) n++;
-    return n > 0 ? n : 1;
   } catch {
     return 1;
   }
@@ -38,7 +34,7 @@ export async function countPdfPages(buf: Buffer): Promise<number> {
 
 /**
  * Rasterizes a page of a PDF (or re-encodes an image) to WebP for crisp browser preview.
- * Matches the exact sharp params used in the page-image route (2400px cap, quality 82).
+ * 2400px cap, quality 82 — matches the original page-image behavior.
  */
 export async function rasterizeToWebp(
   buffer: Buffer,
@@ -47,33 +43,37 @@ export async function rasterizeToWebp(
 ): Promise<Buffer> {
   const page = opts.page ?? 0;
   const scale = Math.min(5, Math.max(2, opts.scale ?? 3));
-  let buf = buffer;
 
   // Trust the bytes over the declared mime type: some uploads arrive with an
   // empty or wrong Content-Type, which previously made us treat PDFs as images.
   const treatAsPdf = mimeType === 'application/pdf' || isPdfBuffer(buffer);
 
   if (treatAsPdf) {
-    await setupPdfWorker();
-    const { pdf } = await import('pdf-to-img');
-    const doc = await pdf(buf, { scale });
-    let i = 0;
-    let found: Buffer | null = null;
-    for await (const p of doc) {
-      if (i === page) {
-        const raw = p as Uint8Array;
-        found = Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength);
-        break;
-      }
-      i++;
+    const library = await getLibrary();
+    const doc = await library.loadDocument(new Uint8Array(buffer));
+    try {
+      const count = doc.getPageCount();
+      if (page < 0 || page >= count) throw new Error('page out of range');
+      const pdfPage = doc.getPage(page);
+      const rendered = await pdfPage.render({
+        scale,
+        render: (o: { data: Uint8Array; width: number; height: number }) =>
+          sharp(Buffer.from(o.data), { raw: { width: o.width, height: o.height, channels: 4 } })
+            .resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: 82 })
+            .toBuffer(),
+      });
+      return Buffer.from(rendered.data);
+    } finally {
+      doc.destroy();
     }
-    if (!found) throw new Error('page out of range');
-    buf = found;
-  } else if (!mimeType.startsWith('image/')) {
+  }
+
+  if (!mimeType.startsWith('image/')) {
     throw new Error('unsupported type');
   }
 
-  return sharp(buf)
+  return sharp(buffer)
     .resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true })
     .webp({ quality: 82 })
     .toBuffer();

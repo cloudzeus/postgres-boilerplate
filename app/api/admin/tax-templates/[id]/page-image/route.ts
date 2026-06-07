@@ -23,8 +23,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   try {
     const dl = await bunnyDownload(template.sampleStorageKey);
     buf = Buffer.isBuffer(dl) ? dl : Buffer.from(dl as ArrayBuffer);
-  } catch {
-    return NextResponse.json({ error: 'file unavailable' }, { status: 502 });
+  } catch (err: any) {
+    console.error('[tax page-image] bunnyDownload failed', { key: template.sampleStorageKey, message: err?.message, name: err?.name });
+    return NextResponse.json({ error: `file unavailable: ${err?.message ?? err}` }, { status: 502 });
   }
 
   // Decide PDF vs image from the actual bytes (handles samples mis-stored with a
@@ -35,6 +36,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   try {
     out = await rasterizeToWebp(buf, mime, { page, scale });
   } catch (err: any) {
+    console.error('[tax page-image] rasterize failed', { key: template.sampleStorageKey, message: err?.message });
     if (err?.message === 'page out of range') {
       return NextResponse.json({ error: 'page out of range' }, { status: 422 });
     }
