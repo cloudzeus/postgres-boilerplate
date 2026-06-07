@@ -7,6 +7,32 @@ datasource db {
 }
 
 // System-level role keys. Custom roles have key = null.
+enum TaxTemplateStatus {
+  DRAFT
+  READY
+}
+
+enum FinancialValueType {
+  CURRENCY
+  NUMBER
+  PERCENT
+  INTEGER
+  DATE
+  BOOLEAN
+}
+
+enum FinancialValueSource {
+  OCR
+  MANUAL
+}
+
+enum FinancialYearMode {
+  REFERENCE
+  PRIOR_1
+  PRIOR_2
+  PRIOR_3
+}
+
 enum RoleKey {
   SUPER_ADMIN
   ADMIN
@@ -333,6 +359,8 @@ model Company {
   contacts        CompanyContact[]
   channels        CompanyChannel[]
   assessments     CompanyAssessment[]
+  financialValues CompanyFinancialValue[]
+  ocrDocuments    OcrDocument[]
 
   @@index([legalTypeId])
   @@index([businessTypeId])
@@ -897,6 +925,12 @@ model OcrDocument {
   batchId       String?
   batch         OcrBatch?     @relation(fields: [batchId], references: [id], onDelete: SetNull)
   items         OcrInvoiceItem[]
+  // Company & tax-template linkage
+  companyId     String?
+  company       Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  taxTemplateId String?
+  taxTemplate   TaxFormTemplate? @relation(fields: [taxTemplateId], references: [id], onDelete: SetNull)
+  fiscalYear    Int?
 
   @@index([status])
   @@index([docType])
@@ -904,6 +938,7 @@ model OcrDocument {
   @@index([postStatus])
   @@index([createdAt])
   @@index([batchId])
+  @@index([companyId])
 }
 
 // A folder/batch of uploaded documents processed together.
@@ -1003,6 +1038,7 @@ model Program {
   files           ProgramFile[]
   questionnaire   ProgramQuestionnaire?
   assessments     CompanyAssessment[]
+  requiredFields  ProgramRequiredField[]
 
   @@index([status])
   @@index([extractStatus])
@@ -1343,6 +1379,93 @@ model SupplierFieldRule {
 
   @@unique([vatNumber, docType, key])
   @@index([vatNumber, docType])
+}
+
+// ============================================================
+// Tax-form templates, per-company financial values, program required fields
+// ============================================================
+
+model TaxFormTemplate {
+  id               String   @id @default(cuid())
+  code             String
+  name             String
+  year             Int?
+  description      String?  @db.Text
+  status           TaxTemplateStatus @default(DRAFT)
+  sampleStorageKey String?
+  samplePageCount  Int?
+  sampleThumbUrl   String?
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  fields           TaxFormTemplateField[]
+  requiredBy       ProgramRequiredField[]
+  documents        OcrDocument[]
+
+  @@unique([code, year])
+  @@index([status])
+}
+
+model TaxFormTemplateField {
+  id          String   @id @default(cuid())
+  templateId  String
+  template    TaxFormTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  fieldKey    String
+  label       String
+  section     String?
+  valueType   FinancialValueType @default(CURRENCY)
+  regionHint  Json?
+  aiHint      String?  @db.Text
+  required    Boolean  @default(false)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([templateId, fieldKey])
+  @@index([templateId])
+}
+
+model CompanyFinancialValue {
+  id               String   @id @default(cuid())
+  companyId        String
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fieldKey         String
+  templateId       String?
+  year             Int
+  value            Decimal  @db.Decimal(18, 2)
+  valueType        FinancialValueType
+  source           FinancialValueSource @default(OCR)
+  sourceDocumentId String?
+  confidence       Float?
+  verified         Boolean  @default(false)
+  verifiedById     String?
+  periodStart      DateTime?
+  periodEnd        DateTime?
+  validUntil       DateTime?
+  note             String?  @db.Text
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([companyId, fieldKey, year])
+  @@index([companyId])
+  @@index([fieldKey, year])
+}
+
+model ProgramRequiredField {
+  id          String   @id @default(cuid())
+  programId   String
+  program     Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  templateId  String
+  template    TaxFormTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  fieldKey    String
+  yearsBack   Int      @default(1)
+  mandatory   Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([programId, templateId, fieldKey])
+  @@index([programId])
 }
 
 // ============================================================
