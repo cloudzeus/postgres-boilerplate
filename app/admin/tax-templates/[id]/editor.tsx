@@ -3,9 +3,7 @@
 import * as React from 'react';
 import { toast } from 'sonner';
 import { FiSave, FiUpload } from 'react-icons/fi';
-import { PageHeader } from '@/components/admin/page-header';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { TaxTemplateRegionEditor, type ValueType } from '@/components/admin/tax-template-region-editor';
 
 export interface TemplateField {
@@ -85,22 +83,6 @@ export function TaxTemplateEditor({ template }: { template: TemplateData }) {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title={`${template.code}${template.year ? ` (${template.year})` : ''}`}
-        description={template.name}
-        helpAnchor="tax-templates"
-        actions={
-          <Badge
-            variant="outline"
-            className={status === 'READY'
-              ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px]'
-              : 'border-border bg-muted text-muted-foreground text-[10px]'}
-          >
-            {status}
-          </Badge>
-        }
-      />
-
       {/* Meta form */}
       <div className="rounded-lg border border-border bg-card p-4 shadow-fluent-2">
         <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Στοιχεία προτύπου</p>

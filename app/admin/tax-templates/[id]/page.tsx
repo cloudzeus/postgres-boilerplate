@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { FiArrowLeft } from 'react-icons/fi';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
+import { PageHeader } from '@/components/admin/page-header';
 import { TaxTemplateEditor } from './editor';
 
 export const dynamic = 'force-dynamic';
@@ -49,6 +50,11 @@ export default async function TaxTemplateDetailPage({ params }: { params: Promis
           <FiArrowLeft className="size-4" /> Πίσω στη λίστα
         </Link>
       </div>
+      <PageHeader
+        title={`${template.code}${template.year ? ` (${template.year})` : ''}`}
+        description={template.name}
+        helpAnchor="tax-templates"
+      />
       <TaxTemplateEditor template={serialized} />
     </div>
   );
