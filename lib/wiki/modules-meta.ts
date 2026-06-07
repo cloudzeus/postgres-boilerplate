@@ -103,6 +103,12 @@ export const MODULE_META: Record<string, ModuleMeta> = {
     gradientFrom: '#38bdf8', gradientTo: '#0284c7',
     accent: '#0369a1', accentSoft: '#e0f2fe',
   },
+  'tax-templates': {
+    label: 'Πρότυπα Φορολογικών Εντύπων', description: 'Πρότυπα Ε3/Ε1 με region marking πεδίων για OCR εξαγωγή',
+    icon: FiFileText,
+    gradientFrom: '#f472b6', gradientTo: '#db2777',
+    accent: '#be185d', accentSoft: '#fce7f3',
+  },
 };
 
 export const FALLBACK_META: ModuleMeta = {
