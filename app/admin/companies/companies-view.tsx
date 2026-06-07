@@ -9,7 +9,10 @@ import {
   FiInfo, FiFileText, FiPhone, FiCreditCard, FiTag, FiEdit3,
   FiUpload, FiArchive, FiExternalLink, FiImage, FiRefreshCw,
   FiUserPlus, FiUser, FiMail, FiSmartphone, FiClipboard, FiSearch,
+  FiBarChart2,
 } from 'react-icons/fi';
+import { TaxFormCapture } from '@/components/admin/tax-form-capture';
+import { CompanyFinancialsMatrix } from '@/components/admin/company-financials-matrix';
 import { SoftoneAfmDialog } from '@/components/admin/softone-afm-dialog';
 import { toast } from 'sonner';
 import { DataTable } from '@/components/ui/data-table';
@@ -679,6 +682,7 @@ function CompanyDialog({
     ...(isEdit && company ? [{ id: 'branches', label: 'Υποκαταστήματα', icon: FiMapPin, hint: 'Έδρα + υποκαταστήματα' }] : []),
     ...(isEdit && company ? [{ id: 'documents', label: 'Έγγραφα ΓΕΜΗ', icon: FiArchive, hint: 'Δημόσια έγγραφα από ΓΕΜΗ' }] : []),
     { id: 'financial', label: 'Οικονομικά', icon: FiCreditCard, hint: 'IBAN · πιστωτικό όριο · έκπτωση' },
+    ...(isEdit && company ? [{ id: 'tax-matrix', label: 'Οικονομικά στοιχεία', icon: FiBarChart2, hint: 'Ε3/Ε1 · χρηματοοικονομικά δεδομένα' }] : []),
     { id: 'notes', label: 'Σημειώσεις', icon: FiEdit3, hint: 'Ελεύθερο κείμενο' },
   ];
 
@@ -999,6 +1003,10 @@ function CompanyDialog({
                 </Grid>
               </SectionBlock>
             </div>}
+
+            {activeSection === 'tax-matrix' && isEdit && company && (
+              <TaxMatrixSection companyId={company.id} />
+            )}
 
             {activeSection === 'notes' && <div className="p-5">
               <SectionBlock title="Σημειώσεις" hint="Εσωτερικές σημειώσεις, ορατές μόνο σε χρήστες με πρόσβαση στην εταιρία.">
@@ -2690,5 +2698,32 @@ function DeleteDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─── TaxMatrixSection ─────────────────────────────────────────────────────────
+
+function TaxMatrixSection({ companyId }: { companyId: string }) {
+  const [matrixKey, setMatrixKey] = React.useState(0);
+
+  return (
+    <div className="flex flex-col gap-5 p-5">
+      <SectionBlock
+        title="Εισαγωγή φορολογικού εντύπου"
+        hint="Ανεβάστε Ε3/Ε1 για αυτόματη εξαγωγή τιμών μέσω OCR."
+      >
+        <TaxFormCapture
+          companyId={companyId}
+          onConfirmed={() => setMatrixKey((k) => k + 1)}
+        />
+      </SectionBlock>
+
+      <SectionBlock
+        title="Χρηματοοικονομικά στοιχεία"
+        hint="Πίνακας αποθηκευμένων τιμών ανά πεδίο και χρήση. Κάντε κλικ σε κελί για επεξεργασία."
+      >
+        <CompanyFinancialsMatrix companyId={companyId} refreshKey={matrixKey} />
+      </SectionBlock>
+    </div>
   );
 }
