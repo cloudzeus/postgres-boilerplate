@@ -4,6 +4,9 @@ CREATE TYPE "FinancialValueType" AS ENUM ('CURRENCY', 'NUMBER', 'PERCENT', 'INTE
 CREATE TYPE "FinancialValueSource" AS ENUM ('OCR', 'MANUAL');
 CREATE TYPE "FinancialYearMode" AS ENUM ('REFERENCE', 'PRIOR_1', 'PRIOR_2', 'PRIOR_3');
 
+-- AlterEnum: extend pre-existing AiScope with the tax-form extraction scope
+ALTER TYPE "AiScope" ADD VALUE IF NOT EXISTS 'TAX_FORM';
+
 -- CreateTable
 CREATE TABLE "TaxFormTemplate" (
   "id" TEXT NOT NULL,
