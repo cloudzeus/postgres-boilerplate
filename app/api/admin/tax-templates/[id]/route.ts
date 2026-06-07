@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 
@@ -46,8 +47,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 // DELETE /api/admin/tax-templates/[id]
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  await requirePermission('ocr.create');
+  await requirePermission('ocr.delete');
   const { id } = await params;
-  await prisma.taxFormTemplate.delete({ where: { id } });
+  try {
+    await prisma.taxFormTemplate.delete({ where: { id } });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+      return NextResponse.json({ error: 'not found' }, { status: 404 });
+    }
+    throw e;
+  }
   return NextResponse.json({ ok: true });
 }

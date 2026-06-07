@@ -11,6 +11,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   await requirePermission('ocr.create');
   const { id } = await params;
 
+  const exists = await prisma.taxFormTemplate.findUnique({ where: { id }, select: { id: true } });
+  if (!exists) return NextResponse.json({ error: 'not found' }, { status: 404 });
+
   const form = await req.formData();
   const file = form.get('file');
   if (!(file instanceof File)) {

@@ -34,6 +34,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const { id: templateId } = await params;
   const fields = BodySchema.parse(await req.json());
 
+  const exists = await prisma.taxFormTemplate.findUnique({ where: { id: templateId }, select: { id: true } });
+  if (!exists) return NextResponse.json({ error: 'not found' }, { status: 404 });
+
   await prisma.$transaction(async (tx) => {
     await tx.taxFormTemplateField.deleteMany({ where: { templateId } });
     for (let i = 0; i < fields.length; i++) {
