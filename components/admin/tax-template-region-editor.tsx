@@ -65,6 +65,7 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
   const [tableRegion, setTableRegion] = React.useState<Region | null>(null);
   const [tableScan, setTableScan] = React.useState<{ columns: string[]; rows: TableReviewRow[] } | null>(null);
   const [scanningTable, setScanningTable] = React.useState(false);
+  const [showJson, setShowJson] = React.useState(false);
 
   const pageCount = Math.max(1, samplePageCount ?? 1);
   const selected = fields.find((f) => f.localId === selectedId) ?? null;
@@ -92,6 +93,8 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
     setMarkMode('field');
     setIsMarking(false);
     setScanResult(null);
+    setTableScan(null);
+    setTableRegion(null);
   }
 
   function updateField(localId: string, patch: Partial<LocalField>) {
@@ -222,6 +225,10 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
           <p className="text-[11px] text-muted-foreground">{fields.length} πεδία · {markedCount} με περιοχή</p>
         </div>
         <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setShowJson((v) => !v)}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-[12px] font-semibold ${showJson ? 'border-sisyphus-500 bg-sisyphus-500/10 text-sisyphus-700' : 'border-input bg-background hover:bg-muted'}`}>
+            {'{ }'} JSON
+          </button>
           <button type="button" onClick={addField}
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-[12px] font-semibold hover:bg-muted">
             <FiPlus className="size-3.5" /> Προσθήκη πεδίου
@@ -251,6 +258,23 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
           <span>Σχεδίασε πλαίσιο γύρω από ΟΛΟ τον πίνακα → το AI βγάζει labels + τιμές → διόρθωσε → «Δημιουργία πεδίων».</span>
         )}
       </div>
+
+      {showJson && (
+        <div className="border-b border-border bg-muted/20 p-3">
+          <p className="mb-1 text-[11px] font-semibold text-muted-foreground">Το object που σχηματίζεται ({fields.length} πεδία):</p>
+          <pre className="max-h-72 overflow-auto rounded bg-background p-2 text-[10px] leading-snug text-foreground">{JSON.stringify(
+            fields.map((f) => ({
+              fieldKey: f.fieldKey.trim() || '(auto από label)',
+              label: f.label,
+              kind: f.kind,
+              valueType: f.valueType,
+              section: f.section || undefined,
+              region: f.regionHint ? { page: f.regionHint.page + 1, bbox: f.regionHint.bbox.map((v) => +v.toFixed(3)) } : null,
+            })),
+            null, 2,
+          )}</pre>
+        </div>
+      )}
 
       {noSample ? (
         <div className="flex items-center justify-center p-10 text-center text-[12px] text-muted-foreground">
@@ -367,28 +391,38 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
                                 <FiTrash2 className="size-3" /> Διαγραφή περιοχής
                               </button>
                             </div>
-                            {scanResult && scanResult.localId === f.localId && (
-                              <div className="rounded-md border border-emerald-500/40 bg-emerald-500/5 px-2.5 py-2 text-[11px]">
-                                {scanResult.kind === 'SINGLE' ? (
-                                  <>
-                                    <p className="text-muted-foreground">Τιμή που διαβάστηκε:</p>
-                                    <p className="break-all font-mono text-[13px] font-bold text-emerald-700 dark:text-emerald-400">{scanResult.raw ?? '—'}</p>
-                                  </>
-                                ) : (
-                                  <>
-                                    <p className="mb-1 text-muted-foreground">Σειρά ετών:</p>
-                                    <table className="w-full text-[11px]">
-                                      <tbody>
-                                        {scanResult.series.length === 0 && <tr><td className="text-muted-foreground">—</td></tr>}
-                                        {scanResult.series.map((p, i) => (
-                                          <tr key={i}><td className="pr-2 font-semibold">{p.year ?? '—'}</td><td className="font-mono text-emerald-700 dark:text-emerald-400">{p.raw ?? '—'}</td></tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </>
-                                )}
-                              </div>
-                            )}
+                            {scanResult && scanResult.localId === f.localId && (() => {
+                              const fieldKey = f.fieldKey.trim() || 'auto';
+                              const obj = scanResult.kind === 'SINGLE'
+                                ? { fieldKey, label: f.label, kind: 'SINGLE', valueType: f.valueType, value: scanResult.raw }
+                                : { fieldKey, label: f.label, kind: 'SERIES', valueType: f.valueType, series: scanResult.series.map((p) => ({ year: p.year, value: p.raw })) };
+                              return (
+                                <div className="space-y-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/5 px-2.5 py-2 text-[11px]">
+                                  {scanResult.kind === 'SINGLE' ? (
+                                    <>
+                                      <p className="text-muted-foreground">Τιμή που διαβάστηκε:</p>
+                                      <p className="break-all font-mono text-[13px] font-bold text-emerald-700 dark:text-emerald-400">{scanResult.raw ?? '—'}</p>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <p className="mb-1 text-muted-foreground">Σειρά ετών:</p>
+                                      <table className="w-full text-[11px]">
+                                        <tbody>
+                                          {scanResult.series.length === 0 && <tr><td className="text-muted-foreground">—</td></tr>}
+                                          {scanResult.series.map((p, i) => (
+                                            <tr key={i}><td className="pr-2 font-semibold">{p.year ?? '—'}</td><td className="font-mono text-emerald-700 dark:text-emerald-400">{p.raw ?? '—'}</td></tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </>
+                                  )}
+                                  <details>
+                                    <summary className="cursor-pointer select-none text-[10px] font-semibold text-muted-foreground">Προβολή object (JSON)</summary>
+                                    <pre className="mt-1 max-h-48 overflow-auto rounded bg-background p-2 text-[10px] leading-snug text-foreground">{JSON.stringify(obj, null, 2)}</pre>
+                                  </details>
+                                </div>
+                              );
+                            })()}
                           </div>
                         )}
                       </div>
