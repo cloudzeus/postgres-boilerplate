@@ -16,8 +16,9 @@ export type TaxExtractResult = {
 };
 
 export type ScanTableResult = {
-  columns: string[];                              // column headers (e.g. years)
-  rows: { label: string; values: string[] }[];    // one entry per table row
+  name: string;                                   // table title
+  columns: string[];                              // value-column headers (e.g. years)
+  rows: { label: string; code: string; values: string[] }[]; // label + Ε3 code + values
   model: string;
   tokensUsed: number | null;
   durationMs: number;
@@ -130,30 +131,34 @@ export async function scanTable(
   const cfg = await resolveCfg();
   const started = Date.now();
   const system = [
-    'The image is a CROP of ONE table from a Greek financial/tax document (Ε3/Ε1).',
+    'The image is a CROP of ONE table from a Greek tax form (Ε3/Ε1).',
     'Read ONLY what is visible in this image.',
     'Return a single raw JSON object (no markdown) with this shape:',
-    '{ "columns": ["<header1>", "<header2>", ...], "rows": [ { "label": "<row label, leftmost cell>", "values": ["<v1>", "<v2>", ...] } ] }',
+    '{ "name": "<table title>", "columns": ["<value column headers>"], "rows": [ { "label": "<row description>", "code": "<Ε3 line code or empty>", "values": ["<v1>", ...] } ] }',
     'Rules:',
-    '- "columns" = the column headers across the top (e.g. years "2016","2017","2018"). If there is a single value column with no header, use ["Τιμή"].',
-    '- Each row: "label" is the descriptive text on the left; "values" are the cell values aligned to columns, left to right.',
-    '- Keep numbers EXACTLY as printed (Greek format, e.g. "1.556.540,27"). Use "" for empty cells.',
+    '- "name" = the table heading/title (e.g. "Απασχολούμενο Προσωπικό", "Κριτήρια Μεγέθους Οντοτήτων").',
+    '- "columns" = headers of the VALUE columns only (e.g. years "2016","2017","2018"). If a single unlabeled value column, use ["Τιμή"].',
+    '- "label" = the descriptive row text on the left.',
+    '- "code" = the small numeric form code printed in the row (a 3-digit number like "025", "500"). Put it ONLY in "code", never inside values. Use "" if the row has no code.',
+    '- "values" = the data cell values aligned to columns, EXCLUDING the code. Keep numbers EXACTLY as printed (Greek format, e.g. "1.556.540,27"). Use "" for empty cells.',
     '- Include every data row. Skip purely decorative/empty rows.',
   ].join('\n');
 
   // Crop to the marked region so the model sees ONLY this table (reliable).
   const crop = await cropRegionToImage(buffer, mimeType, regionHint);
   const { parsed, model, tokens } = await runVision(cfg, system, crop, 'image/png');
+  const name = parsed.name == null ? '' : String(parsed.name);
   const columns = Array.isArray(parsed.columns) ? (parsed.columns as unknown[]).map((c) => String(c)) : [];
   const rowsRaw = Array.isArray(parsed.rows) ? (parsed.rows as unknown[]) : [];
   const rows = rowsRaw
     .map((r) => {
-      const o = (r ?? {}) as { label?: unknown; values?: unknown };
+      const o = (r ?? {}) as { label?: unknown; code?: unknown; values?: unknown };
       return {
         label: o.label == null ? '' : String(o.label),
+        code: o.code == null ? '' : String(o.code).replace(/[^\dA-Za-z]/g, ''),
         values: Array.isArray(o.values) ? (o.values as unknown[]).map((v) => (v == null ? '' : String(v))) : [],
       };
     })
     .filter((r) => r.label.trim().length > 0);
-  return { columns, rows, model, tokensUsed: tokens, durationMs: Date.now() - started };
+  return { name, columns, rows, model, tokensUsed: tokens, durationMs: Date.now() - started };
 }
