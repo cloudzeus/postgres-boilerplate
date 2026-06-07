@@ -356,10 +356,17 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
 
                         {f.regionHint && (
                           <div className="space-y-1.5">
-                            <button type="button" onClick={() => scanRegion(f)} disabled={scanning}
-                              className="flex w-full items-center justify-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-[11px] font-semibold hover:bg-muted disabled:opacity-50">
-                              {scanning ? 'Σκανάρισμα…' : '🔍 Σκάναρε περιοχή & δες τιμή'}
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button type="button" onClick={() => scanRegion(f)} disabled={scanning}
+                                className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-[11px] font-semibold hover:bg-muted disabled:opacity-50">
+                                {scanning ? 'Σκανάρισμα…' : '🔍 Σκάναρε & δες τιμή'}
+                              </button>
+                              <button type="button"
+                                onClick={() => { updateField(f.localId, { regionHint: null }); setScanResult(null); setIsMarking(false); }}
+                                className="inline-flex items-center gap-1 rounded-md border border-dg-red-500/40 bg-dg-red-500/5 px-2.5 py-1.5 text-[11px] font-semibold text-dg-red-600 hover:bg-dg-red-500/10">
+                                <FiTrash2 className="size-3" /> Διαγραφή περιοχής
+                              </button>
+                            </div>
                             {scanResult && scanResult.localId === f.localId && (
                               <div className="rounded-md border border-emerald-500/40 bg-emerald-500/5 px-2.5 py-2 text-[11px]">
                                 {scanResult.kind === 'SINGLE' ? (
