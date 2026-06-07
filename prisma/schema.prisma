@@ -1293,6 +1293,7 @@ enum AiScope {
   OCR_VISION        // Gemini / VLM vision call (image or scanned PDF page)
   OCR_VISION_RETRY  // upgraded-model retry firing on missing-fields
   TRANSLATION       // DeepSeek translation
+  TAX_FORM          // Tax-form field extraction via vision pipeline
   OTHER
 }
 

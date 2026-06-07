@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/db';
 import { computeCost } from '@/lib/ai/pricing';
 
-export type AiScope = 'OCR_TEXT' | 'OCR_VISION' | 'OCR_VISION_RETRY' | 'TRANSLATION' | 'OTHER';
+export type AiScope = 'OCR_TEXT' | 'OCR_VISION' | 'OCR_VISION_RETRY' | 'TRANSLATION' | 'TAX_FORM' | 'OTHER';
 
 interface LogInput {
   scope: AiScope;
