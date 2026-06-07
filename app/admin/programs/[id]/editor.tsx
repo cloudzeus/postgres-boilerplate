@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { QuestionnaireTab, type QuestionnaireData } from './questionnaire-tab';
 import { PhasesTab } from './phases-tab';
+import { OikonomikaPediaTab } from './oikonomika-pedia-tab';
 
 interface Kad { id?: string; code: string; description?: string | null; excluded?: boolean }
 interface Cat {
@@ -280,6 +281,7 @@ export function ProgramEditor({ program, canUpdate, canDelete, docTypes }: { pro
               <TabsTrigger value="deadlines">Προθεσμίες <Badge variant="outline">{p.deadlines.length}</Badge></TabsTrigger>
               <TabsTrigger value="files">Αρχεία <Badge variant="outline">{p.files.length}</Badge></TabsTrigger>
               <TabsTrigger value="questionnaire">Αυτοαξιολόγηση{program.questionnaire ? <Badge variant="outline">{program.questionnaire.questions.length}</Badge> : null}</TabsTrigger>
+              <TabsTrigger value="oikonomika-pedia">Οικονομικά πεδία</TabsTrigger>
               <TabsTrigger value="phases">Φάσεις & Δικαιολογητικά</TabsTrigger>
             </TabsList>
           </div>
@@ -448,6 +450,10 @@ export function ProgramEditor({ program, canUpdate, canDelete, docTypes }: { pro
                 })),
               } : null}
             />
+          </TabsContent>
+
+          <TabsContent value="oikonomika-pedia" className="w-full p-4">
+            <OikonomikaPediaTab programId={p.id} />
           </TabsContent>
 
           <TabsContent value="phases" className="w-full p-4">
