@@ -59,6 +59,8 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
   const [page, setPage] = React.useState(0);
   const [zoom, setZoom] = React.useState(1);
   const [saving, setSaving] = React.useState(false);
+  const [scanning, setScanning] = React.useState(false);
+  const [scanResult, setScanResult] = React.useState<{ localId: string; raw: string | null; value: number | null } | null>(null);
 
   const pageCount = Math.max(1, samplePageCount ?? 1);
   const selected = fields.find((f) => f.localId === selectedId) ?? null;
@@ -70,6 +72,7 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
 
   function selectField(localId: string) {
     setSelectedId(localId);
+    setScanResult(null);
     const f = fields.find((x) => x.localId === localId);
     if (f?.regionHint) setPage(f.regionHint.page); // jump to where its region lives
   }
@@ -82,6 +85,33 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
     }]);
     setSelectedId(localId);
     setIsMarking(false);
+    setScanResult(null);
+  }
+
+  async function scanRegion(f: LocalField) {
+    if (!f.regionHint) return;
+    if (!f.label.trim()) { toast.error('Δώσε πρώτα Ετικέτα για να σκαναριστεί η περιοχή.'); return; }
+    setScanning(true);
+    setScanResult(null);
+    try {
+      const res = await fetch(`/api/admin/tax-templates/${templateId}/test-field`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          label: f.label.trim(),
+          valueType: f.valueType,
+          aiHint: f.aiHint.trim() || undefined,
+          regionHint: f.regionHint,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      setScanResult({ localId: f.localId, raw: json.raw ?? null, value: json.value ?? null });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setScanning(false);
+    }
   }
 
   function removeField(localId: string) {
@@ -95,9 +125,11 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
 
   function onRegionComplete(box: NormBox, completedPage: number) {
     if (!selectedId) return;
-    updateField(selectedId, { regionHint: { page: completedPage, bbox: [box.x, box.y, box.w, box.h] } });
+    const region = { page: completedPage, bbox: [box.x, box.y, box.w, box.h] as [number, number, number, number] };
+    updateField(selectedId, { regionHint: region });
     setIsMarking(false);
-    toast.success('Η περιοχή ορίστηκε. Μην ξεχάσεις «Αποθήκευση πεδίων».');
+    const f = fields.find((x) => x.localId === selectedId);
+    if (f) void scanRegion({ ...f, regionHint: region }); // auto-scan the freshly drawn region
   }
 
   const savedRegions = fields
@@ -105,9 +137,9 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
     .map((f) => ({ bbox: f.regionHint!.bbox, active: f.localId === selectedId }));
 
   async function saveFields() {
-    const incomplete = fields.filter((f) => !f.fieldKey.trim() || !f.label.trim());
+    const incomplete = fields.filter((f) => !f.label.trim());
     if (incomplete.length) {
-      toast.error('Κάθε πεδίο χρειάζεται Κωδικό και Ετικέτα πριν την αποθήκευση.');
+      toast.error('Κάθε πεδίο χρειάζεται Ετικέτα πριν την αποθήκευση (ο Κωδικός είναι προαιρετικός).');
       return;
     }
     setSaving(true);
@@ -126,11 +158,10 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
       const savedFields = Array.isArray(json) ? json : json?.fields;
       if (Array.isArray(savedFields)) {
-        setFields((prev) => prev.map((f, i) => ({
-          ...f,
-          id: (savedFields[i] as { id?: string } | undefined)?.id ?? f.id,
-          localId: (savedFields[i] as { id?: string } | undefined)?.id ?? f.localId,
-        })));
+        setFields((prev) => prev.map((f, i) => {
+          const s = savedFields[i] as { id?: string; fieldKey?: string } | undefined;
+          return { ...f, id: s?.id ?? f.id, localId: s?.id ?? f.localId, fieldKey: s?.fieldKey ?? f.fieldKey };
+        }));
       }
       toast.success('Τα πεδία αποθηκεύτηκαν.');
     } catch (err: unknown) {
@@ -223,9 +254,9 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
                       <div className="space-y-2.5 border-t border-border bg-background/60 px-3 py-3">
                         <div className="grid grid-cols-2 gap-2">
                           <label className="flex flex-col gap-1">
-                            <span className="text-[11px] font-semibold text-muted-foreground">Κωδικός *</span>
+                            <span className="text-[11px] font-semibold text-muted-foreground">Κωδικός (προαιρ.)</span>
                             <input value={f.fieldKey} onChange={(e) => updateField(f.localId, { fieldKey: e.target.value })}
-                              placeholder="π.χ. 500" className="h-8 rounded-md border border-input bg-background px-2 text-[12px]" />
+                              placeholder="αυτόματο αν κενό" className="h-8 rounded-md border border-input bg-background px-2 text-[12px]" />
                           </label>
                           <label className="flex flex-col gap-1">
                             <span className="text-[11px] font-semibold text-muted-foreground">Ετικέτα *</span>
@@ -264,7 +295,23 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
                           {isMarking ? 'Ακύρωση — σύρε πλαίσιο στο έγγραφο →' : f.regionHint ? 'Επανασχεδίαση περιοχής' : 'Σχεδίασε περιοχή στο έγγραφο'}
                         </button>
                         {f.regionHint && (
-                          <p className="text-center text-[10px] text-muted-foreground">Περιοχή: σελίδα {f.regionHint.page + 1}</p>
+                          <div className="space-y-1.5">
+                            <button type="button" onClick={() => scanRegion(f)} disabled={scanning}
+                              className="flex w-full items-center justify-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-[11px] font-semibold text-foreground hover:bg-muted disabled:opacity-50">
+                              {scanning ? 'Σκανάρισμα…' : '🔍 Σκάναρε περιοχή & δες τιμή'}
+                            </button>
+                            {scanResult && scanResult.localId === f.localId && (
+                              <div className="rounded-md border border-emerald-500/40 bg-emerald-500/5 px-2.5 py-2 text-[11px]">
+                                <p className="text-muted-foreground">Τιμή που διαβάστηκε:</p>
+                                <p className="break-all font-mono text-[13px] font-bold text-emerald-700 dark:text-emerald-400">
+                                  {scanResult.raw ?? '—'}
+                                </p>
+                                {scanResult.value != null && (
+                                  <p className="text-[10px] text-muted-foreground">ως {VALUE_TYPE_LABELS[f.valueType]}: {scanResult.value}</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}
