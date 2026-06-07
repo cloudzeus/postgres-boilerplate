@@ -54,6 +54,7 @@ export function CompanyFinancialsMatrix({ companyId, refreshKey }: { companyId: 
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editValue, setEditValue] = React.useState('');
   const [saving, setSaving] = React.useState(false);
+  const cancelledRef = React.useRef(false);
 
   const load = React.useCallback(() => {
     setLoading(true);
@@ -110,9 +111,10 @@ export function CompanyFinancialsMatrix({ companyId, refreshKey }: { companyId: 
     if (!row.templateId) return;
     setSaving(true);
     try {
-      // fieldKey is "{code}.{bareKey}" — strip the leading "{code}." prefix
-      const dotIdx = row.fieldKey.indexOf('.');
-      const bareKey = dotIdx >= 0 ? row.fieldKey.slice(dotIdx + 1) : row.fieldKey;
+      // fieldKey is "{code}.{bareKey}" — strip the leading "{code}." prefix.
+      // Use split so template codes containing dots are handled correctly.
+      const parts = row.fieldKey.split('.');
+      const bareKey = parts.length > 1 ? parts.slice(1).join('.') : row.fieldKey;
 
       const res = await fetch(`/api/admin/companies/${companyId}/financials/confirm`, {
         method: 'POST',
@@ -177,10 +179,11 @@ export function CompanyFinancialsMatrix({ companyId, refreshKey }: { companyId: 
         </thead>
         <tbody className="divide-y divide-border">
           {fieldKeys.map((fk) => {
-            // Derive a display label from the bare key part
-            const dotIdx = fk.indexOf('.');
-            const label = dotIdx >= 0 ? fk.slice(dotIdx + 1) : fk;
-            const prefix = dotIdx >= 0 ? fk.slice(0, dotIdx) : '';
+            // Derive a display label from the bare key part.
+            // Split on first dot only so template codes with dots are handled correctly.
+            const fkParts = fk.split('.');
+            const label = fkParts.length > 1 ? fkParts.slice(1).join('.') : fk;
+            const prefix = fkParts.length > 1 ? fkParts[0] : '';
 
             return (
               <tr key={fk} className="hover:bg-muted/30">
@@ -220,10 +223,23 @@ export function CompanyFinancialsMatrix({ companyId, refreshKey }: { companyId: 
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter') commitEdit(cell);
-                              if (e.key === 'Escape') cancelEdit();
+                              if (e.key === 'Enter') {
+                                cancelledRef.current = false;
+                                commitEdit(cell);
+                              }
+                              if (e.key === 'Escape') {
+                                cancelledRef.current = true;
+                                cancelEdit();
+                                e.currentTarget.blur();
+                              }
                             }}
-                            onBlur={() => commitEdit(cell)}
+                            onBlur={() => {
+                              if (cancelledRef.current) {
+                                cancelledRef.current = false;
+                                return;
+                              }
+                              commitEdit(cell);
+                            }}
                             disabled={saving}
                             className="h-6 w-24 rounded border border-input bg-background px-1.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-sisyphus-500"
                           />
