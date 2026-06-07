@@ -6,9 +6,7 @@ import { FiSave, FiUpload } from 'react-icons/fi';
 import { PageHeader } from '@/components/admin/page-header';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { TaxTemplateRegionEditor } from '@/components/admin/tax-template-region-editor';
-
-type ValueType = 'CURRENCY' | 'NUMBER' | 'PERCENT' | 'INTEGER' | 'DATE' | 'BOOLEAN';
+import { TaxTemplateRegionEditor, type ValueType } from '@/components/admin/tax-template-region-editor';
 
 export interface TemplateField {
   id: string;

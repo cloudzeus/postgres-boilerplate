@@ -1,6 +1,5 @@
-'use server';
-
 import * as React from 'react';
+import Link from 'next/link';
 import { FiFileText } from 'react-icons/fi';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
@@ -11,7 +10,7 @@ import { TaxTemplateNewButton } from './new-button';
 export const dynamic = 'force-dynamic';
 
 export default async function TaxTemplatesPage() {
-  await requirePermission('programs.read');
+  await requirePermission('ocr.read');
 
   const templates = await prisma.taxFormTemplate.findMany({
     orderBy: [{ code: 'asc' }, { year: 'desc' }],
@@ -50,9 +49,9 @@ export default async function TaxTemplatesPage() {
             {templates.map((t) => (
               <tr key={t.id} className="group border-b border-border last:border-0 hover:bg-muted/40 transition-colors">
                 <td className="px-4 py-2.5">
-                  <a href={`/admin/tax-templates/${t.id}`} className="font-semibold text-sisyphus-600 hover:underline">
+                  <Link href={`/admin/tax-templates/${t.id}`} className="font-semibold text-sisyphus-600 hover:underline">
                     {t.code}
-                  </a>
+                  </Link>
                 </td>
                 <td className="px-4 py-2.5 text-foreground">{t.name}</td>
                 <td className="px-4 py-2.5 text-muted-foreground">{t.year ?? '—'}</td>

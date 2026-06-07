@@ -8,7 +8,7 @@ import { TaxTemplateEditor } from './editor';
 export const dynamic = 'force-dynamic';
 
 export default async function TaxTemplateDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requirePermission('programs.read');
+  await requirePermission('ocr.read');
   const { id } = await params;
 
   const template = await prisma.taxFormTemplate.findUnique({

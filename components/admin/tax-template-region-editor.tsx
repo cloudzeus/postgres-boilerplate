@@ -7,7 +7,7 @@ import { RegionMarker } from '@/components/ui/region-marker';
 import type { NormBox } from '@/app/admin/ocr/[id]/use-marquee';
 import type { TemplateField } from '@/app/admin/tax-templates/[id]/editor';
 
-type ValueType = 'CURRENCY' | 'NUMBER' | 'PERCENT' | 'INTEGER' | 'DATE' | 'BOOLEAN';
+export type ValueType = 'CURRENCY' | 'NUMBER' | 'PERCENT' | 'INTEGER' | 'DATE' | 'BOOLEAN';
 
 const VALUE_TYPE_LABELS: Record<ValueType, string> = {
   CURRENCY: 'Ποσό (€)',
@@ -137,13 +137,14 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
-      // Re-sync IDs from server
-      if (Array.isArray(json)) {
+      // Re-sync IDs from server (PUT returns the template object with a nested fields array)
+      const savedFields = Array.isArray(json) ? json : json?.fields;
+      if (Array.isArray(savedFields)) {
         setFields((prev) =>
           prev.map((f, i) => ({
             ...f,
-            id: (json[i] as { id?: string } | undefined)?.id ?? f.id,
-            localId: (json[i] as { id?: string } | undefined)?.id ?? f.localId,
+            id: (savedFields[i] as { id?: string } | undefined)?.id ?? f.id,
+            localId: (savedFields[i] as { id?: string } | undefined)?.id ?? f.localId,
           }))
         );
       }
