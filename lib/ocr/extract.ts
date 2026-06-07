@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import { getSetting } from '@/lib/settings';
 import { buildSystemPrompt, countMissingRequired, REQUIRED_FIELDS, type DocType, type SupportedLang } from '@/lib/ocr/templates';
-import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
+import { logAiUsage, providerFromUrl, type AiScope } from '@/lib/ai/usage';
 import { qualityScore, fixSwappedParties, normalizeAfmFields } from '@/lib/ocr/validate';
 import { resolveOwnAfm } from '@/lib/ocr/own-afm';
 import { findSupplierTemplate, mergeFromTemplatePass } from '@/lib/ocr/templates-store';
@@ -249,6 +249,7 @@ async function callTextLLM(cfg: DeepSeekCfg, system: string, userContent: string
  */
 export async function callGeminiPdfNative(
   cfg: DeepSeekCfg, system: string, pdfBuffer: Buffer, modelOverride?: string,
+  usageScope: AiScope = 'OCR_VISION',
 ): Promise<{ content: string; tokens: number | null; model: string }> {
   if (!cfg.visionKey) throw new Error('Vision API key not configured.');
   if (!cfg.visionUrl.includes('generativelanguage.googleapis.com')) {
@@ -280,7 +281,7 @@ export async function callGeminiPdfNative(
       const content = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join('') ?? '';
       const u = data?.usageMetadata ?? {};
       void logAiUsage({
-        scope: modelOverride ? 'OCR_VISION_RETRY' : 'OCR_VISION',
+        scope: modelOverride && usageScope === 'OCR_VISION' ? 'OCR_VISION_RETRY' : usageScope,
         provider: 'gemini', model, operation: 'ocr.pdf_native',
         inputTokens: u.promptTokenCount ?? 0, outputTokens: u.candidatesTokenCount ?? 0,
         totalTokens: u.totalTokenCount ?? 0,
@@ -294,7 +295,7 @@ export async function callGeminiPdfNative(
 
 export async function callVisionLLM(
   cfg: DeepSeekCfg, system: string, imageBase64: string, mimeType: string,
-  modelOverride?: string,
+  modelOverride?: string, usageScope: AiScope = 'OCR_VISION',
 ) {
   if (!cfg.visionKey) throw new Error('Vision API key is not configured (settings: ai.visionApiKey).');
   const primary = modelOverride ?? cfg.visionModel;
@@ -324,7 +325,7 @@ export async function callVisionLLM(
       const data = await res.json();
       const u = data?.usage ?? {};
       void logAiUsage({
-        scope: modelOverride ? 'OCR_VISION_RETRY' : 'OCR_VISION',
+        scope: modelOverride && usageScope === 'OCR_VISION' ? 'OCR_VISION_RETRY' : usageScope,
         provider: providerFromUrl(cfg.visionUrl), model, operation: 'ocr.vision',
         inputTokens: u.prompt_tokens ?? 0, outputTokens: u.completion_tokens ?? 0,
         totalTokens: u.total_tokens ?? 0,

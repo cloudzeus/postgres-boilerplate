@@ -34,14 +34,14 @@ export async function extractTaxForm(
   let tokens: number | null = null;
 
   if (mimeType === 'application/pdf' && cfg.visionUrl.includes('generativelanguage.googleapis.com')) {
-    const out = await callGeminiPdfNative(cfg, system, buffer);
+    const out = await callGeminiPdfNative(cfg, system, buffer, undefined, 'TAX_FORM');
     content = out.content; model = out.model; tokens = out.tokens;
   } else if (mimeType === 'application/pdf') {
     const pages = await rasterizePdf(buffer, 3, 2);
     const merged: Record<string, unknown> = {};
     for (const page of pages) {
       const enhanced = await enhanceForOcr(page);
-      const out = await callVisionLLM(cfg, system, enhanced.buffer.toString('base64'), enhanced.mimeType);
+      const out = await callVisionLLM(cfg, system, enhanced.buffer.toString('base64'), enhanced.mimeType, undefined, 'TAX_FORM');
       model = out.model; tokens = (tokens ?? 0) + (out.tokens ?? 0);
       const parsed = safeParseJsonLoose(out.content) ?? {};
       for (const [k, v] of Object.entries(parsed)) if (v != null && merged[k] == null) merged[k] = v;
@@ -49,7 +49,7 @@ export async function extractTaxForm(
     content = JSON.stringify(merged);
   } else {
     const enhanced = await enhanceForOcr(buffer);
-    const out = await callVisionLLM(cfg, system, enhanced.buffer.toString('base64'), enhanced.mimeType);
+    const out = await callVisionLLM(cfg, system, enhanced.buffer.toString('base64'), enhanced.mimeType, undefined, 'TAX_FORM');
     content = out.content; model = out.model; tokens = out.tokens;
   }
 

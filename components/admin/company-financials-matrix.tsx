@@ -11,7 +11,7 @@ interface CompanyFinancialValue {
   templateId: string | null;
   year: number;
   value: string;
-  valueType: 'CURRENCY' | 'NUMBER' | 'PERCENT' | 'TEXT' | string;
+  valueType: 'CURRENCY' | 'NUMBER' | 'PERCENT' | 'INTEGER' | 'DATE' | 'BOOLEAN' | string;
   source: 'OCR' | 'MANUAL' | 'API' | string;
   verified: boolean;
 }
@@ -27,6 +27,16 @@ function formatValue(raw: string, valueType: string): string {
   }
   if (valueType === 'PERCENT') {
     return `${new Intl.NumberFormat('el-GR', { maximumFractionDigits: 2 }).format(num)}%`;
+  }
+  if (valueType === 'INTEGER') {
+    return new Intl.NumberFormat('el-GR', { maximumFractionDigits: 0 }).format(num);
+  }
+  if (valueType === 'BOOLEAN') {
+    return num !== 0 ? 'Ναι' : 'Όχι';
+  }
+  if (valueType === 'DATE') {
+    const d = new Date(num);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('el-GR');
   }
   return raw;
 }
