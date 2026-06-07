@@ -620,6 +620,23 @@ export function ComputedCriteriaBuilder({ programId }: { programId: string }) {
     }
   }
 
+  async function generateAI() {
+    if (criteria.length > 0 && !confirm('Θα αντικατασταθούν τα τρέχοντα κριτήρια με όσα εντοπίσει το AI στον οδηγό. Συνέχεια;')) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/programs/${programId}/computed-criteria/generate`, { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      setCriteria(json.criteria ?? []);
+      if (json.threshold != null) setThreshold(Number(json.threshold));
+      toast.success(`Το AI εντόπισε ${json.criteria?.length ?? 0} κριτήρια. Έλεγξε & Αποθήκευσε.`);
+    } catch (err: unknown) {
+      toast.error(`Σφάλμα AI: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // ── Live global preview ──────────────────────────────────────────────────
   // We compute per-criterion without sample inputs here (empty → score 0 or error)
   // A proper preview happens inside each CriterionCard. Here we just show totals.
@@ -659,6 +676,15 @@ export function ComputedCriteriaBuilder({ programId }: { programId: string }) {
                 onChange={(e) => setThreshold(Number(e.target.value))}
               />
             </label>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={generateAI}
+              title="Εντοπισμός βαθμολόγησης από τον οδηγό με AI"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-sisyphus-500/50 bg-sisyphus-500/10 px-3 text-[13px] font-medium text-sisyphus-700 hover:bg-sisyphus-500/20 disabled:opacity-50"
+            >
+              🪄 {busy ? 'Ανάλυση…' : 'Δημιουργία με AI'}
+            </button>
             <button
               type="button"
               onClick={() => setCriteria((prev) => [...prev, newCriterion()])}
