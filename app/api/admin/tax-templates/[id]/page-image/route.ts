@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { bunnyDownload } from '@/lib/bunny';
-import { rasterizeToWebp } from '@/lib/ocr/rasterize';
+import { rasterizeToWebp, isPdfBuffer } from '@/lib/ocr/rasterize';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,7 +27,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ error: 'file unavailable' }, { status: 502 });
   }
 
-  const mime = template.sampleStorageKey.endsWith('.pdf') ? 'application/pdf' : 'image/png';
+  // Decide PDF vs image from the actual bytes (handles samples mis-stored with a
+  // .png key because the upload arrived without a proper application/pdf type).
+  const mime = isPdfBuffer(buf) || template.sampleStorageKey.endsWith('.pdf') ? 'application/pdf' : 'image/png';
 
   let out: Buffer;
   try {

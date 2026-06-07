@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { bunnyUploadPrivate } from '@/lib/bunny';
+import { isPdfBuffer, countPdfPages } from '@/lib/ocr/rasterize';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,27 +21,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: 'file is required (multipart/form-data)' }, { status: 400 });
   }
 
-  const isPdf = file.type === 'application/pdf';
+  const buf = Buffer.from(await file.arrayBuffer());
+
+  // Detect PDF by magic bytes (and filename) — not just Content-Type, which
+  // some browsers send empty or wrong, which would mis-store a PDF as .png.
+  const isPdf = isPdfBuffer(buf) || file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
   const ext = isPdf ? 'pdf' : 'png';
   const timestamp = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const storageKey = `tax-templates/${id}/sample-${timestamp}.${ext}`;
+  const contentType = isPdf ? 'application/pdf' : (file.type || 'image/png');
 
-  const buf = Buffer.from(await file.arrayBuffer());
+  await bunnyUploadPrivate({ key: storageKey, body: buf, contentType });
 
-  await bunnyUploadPrivate({ key: storageKey, body: buf, contentType: file.type });
-
-  let pageCount = 1;
-  if (isPdf) {
-    try {
-      const { pdf } = await import('pdf-to-img');
-      const doc = await pdf(buf, { scale: 1 });
-      let n = 0;
-      for await (const _ of doc) n++;
-      pageCount = n;
-    } catch {
-      pageCount = 1;
-    }
-  }
+  const pageCount = isPdf ? await countPdfPages(buf) : 1;
 
   const template = await prisma.taxFormTemplate.update({
     where: { id },
