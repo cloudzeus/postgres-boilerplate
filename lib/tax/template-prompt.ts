@@ -6,7 +6,7 @@ export type TemplateFieldLite = {
   aiHint?: string | null;
   regionHint?: unknown;
   valueType: FinancialValueTypeStr;
-  kind?: 'SINGLE' | 'SERIES';
+  kind?: 'SINGLE' | 'SERIES' | 'TABLE';
 };
 
 /** Human-readable description of a region hint, for the vision prompt. */

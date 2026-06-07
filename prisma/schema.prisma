@@ -15,6 +15,7 @@ enum TaxTemplateStatus {
 enum TaxFieldKind {
   SINGLE
   SERIES
+  TABLE
 }
 
 enum FinancialValueType {
@@ -1421,6 +1422,7 @@ model TaxFormTemplateField {
   section     String?
   valueType   FinancialValueType @default(CURRENCY)
   kind        TaxFieldKind @default(SINGLE)
+  config      Json?        // for TABLE (records): { columns: string[] }
   regionHint  Json?
   aiHint      String?  @db.Text
   required    Boolean  @default(false)

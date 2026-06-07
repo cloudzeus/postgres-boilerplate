@@ -38,7 +38,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   try {
     const result = await scanTable(buf, mime, body.regionHint);
-    return NextResponse.json({ name: result.name, columns: result.columns, rows: result.rows, model: result.model });
+    return NextResponse.json({ name: result.name, columns: result.columns, rows: result.rows, headers: result.headers, grid: result.grid, model: result.model });
   } catch (err: any) {
     console.error('[tax scan-table] failed', { key: template.sampleStorageKey, message: err?.message });
     return NextResponse.json({ error: `scan failed: ${err?.message ?? err}` }, { status: 502 });

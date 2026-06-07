@@ -8,7 +8,7 @@ import type { NormBox } from '@/app/admin/ocr/[id]/use-marquee';
 import type { TemplateField } from '@/app/admin/tax-templates/[id]/editor';
 
 export type ValueType = 'CURRENCY' | 'NUMBER' | 'PERCENT' | 'INTEGER' | 'DATE' | 'BOOLEAN';
-type Kind = 'SINGLE' | 'SERIES';
+type Kind = 'SINGLE' | 'SERIES' | 'TABLE';
 type Region = { page: number; bbox: [number, number, number, number] };
 
 const VALUE_TYPE_LABELS: Record<ValueType, string> = {
@@ -18,13 +18,13 @@ const VALUE_TYPE_LABELS: Record<ValueType, string> = {
 
 interface LocalField {
   localId: string; id?: string; fieldKey: string; label: string; section: string;
-  valueType: ValueType; kind: Kind; regionHint: Region | null; aiHint: string; required: boolean; order: number;
+  valueType: ValueType; kind: Kind; config: { columns: string[] } | null; regionHint: Region | null; aiHint: string; required: boolean; order: number;
 }
 
 function makeLocal(f: TemplateField, idx: number): LocalField {
   return {
     localId: f.id ?? crypto.randomUUID(), id: f.id, fieldKey: f.fieldKey, label: f.label, section: f.section ?? '',
-    valueType: f.valueType, kind: f.kind ?? 'SINGLE', regionHint: f.regionHint ?? null, aiHint: f.aiHint ?? '',
+    valueType: f.valueType, kind: f.kind ?? 'SINGLE', config: f.config ?? null, regionHint: f.regionHint ?? null, aiHint: f.aiHint ?? '',
     required: f.required, order: f.order ?? idx,
   };
 }
@@ -47,7 +47,8 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
   const [scanning, setScanning] = React.useState(false);
   const [scanResult, setScanResult] = React.useState<ScanResult | null>(null);
   const [tableRegion, setTableRegion] = React.useState<Region | null>(null);
-  const [tableScan, setTableScan] = React.useState<{ name: string; columns: string[]; rows: TableReviewRow[] } | null>(null);
+  const [tableScan, setTableScan] = React.useState<{ name: string; columns: string[]; rows: TableReviewRow[]; headers: string[]; grid: string[][] } | null>(null);
+  const [tableMode, setTableMode] = React.useState<'fields' | 'records'>('fields');
   const [scanningTable, setScanningTable] = React.useState(false);
   const [showJson, setShowJson] = React.useState(false);
 
@@ -67,7 +68,7 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
 
   function addField() {
     const localId = crypto.randomUUID();
-    setFields((prev) => [...prev, { localId, fieldKey: '', label: '', section: '', valueType: 'CURRENCY', kind: 'SINGLE', regionHint: null, aiHint: '', required: false, order: prev.length }]);
+    setFields((prev) => [...prev, { localId, fieldKey: '', label: '', section: '', valueType: 'CURRENCY', kind: 'SINGLE', config: null, regionHint: null, aiHint: '', required: false, order: prev.length }]);
     setSelectedId(localId); setMarkMode('field'); setIsMarking(false); setScanResult(null); setTableScan(null); setTableRegion(null);
   }
 
@@ -112,8 +113,13 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
       const rows: TableReviewRow[] = (Array.isArray(json.rows) ? json.rows : []).map((r: { label: string; code?: string; values: string[] }) => ({
         label: r.label ?? '', code: r.code ?? '', values: Array.isArray(r.values) ? r.values : [], include: true, valueType: 'CURRENCY' as ValueType,
       }));
-      setTableScan({ name: typeof json.name === 'string' ? json.name : '', columns, rows });
-      if (rows.length === 0) toast.error('Δεν εντοπίστηκαν γραμμές. Δοκίμασε πιο ακριβές πλαίσιο.');
+      const headers: string[] = Array.isArray(json.headers) ? json.headers.map((h: unknown) => String(h)) : [];
+      const grid: string[][] = Array.isArray(json.grid) ? json.grid.map((r: unknown) => (Array.isArray(r) ? r.map((c) => String(c ?? '')) : [])) : [];
+      // Heuristic: many text columns + no per-row codes ⇒ likely a records list (e.g. bank accounts).
+      const looksRecords = headers.length >= 3 && rows.every((r) => !r.code) && columns.length >= 2;
+      setTableMode(looksRecords ? 'records' : 'fields');
+      setTableScan({ name: typeof json.name === 'string' ? json.name : '', columns, rows, headers, grid });
+      if (rows.length === 0 && grid.length === 0) toast.error('Δεν εντοπίστηκαν γραμμές. Δοκίμασε πιο ακριβές πλαίσιο.');
     } catch (err: unknown) { toast.error(err instanceof Error ? err.message : String(err)); }
     finally { setScanningTable(false); }
   }
@@ -134,9 +140,21 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
     const rows = tableScan.rows.filter((r) => r.include && r.label.trim());
     if (rows.length === 0) { toast.error('Επίλεξε τουλάχιστον μία γραμμή.'); return; }
     setFields((prev) => [...prev, ...rows.map((r, i) => ({
-      localId: crypto.randomUUID(), fieldKey: r.code.trim(), label: r.label.trim(), section: tableScan.name.trim(), valueType: r.valueType, kind, regionHint: tableRegion, aiHint: '', required: false, order: prev.length + i,
+      localId: crypto.randomUUID(), fieldKey: r.code.trim(), label: r.label.trim(), section: tableScan.name.trim(), valueType: r.valueType, kind, config: null, regionHint: tableRegion, aiHint: '', required: false, order: prev.length + i,
     } as LocalField))]);
     toast.success(`Δημιουργήθηκαν ${rows.length} πεδία. Πάτησε «Αποθήκευση».`);
+    setTableScan(null); setTableRegion(null); setMarkMode('field');
+  }
+
+  function createTableField() {
+    if (!tableScan || !tableRegion) return;
+    const columns = tableScan.headers.filter((h) => h.trim());
+    if (columns.length === 0) { toast.error('Δεν βρέθηκαν στήλες.'); return; }
+    setFields((prev) => [...prev, {
+      localId: crypto.randomUUID(), fieldKey: '', label: tableScan.name.trim() || 'Πίνακας', section: '',
+      valueType: 'NUMBER', kind: 'TABLE', config: { columns }, regionHint: tableRegion, aiHint: '', required: false, order: prev.length,
+    } as LocalField]);
+    toast.success('Δημιουργήθηκε πεδίο πίνακα (λίστα εγγραφών). Πάτησε «Αποθήκευση».');
     setTableScan(null); setTableRegion(null); setMarkMode('field');
   }
 
@@ -151,7 +169,7 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(fields.map((f, i) => ({
           fieldKey: f.fieldKey.trim() || undefined, label: f.label.trim(), section: f.section.trim() || undefined,
-          valueType: f.valueType, kind: f.kind, regionHint: f.regionHint ?? undefined, aiHint: f.aiHint.trim() || undefined, required: f.required, order: i,
+          valueType: f.valueType, kind: f.kind, config: f.config ?? undefined, regionHint: f.regionHint ?? undefined, aiHint: f.aiHint.trim() || undefined, required: f.required, order: i,
         }))),
       });
       const json = await res.json();
@@ -250,33 +268,63 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
                   <input value={tableScan.name} onChange={(e) => setTableScan((p) => p ? { ...p, name: e.target.value } : p)}
                     placeholder="Όνομα πίνακα (π.χ. Απασχολούμενο Προσωπικό)" className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-[12px] font-semibold" />
                   <p className="mt-1.5 text-[11px] text-muted-foreground">Στήλες: {tableScan.columns.join(' · ') || '—'}{tableScan.columns.length >= 2 ? ' · σειρά ετών' : ''} · ο κωδικός γίνεται το κλειδί</p>
+                  <div className="mt-2 inline-flex overflow-hidden rounded-lg border border-input text-[11px]">
+                    <button type="button" onClick={() => setTableMode('fields')} className={`px-2.5 py-1 font-semibold ${tableMode === 'fields' ? 'bg-sisyphus-500 text-white' : 'bg-background hover:bg-muted'}`}>Γραμμές → πεδία</button>
+                    <button type="button" onClick={() => setTableMode('records')} className={`px-2.5 py-1 font-semibold ${tableMode === 'records' ? 'bg-sisyphus-500 text-white' : 'bg-background hover:bg-muted'}`}>Λίστα εγγραφών</button>
+                  </div>
                 </div>
-                <div className="flex-1 divide-y divide-border overflow-auto">
-                  {tableScan.rows.map((r, idx) => (
-                    <div key={idx} className={`flex items-start gap-2 px-4 py-2.5 ${r.include ? '' : 'opacity-40'}`}>
-                      <input type="checkbox" checked={r.include} className="mt-1.5 size-4 shrink-0 accent-sisyphus-500"
-                        onChange={(e) => setTableScan((p) => p ? { ...p, rows: p.rows.map((x, i) => i === idx ? { ...x, include: e.target.checked } : x) } : p)} />
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <div className="flex gap-1.5">
-                          <input value={r.code} placeholder="code" className="h-8 w-14 shrink-0 rounded-lg border border-input bg-background px-1.5 text-center text-[11px] font-semibold"
-                            onChange={(e) => setTableScan((p) => p ? { ...p, rows: p.rows.map((x, i) => i === idx ? { ...x, code: e.target.value } : x) } : p)} />
-                          <input value={r.label} placeholder="ετικέτα" className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-background px-2.5 text-[12px]"
-                            onChange={(e) => setTableScan((p) => p ? { ...p, rows: p.rows.map((x, i) => i === idx ? { ...x, label: e.target.value } : x) } : p)} />
+                {tableMode === 'fields' ? (
+                  <>
+                    <div className="flex-1 divide-y divide-border overflow-auto">
+                      {tableScan.rows.map((r, idx) => (
+                        <div key={idx} className={`flex items-start gap-2 px-4 py-2.5 ${r.include ? '' : 'opacity-40'}`}>
+                          <input type="checkbox" checked={r.include} className="mt-1.5 size-4 shrink-0 accent-sisyphus-500"
+                            onChange={(e) => setTableScan((p) => p ? { ...p, rows: p.rows.map((x, i) => i === idx ? { ...x, include: e.target.checked } : x) } : p)} />
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex gap-1.5">
+                              <input value={r.code} placeholder="code" className="h-8 w-14 shrink-0 rounded-lg border border-input bg-background px-1.5 text-center text-[11px] font-semibold"
+                                onChange={(e) => setTableScan((p) => p ? { ...p, rows: p.rows.map((x, i) => i === idx ? { ...x, code: e.target.value } : x) } : p)} />
+                              <input value={r.label} placeholder="ετικέτα" className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-background px-2.5 text-[12px]"
+                                onChange={(e) => setTableScan((p) => p ? { ...p, rows: p.rows.map((x, i) => i === idx ? { ...x, label: e.target.value } : x) } : p)} />
+                            </div>
+                            <p className="truncate text-[10px] text-muted-foreground">{r.values.join('  ·  ') || '—'}</p>
+                          </div>
+                          <select value={r.valueType} className="mt-0.5 h-8 shrink-0 rounded-lg border border-input bg-background px-1.5 text-[11px]"
+                            onChange={(e) => setTableScan((p) => p ? { ...p, rows: p.rows.map((x, i) => i === idx ? { ...x, valueType: e.target.value as ValueType } : x) } : p)}>
+                            {(Object.keys(VALUE_TYPE_LABELS) as ValueType[]).map((vt) => <option key={vt} value={vt}>{VALUE_TYPE_LABELS[vt]}</option>)}
+                          </select>
                         </div>
-                        <p className="truncate text-[10px] text-muted-foreground">{r.values.join('  ·  ') || '—'}</p>
-                      </div>
-                      <select value={r.valueType} className="mt-0.5 h-8 shrink-0 rounded-lg border border-input bg-background px-1.5 text-[11px]"
-                        onChange={(e) => setTableScan((p) => p ? { ...p, rows: p.rows.map((x, i) => i === idx ? { ...x, valueType: e.target.value as ValueType } : x) } : p)}>
-                        {(Object.keys(VALUE_TYPE_LABELS) as ValueType[]).map((vt) => <option key={vt} value={vt}>{VALUE_TYPE_LABELS[vt]}</option>)}
-                      </select>
+                      ))}
                     </div>
-                  ))}
-                </div>
-                <div className="border-t border-border p-4">
-                  <button type="button" onClick={createFieldsFromTable} className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-sisyphus-500 px-3 text-[12px] font-semibold text-white hover:bg-sisyphus-600">
-                    <FiCheck className="size-4" /> Δημιουργία {tableScan.rows.filter((r) => r.include).length} πεδίων
-                  </button>
-                </div>
+                    <div className="border-t border-border p-4">
+                      <button type="button" onClick={createFieldsFromTable} className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-sisyphus-500 px-3 text-[12px] font-semibold text-white hover:bg-sisyphus-600">
+                        <FiCheck className="size-4" /> Δημιουργία {tableScan.rows.filter((r) => r.include).length} πεδίων
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex-1 overflow-auto p-3">
+                      <p className="mb-2 text-[11px] text-muted-foreground">Ένα πεδίο-πίνακας με στήλες: <span className="font-semibold text-foreground">{tableScan.headers.join(' · ') || '—'}</span>. Κάθε εγγραφή θα αποθηκεύεται ως αντικείμενο.</p>
+                      <div className="overflow-auto rounded-lg border border-border">
+                        <table className="w-full text-[10px]">
+                          <thead className="bg-muted/60"><tr>{tableScan.headers.map((h, i) => <th key={i} className="px-2 py-1 text-left font-semibold">{h}</th>)}</tr></thead>
+                          <tbody>
+                            {tableScan.grid.slice(0, 20).map((row, ri) => (
+                              <tr key={ri} className="border-t border-border">{tableScan.headers.map((_, ci) => <td key={ci} className="truncate px-2 py-1">{row[ci] ?? ''}</td>)}</tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {tableScan.grid.length > 20 && <p className="mt-1 text-[10px] text-muted-foreground">…και {tableScan.grid.length - 20} ακόμη γραμμές</p>}
+                    </div>
+                    <div className="border-t border-border p-4">
+                      <button type="button" onClick={createTableField} className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-sisyphus-500 px-3 text-[12px] font-semibold text-white hover:bg-sisyphus-600">
+                        <FiCheck className="size-4" /> Δημιουργία πεδίου-πίνακα
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ) : selected ? (
               /* ---- Field inspector ---- */
@@ -306,12 +354,27 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
                       <select value={selected.kind} onChange={(e) => updateField(selected.localId, { kind: e.target.value as Kind })} className="h-9 w-full rounded-lg border border-input bg-background px-2 text-[12px]">
                         <option value="SINGLE">Μονή τιμή</option>
                         <option value="SERIES">Σειρά ετών</option>
+                        <option value="TABLE">Πίνακας (εγγραφές)</option>
                       </select>
                     </label>
                   </div>
 
                   {/* Region + value */}
-                  {!selected.regionHint ? (
+                  {selected.kind === 'TABLE' ? (
+                    <div className="rounded-lg border border-border bg-muted/30 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-muted-foreground">Πίνακας εγγραφών{selected.regionHint ? ` (σελ. ${selected.regionHint.page + 1})` : ''}</span>
+                        {selected.regionHint && (
+                          <button type="button" title="Διαγραφή περιοχής" onClick={() => updateField(selected.localId, { regionHint: null })} className="inline-flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-dg-red-500/10 hover:text-dg-red-600"><FiTrash2 className="size-3.5" /></button>
+                        )}
+                      </div>
+                      <p className="mb-1 text-[10px] text-muted-foreground">Στήλες:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {(selected.config?.columns ?? []).map((c, i) => <span key={i} className="rounded bg-background px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-border">{c}</span>)}
+                        {(selected.config?.columns?.length ?? 0) === 0 && <span className="text-[11px] text-muted-foreground">—</span>}
+                      </div>
+                    </div>
+                  ) : !selected.regionHint ? (
                     <button type="button" onClick={() => { setMarkMode('field'); setIsMarking((m) => !m); }}
                       className={`flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-[12px] font-semibold transition ${isMarking && markMode === 'field' ? 'bg-sisyphus-500 text-white' : 'bg-sisyphus-500/10 text-sisyphus-700 hover:bg-sisyphus-500/20'}`}>
                       <FiTarget className="size-4" /> {isMarking && markMode === 'field' ? 'Σύρε πλαίσιο στο έγγραφο →' : 'Σχεδίασε περιοχή'}
@@ -388,7 +451,7 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
                           <button type="button" onClick={() => selectField(f.localId)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/60">
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-[12px] font-semibold text-foreground">{f.label || <span className="italic text-muted-foreground">Χωρίς ετικέτα</span>}</span>
-                              <span className="block truncate text-[11px] text-muted-foreground">{VALUE_TYPE_LABELS[f.valueType]}{f.kind === 'SERIES' ? ' · σειρά ετών' : ''}</span>
+                              <span className="block truncate text-[11px] text-muted-foreground">{f.kind === 'TABLE' ? `πίνακας · ${f.config?.columns.length ?? 0} στήλες` : `${VALUE_TYPE_LABELS[f.valueType]}${f.kind === 'SERIES' ? ' · σειρά ετών' : ''}`}</span>
                             </span>
                             <span className={`inline-flex size-2 shrink-0 rounded-full ${f.regionHint ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`} title={f.regionHint ? `σελ. ${f.regionHint.page + 1}` : 'χωρίς περιοχή'} />
                           </button>

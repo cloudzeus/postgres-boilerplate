@@ -19,6 +19,8 @@ export type ScanTableResult = {
   name: string;                                   // table title
   columns: string[];                              // value-column headers (e.g. years)
   rows: { label: string; code: string; values: string[] }[]; // label + Ε3 code + values
+  headers: string[];                              // ALL column titles (for records mode)
+  grid: string[][];                               // every row as raw cells (for records mode)
   model: string;
   tokensUsed: number | null;
   durationMs: number;
@@ -69,7 +71,7 @@ async function runVision(
 }
 
 function buildFieldsPrompt(fields: TemplateFieldLite[]): string {
-  const lines = fields.map((f) => {
+  const lines = fields.filter((f) => f.kind !== 'TABLE').map((f) => {
     const loc = regionHintText(f.regionHint);
     const where = loc ? ` — located at ${loc}` : '';
     const hint = f.aiHint ? ` (${f.aiHint})` : '';
@@ -78,7 +80,7 @@ function buildFieldsPrompt(fields: TemplateFieldLite[]): string {
     }
     return `- "${f.fieldKey}": "${f.label}"${where}${hint}. Return the single value as a string, or null.`;
   });
-  const shape = fields.map((f) => (f.kind === 'SERIES'
+  const shape = fields.filter((f) => f.kind !== 'TABLE').map((f) => (f.kind === 'SERIES'
     ? `"${f.fieldKey}": [{"year": 2024, "value": "..."}]`
     : `"${f.fieldKey}": "value or null"`)).join(', ');
   return [
@@ -106,6 +108,7 @@ export async function extractTaxForm(
   const values: Record<string, string | null> = {};
   const series: Record<string, SeriesPoint[]> = {};
   for (const f of fields) {
+    if (f.kind === 'TABLE') continue; // records extraction handled separately (Phase 2)
     const raw = parsed[f.fieldKey];
     if (f.kind === 'SERIES') {
       series[f.fieldKey] = Array.isArray(raw)
@@ -134,13 +137,14 @@ export async function scanTable(
     'The image is a CROP of ONE table from a Greek tax form (Ε3/Ε1).',
     'Read ONLY what is visible in this image.',
     'Return a single raw JSON object (no markdown) with this shape:',
-    '{ "name": "<table title>", "columns": ["<value column headers>"], "rows": [ { "label": "<row description>", "code": "<Ε3 line code or empty>", "values": ["<v1>", ...] } ] }',
+    '{ "name": "<table title>", "headers": ["<all column titles in order>"], "grid": [["<cell>", ...], ...], "columns": ["<value column headers>"], "rows": [ { "label": "<row description>", "code": "<Ε3 line code or empty>", "values": ["<v1>", ...] } ] }',
     'Rules:',
-    '- "name" = the table heading/title (e.g. "Απασχολούμενο Προσωπικό", "Κριτήρια Μεγέθους Οντοτήτων").',
-    '- "columns" = headers of the VALUE columns only (e.g. years "2016","2017","2018"). If a single unlabeled value column, use ["Τιμή"].',
+    '- "name" = the table heading/title (e.g. "Απασχολούμενο Προσωπικό", "Ενεργοί Επαγγελματικοί Λογαριασμοί").',
+    '- "headers" = EVERY column title in order, including the leftmost description column. "grid" = every data row as an array of ALL cell strings in column order (faithful copy).',
+    '- "columns" = headers of the VALUE columns only (e.g. years). If a single unlabeled value column, use ["Τιμή"].',
     '- "label" = the descriptive row text on the left.',
-    '- "code" = the small numeric form code printed in the row (a 3-digit number like "025", "500"). Put it ONLY in "code", never inside values. Use "" if the row has no code.',
-    '- "values" = the data cell values aligned to columns, EXCLUDING the code. Keep numbers EXACTLY as printed (Greek format, e.g. "1.556.540,27"). Use "" for empty cells.',
+    '- "code" = the small numeric form code printed in the row (a 3-digit number like "025", "500"). Put it ONLY in "code", never inside values. Use "" if none.',
+    '- "values" = the data cell values aligned to "columns", EXCLUDING the code. Keep numbers EXACTLY as printed (Greek format). Use "" for empty cells.',
     '- Include every data row. Skip purely decorative/empty rows.',
   ].join('\n');
 
@@ -160,5 +164,9 @@ export async function scanTable(
       };
     })
     .filter((r) => r.label.trim().length > 0);
-  return { name, columns, rows, model, tokensUsed: tokens, durationMs: Date.now() - started };
+  const headers = Array.isArray(parsed.headers) ? (parsed.headers as unknown[]).map((c) => String(c)) : [];
+  const grid = Array.isArray(parsed.grid)
+    ? (parsed.grid as unknown[]).map((row) => (Array.isArray(row) ? (row as unknown[]).map((c) => (c == null ? '' : String(c))) : []))
+    : [];
+  return { name, columns, rows, headers, grid, model, tokensUsed: tokens, durationMs: Date.now() - started };
 }
