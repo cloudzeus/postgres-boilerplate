@@ -12,6 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { QuestionnaireTab, type QuestionnaireData } from './questionnaire-tab';
 import { PhasesTab } from './phases-tab';
 import { OikonomikaPediaTab } from './oikonomika-pedia-tab';
+import { ComputedCriteriaBuilder } from '@/components/admin/computed-criteria-builder';
 
 interface Kad { id?: string; code: string; description?: string | null; excluded?: boolean }
 interface Cat {
@@ -282,6 +283,7 @@ export function ProgramEditor({ program, canUpdate, canDelete, docTypes }: { pro
               <TabsTrigger value="files">Αρχεία <Badge variant="outline">{p.files.length}</Badge></TabsTrigger>
               <TabsTrigger value="questionnaire">Αυτοαξιολόγηση{program.questionnaire ? <Badge variant="outline">{program.questionnaire.questions.length}</Badge> : null}</TabsTrigger>
               <TabsTrigger value="oikonomika-pedia">Οικονομικά πεδία</TabsTrigger>
+              <TabsTrigger value="computed-criteria">Αξιολόγηση (Υπολογισμός)</TabsTrigger>
               <TabsTrigger value="phases">Φάσεις & Δικαιολογητικά</TabsTrigger>
             </TabsList>
           </div>
@@ -454,6 +456,10 @@ export function ProgramEditor({ program, canUpdate, canDelete, docTypes }: { pro
 
           <TabsContent value="oikonomika-pedia" className="w-full p-4">
             <OikonomikaPediaTab programId={p.id} />
+          </TabsContent>
+
+          <TabsContent value="computed-criteria" className="w-full p-4">
+            <ComputedCriteriaBuilder programId={p.id} />
           </TabsContent>
 
           <TabsContent value="phases" className="w-full p-4">
