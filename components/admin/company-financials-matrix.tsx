@@ -5,20 +5,28 @@ import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type ValueType = 'CURRENCY' | 'NUMBER' | 'PERCENT' | 'INTEGER' | 'DATE' | 'BOOLEAN' | string;
+
 interface CompanyFinancialValue {
   id: string;
   fieldKey: string;
   templateId: string | null;
   year: number;
-  value: string;
-  valueType: 'CURRENCY' | 'NUMBER' | 'PERCENT' | 'INTEGER' | 'DATE' | 'BOOLEAN' | string;
-  source: 'OCR' | 'MANUAL' | 'API' | string;
+  kind: 'SINGLE' | 'SERIES' | 'TABLE';
+  valueType: ValueType;
+  value: string | null;
+  valueText: string | null;
+  valueJson: Record<string, string>[] | null;
+  source: 'OCR' | 'MANUAL' | string;
   verified: boolean;
 }
 
-function formatValue(raw: string, valueType: string): string {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatValue(raw: string | null, valueType: ValueType): string {
+  if (raw == null || raw === '') return '—';
   const num = parseFloat(raw);
-  if (isNaN(num)) return raw || '—';
+  if (isNaN(num)) return raw;
   if (valueType === 'CURRENCY') {
     return new Intl.NumberFormat('el-GR', { style: 'currency', currency: 'EUR' }).format(num);
   }
@@ -35,8 +43,8 @@ function formatValue(raw: string, valueType: string): string {
     return num !== 0 ? 'Ναι' : 'Όχι';
   }
   if (valueType === 'DATE') {
-    const d = new Date(num);
-    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('el-GR');
+    const d = new Date(raw);
+    return isNaN(d.getTime()) ? raw : d.toLocaleDateString('el-GR');
   }
   return raw;
 }
@@ -53,14 +61,82 @@ function sourceTip(source: string, verified: boolean): string {
   return 'Χειροκίνητη καταχώριση';
 }
 
+function displayValue(cell: CompanyFinancialValue): string {
+  if (cell.kind === 'TABLE') return ''; // handled separately
+  if (cell.value != null) return formatValue(cell.value, cell.valueType);
+  if (cell.valueText != null) return cell.valueText;
+  return '—';
+}
+
+function getBareKey(fieldKey: string): string {
+  const parts = fieldKey.split('.');
+  return parts.length > 1 ? parts.slice(1).join('.') : fieldKey;
+}
+
+// ─── TableExpandCell ──────────────────────────────────────────────────────────
+
+function TableExpandCell({ cell }: { cell: CompanyFinancialValue }) {
+  const [open, setOpen] = React.useState(false);
+  const records = cell.valueJson ?? [];
+  const cols = records.length > 0 ? Object.keys(records[0]) : [];
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-foreground hover:bg-muted/80"
+      >
+        πίνακας ({records.length})
+        <span className="text-[9px] text-muted-foreground">{open ? '▲' : '▼'}</span>
+      </button>
+      <span title={sourceTip(cell.source, cell.verified)} className="text-[10px]">
+        {sourceBadge(cell.source, cell.verified)}
+      </span>
+      {open && records.length > 0 && (
+        <div className="mt-1 max-h-48 w-max max-w-[360px] overflow-auto rounded border border-border bg-background shadow-sm">
+          <table className="text-[10px]">
+            <thead>
+              <tr className="border-b border-border bg-muted/50">
+                {cols.map((c) => (
+                  <th key={c} className="px-2 py-1 text-left font-semibold text-muted-foreground whitespace-nowrap">
+                    {c}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {records.map((r, i) => (
+                <tr key={i}>
+                  {cols.map((c) => (
+                    <td key={c} className="px-2 py-1 whitespace-nowrap">
+                      {r[c] ?? '—'}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function CompanyFinancialsMatrix({ companyId, refreshKey }: { companyId: string; refreshKey?: number }) {
+export function CompanyFinancialsMatrix({
+  companyId,
+  refreshKey,
+}: {
+  companyId: string;
+  refreshKey?: number;
+}) {
   const [data, setData] = React.useState<CompanyFinancialValue[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Editing state
+  // Inline edit state — only for SINGLE kind
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editValue, setEditValue] = React.useState('');
   const [saving, setSaving] = React.useState(false);
@@ -105,11 +181,17 @@ export function CompanyFinancialsMatrix({ companyId, refreshKey }: { companyId: 
     return m;
   }, [data]);
 
-  // Inline edit handlers
-  function startEdit(row: CompanyFinancialValue) {
-    if (!row.templateId) return; // read-only if no templateId
-    setEditingId(row.id);
-    setEditValue(row.value ?? '');
+  // Inline edit — only SINGLE cells
+  function canInlineEdit(cell: CompanyFinancialValue): boolean {
+    // SERIES: inline edit would silently drop other years — make read-only
+    // TABLE: not applicable
+    return cell.kind === 'SINGLE' && !!cell.templateId;
+  }
+
+  function startEdit(cell: CompanyFinancialValue) {
+    if (!canInlineEdit(cell)) return;
+    setEditingId(cell.id);
+    setEditValue(cell.value ?? '');
   }
 
   function cancelEdit() {
@@ -117,29 +199,31 @@ export function CompanyFinancialsMatrix({ companyId, refreshKey }: { companyId: 
     setEditValue('');
   }
 
-  async function commitEdit(row: CompanyFinancialValue) {
-    if (!row.templateId) return;
+  async function commitEdit(cell: CompanyFinancialValue) {
+    if (!cell.templateId) return;
     setSaving(true);
     try {
-      // fieldKey is "{code}.{bareKey}" — strip the leading "{code}." prefix.
-      // Use split so template codes containing dots are handled correctly.
-      const parts = row.fieldKey.split('.');
-      const bareKey = parts.length > 1 ? parts.slice(1).join('.') : row.fieldKey;
-
+      const bareKey = getBareKey(cell.fieldKey);
       const res = await fetch(`/api/admin/companies/${companyId}/financials/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          templateId: row.templateId,
-          year: row.year,
+          templateId: cell.templateId,
+          fiscalYear: cell.year,
           sourceDocumentId: null,
-          reviewed: {
-            [bareKey]: { raw: editValue, edited: true },
-          },
+          fields: [
+            {
+              kind: 'SINGLE' as const,
+              fieldKey: bareKey,
+              valueType: cell.valueType,
+              raw: editValue === '' ? null : editValue,
+              edited: true,
+            },
+          ],
         }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((json as any)?.error ?? `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((json as { error?: string })?.error ?? `HTTP ${res.status}`);
       toast.success('Αποθηκεύτηκε');
       setEditingId(null);
       load();
@@ -181,7 +265,10 @@ export function CompanyFinancialsMatrix({ companyId, refreshKey }: { companyId: 
           <tr className="border-b border-border bg-muted/50">
             <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Πεδίο</th>
             {years.map((y) => (
-              <th key={y} className="px-3 py-2 text-right font-semibold text-muted-foreground tabular-nums">
+              <th
+                key={y}
+                className="px-3 py-2 text-right font-semibold text-muted-foreground tabular-nums"
+              >
                 {y}
               </th>
             ))}
@@ -189,11 +276,8 @@ export function CompanyFinancialsMatrix({ companyId, refreshKey }: { companyId: 
         </thead>
         <tbody className="divide-y divide-border">
           {fieldKeys.map((fk) => {
-            // Derive a display label from the bare key part.
-            // Split on first dot only so template codes with dots are handled correctly.
-            const fkParts = fk.split('.');
-            const label = fkParts.length > 1 ? fkParts.slice(1).join('.') : fk;
-            const prefix = fkParts.length > 1 ? fkParts[0] : '';
+            const label = getBareKey(fk);
+            const prefix = fk.includes('.') ? fk.split('.')[0] : '';
 
             return (
               <tr key={fk} className="hover:bg-muted/30">
@@ -213,20 +297,52 @@ export function CompanyFinancialsMatrix({ companyId, refreshKey }: { companyId: 
                     );
                   }
 
+                  // TABLE: show expand widget (read-only)
+                  if (cell.kind === 'TABLE') {
+                    return (
+                      <td key={y} className="px-3 py-1.5 text-right">
+                        <TableExpandCell cell={cell} />
+                      </td>
+                    );
+                  }
+
+                  // SERIES: show formatted value with a note (read-only inline edit)
+                  if (cell.kind === 'SERIES') {
+                    return (
+                      <td
+                        key={y}
+                        className="px-3 py-1.5 text-right tabular-nums"
+                        title="Σειρές ετών — επεξεργασία μόνο μέσω εισαγωγής"
+                      >
+                        <span className="inline-flex items-center justify-end gap-1">
+                          <span className="text-muted-foreground/60 text-[9px] mr-0.5">≡</span>
+                          <span>{displayValue(cell)}</span>
+                          <span title={sourceTip(cell.source, cell.verified)} className="text-[10px]">
+                            {sourceBadge(cell.source, cell.verified)}
+                          </span>
+                        </span>
+                      </td>
+                    );
+                  }
+
+                  // SINGLE: inline-editable
                   const isEditing = editingId === cell.id;
-                  const canEdit = !!cell.templateId;
+                  const editable = canInlineEdit(cell);
 
                   return (
                     <td
                       key={y}
-                      className={`px-3 py-1.5 text-right tabular-nums ${canEdit ? 'cursor-pointer hover:bg-muted/60' : ''}`}
+                      className={`px-3 py-1.5 text-right tabular-nums ${editable ? 'cursor-pointer hover:bg-muted/60' : ''}`}
                       onClick={() => {
-                        if (!isEditing && canEdit) startEdit(cell);
+                        if (!isEditing && editable) startEdit(cell);
                       }}
-                      title={canEdit ? 'Κλικ για επεξεργασία' : 'Μόνο ανάγνωση'}
+                      title={editable ? 'Κλικ για επεξεργασία' : 'Μόνο ανάγνωση'}
                     >
                       {isEditing ? (
-                        <span className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <span
+                          className="inline-flex items-center gap-1"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <input
                             autoFocus
                             type="text"
@@ -235,7 +351,7 @@ export function CompanyFinancialsMatrix({ companyId, refreshKey }: { companyId: 
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 cancelledRef.current = false;
-                                commitEdit(cell);
+                                void commitEdit(cell);
                               }
                               if (e.key === 'Escape') {
                                 cancelledRef.current = true;
@@ -248,7 +364,7 @@ export function CompanyFinancialsMatrix({ companyId, refreshKey }: { companyId: 
                                 cancelledRef.current = false;
                                 return;
                               }
-                              commitEdit(cell);
+                              void commitEdit(cell);
                             }}
                             disabled={saving}
                             className="h-6 w-24 rounded border border-input bg-background px-1.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-sisyphus-500"
@@ -256,7 +372,7 @@ export function CompanyFinancialsMatrix({ companyId, refreshKey }: { companyId: 
                         </span>
                       ) : (
                         <span className="inline-flex items-center justify-end gap-1">
-                          <span>{formatValue(cell.value, cell.valueType)}</span>
+                          <span>{displayValue(cell)}</span>
                           <span
                             title={sourceTip(cell.source, cell.verified)}
                             className="text-[10px]"
