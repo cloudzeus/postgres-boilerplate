@@ -1,6 +1,12 @@
 export type FinancialValueTypeStr = 'CURRENCY' | 'NUMBER' | 'PERCENT' | 'INTEGER' | 'DATE' | 'BOOLEAN';
 
-/** Parses Greek-formatted numbers: "1.556.540,27" → 1556540.27 (dot=thousands, comma=decimal). */
+/**
+ * Parses Greek-formatted numbers: "1.556.540,27" → 1556540.27 (dot=thousands, comma=decimal).
+ *
+ * **Domain assumption:** a `.` is *always* treated as a thousands separator, never as a decimal
+ * point. So `"1.234"` → `1234`, not `1.234`. This matches Greek tax-form conventions (AADE/ΕΣΠΑ)
+ * where `.` groups thousands and `,` marks the decimal. Callers must not pass dot-decimal strings.
+ */
 export function parseGreekNumber(v: unknown): number | null {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   if (v == null) return null;
@@ -38,7 +44,7 @@ export function parseGreekDate(v: unknown): Date | null {
 }
 
 const TRUTHY = new Set(['1', 'ναι', 'nai', 'yes', 'true', 'αληθες', 'x', '✓']);
-const FALSY = new Set(['0', 'οχι', 'όχι', 'ochi', 'no', 'false', '']);
+const FALSY = new Set(['0', 'οχι', 'όχι', 'ochi', 'no', 'false']);
 
 /** Coerces a raw OCR/manual value to a numeric Decimal-ready number per field valueType. */
 export function coerceFinancialValue(raw: unknown, valueType: FinancialValueTypeStr): number | null {
@@ -56,6 +62,9 @@ export function coerceFinancialValue(raw: unknown, valueType: FinancialValueType
     }
     case 'DATE': {
       const d = parseGreekDate(raw);
+      // Returns epoch milliseconds (a number), not a Date object. Date-typed financial values
+      // should normally live in dedicated date columns; this is a numeric fallback for fields
+      // modelled as Decimal/numeric in the schema.
       return d ? d.getTime() : null;
     }
     case 'PERCENT':

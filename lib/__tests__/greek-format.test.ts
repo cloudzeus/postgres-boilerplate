@@ -25,6 +25,9 @@ describe('parseGreekNumber', () => {
   it('accepts already-numeric input', () => {
     expect(parseGreekNumber(1556540.27)).toBe(1556540.27);
   });
+  it('treats dot as thousands separator: "1.234" → 1234', () => {
+    expect(parseGreekNumber('1.234')).toBe(1234);
+  });
 });
 
 describe('parseGreekCurrency', () => {
@@ -52,6 +55,9 @@ describe('parseGreekDate', () => {
   it('returns null for garbage', () => {
     expect(parseGreekDate('not a date')).toBeNull();
   });
+  it('parses dd-mm-yyyy (hyphen separator)', () => {
+    expect(parseGreekDate('15-03-2024')?.toISOString().slice(0, 10)).toBe('2024-03-15');
+  });
 });
 
 describe('coerceFinancialValue', () => {
@@ -66,5 +72,11 @@ describe('coerceFinancialValue', () => {
   });
   it('returns null when unparseable', () => {
     expect(coerceFinancialValue('—', 'CURRENCY')).toBeNull();
+  });
+  it('empty string BOOLEAN → null (no answer, not explicit false)', () => {
+    expect(coerceFinancialValue('', 'BOOLEAN')).toBeNull();
+  });
+  it('DATE returns epoch ms number', () => {
+    expect(coerceFinancialValue('31/12/2024', 'DATE')).toBe(Date.UTC(2024, 11, 31));
   });
 });
