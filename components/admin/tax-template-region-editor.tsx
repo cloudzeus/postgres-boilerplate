@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { toast } from 'sonner';
-import { FiPlus, FiTrash2, FiSave, FiTarget } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiSave, FiTarget, FiChevronLeft, FiChevronRight, FiZoomIn, FiZoomOut, FiCheckCircle } from 'react-icons/fi';
 import { RegionMarker } from '@/components/ui/region-marker';
 import type { NormBox } from '@/app/admin/ocr/[id]/use-marquee';
 import type { TemplateField } from '@/app/admin/tax-templates/[id]/editor';
@@ -53,38 +53,35 @@ interface Props {
 }
 
 export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageCount }: Props) {
-  const [fields, setFields] = React.useState<LocalField[]>(() =>
-    initialFields.map((f, i) => makeLocal(f, i))
-  );
+  const [fields, setFields] = React.useState<LocalField[]>(() => initialFields.map((f, i) => makeLocal(f, i)));
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [isMarking, setIsMarking] = React.useState(false);
   const [page, setPage] = React.useState(0);
+  const [zoom, setZoom] = React.useState(1);
   const [saving, setSaving] = React.useState(false);
 
-  const pageCount = samplePageCount ?? 1;
+  const pageCount = Math.max(1, samplePageCount ?? 1);
+  const selected = fields.find((f) => f.localId === selectedId) ?? null;
 
   const pageImageUrl = React.useCallback(
     (p: number) => `/api/admin/tax-templates/${templateId}/page-image?scale=2&page=${p}`,
-    [templateId]
+    [templateId],
   );
+
+  function selectField(localId: string) {
+    setSelectedId(localId);
+    const f = fields.find((x) => x.localId === localId);
+    if (f?.regionHint) setPage(f.regionHint.page); // jump to where its region lives
+  }
 
   function addField() {
     const localId = crypto.randomUUID();
-    setFields((prev) => [
-      ...prev,
-      {
-        localId,
-        fieldKey: '',
-        label: '',
-        section: '',
-        valueType: 'CURRENCY',
-        regionHint: null,
-        aiHint: '',
-        required: false,
-        order: prev.length,
-      },
-    ]);
+    setFields((prev) => [...prev, {
+      localId, fieldKey: '', label: '', section: '', valueType: 'CURRENCY',
+      regionHint: null, aiHint: '', required: false, order: prev.length,
+    }]);
     setSelectedId(localId);
+    setIsMarking(false);
   }
 
   function removeField(localId: string) {
@@ -93,28 +90,24 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
   }
 
   function updateField(localId: string, patch: Partial<LocalField>) {
-    setFields((prev) => prev.map((f) => f.localId === localId ? { ...f, ...patch } : f));
+    setFields((prev) => prev.map((f) => (f.localId === localId ? { ...f, ...patch } : f)));
   }
 
   function onRegionComplete(box: NormBox, completedPage: number) {
     if (!selectedId) return;
     updateField(selectedId, { regionHint: { page: completedPage, bbox: [box.x, box.y, box.w, box.h] } });
     setIsMarking(false);
-    toast.success('Η περιοχή αποθηκεύτηκε στο πεδίο.');
+    toast.success('Η περιοχή ορίστηκε. Μην ξεχάσεις «Αποθήκευση πεδίων».');
   }
 
-  // savedRegions for current page: non-selected in green, selected in red
   const savedRegions = fields
     .filter((f) => f.regionHint?.page === page)
-    .map((f) => ({
-      bbox: f.regionHint!.bbox,
-      active: f.localId === selectedId,
-    }));
+    .map((f) => ({ bbox: f.regionHint!.bbox, active: f.localId === selectedId }));
 
   async function saveFields() {
-    const toSave = fields.filter((f) => f.fieldKey.trim() && f.label.trim());
-    if (toSave.length !== fields.length) {
-      toast.error('Συμπλήρωσε fieldKey και label σε όλα τα πεδία πριν αποθηκεύσεις.');
+    const incomplete = fields.filter((f) => !f.fieldKey.trim() || !f.label.trim());
+    if (incomplete.length) {
+      toast.error('Κάθε πεδίο χρειάζεται Κωδικό και Ετικέτα πριν την αποθήκευση.');
       return;
     }
     setSaving(true);
@@ -122,224 +115,219 @@ export function TaxTemplateRegionEditor({ templateId, initialFields, samplePageC
       const res = await fetch(`/api/admin/tax-templates/${templateId}/fields`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          toSave.map((f, i) => ({
-            fieldKey: f.fieldKey.trim(),
-            label: f.label.trim(),
-            section: f.section.trim() || undefined,
-            valueType: f.valueType,
-            regionHint: f.regionHint ?? undefined,
-            aiHint: f.aiHint.trim() || undefined,
-            required: f.required,
-            order: i,
-          }))
-        ),
+        body: JSON.stringify(fields.map((f, i) => ({
+          fieldKey: f.fieldKey.trim(), label: f.label.trim(),
+          section: f.section.trim() || undefined, valueType: f.valueType,
+          regionHint: f.regionHint ?? undefined, aiHint: f.aiHint.trim() || undefined,
+          required: f.required, order: i,
+        }))),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
-      // Re-sync IDs from server (PUT returns the template object with a nested fields array)
       const savedFields = Array.isArray(json) ? json : json?.fields;
       if (Array.isArray(savedFields)) {
-        setFields((prev) =>
-          prev.map((f, i) => ({
-            ...f,
-            id: (savedFields[i] as { id?: string } | undefined)?.id ?? f.id,
-            localId: (savedFields[i] as { id?: string } | undefined)?.id ?? f.localId,
-          }))
-        );
+        setFields((prev) => prev.map((f, i) => ({
+          ...f,
+          id: (savedFields[i] as { id?: string } | undefined)?.id ?? f.id,
+          localId: (savedFields[i] as { id?: string } | undefined)?.id ?? f.localId,
+        })));
       }
       toast.success('Τα πεδία αποθηκεύτηκαν.');
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : String(err));
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   }
 
-  const selected = fields.find((f) => f.localId === selectedId);
+  const noSample = samplePageCount == null;
+  const markedCount = fields.filter((f) => f.regionHint).length;
 
   return (
-    <div className="rounded-lg border border-border bg-card shadow-fluent-2">
-      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Πεδία εντύπου & χαρτογράφηση περιοχών</p>
+    <div className="overflow-hidden rounded-lg border border-border bg-card shadow-fluent-2">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+        <div>
+          <p className="text-[13px] font-semibold text-foreground">Πεδία εντύπου & χαρτογράφηση περιοχών</p>
+          <p className="text-[11px] text-muted-foreground">
+            {fields.length} πεδία · {markedCount} με σημειωμένη περιοχή
+          </p>
+        </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={addField}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-input bg-background px-2.5 text-[11px] font-semibold hover:bg-muted"
-          >
-            <FiPlus className="size-3" /> Προσθήκη πεδίου
+          <button type="button" onClick={addField}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-[12px] font-semibold hover:bg-muted">
+            <FiPlus className="size-3.5" /> Προσθήκη πεδίου
           </button>
-          <button
-            type="button"
-            onClick={saveFields}
-            disabled={saving || fields.length === 0}
-            className="inline-flex h-7 items-center gap-1 rounded-md bg-sisyphus-500 px-2.5 text-[11px] font-semibold text-white hover:bg-sisyphus-600 disabled:opacity-50"
-          >
-            <FiSave className="size-3" /> {saving ? 'Αποθήκευση…' : 'Αποθήκευση πεδίων'}
+          <button type="button" onClick={saveFields} disabled={saving || fields.length === 0}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-sisyphus-500 px-3 text-[12px] font-semibold text-white hover:bg-sisyphus-600 disabled:opacity-50">
+            <FiSave className="size-3.5" /> {saving ? 'Αποθήκευση…' : 'Αποθήκευση πεδίων'}
           </button>
         </div>
       </div>
 
-      <div className="grid min-h-0 grid-cols-1 md:grid-cols-[380px_minmax(0,1fr)]">
-        {/* Field list + editor */}
-        <div className="flex flex-col divide-y divide-border overflow-auto border-r border-border">
-          {fields.length === 0 && (
-            <p className="px-4 py-6 text-center text-[12px] text-muted-foreground">
-              Δεν υπάρχουν πεδία. Πατήστε &ldquo;Προσθήκη πεδίου&rdquo;.
-            </p>
-          )}
-          {fields.map((f) => (
-            <div
-              key={f.localId}
-              onClick={() => setSelectedId(f.localId === selectedId ? null : f.localId)}
-              className={`cursor-pointer px-3 py-2 transition-colors hover:bg-muted/50 ${f.localId === selectedId ? 'bg-muted' : ''}`}
-            >
-              <div className="flex items-center justify-between gap-1">
-                <div className="min-w-0">
-                  <p className="truncate text-[12px] font-semibold text-foreground">
-                    {f.label || <span className="text-muted-foreground italic">Χωρίς όνομα</span>}
-                  </p>
-                  <p className="truncate text-[11px] text-muted-foreground">{f.fieldKey || '—'} · {VALUE_TYPE_LABELS[f.valueType]}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  {f.regionHint && (
-                    <span className="inline-flex h-4 items-center rounded px-1 text-[9px] font-bold uppercase" style={{ background: '#16a34a22', color: '#16a34a' }}>
-                      p{f.regionHint.page + 1}
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); removeField(f.localId); }}
-                    className="rounded p-0.5 text-muted-foreground hover:text-dg-red-500"
-                  >
-                    <FiTrash2 className="size-3" />
-                  </button>
-                </div>
-              </div>
+      {/* How-to strip */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-muted/40 px-4 py-2 text-[11px] text-muted-foreground">
+        <span className="font-semibold text-foreground">Πώς λειτουργεί:</span>
+        <span>1. «Προσθήκη πεδίου»</span>
+        <span>2. Διάλεξε το πεδίο αριστερά</span>
+        <span>3. «Σχεδίασε περιοχή» & σύρε πάνω στην τιμή</span>
+        <span>4. «Αποθήκευση πεδίων»</span>
+      </div>
 
-              {f.localId === selectedId && (
-                <div className="mt-2 space-y-2" onClick={(e) => e.stopPropagation()}>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="flex flex-col gap-0.5">
-                      <span className="text-[10px] font-semibold text-muted-foreground">fieldKey</span>
-                      <input
-                        value={f.fieldKey}
-                        onChange={(e) => updateField(f.localId, { fieldKey: e.target.value })}
-                        placeholder="net_revenue"
-                        className="h-7 rounded border border-input bg-background px-2 text-[11px]"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-0.5">
-                      <span className="text-[10px] font-semibold text-muted-foreground">Ετικέτα</span>
-                      <input
-                        value={f.label}
-                        onChange={(e) => updateField(f.localId, { label: e.target.value })}
-                        placeholder="Καθαρά έσοδα"
-                        className="h-7 rounded border border-input bg-background px-2 text-[11px]"
-                      />
-                    </label>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="flex flex-col gap-0.5">
-                      <span className="text-[10px] font-semibold text-muted-foreground">Τύπος</span>
-                      <select
-                        value={f.valueType}
-                        onChange={(e) => updateField(f.localId, { valueType: e.target.value as ValueType })}
-                        className="h-7 rounded border border-input bg-background px-1.5 text-[11px]"
-                      >
-                        {(Object.keys(VALUE_TYPE_LABELS) as ValueType[]).map((vt) => (
-                          <option key={vt} value={vt}>{VALUE_TYPE_LABELS[vt]}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="flex flex-col gap-0.5">
-                      <span className="text-[10px] font-semibold text-muted-foreground">Ενότητα</span>
-                      <input
-                        value={f.section}
-                        onChange={(e) => updateField(f.localId, { section: e.target.value })}
-                        placeholder="π.χ. Α. Έσοδα"
-                        className="h-7 rounded border border-input bg-background px-2 text-[11px]"
-                      />
-                    </label>
-                  </div>
-                  <label className="flex flex-col gap-0.5">
-                    <span className="text-[10px] font-semibold text-muted-foreground">AI Hint</span>
-                    <textarea
-                      value={f.aiHint}
-                      onChange={(e) => updateField(f.localId, { aiHint: e.target.value })}
-                      rows={2}
-                      placeholder="Πού βρίσκεται αυτό το πεδίο στο έντυπο…"
-                      className="rounded border border-input bg-background p-1.5 text-[11px]"
-                    />
-                  </label>
-                  <div className="flex items-center justify-between">
-                    <label className="flex cursor-pointer items-center gap-1.5 text-[11px]">
-                      <input
-                        type="checkbox"
-                        checked={f.required}
-                        onChange={(e) => updateField(f.localId, { required: e.target.checked })}
-                        className="size-3.5"
-                      />
-                      <span className="text-muted-foreground">Υποχρεωτικό</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setIsMarking((m) => !m)}
-                      className={`inline-flex h-6 items-center gap-1 rounded border px-2 text-[10px] font-semibold transition-colors ${
-                        isMarking
-                          ? 'border-sisyphus-500 bg-sisyphus-500/10 text-sisyphus-700'
-                          : 'border-input bg-background text-muted-foreground hover:bg-muted'
-                      }`}
-                    >
-                      <FiTarget className="size-3" />
-                      {isMarking ? 'Σύρε πλαίσιο…' : f.regionHint ? 'Επανεπιλογή περιοχής' : 'Επιλογή περιοχής'}
-                    </button>
-                  </div>
-                  {f.regionHint && (
-                    <p className="text-[10px] text-muted-foreground">
-                      Περιοχή: σελ. {f.regionHint.page + 1}, bbox [{f.regionHint.bbox.map((v) => v.toFixed(3)).join(', ')}]
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+      {noSample ? (
+        <div className="flex items-center justify-center p-10 text-center text-[12px] text-muted-foreground">
+          <div>
+            <p className="font-semibold">Δεν υπάρχει δείγμα PDF.</p>
+            <p className="mt-1">Ανέβασε ένα δείγμα εντύπου (πιο πάνω) για να ξεκινήσεις τη χαρτογράφηση.</p>
+          </div>
         </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)]">
+          {/* LEFT: fields + properties */}
+          <div className="flex max-h-[640px] flex-col overflow-auto border-b border-border lg:border-b-0 lg:border-r">
+            {fields.length === 0 ? (
+              <div className="px-4 py-10 text-center text-[12px] text-muted-foreground">
+                <p>Δεν υπάρχουν πεδία ακόμη.</p>
+                <button type="button" onClick={addField}
+                  className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-md bg-sisyphus-500 px-3 text-[12px] font-semibold text-white hover:bg-sisyphus-600">
+                  <FiPlus className="size-3.5" /> Προσθήκη πρώτου πεδίου
+                </button>
+              </div>
+            ) : (
+              fields.map((f) => {
+                const isSel = f.localId === selectedId;
+                return (
+                  <div key={f.localId} className={isSel ? 'bg-sisyphus-500/5' : ''}>
+                    <button type="button" onClick={() => selectField(f.localId)}
+                      className={`flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-muted/60 ${isSel ? 'border-l-2 border-sisyphus-500' : 'border-l-2 border-transparent'}`}>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[12px] font-semibold text-foreground">
+                          {f.label || <span className="italic text-muted-foreground">Χωρίς ετικέτα</span>}
+                        </span>
+                        <span className="block truncate text-[11px] text-muted-foreground">
+                          {f.fieldKey || '—'} · {VALUE_TYPE_LABELS[f.valueType]}
+                        </span>
+                      </span>
+                      {f.regionHint ? (
+                        <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: '#16a34a1a', color: '#15803d' }}>
+                          <FiCheckCircle className="size-3" /> σελ.{f.regionHint.page + 1}
+                        </span>
+                      ) : (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">χωρίς περιοχή</span>
+                      )}
+                      <FiTrash2 className="size-3.5 shrink-0 text-muted-foreground hover:text-dg-red-500"
+                        onClick={(e) => { e.stopPropagation(); removeField(f.localId); }} />
+                    </button>
 
-        {/* Region marker */}
-        <div className="relative flex flex-col">
-          {samplePageCount != null ? (
-            <>
-              <div className="relative min-h-[500px] flex-1 overflow-auto bg-muted">
+                    {isSel && (
+                      <div className="space-y-2.5 border-t border-border bg-background/60 px-3 py-3">
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="flex flex-col gap-1">
+                            <span className="text-[11px] font-semibold text-muted-foreground">Κωδικός *</span>
+                            <input value={f.fieldKey} onChange={(e) => updateField(f.localId, { fieldKey: e.target.value })}
+                              placeholder="π.χ. 500" className="h-8 rounded-md border border-input bg-background px-2 text-[12px]" />
+                          </label>
+                          <label className="flex flex-col gap-1">
+                            <span className="text-[11px] font-semibold text-muted-foreground">Ετικέτα *</span>
+                            <input value={f.label} onChange={(e) => updateField(f.localId, { label: e.target.value })}
+                              placeholder="Κύκλος Εργασιών" className="h-8 rounded-md border border-input bg-background px-2 text-[12px]" />
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="flex flex-col gap-1">
+                            <span className="text-[11px] font-semibold text-muted-foreground">Τύπος τιμής</span>
+                            <select value={f.valueType} onChange={(e) => updateField(f.localId, { valueType: e.target.value as ValueType })}
+                              className="h-8 rounded-md border border-input bg-background px-1.5 text-[12px]">
+                              {(Object.keys(VALUE_TYPE_LABELS) as ValueType[]).map((vt) => (
+                                <option key={vt} value={vt}>{VALUE_TYPE_LABELS[vt]}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="flex flex-col gap-1">
+                            <span className="text-[11px] font-semibold text-muted-foreground">Ενότητα (προαιρ.)</span>
+                            <input value={f.section} onChange={(e) => updateField(f.localId, { section: e.target.value })}
+                              placeholder="π.χ. Πίνακας Ζ" className="h-8 rounded-md border border-input bg-background px-2 text-[12px]" />
+                          </label>
+                        </div>
+                        <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                          <input type="checkbox" checked={f.required} onChange={(e) => updateField(f.localId, { required: e.target.checked })} className="size-4" />
+                          <span className="text-muted-foreground">Υποχρεωτικό πεδίο</span>
+                        </label>
+
+                        {/* Mark region CTA */}
+                        <button type="button" onClick={() => setIsMarking((m) => !m)}
+                          className={`flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2 text-[12px] font-semibold transition-colors ${
+                            isMarking ? 'border-sisyphus-500 bg-sisyphus-500 text-white'
+                              : 'border-sisyphus-500/50 bg-sisyphus-500/10 text-sisyphus-700 hover:bg-sisyphus-500/20'
+                          }`}>
+                          <FiTarget className="size-4" />
+                          {isMarking ? 'Ακύρωση — σύρε πλαίσιο στο έγγραφο →' : f.regionHint ? 'Επανασχεδίαση περιοχής' : 'Σχεδίασε περιοχή στο έγγραφο'}
+                        </button>
+                        {f.regionHint && (
+                          <p className="text-center text-[10px] text-muted-foreground">Περιοχή: σελίδα {f.regionHint.page + 1}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* RIGHT: document viewer */}
+          <div className="flex flex-col bg-muted/30">
+            {/* Toolbar: page nav + zoom — ALWAYS visible */}
+            <div className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-2">
+              <div className="flex items-center gap-1">
+                <button type="button" disabled={page <= 0} onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  className="inline-flex size-7 items-center justify-center rounded-md border border-input bg-background disabled:opacity-40 hover:bg-muted">
+                  <FiChevronLeft className="size-4" />
+                </button>
+                <span className="min-w-[92px] text-center text-[12px] font-semibold tabular-nums">Σελίδα {page + 1} / {pageCount}</span>
+                <button type="button" disabled={page >= pageCount - 1} onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                  className="inline-flex size-7 items-center justify-center rounded-md border border-input bg-background disabled:opacity-40 hover:bg-muted">
+                  <FiChevronRight className="size-4" />
+                </button>
+              </div>
+              <div className="flex items-center gap-1">
+                <button type="button" disabled={zoom <= 1} onClick={() => setZoom((z) => Math.max(1, +(z - 0.25).toFixed(2)))}
+                  className="inline-flex size-7 items-center justify-center rounded-md border border-input bg-background disabled:opacity-40 hover:bg-muted">
+                  <FiZoomOut className="size-4" />
+                </button>
+                <span className="w-10 text-center text-[11px] tabular-nums text-muted-foreground">{Math.round(zoom * 100)}%</span>
+                <button type="button" disabled={zoom >= 2.5} onClick={() => setZoom((z) => Math.min(2.5, +(z + 0.25).toFixed(2)))}
+                  className="inline-flex size-7 items-center justify-center rounded-md border border-input bg-background disabled:opacity-40 hover:bg-muted">
+                  <FiZoomIn className="size-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Marking banner */}
+            {isMarking && selected && (
+              <div className="flex items-center gap-2 bg-sisyphus-500 px-3 py-1.5 text-[12px] font-semibold text-white">
+                <FiTarget className="size-4 shrink-0" />
+                Σύρε ένα πλαίσιο γύρω από την τιμή για «{selected.label || selected.fieldKey || 'το πεδίο'}»
+              </div>
+            )}
+
+            {/* Document */}
+            <div className="max-h-[600px] flex-1 overflow-auto p-3">
+              <div style={{ width: `${zoom * 100}%` }} className="mx-auto">
                 <RegionMarker
                   pageImageUrl={pageImageUrl}
                   pageCount={pageCount}
                   page={page}
-                  onPageChange={setPage}
+                  showNav={false}
                   isMarking={isMarking && !!selected}
                   savedRegions={savedRegions}
                   onRegionComplete={onRegionComplete}
-                  onError={() => toast.error('Σφάλμα φόρτωσης εικόνας σελίδας.')}
                   className="w-full"
                 />
               </div>
-              {!selected && (
-                <div className="absolute inset-0 flex items-center justify-center bg-background/60 backdrop-blur-[2px]">
-                  <p className="rounded-lg border border-border bg-card px-4 py-3 text-[12px] font-semibold text-muted-foreground shadow-fluent-4">
-                    Επιλέξτε πεδίο για να σημειώσετε περιοχή
-                  </p>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-1 items-center justify-center p-8 text-center text-[12px] text-muted-foreground">
-              <div>
-                <p className="font-semibold">Δεν υπάρχει δείγμα PDF.</p>
-                <p className="mt-1">Ανεβάστε ένα δείγμα για να ενεργοποιηθεί η χαρτογράφηση περιοχών.</p>
-              </div>
             </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

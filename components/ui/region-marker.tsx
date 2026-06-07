@@ -13,11 +13,13 @@ type Props = {
   isMarking: boolean;
   onRegionComplete: (box: NormBox, page: number) => void;
   onError?: () => void;
+  /** Show the built-in ← page N/M → row. Set false when the parent renders its own nav. */
+  showNav?: boolean;
   className?: string;
 };
 
 export function RegionMarker({
-  pageImageUrl, pageCount = 1, page = 0, onPageChange, savedRegions = [], isMarking, onRegionComplete, onError, className,
+  pageImageUrl, pageCount = 1, page = 0, onPageChange, savedRegions = [], isMarking, onRegionComplete, onError, showNav = true, className,
 }: Props) {
   const url = pageImageUrl(page);
   const [objUrl, setObjUrl] = React.useState<string | null>(null);
@@ -67,7 +69,7 @@ export function RegionMarker({
 
   return (
     <div className={className}>
-      {pageCount > 1 && (
+      {showNav && pageCount > 1 && (
         <div className="mb-2 flex items-center gap-2 text-[12px]">
           <button type="button" className="rounded border px-2 py-0.5 disabled:opacity-40"
             disabled={page <= 0} onClick={() => onPageChange?.(page - 1)}>←</button>
