@@ -27,12 +27,7 @@ export async function POST(
   const user = await requirePermission('ocr.create');
   const { id: companyId } = await params;
 
-  const body = BodySchema.parse(await req.json()) as {
-    templateId: string;
-    year: number;
-    sourceDocumentId: string | null;
-    reviewed: Record<string, ReviewedField>;
-  };
+  const body = BodySchema.parse(await req.json());
 
   const template = await prisma.taxFormTemplate.findUnique({
     where: { id: body.templateId },

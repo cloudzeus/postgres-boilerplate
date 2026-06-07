@@ -12,7 +12,7 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  await requirePermission('ocr.create');
+  const user = await requirePermission('ocr.create');
   const { id: companyId } = await params;
 
   const form = await req.formData();
@@ -43,25 +43,31 @@ export async function POST(
   const ext = file.type === 'application/pdf' ? 'pdf' : 'png';
   const key = `ocr/tax/${companyId}/${templateId}-${fiscalYear}-${crypto.randomUUID()}.${ext}`;
 
-  await bunnyUploadPrivate({ key, body: buf, contentType: file.type });
+  let doc: Awaited<ReturnType<typeof prisma.ocrDocument.create>>;
+  try {
+    await bunnyUploadPrivate({ key, body: buf, contentType: file.type });
 
-  const doc = await prisma.ocrDocument.create({
-    data: {
-      fileName: key.split('/').pop()!,
-      originalName: file.name,
-      storageKey: key,
-      publicUrl: `bunny:${key}`,
-      mimeType: file.type,
-      size: buf.length,
-      docType: 'GENERAL_TEXT',
-      category: 'TAX',
-      language: 'el',
-      status: 'PROCESSING',
-      companyId,
-      taxTemplateId: templateId,
-      fiscalYear,
-    },
-  });
+    doc = await prisma.ocrDocument.create({
+      data: {
+        fileName: key.split('/').pop()!,
+        originalName: file.name,
+        storageKey: key,
+        publicUrl: `bunny:${key}`,
+        mimeType: file.type,
+        size: buf.length,
+        docType: 'GENERAL_TEXT',
+        category: 'TAX',
+        language: 'el',
+        status: 'PROCESSING',
+        companyId,
+        taxTemplateId: templateId,
+        fiscalYear,
+        createdById: user.id,
+      },
+    });
+  } catch {
+    return NextResponse.json({ error: 'storage upload failed' }, { status: 502 });
+  }
 
   try {
     const result = await extractTaxForm(
