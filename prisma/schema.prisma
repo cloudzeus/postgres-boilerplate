@@ -1530,6 +1530,7 @@ model ProgramQuestionnaire {
   status         QuestionnaireStatus @default(DRAFT)
   generatedModel String?
   generatedAt    DateTime?
+  computedCriteria Json?   // ① computed criteria (variables↔E3 mappings, formula, bands, weight)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   questions      ProgramQuestion[]
