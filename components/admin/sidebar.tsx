@@ -64,6 +64,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/ocr/batches', label: 'Φάκελοι OCR', icon: FiFolder, permissions: ['ocr.read'] },
       { href: '/admin/ocr/matching', label: 'Αντιστοιχίσεις SoftOne', icon: FiLink, permissions: ['ocr.read'] },
       { href: '/admin/ocr/pending', label: 'Εκκρεμότητες OCR', icon: FiAlertCircle, permissions: ['ocr.read'] },
+      { href: '/admin/tax-templates', label: 'Πρότυπα Φορολογικών Εντύπων', icon: FiFileText, permissions: ['ocr.read'] },
       { href: '/admin/programs', label: 'Ευρωπαϊκά Προγράμματα', icon: FiGlobe, permissions: ['programs.read'] },
     ],
   },
