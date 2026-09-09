@@ -14,7 +14,9 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
   DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
+import { RunStatusPill } from '@/components/templates/run-status-pill';
 import { reconMeta } from '@/lib/ocr/recon-status';
+import type { RunStatus } from '@/lib/templates/schema';
 import { OcrRowDetail } from './row-detail';
 
 export interface OcrRow {
@@ -48,6 +50,11 @@ export interface OcrRow {
   itemsTotal: number | null;
   itemsMatched: number | null;
   softoneSeries: string | null;
+  /** Latest template run, cached on OcrDocument.reviewFlags by the runner (spec §15.7). */
+  templateName: string | null;
+  templateRunStatus: string | null;
+  reviewCount: number;
+  blockedCount: number;
 }
 
 /** A SoftOne purchase document SERIES (PurchaseDocType) offered in the «Τύπος παραστατικού» picker. */
@@ -399,6 +406,43 @@ export function OcrTable({
           );
         }
         return <span className="text-xs text-muted-foreground">—</span>;
+      },
+    },
+    {
+      accessorKey: 'templateRunStatus',
+      header: 'Πρότυπο',
+      cell: ({ row }) => {
+        const r = row.original;
+        const st = r.templateRunStatus as RunStatus | null;
+        if (!st) return <span className="text-xs text-muted-foreground">—</span>;
+        return (
+          <div className="flex flex-col items-start gap-0.5 min-w-[120px]">
+            <span className="max-w-[150px] truncate text-[12px] font-medium text-foreground" title={r.templateName ?? undefined}>
+              {r.templateName ?? '—'}
+            </span>
+            <span className="flex items-center gap-1">
+              <RunStatusPill status={st} />
+              {r.blockedCount > 0 && (
+                <span
+                  className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
+                  style={{ backgroundColor: '#FDE8E8', color: '#B91C1C' }}
+                  title={`${r.blockedCount} πεδία μπλοκάρουν την ανάρτηση`}
+                >
+                  {r.blockedCount}
+                </span>
+              )}
+              {r.reviewCount > 0 && (
+                <span
+                  className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
+                  style={{ backgroundColor: '#FDF3E3', color: '#B45309' }}
+                  title={`${r.reviewCount} πεδία θέλουν έλεγχο`}
+                >
+                  {r.reviewCount}
+                </span>
+              )}
+            </span>
+          </div>
+        );
       },
     },
     {

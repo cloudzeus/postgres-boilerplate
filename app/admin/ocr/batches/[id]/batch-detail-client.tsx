@@ -3,9 +3,11 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FiZap, FiCheckCircle, FiTruck, FiBox, FiTool, FiExternalLink } from 'react-icons/fi';
+import { FiZap, FiCheckCircle, FiTruck, FiBox, FiTool, FiExternalLink, FiDownload, FiCode } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { RunStatusPill } from '@/components/templates/run-status-pill';
+import type { RunStatus } from '@/lib/templates/schema';
 
 type Row = {
   id: string; fileName: string; status: string; invoiceKind: string | null;
@@ -13,12 +15,18 @@ type Row = {
   supplierChecked: boolean; supplierFound: boolean;
   duplicate: boolean; duplicateRef: string | null;
   totalLines: number; matchedLines: number;
+  /** Latest template run, cached on OcrDocument.reviewFlags by the runner (spec §15.7). */
+  templateName: string | null; templateRunStatus: string | null;
 };
+
+/** The folder exports 404 when no document of the folder has a template run — say so up front. */
+const NO_RUNS_HINT = 'Δεν έχει τρέξει πρότυπο σε κανένα παραστατικό του φακέλου';
 
 export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Row[] }) {
   const router = useRouter();
   const [running, setRunning] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
+  const hasRuns = rows.some((r) => r.templateRunStatus != null);
 
   const kpi = {
     total: rows.length,
@@ -69,6 +77,33 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
         </div>
       </div>
 
+      {/* Template exports for the whole folder — one Excel with a sheet per template, or a JSON array. */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {hasRuns ? (
+          <>
+            <Button size="sm" variant="outline" asChild>
+              <a href={`/api/admin/ocr/batches/${batchId}/template-excel`}>
+                <FiDownload className="mr-1.5 h-3.5 w-3.5" /> Excel προτύπων
+              </a>
+            </Button>
+            <Button size="sm" variant="outline" asChild>
+              <a href={`/api/admin/ocr/batches/${batchId}/template-json?download=1`}>
+                <FiCode className="mr-1.5 h-3.5 w-3.5" /> JSON
+              </a>
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button size="sm" variant="outline" disabled title={NO_RUNS_HINT}>
+              <FiDownload className="mr-1.5 h-3.5 w-3.5" /> Excel προτύπων
+            </Button>
+            <Button size="sm" variant="outline" disabled title={NO_RUNS_HINT}>
+              <FiCode className="mr-1.5 h-3.5 w-3.5" /> JSON
+            </Button>
+          </>
+        )}
+      </div>
+
       {/* Docs table */}
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
         <table className="w-full text-[13px]">
@@ -78,6 +113,7 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
               <th className="px-4 py-2 text-left font-semibold w-[110px]">OCR</th>
               <th className="px-4 py-2 text-left font-semibold w-[130px]">Τύπος</th>
               <th className="px-4 py-2 text-left font-semibold w-[240px]">Προμηθευτής</th>
+              <th className="px-4 py-2 text-left font-semibold w-[180px]">Πρότυπο</th>
               <th className="px-4 py-2 text-left font-semibold w-[120px]">Γραμμές</th>
               <th className="px-4 py-2 w-[48px]" />
             </tr>
@@ -101,6 +137,7 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
                 </td>
                 <td className="px-4 py-2.5">{kindBadge(r.invoiceKind)}</td>
                 <td className="px-4 py-2.5">{supplierCell(r)}</td>
+                <td className="px-4 py-2.5">{templateCell(r)}</td>
                 <td className="px-4 py-2.5 text-[12px] tabular-nums text-muted-foreground">
                   {r.totalLines > 0 ? `${r.matchedLines}/${r.totalLines}` : '—'}
                 </td>
@@ -142,6 +179,18 @@ function kindBadge(kind: string | null) {
     <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: s.bg, color: s.fg }}>
       {s.icon} {s.label}
     </span>
+  );
+}
+
+function templateCell(r: Row) {
+  if (!r.templateRunStatus) return <span className="text-muted-foreground/50">—</span>;
+  return (
+    <div className="flex flex-col items-start gap-0.5">
+      <span className="max-w-[160px] truncate text-[12px] font-medium" title={r.templateName ?? undefined}>
+        {r.templateName ?? '—'}
+      </span>
+      <RunStatusPill status={r.templateRunStatus as RunStatus} />
+    </div>
   );
 }
 

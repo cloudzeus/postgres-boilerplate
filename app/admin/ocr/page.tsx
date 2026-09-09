@@ -2,6 +2,7 @@ import { FiFileText } from 'react-icons/fi';
 import { prisma } from '@/lib/db';
 import { requirePermission, hasPermission } from '@/lib/rbac';
 import { PageHeader } from '@/components/admin/page-header';
+import type { ReviewFlags } from '@/lib/templates/run-logic';
 import { OcrUploadForm } from './upload-form';
 import { OcrTable, type OcrRow } from './ocr-table';
 
@@ -26,6 +27,7 @@ export default async function AdminOcrPage() {
         softoneDocExists: true,
         reconOverride: true, itemsTotal: true, itemsMatched: true,
         softoneSeries: true,
+        reviewFlags: true,
       },
     }),
     hasPermission('ocr.categorize'),
@@ -41,6 +43,8 @@ export default async function AdminOcrPage() {
 
   const rows: OcrRow[] = docs.map((d) => {
     const data = (d.extractedData ?? {}) as any;
+    // The latest template run, cached on the document by the runner (spec §15.4/§15.7).
+    const rf = (d.reviewFlags ?? null) as Partial<ReviewFlags> | null;
     return {
       id: d.id,
       fileName: d.fileName,
@@ -72,6 +76,10 @@ export default async function AdminOcrPage() {
       itemsTotal: d.itemsTotal,
       itemsMatched: d.itemsMatched,
       softoneSeries: d.softoneSeries,
+      templateName: rf?.templateName ?? null,
+      templateRunStatus: rf?.runStatus ?? null,
+      reviewCount: Array.isArray(rf?.review) ? rf.review.length : 0,
+      blockedCount: Array.isArray(rf?.blocked) ? rf.blocked.length : 0,
     };
   });
 
