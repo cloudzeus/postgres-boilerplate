@@ -933,6 +933,7 @@ model OcrDocument {
   company       Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
   taxTemplateId String?
   taxTemplate   TaxFormTemplate? @relation(fields: [taxTemplateId], references: [id], onDelete: SetNull)
+  templateRuns  TemplateRun[]
   fiscalYear    Int?
 
   @@index([status])
@@ -1601,4 +1602,225 @@ model AssessmentAnswer {
   source           AnswerSource @default(MANUAL)
   @@index([assessmentId])
   @@index([questionId])
+}
+
+// ─── Πρότυπα εξαγωγής προμηθευτή (extraction templates) ─────────────────────
+// Spec: docs/superpowers/specs/2026-09-09-extraction-templates-design.md
+
+enum TemplateMode {
+  AUTO
+  SEMI_AUTO
+  MANUAL
+}
+
+enum TemplateStatus {
+  DRAFT
+  ACTIVE
+}
+
+enum TemplateFieldKind {
+  SINGLE
+  TABLE
+}
+
+enum TemplateValueType {
+  TEXT
+  NUMBER
+  CURRENCY
+  DATE
+  LIST
+}
+
+enum MappingTarget {
+  INVOICE
+  EXCEL
+}
+
+enum TemplateRunStatus {
+  EXTRACTED
+  REVIEW
+  BLOCKED
+  POSTED
+  FAILED
+}
+
+enum TemplateSampleStatus {
+  PENDING
+  READ
+  VERIFIED
+}
+
+enum TemplateJobStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+enum TemplateJobItemStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+}
+
+model ExtractionTemplate {
+  id               String          @id @default(cuid())
+  name             String
+  vatNumber        String                          // ΑΦΜ προμηθευτή (9 ψηφία, normalized)
+  traderTrdr       Int?                            // → SoftoneTrader.trdr (προαιρετικό)
+  supplierName     String?                         // denormalized για λίστες
+  docType          OcrDocType      @default(INVOICE)
+  mode             TemplateMode    @default(SEMI_AUTO)
+  status           TemplateStatus  @default(DRAFT)
+  version          Int             @default(1)
+  sampleStorageKey String?                         // Bunny private — δείγμα εικόνας/PDF
+  sampleMimeType   String?
+  samplePageCount  Int?
+  sampleThumbUrl   String?
+  notifyEmails     String?                         // ";"-separated (NOTIFY)
+  timesUsed        Int             @default(0)
+  createdById      String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  fields           TemplateField[]
+  mappings         TemplateMapping[]
+  conditions       TemplateCondition[]
+  runs             TemplateRun[]
+  samples          TemplateSample[]
+  jobs             TemplateJob[]
+
+  @@unique([vatNumber, docType, name])
+  @@index([vatNumber, docType, status])
+}
+
+model TemplateField {
+  id         String             @id @default(cuid())
+  templateId String
+  template   ExtractionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  key        String                                // slug (auto από label), σταθερό
+  label      String
+  kind       TemplateFieldKind  @default(SINGLE)
+  valueType  TemplateValueType  @default(TEXT)
+  color      String                                // hex, μοναδικό μέσα στο πρότυπο
+  region     Json?                                 // { page:number, bbox:[x,y,w,h] } 0-1
+  columns    Json?                                 // TABLE → [{ key, label, valueType }]
+  aiHint     String?            @db.Text
+  required   Boolean            @default(false)
+  order      Int                @default(0)
+
+  @@unique([templateId, key])
+  @@index([templateId])
+}
+
+model TemplateMapping {
+  id         String             @id @default(cuid())
+  templateId String
+  template   ExtractionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  name       String             @default("default")
+  target     MappingTarget
+  isDefault  Boolean            @default(true)
+  rows       Json                                  // INVOICE: [{fieldKey, invoiceKey}] · EXCEL: [{fieldKey, column, order}]
+
+  @@unique([templateId, name])
+}
+
+model TemplateCondition {
+  id         String             @id @default(cuid())
+  templateId String
+  template   ExtractionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  name       String
+  order      Int                @default(0)
+  isActive   Boolean            @default(true)
+  logic      String             @default("AND")   // AND | OR
+  clauses    Json                                  // [{ fieldKey, op, value }]
+  actions    Json                                  // [{ type, params }]
+
+  @@index([templateId, order])
+}
+
+model TemplateRun {
+  id              String             @id @default(cuid())
+  templateId      String
+  template        ExtractionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  templateVersion Int
+  documentId      String
+  document        OcrDocument        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  status          TemplateRunStatus
+  values          Json                              // { key: FieldValue }
+  matched         Json                              // [{ conditionId, name, actions }]
+  flags           Json?                             // { review?: string[], blocked?: string[] }
+  mappingName     String
+  model           String?
+  tokensUsed      Int?
+  durationMs      Int?
+  createdAt       DateTime           @default(now())
+
+  @@index([documentId])
+  @@index([templateId, createdAt])
+}
+
+// Δείγματα εκπαίδευσης (spec §11) — πολλά αρχεία ανά πρότυπο, με επιβεβαιωμένες τιμές.
+model TemplateSample {
+  id          String               @id @default(cuid())
+  templateId  String
+  template    ExtractionTemplate   @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  fileName    String
+  storageKey  String
+  mimeType    String
+  pageCount   Int?
+  status      TemplateSampleStatus @default(PENDING)
+  expected    Json?                                 // { fieldKey: value } επιβεβαιωμένο από χρήστη
+  lastResult  Json?                                 // { fieldKey: { raw, value, source, match } }
+  score       Float?                                // 0-1 ποσοστό πεδίων που ταιριάζουν
+  createdById String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([templateId])
+}
+
+// Εργασίες μαζικής σάρωσης (spec §12).
+model TemplateJob {
+  id              String            @id @default(cuid())
+  templateId      String
+  template        ExtractionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  templateVersion Int
+  status          TemplateJobStatus @default(QUEUED)
+  total           Int               @default(0)
+  done            Int               @default(0)
+  failed          Int               @default(0)
+  createdById     String?
+  createdAt       DateTime          @default(now())
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  items           TemplateJobItem[]
+
+  @@index([status, createdAt])
+  @@index([templateId, createdAt])
+}
+
+model TemplateJobItem {
+  id         String                @id @default(cuid())
+  jobId      String
+  job        TemplateJob           @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  order      Int
+  fileName   String
+  storageKey String
+  mimeType   String
+  size       Int
+  status     TemplateJobItemStatus @default(QUEUED)
+  values     Json?                                  // { fieldKey: FieldValue }
+  matched    Json?
+  flags      Json?
+  model      String?
+  tokensUsed Int?
+  durationMs Int?
+  error      String?
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  @@index([jobId, order])
+  @@index([status])
 }
