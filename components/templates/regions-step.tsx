@@ -1,21 +1,38 @@
 'use client';
 
 import * as React from 'react';
-import { FiCrosshair, FiPlus, FiSave, FiTrash2, FiZap } from 'react-icons/fi';
+import { FiCrosshair, FiEye, FiPlay, FiPlus, FiSave, FiTarget, FiTrash2, FiZap } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { RegionMarker } from '@/components/ui/region-marker';
-import { COLOR_PALETTE, nextColor, type FieldDef, type Region } from '@/lib/templates/schema';
+import { COLOR_PALETTE, nextColor, uniqueKey, type FieldDef, type Region } from '@/lib/templates/schema';
 import { KIND_LABEL } from '@/lib/templates/labels';
 import { useDesigner } from './designer-context';
 import { FieldForm } from './field-form';
+import { TestJsonDialog } from './test-json-dialog';
 import { useServerDraft } from './use-server-draft';
-import { templatesApi, errorMessage, type TestFieldResult } from './api';
+import { templatesApi, errorMessage, type TestFieldResult, type TestTemplateResult } from './api';
 
 const newField = (fields: FieldDef[]): FieldDef => ({
   key: '', label: '', kind: 'SINGLE', valueType: 'TEXT', color: nextColor(fields.map((f) => f.color)),
   region: null, columns: null, aiHint: null, required: false, order: fields.length,
+});
+
+/** `marking` sentinel: the next drawn box belongs to no field yet — the model names it. */
+const NEW_MARK = '__new__';
+
+/** What the detection endpoints hand back, ready to become a field. */
+type Detected = {
+  label: string; key: string; kind: FieldDef['kind']; valueType: FieldDef['valueType'];
+  value: string; columns: FieldDef['columns']; region: Region;
+};
+
+/** Field for one detection, keyed and coloured against `draft` so a whole batch stays self-consistent. */
+const detectedField = (draft: FieldDef[], d: Detected): FieldDef => ({
+  key: uniqueKey(d.key, draft.map((f) => f.key)), label: d.label, kind: d.kind, valueType: d.valueType,
+  color: nextColor(draft.map((f) => f.color)), region: d.region, columns: d.columns,
+  aiHint: null, required: false, order: draft.length,
 });
 
 export function RegionsStep() {
@@ -24,9 +41,16 @@ export function RegionsStep() {
   // but identical `fields`, and must not reset unsaved edits here.
   const [fields, setFields, dirty] = useServerDraft<FieldDef[]>(dto.fields);
   const [page, setPage] = React.useState(0);
-  const [marking, setMarking] = React.useState<string | null>(null);         // key of the field receiving the next drawn box
+  const [marking, setMarking] = React.useState<string | null>(null);         // key of the field receiving the next drawn box, or NEW_MARK
   const [tests, setTests] = React.useState<Record<string, TestFieldResult | { error: string } | 'busy'>>({});
   const [busy, setBusy] = React.useState(false);
+  const [detecting, setDetecting] = React.useState(false);
+  // Keys of fields the model proposed and the user has not saved yet — they carry a «πρόταση» chip.
+  const [proposed, setProposed] = React.useState<Set<string>>(new Set());
+  const [scanMode, setScanMode] = React.useState<'marks' | 'all'>('all');
+  const [testResult, setTestResult] = React.useState<TestTemplateResult | null>(null);
+  const [testOpen, setTestOpen] = React.useState(false);
+  const [testing, setTesting] = React.useState(false);
   // Which saved field has its key unlocked for editing. Held here (not in FieldForm)
   // so it clears when another field is selected but survives a rename of this one.
   const [keyUnlockedFor, setKeyUnlockedFor] = React.useState<string | null>(null);
@@ -69,11 +93,9 @@ export function RegionsStep() {
   const selected = fields.find((f) => f.key === focusKey) ?? null;
   const update = (key: string, f: FieldDef) => {
     let next = f;
-    if (f.key !== key && fields.some((x) => x.key === f.key && x.key !== key)) {
-      let n = 2;
-      let candidate = `${f.key}_${n}`;
-      while (fields.some((x) => x.key === candidate && x.key !== key)) { n += 1; candidate = `${f.key}_${n}`; }
-      next = { ...f, key: candidate };
+    if (f.key !== key) {
+      const free = uniqueKey(f.key, fields.filter((x) => x.key !== key).map((x) => x.key));
+      if (free !== f.key) next = { ...f, key: free };
     }
     setFields((fs) => fs.map((x) => (x.key === key ? next : x)));
     if (next.key !== key) {
@@ -83,6 +105,8 @@ export function RegionsStep() {
       if (focusKey === key) setFocusKey(next.key);
       setMarking((mk) => (mk === key ? next.key : mk));
       setTests((t) => { if (!(key in t)) return t; const { [key]: moved, ...rest } = t; return { ...rest, [next.key]: moved }; });
+      // Correcting a proposal's label re-slugs its key — the «πρόταση» chip must follow it.
+      setProposed((p) => { if (!p.has(key)) return p; const n = new Set(p); n.delete(key); n.add(next.key); return n; });
     }
   };
 
@@ -97,14 +121,67 @@ export function RegionsStep() {
     if (focusKey === key) setFocusKey(null);
     setMarking((mk) => (mk === key ? null : mk));
     setTests((t) => { if (!(key in t)) return t; const { [key]: dropped, ...rest } = t; return rest; });
+    setProposed((p) => { if (!p.has(key)) return p; const n = new Set(p); n.delete(key); return n; });
+  };
+
+  /** Append one detected field with its read value already shown as a test chip. Returns its final key. */
+  const addDetected = (d: Detected, meta: { model?: string; tokensUsed?: number; durationMs?: number }) => {
+    const f = detectedField(fields, d);
+    setFields((fs) => [...fs, f]);
+    setTests((t) => ({ ...t, [f.key]: { raw: d.value, value: d.value, source: 'vision', model: meta.model ?? null, tokensUsed: meta.tokensUsed ?? 0, color: f.color, durationMs: meta.durationMs ?? 0 } }));
+    return f.key;
+  };
+
+  // The model names the field behind a freshly drawn box (spec §14.1-6).
+  const detectFromRegion = async (region: Region) => {
+    if (atColorCap) { toast.error(COLOR_CAP_MSG); return; }
+    setDetecting(true);
+    try {
+      const r = await templatesApi.detectField(dto.id, region, fields.map((f) => f.key));
+      setFocusKey(addDetected({ label: r.label, key: r.key, kind: r.kind, valueType: r.valueType, value: r.value, columns: r.columns, region }, r));
+      toast.success(`Αναγνωρίστηκε «${r.label}»`);
+    } catch (e) { toast.error(errorMessage(e)); } finally { setDetecting(false); }
+  };
+
+  // Whole-page scan: every label→value pair ('all') or only what the accountant circled ('marks') — spec §14.8.
+  const detectMarks = async (mode: 'marks' | 'all') => {
+    const free = COLOR_PALETTE.length - fields.length;      // the server caps against saved fields; the draft holds colours too
+    if (free <= 0) { toast.error(COLOR_CAP_MSG); return; }
+    setDetecting(true);
+    try {
+      const r = await templatesApi.detectMarks(dto.id, page, mode, fields.map((f) => f.key));
+      if (r.marks.length === 0) { toast.info(mode === 'marks' ? 'Δεν βρέθηκαν σημειώσεις στη σελίδα' : 'Δεν βρέθηκαν πεδία στη σελίδα'); return; }
+      const take = r.marks.slice(0, free);
+      const draft = [...fields];
+      const chips: Record<string, TestFieldResult> = {};
+      for (const m of take) {
+        const f = detectedField(draft, { label: m.label, key: m.key, kind: 'SINGLE', valueType: m.valueType, value: m.value, columns: null, region: { page, bbox: m.bbox } });
+        draft.push(f);
+        chips[f.key] = { raw: m.value, value: m.value, source: 'vision', model: r.model, tokensUsed: 0, color: f.color, durationMs: 0 };
+      }
+      setFields(draft);
+      setTests((t) => ({ ...t, ...chips }));
+      setProposed((p) => { const n = new Set(p); for (const k of Object.keys(chips)) n.add(k); return n; });
+      const msg = `${take.length} προτάσεις — έλεγξε, διόρθωσε και αποθήκευσε`;
+      if (take.length < r.marks.length) toast.warning(`${msg} · ${r.marks.length - take.length} παραλείφθηκαν (όριο χρωμάτων)`);
+      else toast.success(msg);
+    } catch (e) { toast.error(errorMessage(e)); } finally { setDetecting(false); }
+  };
+
+  const runTest = async () => {
+    setTesting(true); setTestOpen(true); setTestResult(null);
+    try { setTestResult(await templatesApi.test(dto.id)); }
+    catch (e) { setTestOpen(false); toast.error(errorMessage(e)); }
+    finally { setTesting(false); }
   };
 
   const onRegion = (box: { x: number; y: number; w: number; h: number }, pg: number) => {
     const key = marking; setMarking(null);
     if (key == null) return;
+    const region: Region = { page: pg, bbox: [round(box.x), round(box.y), round(box.w), round(box.h)] };
+    if (key === NEW_MARK) { void detectFromRegion(region); return; }
     const target = fields.find((f) => f.key === key);
     if (!target) return;
-    const region: Region = { page: pg, bbox: [round(box.x), round(box.y), round(box.w), round(box.h)] };
     update(key, { ...target, region });
   };
 
@@ -130,6 +207,7 @@ export function RegionsStep() {
       const res = await templatesApi.putFields(dto.id, fields);
       const { cleanup, ...next } = res;
       setDto(next);
+      setProposed(new Set());                               // everything on screen is now saved, not a proposal
       const maps = cleanup?.mappings.map((m) => m.name) ?? [];
       const conds = cleanup?.conditions.map((c) => c.name) ?? [];
       if (maps.length || conds.length) {
@@ -157,7 +235,8 @@ export function RegionsStep() {
       <div className="min-w-0">
         <div className="mb-2 flex flex-wrap items-center gap-2 text-[12px]">
           <span className="font-semibold">Περιοχές</span>
-          {marking != null && <span className="rounded-full bg-[#FFF1E6] px-2 py-0.5 text-[11px] font-medium text-[#C2410C]">Σύρε πλαίσιο πάνω στο έγγραφο για «{fields.find((f) => f.key === marking)?.label || 'νέο πεδίο'}» · Esc για ακύρωση</span>}
+          {canManage && <Button size="sm" variant="secondary" onClick={runTest} disabled={testing || !dto.fields.some((f) => f.region)} title="Διαβάζει όλα τα αποθηκευμένα πεδία από το δείγμα"><FiPlay className="mr-1 size-3.5" /> Δοκιμή προτύπου</Button>}
+          {marking != null && <span className="rounded-full bg-[#FFF1E6] px-2 py-0.5 text-[11px] font-medium text-[#C2410C]">{marking === NEW_MARK ? 'Σύρε πλαίσιο — θα αναγνωριστεί το πεδίο · Esc για ακύρωση' : `Σύρε πλαίσιο πάνω στο έγγραφο για «${fields.find((f) => f.key === marking)?.label || 'νέο πεδίο'}» · Esc για ακύρωση`}</span>}
           <span className="ml-auto text-muted-foreground">Σελίδα {page + 1} / {dto.sample.pageCount}</span>
           <Button variant="ghost" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>‹</Button>
           <Button variant="ghost" size="sm" disabled={page >= dto.sample.pageCount - 1} onClick={() => setPage((p) => p + 1)}>›</Button>
@@ -179,9 +258,22 @@ export function RegionsStep() {
 
       {/* Field list + form */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-[12px] font-semibold">Πεδία <span className="ml-1 rounded-full bg-sisyphus-50 px-1.5 text-[10px] text-sisyphus-700">{fields.length}</span></span>
-          {canManage && <div className="flex gap-1"><Button size="sm" variant="secondary" onClick={add} disabled={fields.some((f) => !f.key) || atColorCap} title={atColorCap ? COLOR_CAP_MSG : undefined}><FiPlus className="mr-1 size-3.5" /> Πεδίο</Button><Button size="sm" onClick={save} disabled={!dirty || busy}><FiSave className="mr-1 size-3.5" /> {busy ? 'Αποθήκευση…' : 'Αποθήκευση'}</Button></div>}
+          {canManage && <div className="flex flex-wrap gap-1">
+            <Button size="sm" variant="secondary" onClick={add} disabled={fields.some((f) => !f.key) || atColorCap} title={atColorCap ? COLOR_CAP_MSG : undefined}><FiPlus className="mr-1 size-3.5" /> Πεδίο</Button>
+            <Button size="sm" variant="secondary" onClick={() => { setFocusKey(null); setMarking(NEW_MARK); }} disabled={atColorCap || detecting} title="Σύρε πλαίσιο — το μοντέλο ονομάζει το πεδίο"><FiTarget className="mr-1 size-3.5" /> Από περιοχή</Button>
+            <div className="inline-flex items-stretch overflow-hidden rounded-sm border border-input">
+              <select aria-label="Τρόπος σάρωσης" value={scanMode} onChange={(e) => setScanMode(e.target.value as 'marks' | 'all')} className="h-8 cursor-pointer border-r border-input bg-background px-1.5 text-[11px]">
+                <option value="all">Όλα τα πεδία</option>
+                <option value="marks">Μόνο σημειωμένα</option>
+              </select>
+              <button type="button" onClick={() => detectMarks(scanMode)} disabled={detecting || atColorCap} className="inline-flex h-8 cursor-pointer items-center gap-1 px-2 text-[12px] hover:bg-[var(--cx-hover)] disabled:opacity-50">
+                <FiEye className={cn('size-3.5', detecting && 'animate-pulse')} /> Αυτόματη σάρωση
+              </button>
+            </div>
+            <Button size="sm" onClick={save} disabled={!dirty || busy}><FiSave className="mr-1 size-3.5" /> {busy ? 'Αποθήκευση…' : 'Αποθήκευση'}</Button>
+          </div>}
         </div>
         <ul className="max-h-[260px] divide-y divide-border overflow-auto rounded-md border border-border">
           {fields.length === 0 && <li className="p-3 text-[12px] italic text-muted-foreground">Κανένα πεδίο. Πάτησε «Πεδίο».</li>}
@@ -190,6 +282,7 @@ export function RegionsStep() {
               <button type="button" onClick={() => setFocusKey(f.key)} className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left">
                 <span aria-hidden className="size-3 shrink-0 rounded-full" style={{ backgroundColor: f.color }} />
                 <span className="truncate font-medium">{f.label || 'Νέο πεδίο'}</span>
+                {proposed.has(f.key) && <span className="shrink-0 rounded-full bg-[#FDF3E3] px-1.5 text-[10px] font-medium text-[#B45309]">πρόταση</span>}
                 <span className="shrink-0 text-[10px] text-muted-foreground">{KIND_LABEL[f.kind]}{f.region ? '' : ' · χωρίς περιοχή'}</span>
               </button>
               {t && t !== 'busy' && ('error' in t ? <span className="max-w-[120px] truncate text-[10px] text-dg-red-600" title={t.error}>{t.error}</span> : <span className="max-w-[140px] truncate rounded-sm px-1.5 py-0.5 font-mono text-[10px]" style={{ backgroundColor: f.color + '1A', color: f.color }} title={`${t.raw ?? ''} (${t.source}, ${t.model ?? ''})`}>{String(t.value ?? '∅')}</span>)}
@@ -209,6 +302,8 @@ export function RegionsStep() {
           </div>
         )}
       </div>
+
+      <TestJsonDialog open={testOpen} onOpenChange={setTestOpen} result={testResult} slug={dto.slug} />
     </div>
   );
 }
