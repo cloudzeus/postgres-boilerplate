@@ -2335,6 +2335,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   }
   const bad = parsed.data.mappings.flatMap((m) => m.rows.map((r) => r.fieldKey)).filter((k) => !valid.has(k));
   if (bad.length) return NextResponse.json({ error: 'unknown_field', message: `Άγνωστα πεδία: ${bad.join(', ')}` }, { status: 422 });
+  // projectToInvoice rebuilds items[] from ONE table: reject INVOICE mappings whose line rows span two tables.
+  for (const m of parsed.data.mappings) {
+    if (m.target !== 'INVOICE') continue;
+    const tables = new Set(m.rows.filter((r) => r.invoiceKey.startsWith('items.')).map((r) => r.fieldKey.split('.')[0]));
+    if (tables.size > 1) return NextResponse.json({ error: 'multiple_tables', message: `Το mapping «${m.name}» χαρτογραφεί γραμμές από δύο πίνακες (${[...tables].join(', ')}). Επίλεξε έναν.` }, { status: 422 });
+  }
 
   let seenDefault = false;
   const mappings = parsed.data.mappings.map((m, i) => {
