@@ -934,6 +934,7 @@ model OcrDocument {
   taxTemplateId String?
   taxTemplate   TaxFormTemplate? @relation(fields: [taxTemplateId], references: [id], onDelete: SetNull)
   templateRuns  TemplateRun[]
+  reviewFlags   Json?                                 // { review: string[], blocked: string[], templateSlug, templateName, runStatus, runId } — latest run, for the list
   fiscalYear    Int?
 
   @@index([status])
@@ -1748,6 +1749,8 @@ model TemplateRun {
   documentId      String
   document        OcrDocument        @relation(fields: [documentId], references: [id], onDelete: Cascade)
   status          TemplateRunStatus
+  trigger         String             @default("upload")   // upload | manual | reextract
+  error           String?            @db.Text
   values          Json                              // { key: FieldValue }
   matched         Json                              // [{ conditionId, name, actions }]
   flags           Json?                             // { review?: string[], blocked?: string[] }
