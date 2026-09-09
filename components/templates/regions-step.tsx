@@ -26,6 +26,21 @@ export function RegionsStep() {
   const [busy, setBusy] = React.useState(false);
   React.useEffect(() => setFields(dto.fields), [dto.fields]);
 
+  // The step lives inside a flex row (stepper + flow aside), so viewport-keyed
+  // breakpoints lie about the available width. Measure our own box instead.
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const [wide, setWide] = React.useState(false);
+  const hasSample = !!dto.sample;
+  React.useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) setWide(entry.contentRect.width >= 900);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasSample]);
+
   const dirty = JSON.stringify(fields) !== JSON.stringify(dto.fields);
   const selected = fields.find((f) => f.key === focusKey) ?? null;
   const update = (key: string, f: FieldDef) => {
@@ -72,12 +87,12 @@ export function RegionsStep() {
 
   if (!dto.sample) return <p className="text-[12px] text-muted-foreground">Ανέβασε πρώτα δείγμα στο βήμα «Δείγμα».</p>;
 
-  const saved = fields.filter((f) => f.region && f.region.page === page).map((f) => ({ bbox: f.region!.bbox, color: f.color, active: f.key === focusKey }));
+  const saved = fields.filter((f) => f.region && f.region.page === page).map((f) => ({ bbox: f.region!.bbox, color: f.color, active: f.key === focusKey, label: f.label || f.key }));
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+    <div ref={rootRef} className={cn(wide ? 'grid grid-cols-[minmax(0,1fr)_360px] gap-4' : 'flex flex-col gap-4')}>
       {/* Canvas */}
-      <div>
+      <div className="min-w-0">
         <div className="mb-2 flex flex-wrap items-center gap-2 text-[12px]">
           <span className="font-semibold">Περιοχές</span>
           {marking != null && <span className="rounded-full bg-[#FFF1E6] px-2 py-0.5 text-[11px] font-medium text-[#C2410C]">Σύρε πλαίσιο πάνω στο έγγραφο για «{fields.find((f) => f.key === marking)?.label || 'νέο πεδίο'}» · Esc για ακύρωση</span>}
@@ -90,6 +105,7 @@ export function RegionsStep() {
             pageImageUrl={(p) => templatesApi.pageImageUrl(dto.id, p, dto.version)}
             pageCount={dto.sample.pageCount} page={page} onPageChange={setPage}
             savedRegions={saved} isMarking={marking != null} onRegionComplete={onRegion} showNav={false}
+            className="w-full"
           />
         </div>
         <ul className="mt-2 flex flex-wrap gap-1.5">

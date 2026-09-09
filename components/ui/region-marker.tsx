@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { useMarquee, type NormBox } from '@/app/admin/ocr/[id]/use-marquee';
 
-export type SavedRegion = { bbox: [number, number, number, number]; color?: string; active?: boolean };
+export type SavedRegion = { bbox: [number, number, number, number]; color?: string; active?: boolean; label?: string };
 
 type Props = {
   pageImageUrl: (page: number) => string;
@@ -94,14 +94,22 @@ export function RegionMarker({
             <div className="pointer-events-none absolute border-2 border-sisyphus-500 bg-sisyphus-500/10"
               style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%` }} />
           )}
-          {!active && savedRegions.map((r, i) => (
-            <div key={i} className="pointer-events-none absolute border-2"
-              style={{
-                left: `${r.bbox[0] * 100}%`, top: `${r.bbox[1] * 100}%`, width: `${r.bbox[2] * 100}%`, height: `${r.bbox[3] * 100}%`,
-                borderColor: r.active ? '#E31E2A' : '#10b981',
-                background: (r.active ? '#E31E2A' : '#10b981') + '1a',
-              }} />
-          ))}
+          {!active && savedRegions.map((r, i) => {
+            const c = r.color ?? '#10b981';
+            return (
+              <div key={i} className="pointer-events-none absolute overflow-visible"
+                style={{
+                  left: `${r.bbox[0] * 100}%`, top: `${r.bbox[1] * 100}%`, width: `${r.bbox[2] * 100}%`, height: `${r.bbox[3] * 100}%`,
+                  border: `${r.active ? 3 : 2}px solid ${c}`,
+                  background: c + (r.active ? '33' : '1A'),
+                  boxShadow: r.active ? `0 0 0 2px #fff, 0 0 0 4px ${c}` : undefined,
+                }}>
+                {r.label && (
+                  <span className="absolute -top-4 left-0 rounded-sm px-1 text-[10px] font-medium text-white" style={{ background: c }}>{r.label}</span>
+                )}
+              </div>
+            );
+          })}
         </div>
       ) : null}
     </div>

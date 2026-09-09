@@ -38,7 +38,9 @@ export function TemplateDesigner({ initial, canManage, canPost }: { initial: Tem
   const [dto, setDto] = React.useState(initial);
   const [step, setStep] = React.useState(() => (initial.sample ? (initial.fields.length ? 2 : 1) : 0));
   const [focusKey, setFocusKey] = React.useState<string | null>(null);
-  const [flowOpen, setFlowOpen] = React.useState(true);
+  // The regions step needs the width, so start with the flow panel collapsed when
+  // we land there. Only the initial default — navigating to it later keeps it open.
+  const [flowOpen, setFlowOpen] = React.useState(() => !(initial.sample && initial.fields.length));
 
   const ctx = React.useMemo(() => ({ dto, setDto, canManage, canPost, focusKey, setFocusKey, goToStep: setStep }), [dto, canManage, canPost, focusKey]);
   const Current = [SupplierStep, SampleStep, RegionsStep, MappingStep, ConditionsStep][step];
@@ -47,7 +49,7 @@ export function TemplateDesigner({ initial, canManage, canPost }: { initial: Tem
     <DesignerContext.Provider value={ctx}>
       <div className="flex min-h-[calc(100dvh-8rem)] flex-col gap-3 rounded-lg bg-neutral-8 p-3 lg:flex-row lg:gap-4 lg:p-4">
         {/* Stepper */}
-        <nav aria-label="Βήματα" className="shrink-0 lg:w-56">
+        <nav aria-label="Βήματα" className="shrink-0 lg:w-52">
           <Link href="/admin/ocr/templates" className="mb-2 inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground"><FiArrowLeft className="size-3" /> Πρότυπα</Link>
           <div className="rounded-md border border-border bg-white p-1 shadow-fluent-2">
             {STEPS.map((s, i) => {
@@ -79,7 +81,7 @@ export function TemplateDesigner({ initial, canManage, canPost }: { initial: Tem
         </section>
 
         {/* Flow panel */}
-        <aside className={cn('shrink-0 rounded-md border border-border bg-white shadow-fluent-2', flowOpen ? 'lg:w-[380px]' : 'lg:w-10')}>
+        <aside className={cn('shrink-0 rounded-md border border-border bg-white shadow-fluent-2', flowOpen ? 'lg:w-[320px]' : 'lg:w-10')}>
           <button type="button" onClick={() => setFlowOpen((o) => !o)} className="flex h-9 w-full cursor-pointer items-center justify-between px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground">
             {flowOpen ? <><span>Ροή</span><span aria-hidden>›</span></> : <span aria-hidden>‹</span>}
           </button>
