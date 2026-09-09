@@ -13,4 +13,9 @@ describe('toOutputJson', () => {
   it('keeps null for fields that were not read', () => {
     expect(toOutputJson({ slug: 's', version: 1 }, { a: { ...fv(null), source: 'none' } }).values).toEqual({ a: null });
   });
+  it('omits keys absent from values entirely', () => {
+    const out = toOutputJson({ slug: 's', version: 1 }, { a: fv('x') });
+    expect(out.values).toEqual({ a: 'x' });
+    expect(Object.prototype.hasOwnProperty.call(out.values, 'b')).toBe(false);
+  });
 });
