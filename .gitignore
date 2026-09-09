@@ -51,3 +51,4 @@ next-env.d.ts
 .vercel
 .claude/launch.json
 .claude/worktrees/
+.local/

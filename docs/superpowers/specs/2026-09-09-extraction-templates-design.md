@@ -279,3 +279,86 @@ components/templates/
 ## 13. Σημειώσεις από review (2026-09-10)
 - **Διαγραφή προτύπου με ιστορικό:** το DELETE αρνείται (409) όταν υπάρχουν `TemplateRun` ή `TemplateJob`. Το πρότυπο μπορεί να γίνει DRAFT/ανενεργό αντί να διαγραφεί, ώστε να μη χαθεί audit/κόστος. (plan 3)
 - **Ακύρωση job:** τα items που είναι ακόμη QUEUED μένουν QUEUED· ο worker ελέγχει `job.status` πριν πάρει item και σταματά σε CANCELLED. Η λίστα δείχνει «ακυρώθηκε (Ν εκκρεμή)». (plan 4)
+
+---
+
+## 14. Αναθεώρηση 2026-09-09 (βράδυ): ανεξάρτητα πρότυπα, auto-slug, ανίχνευση πεδίων, JSON
+
+Αφορμή: ο χρήστης θέλει πρότυπα και για **ειδικά έγγραφα εκτός SoftOne** (π.χ. έντυπο service συνεργείου με χιλιόμετρα, φόρμα εκκαθάρισης εξόδων), συχνά **κακοτραβηγμένες φωτογραφίες**. Ροή: «χαρτογραφούμε το έντυπο και τα πεδία, ανεβάζουμε φωτογραφίες για εκπαίδευση, μετά ξέρει τι ψάχνει σε κάθε αρχείο· βγαίνει ένα **JSON με key/values** για κάθε χρήση». Και: «**πρώτα** δημιουργούμε το πρότυπο και **μετά, αν θέλουμε**, το συσχετίζουμε με προμηθευτή ή τμήμα». Όπως στο damask: μαρκάρουμε περιοχή → αναγνωρίζει το **όνομα του πεδίου** και παράγει **slug**· και το **έντυπο** έχει δικό του **slug**.
+
+Δείγμα πελάτη: `~/Downloads/SKM_C25826071716430.pdf` (31 σελίδες, 26 εκδότες). Ο λογιστής έχει **κυκλώσει** σε κάθε έντυπο τι θέλει να βρίσκουμε (αριθμός, ημερομηνία, ΑΦΜ, σύνολα) και έχει γράψει **χειρόγραφα το λογιστικό άρθρο** (π.χ. `60.64.00.000.010`) και επιμερισμούς. Δεν μπαίνει στο repo (δεδομένα πελάτη).
+
+### 14.1 Αποφάσεις
+
+1. **Το πρότυπο είναι ανεξάρτητο.** Δημιουργείται μόνο με **όνομα**. Το **slug** παράγεται αυτόματα (`slugKey(name)`, μοναδικό — αν υπάρχει, `_2`, `_3`…), φαίνεται στον διάλογο και μπορεί να διορθωθεί από τον χρήστη. Αλλάζει μόνο όσο το πρότυπο **δεν έχει εκτελέσεις** (`runs = 0`) — το slug είναι το κλειδί του JSON εξόδου.
+2. **Συσχέτιση προαιρετική**, στο βήμα «Στοιχεία»: **προμηθευτής SoftOne** (`traderTrdr`, `vatNumber`, `supplierName`, με καθαρισμό) και **τμήμα/κατηγορία** (`department`, ελεύθερο κείμενο, π.χ. «Συνεργείο», «Λογιστήριο»). Το ΑΦΜ είναι προαιρετικό (9 ψηφία όταν δίνεται). Πρότυπο **με** ΑΦΜ εφαρμόζεται αυτόματα στο upload όταν ταιριάζει το ΑΦΜ εκδότη (plan 3)· πρότυπο **χωρίς** ΑΦΜ εκτελείται μόνο επιλεγμένο (χειροκίνητα ή σε job).
+3. **Ο «τύπος εγγράφου» (Τιμολόγιο/Απόδειξη) καταργείται** από το μοντέλο και το UI. Μοναδικότητα: `slug`.
+4. **Προεπιλεγμένη λειτουργία `MANUAL`** («μόνο εξαγωγή → JSON»). Η ενεργοποίηση απαιτεί δείγμα και ≥1 πεδίο με περιοχή. Mapping απαιτείται **μόνο** για `SEMI_AUTO`/`AUTO` (που αναρτούν στο SoftOne). Το βήμα «Mapping» σημαίνεται «προαιρετικό».
+5. **Έξοδος JSON** (ίδιο σχήμα παντού — δοκιμή, runs plan 3, jobs plan 4):
+   ```json
+   { "template": "<slug>", "version": 3, "extractedAt": "2026-09-09T18:00:00.000Z",
+     "values": { "arithmos_paraστatikou": "309", "imerominia": "2026-06-30", "lines": [ { "eidos": "…", "poso": 185 } ] } }
+   ```
+   `values[key]` = η **coerced** τιμή (`FieldValue.value`). Στον designer: κουμπί **«Δοκιμή προτύπου»** διαβάζει όλα τα πεδία με περιοχή από το δείγμα και δείχνει το JSON (αντιγραφή/λήψη).
+6. **Νέο πεδίο από περιοχή** (damask): ο χρήστης πατά «Πεδίο από περιοχή» και σύρει πλαίσιο **χωρίς** να έχει φτιάξει πεδίο. Το μοντέλο διαβάζει το crop και επιστρέφει `{ label, value, kind, valueType, columns? }`. Δημιουργείται πεδίο (unsaved) με `label`, `key = slugKey(label)` (μοναδικό), `valueType` (από το μοντέλο, με έλεγχο `guessValueType(value)`), επόμενο χρώμα, η περιοχή, και η τιμή εμφανίζεται ως αποτέλεσμα δοκιμής. Αν το μοντέλο δεν βρει ετικέτα: «Πεδίο N». Αν είναι επικεφαλίδα/πίνακας: `kind TABLE` με στήλες (label → key).
+7. **Ανίχνευση σημειώσεων** (νέο, από το δείγμα του πελάτη): κουμπί «Ανίχνευση σημειώσεων» στέλνει **όλη τη σελίδα** στο μοντέλο και ζητά τις **κυκλωμένες/σημειωμένες** περιοχές ως `{ label, value, bbox }` (bbox normalized 0–1). Προτείνονται πεδία (unsaved, με περιοχές και χρώματα) που ο χρήστης κρατά ή σβήνει πριν αποθηκεύσει. Χειρόγραφος **λογιστικός κωδικός** (μοτίβο `\d{2}(\.\d{2,3})+`) προτείνεται ως πεδίο «Λογιστικό άρθρο (χειρόγραφο)» / key `gl_account_handwritten`. Δεν ζωγραφίζει τίποτα μόνο του στη βάση — μόνο πρόταση.
+8. **Χωρίς αυτόματη αντιστοίχιση σε SoftOne** για γενικά έγγραφα (εκτός scope· μένουν στο MANUAL). Το «τμήμα» είναι ετικέτα οργάνωσης, όχι λογική.
+
+### 14.2 Μοντέλο (migration `20260909200000_template_standalone`)
+
+```prisma
+model ExtractionTemplate {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique           // auto από name, κλειδί JSON εξόδου
+  department   String?                    // τμήμα/κατηγορία (ελεύθερο)
+  vatNumber    String?                    // ΑΦΜ προμηθευτή — προαιρετικό
+  traderTrdr   Int?
+  supplierName String?
+  mode         TemplateMode   @default(MANUAL)
+  // … υπόλοιπα ως έχουν, ΧΩΡΙΣ docType
+  @@index([vatNumber, status])
+}
+```
+SQL: `ADD COLUMN slug`, backfill `lower(regexp_replace(name,'[^a-zA-Z0-9]+','_','g')) || '_' || left(id,6)` (λατινικό μόνο — τα ελληνικά ονόματα των λίγων δοκιμαστικών γραμμών παίρνουν `_<id>`), `SET NOT NULL`, unique index· `DROP` unique `(vatNumber, docType, name)` και index `(vatNumber, docType, status)`· `DROP COLUMN "docType"`; `ALTER vatNumber DROP NOT NULL`; `ADD department`; `ALTER mode SET DEFAULT 'MANUAL'`; `CREATE INDEX (vatNumber, status)`. Το enum `OcrDocType` μένει (το χρησιμοποιεί το `OcrDocument`).
+Bunny key δείγματος: `templates/<id>/sample-<nanoid>.<ext>` (χωρίς ΑΦΜ).
+
+### 14.3 API
+
+| Endpoint | Αλλαγή |
+|---|---|
+| `POST /api/admin/ocr/templates` | body `{ name, slug?, department?, vatNumber?, traderTrdr?, supplierName? }`. Χωρίς `slug` → `slugKey(name)` + μοναδικοποίηση. Με `slug` που υπάρχει → 409 `duplicate_slug`. |
+| `GET /api/admin/ocr/templates` | επιστρέφει `slug`, `department`; χωρίς `docType`. |
+| `PATCH …/[id]` | δέχεται `slug` (μόνο αν `runs = 0`, αλλιώς 409 `slug_locked`), `department`, `vatNumber` (null ή 9 ψηφία), `traderTrdr`, `supplierName`. `status: ACTIVE` → απαιτεί δείγμα + πεδίο με περιοχή· mapping μόνο αν `mode ≠ MANUAL`. |
+| `POST …/[id]/detect-field` | body `{ region }` → `{ label, key, kind, valueType, value, columns, model, tokensUsed, durationMs }`. Χρειάζεται δείγμα. |
+| `POST …/[id]/detect-marks` | body `{ page }` → `{ marks: [{ label, key, valueType, value, bbox }], model, tokensUsed, durationMs }`. Έως 20 σημειώσεις, bbox έγκυρα (`isValidBbox`), keys μοναδικά μεταξύ τους **και** ως προς τα υπάρχοντα πεδία του προτύπου. |
+| `POST …/[id]/test` | body `{}` → `{ template, version, extractedAt, values, fields: { key: FieldValue }, model, tokensUsed, durationMs, errors }`. Διαβάζει όλα τα αποθηκευμένα πεδία με περιοχή. |
+
+Όλα με `requirePermission('ocr.categorize')`, `UsageRef { refType: 'ExtractionTemplate', refId }`.
+
+### 14.4 lib
+
+- `lib/templates/schema.ts`: `uniqueKey(base, taken: Iterable<string>)` (→ `base`, `base_2`, …), `templateSlug(name) = slugKey(name)`.
+- `lib/templates/guess.ts` (ISOMORPHIC, tests): `guessValueType(raw: string): TemplateValueType` — ημερομηνία (`dd/mm/yyyy`, `dd.mm.yyyy`, `yyyy-mm-dd`) → `DATE`; ποσό με `€`/`EUR`/δεκαδικά `,dd` → `CURRENCY`; μόνο ψηφία/διαχωριστικά → `NUMBER`; αλλιώς `TEXT`. `isGlAccount(raw)` για το μοτίβο `\d{2}(\.\d{2,3}){2,}`.
+- `lib/templates/output.ts` (ISOMORPHIC, tests): `toOutputJson({ slug, version }, values: Record<string, FieldValue>, at = new Date())`.
+- `lib/templates/detect.ts` (SERVER): `detectFieldFromCrop(crop, ref)` και `detectMarksOnPage(pageBuf, ref)` πάνω στο `callVision` του `vision.ts` (εξάγεται ως `callVisionJson`)· καθαροί parsers `parseDetectField(content)` / `parseMarks(content)` σε `lib/templates/detect-parse.ts` (ISOMORPHIC, tests) με ανοχή σε markdown fences, `box_2d` [ymin,xmin,ymax,xmax] 0–1000 **ή** `bbox` [x,y,w,h] 0–1.
+
+### 14.5 UI (DG design system)
+
+- **Διάλογος «Νέο πρότυπο»**: Όνομα, slug (live, επεξεργάσιμο, mono), Τμήμα/κατηγορία (προαιρετικό). Τίποτα άλλο. Μετά τη δημιουργία → designer βήμα «Δείγμα».
+- **Βήμα 1 «Στοιχεία»** (αντικαθιστά «Προμηθευτής»): Όνομα, slug (κλειδωμένο όταν υπάρχουν runs, με εξήγηση), Τμήμα, **Προμηθευτής SoftOne** (αναζήτηση όπως στον παλιό διάλογο, με «Καθαρισμός»), ΑΦΜ (προαιρετικό). Readiness βήματος: όνομα.
+- **Stepper**: Στοιχεία · Δείγμα · Περιοχές & πεδία · Mapping (προαιρετικό) · Conditions & λειτουργία. Readiness mapping: `mode === 'MANUAL' || mappings.length > 0`.
+- **Περιοχές & πεδία**: κουμπιά «Πεδίο», **«Πεδίο από περιοχή»** (marking mode `NEW`, badge «Σύρε πλαίσιο — θα αναγνωριστεί το πεδίο»), **«Ανίχνευση σημειώσεων»** (spinner· προτεινόμενα πεδία μπαίνουν στη λίστα με ένδειξη «πρόταση» μέχρι την αποθήκευση), **«Δοκιμή προτύπου»** (dialog: JSON pretty, «Αντιγραφή», «Λήψη .json», ανά πεδίο η τιμή με το χρώμα του).
+- **Λίστα**: τίτλος «Πρότυπα εξαγωγής», sidebar «Πρότυπα εξαγωγής». Στήλες: Πρότυπο (όνομα + slug mono), Τμήμα, Προμηθευτής (όνομα + ΑΦΜ ή «—»), Λειτουργία, Κατάσταση, Πεδία, Χρήσεις, Ενημ. Αναζήτηση σε όνομα/slug/τμήμα/προμηθευτή.
+- **Wiki** `docs/wiki/ocr/templates.mdx` ξαναγράφεται με τη νέα ροή· CHANGELOG.
+
+### 14.6 Σπορά προτύπων από PDF πελάτη (script, εκτός build)
+
+`scripts/templates/seed-from-pdf.ts` (`npx tsx`, με το shim `server-only`): είσοδος **PDF** + **manifest JSON** `[{ name, pages: [1-based], rotate?: 90|180|270, department?, vatNumber?, supplierName?, extraPages?: [[…]] }]`. Για κάθε εγγραφή: κόβει τις σελίδες με `pdf-lib` (και περιστρέφει), δημιουργεί πρότυπο (slug αυτόματο), ανεβάζει το δείγμα στο Bunny (ίδιος κώδικας με το sample route → εξάγεται σε `lib/templates/sample.ts: storeSample(templateId, buffer)`), τρέχει `detectMarksOnPage` σε κάθε σελίδα και αποθηκεύει τα προτεινόμενα πεδία (με χρώματα από την παλέτα, ≤12). `extraPages` → επιπλέον `TemplateSample` (plan 4· προς το παρόν αποθηκεύονται μόνο ως αρχεία στο Bunny `templates/<id>/samples/`). Το manifest για το συγκεκριμένο PDF μένει **εκτός repo** (`.local/`, gitignored). Μετά τη σπορά ο χρήστης διορθώνει περιοχές στον designer.
+
+### 14.7 Αναγνώριση εντύπου μετά την εκπαίδευση (σημείωση για plan 3/4)
+
+«Πρώτα εκπαιδεύουμε και μετά, όταν δούμε τιμολόγιο ή όποιο άλλο έντυπο, ξέρουμε τι να κάνουμε.» Κάθε έντυπο έχει διαφορετικό format και, πέρα από τα βασικά, θέλουμε **δικά του** πεδία (kWh, m³, πινακίδες, βάρος, χειρόγραφο άρθρο…). Άρα η αναγνώριση του σωστού προτύπου για ένα εισερχόμενο αρχείο γίνεται σε δύο επίπεδα:
+1. **ΑΦΜ εκδότη** (όταν υπάρχει και ταιριάζει σε πρότυπο με `vatNumber`) — ντετερμινιστικό.
+2. **Ομοιότητα με τα δείγματα εκπαίδευσης** (`TemplateSample`, plan 4): κάθε δείγμα αποθηκεύει «αποτύπωμα» (επωνυμία εκδότη, χαρακτηριστικές λέξεις της πρώτης σελίδας από text layer ή vision, λόγος διαστάσεων). Για νέο αρχείο υπολογίζεται το ίδιο αποτύπωμα και επιλέγεται το πρότυπο με τη μεγαλύτερη ομοιότητα πάνω από κατώφλι· αν υπάρχουν ≥2 κοντινά, το μοντέλο ρωτιέται «ποιο από αυτά;» με τις μικρογραφίες. Χωρίς ταύτιση → «Άγνωστο έντυπο», ο χρήστης επιλέγει πρότυπο (και το αρχείο γίνεται νέο δείγμα εκπαίδευσης).
+Έξοδος πάντα το JSON του §14.1(5), αποθηκευμένο στο `TemplateRun`.
