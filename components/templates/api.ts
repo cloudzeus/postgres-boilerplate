@@ -59,8 +59,9 @@ export const templatesApi = {
     fetch(base(id), json(b, 'PATCH')).then((r) => handle<TemplateDto>(r)),
   remove: (id: string) => fetch(base(id), { method: 'DELETE' }).then((r) => handle<{ ok: true }>(r)),
   uploadSample: (id: string, file: File) => { const fd = new FormData(); fd.append('file', file); return fetch(`${base(id)}/sample`, { method: 'POST', body: fd }).then((r) => handle<{ ok: true; mimeType: string; pageCount: number }>(r)); },
-  putFields: (id: string, fields: FieldDef[]) => fetch(`${base(id)}/fields`, json({ fields }, 'PUT')).then((r) => handle<TemplateDto & { cleanup?: Cleanup }>(r)),
-  putMappings: (id: string, mappings: TemplateDto['mappings']) => fetch(`${base(id)}/mappings`, json({ mappings }, 'PUT')).then((r) => handle<TemplateDto>(r)),
+  // `demoted` = the write took an ACTIVE template out of readiness and the server set it back to DRAFT.
+  putFields: (id: string, fields: FieldDef[]) => fetch(`${base(id)}/fields`, json({ fields }, 'PUT')).then((r) => handle<TemplateDto & { cleanup?: Cleanup; demoted?: boolean }>(r)),
+  putMappings: (id: string, mappings: TemplateDto['mappings']) => fetch(`${base(id)}/mappings`, json({ mappings }, 'PUT')).then((r) => handle<TemplateDto & { demoted?: boolean }>(r)),
   putConditions: (id: string, conditions: TemplateDto['conditions']) => fetch(`${base(id)}/conditions`, json({ conditions }, 'PUT')).then((r) => handle<TemplateDto>(r)),
   testField: (id: string, fieldKey: string, region?: Region) => fetch(`${base(id)}/test-field`, json({ fieldKey, region })).then((r) => handle<TestFieldResult>(r)),
   // `takenKeys` = keys of unsaved proposals already on screen, so the server does not hand back a duplicate.
@@ -68,7 +69,7 @@ export const templatesApi = {
   // `max` = free colour slots in the DRAFT; the server caps against saved fields alone and would pay for extras.
   detectMarks: (id: string, page: number, mode: 'marks' | 'all' = 'all', takenKeys: string[] = [], max?: number) => fetch(`${base(id)}/detect-marks`, json({ page, mode, takenKeys, max })).then((r) => handle<DetectMarksResult>(r)),
   test: (id: string) => fetch(`${base(id)}/test`, json({})).then((r) => handle<TestTemplateResult>(r)),
-  searchSuppliers: (q: string) => fetch(`/api/admin/softone/search?type=suppliers&q=${encodeURIComponent(q)}`).then((r) => handle<{ results: { id: number; code: string; name: string; sub: string }[] }>(r)),
+  searchSuppliers: (q: string) => fetch(`/api/admin/softone/search?type=suppliers&q=${encodeURIComponent(q)}`).then((r) => handle<{ results: { id: number; code: string; name: string; sub: string; afm: string | null }[] }>(r)),
   pageImageUrl: (id: string, page: number, version: number, scale = 3) => `${base(id)}/page-image?page=${page}&scale=${scale}&v=${version}`,
 };
 

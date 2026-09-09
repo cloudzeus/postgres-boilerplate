@@ -6,6 +6,7 @@ import { logAudit } from '@/lib/audit';
 import { invoiceKeyInfo } from '@/lib/templates/schema';
 import { MappingsBody } from '@/lib/templates/validate';
 import { TEMPLATE_INCLUDE, toTemplateDto } from '@/lib/templates/serialize';
+import { isReady } from '@/lib/templates/readiness';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -60,12 +61,21 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const defaultIdx = firstDefault >= 0 ? firstDefault : 0;
   const mappings = parsed.data.mappings.map((m, i) => ({ ...m, isDefault: i === defaultIdx }));
 
+  let demoted = false;
   await prisma.$transaction(async (tx) => {
     await tx.templateMapping.deleteMany({ where: { templateId: id } });
     for (const m of mappings) await tx.templateMapping.create({ data: { templateId: id, name: m.name, target: m.target, isDefault: m.isDefault, rows: m.rows as unknown as Prisma.InputJsonValue } });
-    await tx.extractionTemplate.update({ where: { id }, data: { version: { increment: 1 } } });
+    // Removing the last mapping takes a SEMI_AUTO/AUTO template out of readiness. Demote it
+    // here rather than leave a template the run-time cannot honour flagged ACTIVE — same
+    // predicate PATCH refuses an activation with.
+    const after = await tx.extractionTemplate.findUniqueOrThrow({
+      where: { id },
+      include: { fields: { select: { region: true } }, mappings: { select: { id: true } } },
+    });
+    demoted = after.status === 'ACTIVE' && !isReady(after);
+    await tx.extractionTemplate.update({ where: { id }, data: { version: { increment: 1 }, ...(demoted ? { status: 'DRAFT' as const } : {}) } });
   });
   const full = await prisma.extractionTemplate.findUniqueOrThrow({ where: { id }, include: TEMPLATE_INCLUDE });
   await logAudit({ userId: u.id, userEmail: u.email, action: 'template.mappings.update', resource: 'extractionTemplate', resourceId: id, metadata: { mappings: mappings.length } });
-  return NextResponse.json(toTemplateDto(full));
+  return NextResponse.json({ ...toTemplateDto(full), ...(demoted ? { demoted: true } : {}) });
 }

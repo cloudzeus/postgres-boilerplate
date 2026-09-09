@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { templatesApi } from './api';
 
 export type SupplierPick = { id: number | null; name: string; vat: string };
-type Result = { id: number; code: string; name: string; sub: string };
+type Result = { id: number; code: string; name: string; sub: string; afm: string | null };
 
 /** SoftOne supplier lookup (≥2 chars, debounced). `value` null = no supplier linked. */
 export function SupplierSearch({ value, onChange, disabled, id = 'sup' }: { value: SupplierPick | null; onChange: (v: SupplierPick | null) => void; disabled?: boolean; id?: string }) {
@@ -40,7 +40,7 @@ export function SupplierSearch({ value, onChange, disabled, id = 'sup' }: { valu
     return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
 
-  const pick = (s: Result) => { onChange({ id: s.id, name: s.name, vat: /\b(\d{9})\b/.exec(s.sub)?.[1] ?? '' }); setResults([]); setEmpty(false); setOpen(false); };
+  const pick = (s: Result) => { onChange({ id: s.id, name: s.name, vat: s.afm ?? '' }); setResults([]); setEmpty(false); setOpen(false); };
   const showList = open && results.length > 0;
   const showEmpty = open && empty && results.length === 0;
   return (

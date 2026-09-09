@@ -68,7 +68,7 @@ export function TemplatesTable({ rows, canManage }: { rows: TemplateRow[]; canMa
     <DataTable
       columns={columns}
       data={rows}
-      searchKey="name"
+      filterAllColumns
       searchPlaceholder="Αναζήτηση (πρότυπο, slug, τμήμα, προμηθευτής…)"
       persistKey="admin.templates.table.v2"
       initialColumnVisibility={{ slug: false, vatNumber: false }}

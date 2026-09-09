@@ -21,14 +21,14 @@ export async function detectFieldFromCrop(pageBuf: Buffer, bbox: Bbox, opts: { t
 }
 
 const MARKS_PROMPT = [
-  'This is a full page of a scanned business document. An accountant has marked by hand what must be extracted: hand-drawn circles or ellipses around printed values, and handwritten notes (accounting codes such as 60.64.00.000.010, amounts, words).',
-  'Return ONLY JSON: {"marks":[{"label":"<the printed caption of the circled value, or a short name>","value":"<the text inside the mark, exactly as printed or written>","valueType":"TEXT"|"NUMBER"|"CURRENCY"|"DATE","box_2d":[ymin,xmin,ymax,xmax]}]}.',
+  'This is a full page of a scanned business document (Greek or English). An accountant has marked by hand what must be extracted: hand-drawn circles or ellipses around printed values, and handwritten notes (accounting codes such as 60.64.00.000.010, amounts, words).',
+  'Return ONLY JSON: {"marks":[{"label":"<the printed caption of the circled value, or a short name — in the language of the document (Greek for Greek documents), 1-4 words>","value":"<the text inside the mark, exactly as printed or written>","valueType":"TEXT"|"NUMBER"|"CURRENCY"|"DATE","box_2d":[ymin,xmin,ymax,xmax]}]}.',
   'box_2d is on a 0-1000 grid over the whole image (y grows downwards) and must contain the entire circle or note. One entry per circle and per handwritten note. Ignore stamps such as ΚΑΤΕΧΩΡΗΘΗ, signatures and ticks. At most 20 entries. No markdown.',
 ].join('\n');
 
 const ALL_PROMPT = [
   'This is a full page of a scanned business document (Greek or English). List every labelled value a data-extraction template could want: document number, dates, codes, amounts, quantities with units, identifiers, registration plates, account numbers, handwritten notes. Skip long free text, addresses, legal footers and marketing.',
-  'Return ONLY JSON: {"marks":[{"label":"<the printed caption, without its colon>","value":"<the value exactly as printed or written>","valueType":"TEXT"|"NUMBER"|"CURRENCY"|"DATE","box_2d":[ymin,xmin,ymax,xmax]}]}.',
+  'Return ONLY JSON: {"marks":[{"label":"<the printed caption without its colon, in the language of the document (Greek for Greek documents), 1-4 words>","value":"<the value exactly as printed or written>","valueType":"TEXT"|"NUMBER"|"CURRENCY"|"DATE","box_2d":[ymin,xmin,ymax,xmax]}]}.',
   'box_2d is on a 0-1000 grid over the whole image (y grows downwards) and must contain the value (and its caption when adjacent). At most 20 entries, most important first. No markdown.',
 ].join('\n');
 

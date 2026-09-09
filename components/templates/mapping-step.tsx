@@ -75,8 +75,12 @@ export function MappingStep() {
     const broken = gone.filter((n) => dto.conditions.some((c) => c.actions.some((a) => a.type === 'SWITCH_MAPPING' && a.params.mappingName === n)));
     if (broken.length && !window.confirm(`Κανόνες αναφέρονται σε mapping που αλλάζει/αφαιρείται: ${broken.join(', ')}. Οι αναφορές θα σπάσουν. Συνέχεια;`)) return;
     setBusy(true);
-    try { setDto(await templatesApi.putMappings(dto.id, mappings)); toast.success('Αποθηκεύτηκε'); }
-    catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+    try {
+      const { demoted, ...next } = await templatesApi.putMappings(dto.id, mappings);
+      setDto(next);
+      toast.success('Αποθηκεύτηκε');
+      if (demoted) toast.warning('Το πρότυπο έγινε Πρόχειρο — δεν πληροί πλέον τις προϋποθέσεις ενεργοποίησης');
+    } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
   };
 
   return (

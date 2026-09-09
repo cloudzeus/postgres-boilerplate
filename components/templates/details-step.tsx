@@ -53,7 +53,7 @@ export function DetailsStep() {
         <div><Label htmlFor="td">Τμήμα / κατηγορία</Label><Input id="td" value={department} onChange={(e) => setDepartment(e.target.value)} disabled={!canManage} className="mt-1" placeholder="π.χ. Λογιστήριο, Συνεργείο" /></div>
         <div className="sm:col-span-2"><SupplierSearch value={supplier} onChange={pickSupplier} disabled={!canManage} /></div>
         <div><Label htmlFor="tv">ΑΦΜ εκδότη (προαιρετικό)</Label><Input id="tv" value={vat} onChange={(e) => setVat(e.target.value.replace(/\D/g, '').slice(0, 9))} disabled={!canManage} className="mt-1 font-mono" inputMode="numeric" />
-          <p className="mt-1 text-[10px] text-muted-foreground">Με ΑΦΜ, το πρότυπο εφαρμόζεται αυτόματα στα έγγραφα του εκδότη.</p></div>
+          <p className="mt-1 text-[10px] text-muted-foreground">Με ΑΦΜ, το πρότυπο θα εφαρμόζεται αυτόματα στα έγγραφα του εκδότη μόλις ενεργοποιηθεί η ροή εκτέλεσης.</p></div>
       </div>
       {canManage && <Button onClick={save} disabled={!dirty || busy || !name.trim() || !slug}>{busy ? 'Αποθήκευση…' : 'Αποθήκευση'}</Button>}
     </div>

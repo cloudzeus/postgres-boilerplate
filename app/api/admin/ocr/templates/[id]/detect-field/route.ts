@@ -16,6 +16,9 @@ export const maxDuration = 120;
 // detection can hand back a key the unsaved first one already uses.
 const Body = z.object({ region: RegionSchema, takenKeys: z.array(z.string().max(60)).max(100).default([]) });
 
+/** What the browser is told when the model fails, whatever the underlying cause. */
+const VISION_FAILED = 'Η ανάγνωση από το μοντέλο απέτυχε';
+
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   await requirePermission('ocr.categorize');
   const { id } = await params;
@@ -37,9 +40,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const pageBuf = await renderPage(buf, t.sampleMimeType ?? 'application/pdf', region.page);
     const taken = new Set([...t.fields.map((f) => f.key), ...takenKeys]);
     const r = await detectFieldFromCrop(pageBuf, region.bbox, { taken, fallbackLabel: `Πεδίο ${taken.size + 1}`, ref: { refType: 'ExtractionTemplate', refId: id } });
-    if (!r.field) return NextResponse.json({ error: 'read_failed', message: 'Το μοντέλο δεν επέστρεψε έγκυρη απάντηση' }, { status: 502 });
+    // The detail (model name, provider error, stack) goes to the server log only — the browser
+    // gets one fixed sentence so a model/provider message never reaches the user.
+    if (!r.field) {
+      console.error(`[detect-field] template ${id}: model ${r.model} returned no usable JSON`);
+      return NextResponse.json({ error: 'read_failed', message: VISION_FAILED }, { status: 502 });
+    }
     return NextResponse.json({ ...r.field, model: r.model, tokensUsed: r.tokensUsed ?? 0, durationMs: Date.now() - started });
   } catch (e) {
-    return NextResponse.json({ error: 'read_failed', message: (e as Error).message }, { status: 502 });
+    console.error(`[detect-field] template ${id}:`, e);
+    return NextResponse.json({ error: 'read_failed', message: VISION_FAILED }, { status: 502 });
   }
 }

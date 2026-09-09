@@ -5,6 +5,7 @@ import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { FieldsBody } from '@/lib/templates/validate';
 import { TEMPLATE_INCLUDE, toTemplateDto } from '@/lib/templates/serialize';
+import { isReady } from '@/lib/templates/readiness';
 import type { Action, Clause, MappingRowExcel, MappingRowInvoice } from '@/lib/templates/schema';
 
 export const runtime = 'nodejs';
@@ -36,6 +37,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   const cleanup: Cleanup = { mappings: [], conditions: [] };
+  let demoted = false;
   await prisma.$transaction(async (tx) => {
     await tx.templateField.deleteMany({ where: { templateId: id, key: { notIn: keys } } });
     for (const f of parsed.data.fields) {
@@ -81,9 +83,17 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       cleanup.conditions.push({ id: c.id, name: c.name, removedClauses, removedActions });
     }
 
-    await tx.extractionTemplate.update({ where: { id }, data: { version: { increment: 1 } } });
+    // Dropping the last region (or the last field) can take an ACTIVE template out of
+    // readiness. Demote it here rather than leave a template the run-time cannot honour
+    // flagged ACTIVE — same predicate PATCH refuses an activation with.
+    const after = await tx.extractionTemplate.findUniqueOrThrow({
+      where: { id },
+      include: { fields: { select: { region: true } }, mappings: { select: { id: true } } },
+    });
+    demoted = after.status === 'ACTIVE' && !isReady(after);
+    await tx.extractionTemplate.update({ where: { id }, data: { version: { increment: 1 }, ...(demoted ? { status: 'DRAFT' as const } : {}) } });
   });
   const full = await prisma.extractionTemplate.findUniqueOrThrow({ where: { id }, include: TEMPLATE_INCLUDE });
   await logAudit({ userId: u.id, userEmail: u.email, action: 'template.fields.update', resource: 'extractionTemplate', resourceId: id, metadata: { fields: keys.length } });
-  return NextResponse.json({ ...toTemplateDto(full), cleanup });
+  return NextResponse.json({ ...toTemplateDto(full), cleanup, ...(demoted ? { demoted: true } : {}) });
 }

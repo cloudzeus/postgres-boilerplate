@@ -70,6 +70,7 @@ export function useDetection({ templateId, fields, setFields, setTests, setFocus
       const f = build(draft, { label: r.label, key: r.key, kind: r.kind, valueType: r.valueType, columns: r.columns, region });
       setFields([...draft, f]);
       setTests((t) => ({ ...t, [f.key]: { raw: r.value, value: r.value, source: 'vision', model: r.model, tokensUsed: r.tokensUsed, color: f.color, durationMs: r.durationMs } }));
+      setProposed((p) => new Set(p).add(f.key));            // unsaved until the step is saved — same «πρόταση» chip as a scan
       setFocusKey(f.key);
       toast.success(`Αναγνωρίστηκε «${r.label}»`);
     } catch (e) { toast.error(errorMessage(e)); } finally { setDetecting(false); }

@@ -50,6 +50,13 @@ export interface DataTableProps<TData, TValue> {
   data: TData[];
   searchKey?: keyof TData & string;
   searchPlaceholder?: string;
+  /**
+   * Let the search box look at EVERY column. TanStack samples the first row to decide
+   * which columns the global filter may read, so a column that is null in row 0 (or
+   * rendered purely from a custom cell) is skipped for the whole table. Opt in when the
+   * table has such columns; off by default so other tables keep TanStack's behaviour.
+   */
+  filterAllColumns?: boolean;
   pageSize?: number;
   expandable?: (row: TData) => React.ReactNode;
   emptyState?: React.ReactNode;
@@ -88,6 +95,7 @@ export function DataTable<TData, TValue>({
   data,
   searchKey,
   searchPlaceholder = 'Αναζήτηση...',
+  filterAllColumns = false,
   pageSize = 50,
   expandable,
   emptyState,
@@ -217,10 +225,8 @@ export function DataTable<TData, TValue>({
     onRowSelectionChange: setRowSelection,
     onExpandedChange: setExpanded,
     onGlobalFilterChange: setGlobalFilter,
-    // TanStack samples the FIRST row to decide which columns the global filter may look at,
-    // so a column that is null in row 0 (or rendered purely from a custom cell) would be
-    // skipped for the whole table. Every column is searchable instead.
-    getColumnCanGlobalFilter: () => true,
+    // Opt-in only: without it TanStack keeps its own first-row sampling (see the prop).
+    ...(filterAllColumns && { getColumnCanGlobalFilter: () => true }),
     columnResizeMode: 'onChange',
     enableColumnResizing: true,
     enableExpanding: !!expandable,

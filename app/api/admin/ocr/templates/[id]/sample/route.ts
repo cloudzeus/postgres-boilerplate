@@ -17,10 +17,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const u = await requirePermission('ocr.categorize');
   const { id } = await params;
 
+  // Content-Length first: formData() buffers the whole body, so a size check after it has
+  // already paid the memory. storeSample keeps its own guard for the decoded bytes.
+  if (Number(req.headers.get('content-length') ?? 0) > SAMPLE_MAX_BYTES) return NextResponse.json(ERRORS.too_large.body, { status: ERRORS.too_large.status });
+
   const form = await req.formData().catch(() => null);
   const file = form?.get('file');
   if (!(file instanceof File)) return NextResponse.json({ error: 'file_required' }, { status: 400 });
-  // Declared size first: refusing here keeps an oversized upload out of memory.
   if (file.size > SAMPLE_MAX_BYTES) return NextResponse.json(ERRORS.too_large.body, { status: ERRORS.too_large.status });
 
   try {

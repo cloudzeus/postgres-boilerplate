@@ -6,6 +6,7 @@ import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { bunnyDelete } from '@/lib/bunny';
 import { TEMPLATE_INCLUDE, toTemplateDto } from '@/lib/templates/serialize';
+import { isReady } from '@/lib/templates/readiness';
 import { SLUG_RE } from '@/lib/templates/schema';
 
 export const runtime = 'nodejs';
@@ -58,9 +59,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   // already-ACTIVE template drifted out of readiness (e.g. its only mapping was deleted elsewhere).
   const status = b.status ?? t.status;
   if (status === 'ACTIVE' && (b.status !== undefined || b.mode !== undefined)) {
-    const hasRegion = t.fields.some((f) => f.region != null);
-    const needsMapping = mode !== 'MANUAL' && t.mappings.length === 0;
-    if (!hasRegion || !t.sampleStorageKey || needsMapping) {
+    if (!isReady({ ...t, mode })) {
       return NextResponse.json({ error: 'not_ready', message: 'Για ενεργοποίηση χρειάζονται δείγμα και ένα πεδίο με περιοχή — και mapping για ημιαυτόματη/αυτόματη λειτουργία' }, { status: 422 });
     }
   }

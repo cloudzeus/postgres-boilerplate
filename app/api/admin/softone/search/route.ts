@@ -22,7 +22,9 @@ export async function GET(req: Request) {
       select: { trdr: true, code: true, name: true, afm: true, kind: true, city: true },
     });
     return NextResponse.json({
-      results: rows.map((r) => ({ id: r.trdr, code: r.code, name: r.name, sub: [r.kind, r.afm, r.city].filter(Boolean).join(' · ') })),
+      // `afm` on its own as well as inside `sub`: the caller that links a supplier needs the
+      // bare VAT number, and digging it back out of the display string is guesswork.
+      results: rows.map((r) => ({ id: r.trdr, code: r.code, name: r.name, afm: r.afm ?? null, sub: [r.kind, r.afm, r.city].filter(Boolean).join(' · ') })),
     });
   }
 

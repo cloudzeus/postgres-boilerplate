@@ -68,7 +68,9 @@ async function main() {
       // Ask only for as many marks as we still have colours for — a field without its own colour is unusable.
       const remaining = COLOR_PALETTE.length - colorIdx;
       if (remaining <= 0) { console.log(`   (colour cap ${COLOR_PALETTE.length} reached — pages ${page + 1}+ not scanned)`); break; }
-      const pageBuf = await renderPage(pdf, 'application/pdf', page, 2);
+      // Scale 3, matching the detect-marks route: at scale 2 an A4 page renders ~1191px wide,
+      // under detectMarksOnPage's 1600px cap, and small handwriting reaches the model softer.
+      const pageBuf = await renderPage(pdf, 'application/pdf', page, 3);
       const r = await detectMarksOnPage(pageBuf, { taken, mode: e.mode ?? 'marks', max: remaining, ref: { refType: 'ExtractionTemplate', refId: t.id } });
       if (r.marks === null) { console.warn(`   ! page ${page + 1}: ${r.model} returned no usable JSON — treated as 0 marks`); continue; }
       for (const m of r.marks) {
@@ -80,11 +82,16 @@ async function main() {
       }
       console.log(`   page ${page + 1}: ${r.marks.length} marks (${r.model}, ${r.tokensUsed ?? 0} tokens)`);
     }
+    // Extra copies of the same form become TemplateSample rows (PENDING): the training step
+    // scores the template against them, so an uploaded file nothing points at would be dead weight.
     for (const [i, pages] of (e.extraPages ?? []).entries()) {
       const extra = await slice(src, pages, e.rotate);
       const key = `templates/${t.id}/samples/extra-${i + 1}.pdf`;
       await bunnyUploadPrivate({ key, body: extra, contentType: 'application/pdf' });
-      console.log(`   extra sample ${i + 1} → ${key}`);
+      await prisma.templateSample.create({
+        data: { templateId: t.id, fileName: `${slug}-extra-${i + 1}.pdf`, storageKey: key, mimeType: 'application/pdf', pageCount: pages.length, status: 'PENDING' },
+      });
+      console.log(`   extra sample ${i + 1} → ${key} (TemplateSample PENDING, ${pages.length} ${pages.length === 1 ? 'page' : 'pages'})`);
     }
   }
 

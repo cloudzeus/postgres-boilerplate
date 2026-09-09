@@ -10,6 +10,10 @@ import { RegionSchema } from '@/lib/templates/validate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 120;
+
+/** What the browser is told when the model fails, whatever the underlying cause. */
+const VISION_FAILED = 'Η ανάγνωση από το μοντέλο απέτυχε';
 
 const Body = z.object({
   fieldKey: z.string().min(1),
@@ -41,6 +45,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const started = Date.now();
   const r = await extractTemplateFields(buf, t.sampleMimeType ?? 'application/pdf', [field], { ref: { refType: 'ExtractionTemplate', refId: id } });
   const v = r.values[field.key];
-  if (r.errors.length) return NextResponse.json({ error: 'read_failed', message: r.errors[0].message }, { status: 502 });
+  // The extractor's own message names the model/provider — log it, hand the browser one fixed sentence.
+  if (r.errors.length) {
+    console.error(`[test-field] template ${id} field ${field.key}:`, r.errors);
+    return NextResponse.json({ error: 'read_failed', message: VISION_FAILED }, { status: 502 });
+  }
   return NextResponse.json({ raw: v.raw, value: v.value, source: v.source, model: r.model, tokensUsed: r.tokensUsed, color: v.color, durationMs: Date.now() - started });
 }

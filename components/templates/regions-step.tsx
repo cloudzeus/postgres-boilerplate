@@ -154,7 +154,7 @@ export function RegionsStep() {
     setBusy(true);
     try {
       const res = await templatesApi.putFields(dto.id, fields);
-      const { cleanup, ...next } = res;
+      const { cleanup, demoted, ...next } = res;
       setDto(next);
       setProposed(new Set());                               // everything on screen is now saved, not a proposal
       const maps = cleanup?.mappings.map((m) => m.name) ?? [];
@@ -163,6 +163,7 @@ export function RegionsStep() {
         const parts = [maps.length ? `mappings: ${maps.join(', ')}` : '', conds.length ? `conditions: ${conds.join(', ')}` : ''].filter(Boolean);
         toast.warning(`Αποθηκεύτηκε · καθαρίστηκαν αναφορές σε ${parts.join(' · ')}`);
       } else toast.success('Αποθηκεύτηκε');
+      if (demoted) toast.warning('Το πρότυπο έγινε Πρόχειρο — δεν πληροί πλέον τις προϋποθέσεις ενεργοποίησης');
     } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
   };
 

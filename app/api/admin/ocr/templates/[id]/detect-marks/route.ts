@@ -18,6 +18,9 @@ export const maxDuration = 120;
 // server only knows the saved ones, so it would over-cap the batch and pay for output it then slices off.
 const Body = z.object({ page: z.number().int().min(0), mode: z.enum(['marks', 'all']).default('all'), takenKeys: z.array(z.string().max(60)).max(100).default([]), max: z.number().int().min(0).max(20).optional() });
 
+/** What the browser is told when the model fails, whatever the underlying cause. */
+const VISION_FAILED = 'Η ανάγνωση από το μοντέλο απέτυχε';
+
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   await requirePermission('ocr.categorize');
   const { id } = await params;
@@ -44,9 +47,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     // page renders ~1191px wide and small handwriting reaches the model softer than it needs to be.
     const pageBuf = await renderPage(buf, t.sampleMimeType ?? 'application/pdf', page, 3);
     const r = await detectMarksOnPage(pageBuf, { taken: new Set([...t.fields.map((f) => f.key), ...takenKeys]), mode, max, ref: { refType: 'ExtractionTemplate', refId: id } });
-    if (!r.marks) return NextResponse.json({ error: 'read_failed', message: 'Το μοντέλο δεν επέστρεψε έγκυρη απάντηση' }, { status: 502 });
+    // The detail (model name, provider error, stack) goes to the server log only — the browser
+    // gets one fixed sentence so a model/provider message never reaches the user.
+    if (!r.marks) {
+      console.error(`[detect-marks] template ${id} page ${page}: model ${r.model} returned no usable JSON`);
+      return NextResponse.json({ error: 'read_failed', message: VISION_FAILED }, { status: 502 });
+    }
     return NextResponse.json({ marks: r.marks, model: r.model, tokensUsed: r.tokensUsed ?? 0, durationMs: Date.now() - started });
   } catch (e) {
-    return NextResponse.json({ error: 'read_failed', message: (e as Error).message }, { status: 502 });
+    console.error(`[detect-marks] template ${id} page ${page}:`, e);
+    return NextResponse.json({ error: 'read_failed', message: VISION_FAILED }, { status: 502 });
   }
 }
