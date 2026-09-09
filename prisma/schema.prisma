@@ -1668,11 +1668,12 @@ enum TemplateJobItemStatus {
 model ExtractionTemplate {
   id               String          @id @default(cuid())
   name             String
-  vatNumber        String                          // ΑΦΜ προμηθευτή (9 ψηφία, normalized)
+  slug             String          @unique         // auto από name — κλειδί του JSON εξόδου
+  department       String?                         // τμήμα / κατηγορία (ελεύθερο κείμενο)
+  vatNumber        String?                         // ΑΦΜ προμηθευτή — προαιρετική συσχέτιση
   traderTrdr       Int?                            // → SoftoneTrader.trdr (προαιρετικό)
   supplierName     String?                         // denormalized για λίστες
-  docType          OcrDocType      @default(INVOICE)
-  mode             TemplateMode    @default(SEMI_AUTO)
+  mode             TemplateMode    @default(MANUAL)
   status           TemplateStatus  @default(DRAFT)
   version          Int             @default(1)
   sampleStorageKey String?                         // Bunny private — δείγμα εικόνας/PDF
@@ -1691,8 +1692,7 @@ model ExtractionTemplate {
   samples          TemplateSample[]
   jobs             TemplateJob[]
 
-  @@unique([vatNumber, docType, name])
-  @@index([vatNumber, docType, status])
+  @@index([vatNumber, status])
 }
 
 model TemplateField {

@@ -35,7 +35,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const pageCount = mimeType === 'application/pdf' ? await countPdfPages(buffer).catch(() => 1) : 1;
   const ext = mimeType === 'application/pdf' ? 'pdf' : mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
-  const key = `templates/${t.vatNumber}/${id}/sample-${nanoid(8)}.${ext}`;
+  const key = `templates/${id}/sample-${nanoid(8)}.${ext}`;
   await bunnyUploadPrivate({ key, body: buffer, contentType: mimeType });
 
   const old = t.sampleStorageKey;
