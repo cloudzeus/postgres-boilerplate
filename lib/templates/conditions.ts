@@ -29,15 +29,21 @@ export type ApplyResult = {
 
 type Resolved = { value: string | number | string[] | null; type: TemplateValueType };
 
+/** Declared types for the base-OCR extras, so a string-formatted `$total` still compares numerically. */
+const EXTRA_TYPES: Record<string, TemplateValueType> = { $total: 'CURRENCY', $itemsCount: 'NUMBER', $pageCount: 'NUMBER' };
+
 function resolve(fieldKey: string, ctx: EvalContext): Resolved {
   if (fieldKey.startsWith('$')) {
     const v = ctx.extras?.[fieldKey];
-    return { value: v == null ? null : v, type: typeof v === 'number' ? 'NUMBER' : 'TEXT' };
+    const type = EXTRA_TYPES[fieldKey] ?? (typeof v === 'number' ? 'NUMBER' : 'TEXT');
+    return { value: v == null ? null : v, type };
   }
   const fv = ctx.values[fieldKey];
   const type = ctx.valueTypes[fieldKey] ?? 'TEXT';
   if (!fv || fv.value == null) return { value: null, type };
-  // TABLE rows are not comparable as a whole; treat as "has rows" text for empty checks.
+  // TABLE rows are not comparable as a whole; collapse to the row count. That count is only
+  // meaningful for empty/notEmpty and the numeric ops (e.g. "more than 10 lines") — text ops
+  // (contains/in/regex) would match against the digits of the count, which is never useful.
   if (Array.isArray(fv.value) && fv.value.length && typeof fv.value[0] === 'object') {
     return { value: `${fv.value.length}`, type: 'NUMBER' };
   }
@@ -71,9 +77,18 @@ export function evaluateClause(clause: Clause, ctx: EvalContext): boolean {
   switch (clause.op) {
     case 'eq': case 'neq': case 'gt': case 'gte': case 'lt': case 'lte': {
       if (numeric || r.type === 'DATE') {
-        const a = r.type === 'DATE' ? String(r.value) : asNumber(r.value, r.type);
+        // Both sides go through the same coercion so "05/03/2026" and "2026-03-05" compare equal
+        // (ISO strings order lexicographically, which is why dates stay strings here).
+        const a = r.type === 'DATE' ? (coerceValue(r.value, 'DATE') as string | null) : asNumber(r.value, r.type);
         const b = r.type === 'DATE' ? (coerceValue(expected, 'DATE') as string | null) : asNumber(expected, r.type);
+        // Deliberate: if either side fails to coerce, ALL six ops are false — `neq` included. An
+        // unparsable value is "unknown", not "different", so a rule never fires on garbage input.
         if (a == null || b == null) return false;
+        if (typeof a === 'number' && typeof b === 'number') {
+          // Float noise: 0.1 + 0.2 must still equal a parsed "0,3".
+          if (clause.op === 'eq') return Math.abs(a - b) < 1e-9;
+          if (clause.op === 'neq') return !(Math.abs(a - b) < 1e-9);
+        }
         switch (clause.op) {
           case 'eq': return a === b; case 'neq': return a !== b;
           case 'gt': return a > b; case 'gte': return a >= b;

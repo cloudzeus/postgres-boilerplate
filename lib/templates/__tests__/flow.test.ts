@@ -52,4 +52,10 @@ describe('buildFlow', () => {
     expect(nodes.find((n) => n.id === 'output')!.data).toMatchObject({ runStatus: 'REVIEW' });
     expect(edges.find((e) => e.source === 'cond:c1' && e.target === 'map:default')!.animated).toBe(true);
   });
+  it('does not draw edges to a mapping that does not exist', () => {
+    const t: FlowTemplate = { ...tpl, conditions: [{ id: 'c9', name: 'x', clauses: [{ fieldKey: 'no', op: 'notEmpty' }], actions: [{ type: 'SWITCH_MAPPING', params: { mappingName: 'ghost' } }] }] };
+    const { edges, nodes } = buildFlow(t);
+    const targets = new Set(nodes.map((n) => n.id));
+    for (const e of edges) expect(targets.has(e.target)).toBe(true);
+  });
 });

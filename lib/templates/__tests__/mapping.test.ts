@@ -30,6 +30,14 @@ describe('projectToInvoice', () => {
     const out = projectToInvoice({ x: fv(null), y: fv('v') }, [{ fieldKey: 'x', invoiceKey: 'invoiceNumber' }, { fieldKey: 'y', invoiceKey: 'nope' }], { items: [{ name: 'old' }] });
     expect(out).toEqual({ items: [{ name: 'old' }] });
   });
+  it('ignores a non-object existing customFields', () => {
+    const out = projectToInvoice({ o: fv('X') }, [{ fieldKey: 'o', invoiceKey: 'customFields.order_no' }], { customFields: 'junk' });
+    expect(out.customFields).toEqual({ order_no: 'X' });
+  });
+  it('keeps existing items when the mapped table value is missing', () => {
+    const out = projectToInvoice({}, [{ fieldKey: 'lines.code', invoiceKey: 'items.code' }], { items: [{ name: 'old' }] });
+    expect(out.items).toEqual([{ name: 'old' }]);
+  });
   it('does not mutate the input object', () => {
     const existing = { a: 1 };
     projectToInvoice({ n: fv('x') }, [{ fieldKey: 'n', invoiceKey: 'aadeMark' }], existing);
@@ -50,5 +58,8 @@ describe('projectToExcel', () => {
       columns: ['Αριθμός', 'Σύνολο', 'Serials', 'Κενό'],
       row: ['ΤΙΜ-451', 1240.5, 'A, B', ''],
     });
+  });
+  it('projectToExcel renders TABLE values as empty cells', () => {
+    expect(projectToExcel({ t: fv([{ a: 1 }]) }, [{ fieldKey: 't', column: 'T', order: 1 }])).toEqual({ columns: ['T'], row: [''] });
   });
 });

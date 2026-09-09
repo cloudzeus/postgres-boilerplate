@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateClause, evaluateRule, applyRules, type RuleDef } from '../conditions';
+import { evaluateClause, evaluateRule, applyRules, type RuleDef, type EvalContext } from '../conditions';
 import type { FieldValue } from '../schema';
 
 const fv = (value: FieldValue['value'], color = '#0078D4'): FieldValue =>
@@ -38,6 +38,26 @@ describe('evaluateClause', () => {
     expect(evaluateClause({ fieldKey: 'empty', op: 'notEmpty' }, ctx)).toBe(false);
     expect(evaluateClause({ fieldKey: 'empty', op: 'eq', value: '' }, ctx)).toBe(false);
     expect(evaluateClause({ fieldKey: 'unknown', op: 'empty' }, ctx)).toBe(true);
+  });
+  it('DATE ordering coerces both sides', () => {
+    const c: EvalContext = { values: { d: fv('05/03/2026') }, valueTypes: { d: 'DATE' } };
+    expect(evaluateClause({ fieldKey: 'd', op: 'gt', value: '01/03/2026' }, c)).toBe(true);
+    expect(evaluateClause({ fieldKey: 'd', op: 'eq', value: '2026-03-05' }, c)).toBe(true);
+  });
+  it('numeric eq tolerates float noise', () => {
+    const c: EvalContext = { values: { t: fv(0.1 + 0.2) }, valueTypes: { t: 'NUMBER' } };
+    expect(evaluateClause({ fieldKey: 't', op: 'eq', value: '0,3' }, c)).toBe(true);
+    expect(evaluateClause({ fieldKey: 't', op: 'neq', value: '0,3' }, c)).toBe(false);
+  });
+  it('TABLE fields: empty/notEmpty and numeric ops on row count', () => {
+    const c: EvalContext = { values: { rows: fv([{ a: 1 }, { a: 2 }, { a: 3 }]), none: fv([]) }, valueTypes: { rows: 'TEXT', none: 'TEXT' } };
+    expect(evaluateClause({ fieldKey: 'rows', op: 'notEmpty' }, c)).toBe(true);
+    expect(evaluateClause({ fieldKey: 'rows', op: 'gte', value: '3' }, c)).toBe(true);
+    expect(evaluateClause({ fieldKey: 'none', op: 'empty' }, c)).toBe(true);
+  });
+  it('$extras use the declared types even when given as strings', () => {
+    const c: EvalContext = { values: {}, valueTypes: {}, extras: { $total: '1.240,00' } };
+    expect(evaluateClause({ fieldKey: '$total', op: 'gt', value: '1000' }, c)).toBe(true);
   });
   it('reads $ extras', () => {
     expect(evaluateClause({ fieldKey: '$itemsCount', op: 'gte', value: '3' }, ctx)).toBe(true);

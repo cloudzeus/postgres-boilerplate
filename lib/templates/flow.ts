@@ -68,10 +68,11 @@ export function buildFlow(t: FlowTemplate, run?: FlowRun): { nodes: FlowNode[]; 
   t.conditions.forEach((c) => {
     const sw = c.actions.find((a) => a.type === 'SWITCH_MAPPING') as Extract<Action, { type: 'SWITCH_MAPPING' }> | undefined;
     const target = sw?.params.mappingName ?? defaultMapping;
-    if (!target) return;
+    // A SWITCH_MAPPING may name a mapping that was renamed or deleted — never draw a dangling edge.
+    if (!target || !t.mappings.some((m) => m.name === target)) return;
     const matched = run ? run.matchedIds.includes(c.id) : undefined;
     edges.push({ id: `e:${c.id}->map:${target}:yes`, source: `cond:${c.id}`, target: `map:${target}`, label: 'ναι', animated: matched === true, style: { stroke: '#047857' } });
-    if (sw && defaultMapping && defaultMapping !== target) {
+    if (sw && defaultMapping && defaultMapping !== target && t.mappings.some((m) => m.name === defaultMapping)) {
       edges.push({ id: `e:${c.id}->map:${defaultMapping}:no`, source: `cond:${c.id}`, target: `map:${defaultMapping}`, label: 'όχι', animated: matched === false, style: { stroke: '#8A8A8A' } });
     }
   });

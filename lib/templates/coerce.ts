@@ -1,5 +1,5 @@
 // lib/templates/coerce.ts — PURE. Turns a raw reader string into a typed value.
-import { parseGreekNumber, parseGreekCurrency, parseGreekDate } from '@/lib/greek-format';
+import { parseGreekNumber, parseGreekCurrency } from '@/lib/greek-format';
 import type { TemplateValueType } from './schema';
 
 export type Coerced = string | number | string[] | null;
@@ -8,28 +8,28 @@ export type Coerced = string | number | string[] | null;
  * `parseGreekNumber` treats `.` as *always* a thousands separator (per its own doc comment), so
  * a plain-decimal string like "1234.56" would parse as 123456 if handed to it directly. But a
  * single dot is genuinely ambiguous: Greek invoices also print whole-euro thousands-grouped
- * amounts with a single dot and no comma (e.g. "1.234" meaning 1234, not 1.234). Disambiguate
- * before delegating:
+ * amounts with a single dot and no comma (e.g. "1.234" meaning 1234, not 1.234). OCR output also
+ * carries labels and units around the number ("ΦΠΑ 13.5%", "1234.56 τεμ"), so strip down to the
+ * numeric core *first* — otherwise the disambiguation below never fires and everything falls
+ * through to the dot-is-thousands parser. Then:
  *
- *   1. Contains a comma            → unambiguously Greek-formatted → delegate as-is.
- *   2. Single dot w/ exactly 3 fractional digits, or repeated 3-digit groups and no comma
+ *   1. Contains a comma → unambiguously Greek-formatted → delegate as-is.
+ *   2. Groups of exactly 3 digits after each dot, with a 1-3 digit leading group and no comma
  *      (e.g. "1.234", "100.000", "1.234.567") → Greek thousands grouping, no decimal part →
  *      strip the dots and read as a plain integer.
- *   3. Single dot w/ fractional-digit count != 3, no comma (e.g. "1.5", "1234.56") → plain
- *      decimal → read as a plain JS number.
+ *   3. Any other single-dot shape (e.g. "1.5", "0.750", "1234.56", "1234.567") → plain decimal.
+ *      A leading "0", or a leading group longer than 3 digits, cannot be thousands grouping.
  *   4. Anything else → delegate as-is.
  */
 function disambiguateGreekNumeric(s: string, fallbackParse: (v: string) => number | null): number | null {
-  if (s.includes(',')) return fallbackParse(s);
-  if (/^\d+\.\d{3}$/.test(s) || /^\d{1,3}(\.\d{3})+$/.test(s)) {
-    const n = Number(s.replace(/\./g, ''));
-    return Number.isFinite(n) ? n : null;
-  }
-  if (/^\d+\.\d+$/.test(s)) {
-    const n = Number(s);
-    return Number.isFinite(n) ? n : null;
-  }
-  return fallbackParse(s);
+  const core = s.replace(/[^\d.,-]/g, '');
+  if (!core || /^[.,-]+$/.test(core)) return null;
+  if (core.includes(',')) return fallbackParse(core);
+  const sign = core.startsWith('-') ? -1 : 1;
+  const body = core.replace(/^-/, '');
+  if (/^[1-9]\d{0,2}(\.\d{3})+$/.test(body)) return sign * Number(body.replace(/\./g, ''));
+  if (/^\d+\.\d+$/.test(body)) return sign * Number(body);
+  return fallbackParse(core);
 }
 
 function parsePlainOrGreekNumber(s: string): number | null {
@@ -40,28 +40,32 @@ function parsePlainOrGreekCurrency(s: string): number | null {
   return disambiguateGreekNumeric(s, parseGreekCurrency);
 }
 
+/** Builds a UTC date and rejects overflowed calendar days ("31/02/2026" → null). */
+function utcDate(year: number, month: number, day: number): Date | null {
+  const d = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(d.getTime())) return null;
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return null;
+  return d;
+}
+
 /**
- * `parseGreekDate` only matches dd/mm/yyyy (or . / - separated) with a *4-digit* year via
- * regex; anything else (including a 2-digit year, or the ISO yyyy-mm-dd shape) falls through
- * to `new Date(s)`, which is unreliable for non-ISO strings. Normalise separators and expand
- * a 2-digit year to 20YY before delegating, and fast-path ISO yyyy-mm-dd directly.
+ * Parses only the two shapes invoices actually print, always in UTC so the result never shifts
+ * with the server timezone. `new Date(<string>)` is deliberately never used: it reads
+ * "2026-03-05" as UTC midnight but "2026/03/05" as *local* midnight (one day off east of GMT),
+ * and it happily mis-reads "05/03/2026" as May 3rd.
  */
 function parseDateFlexible(s: string): Date | null {
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (iso) {
-    const [, yyyy, mm, dd] = iso;
-    const d = new Date(Date.UTC(Number(yyyy), Number(mm) - 1, Number(dd)));
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
+  const iso = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T ].*)?$/);
+  if (iso) return utcDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
 
-  let normalised = s.replace(/[.\-]/g, '/');
-  const shortYear = normalised.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
-  if (shortYear) {
-    const [, dd, mm, yy] = shortYear;
-    normalised = `${dd}/${mm}/20${yy}`;
+  // Greek/European dd/mm/yyyy anywhere in the string, so labels and trailing times are tolerated.
+  const eu = s.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4}|\d{2})/);
+  if (eu) {
+    const yy = eu[3];
+    const year = yy.length === 2 ? 2000 + Number(yy) : Number(yy); // invoices are current-century
+    return utcDate(year, Number(eu[2]), Number(eu[1]));
   }
-
-  return parseGreekDate(normalised);
+  return null;
 }
 
 export function coerceValue(raw: unknown, valueType: TemplateValueType): Coerced {
@@ -72,17 +76,19 @@ export function coerceValue(raw: unknown, valueType: TemplateValueType): Coerced
     case 'TEXT':
       return s;
     case 'NUMBER': {
+      if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
       const n = parsePlainOrGreekNumber(s);
       return n == null || !Number.isFinite(n) ? null : n;
     }
     case 'CURRENCY': {
+      if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
       const cleaned = s.replace(/EUR|€/gi, '').trim();
       const n = parsePlainOrGreekCurrency(cleaned);
       return n == null || !Number.isFinite(n) ? null : n;
     }
     case 'DATE': {
-      const d = parseDateFlexible(s);
-      if (!d || Number.isNaN(d.getTime())) return null;
+      const d = raw instanceof Date ? (Number.isNaN(raw.getTime()) ? null : raw) : parseDateFlexible(s);
+      if (!d) return null;
       const y = d.getUTCFullYear();
       const m = String(d.getUTCMonth() + 1).padStart(2, '0');
       const day = String(d.getUTCDate()).padStart(2, '0');
