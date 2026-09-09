@@ -1,3 +1,12 @@
+## 2026-09-10 — Πρότυπα εξαγωγής προμηθευτή (θεμέλια)
+
+- Νέα μοντέλα `ExtractionTemplate`, `TemplateField`, `TemplateMapping`, `TemplateCondition`, `TemplateRun`, `TemplateSample`, `TemplateJob`, `TemplateJobItem`.
+- Καθαρή λογική σε `lib/templates/*`: σχήμα/παλέτα χρωμάτων, coercion ελληνικών ποσών και ημερομηνιών, conditions, mapping, διάγραμμα ροής.
+- Μηχανή εξαγωγής: text layer για ψηφιακά PDF (σωστή γεωμετρία και σε περιστραμμένες σελίδες), crop + vision για σαρωμένα, πίνακες, fallback μοντέλων.
+- API `/api/admin/ocr/templates/**` (CRUD, δείγμα, εικόνα σελίδας, πεδία, mappings, conditions, δοκιμή πεδίου).
+- Το `read-region` του OCR χρησιμοποιεί πλέον τον κοινό vision reader και τον κοινό rasteriser.
+- UI designer, ενσωμάτωση στο pipeline, εκπαίδευση και jobs ακολουθούν (plans 2–4).
+
 # DGSMART ERP — Changelog
 
 Living documentation. Each significant change appends a new entry.
