@@ -5,17 +5,39 @@ import type { TemplateValueType } from './schema';
 export type Coerced = string | number | string[] | null;
 
 /**
- * `parseGreekNumber` treats `.` as *always* a thousands separator (per its own doc comment),
- * so a plain-decimal string like "1234.56" would parse as 123456. Detect that shape up front
- * and read it as a plain JS number instead. Anything with a comma, or more than one dot
- * (i.e. actual Greek/thousands grouping), still goes through parseGreekNumber untouched.
+ * `parseGreekNumber` treats `.` as *always* a thousands separator (per its own doc comment), so
+ * a plain-decimal string like "1234.56" would parse as 123456 if handed to it directly. But a
+ * single dot is genuinely ambiguous: Greek invoices also print whole-euro thousands-grouped
+ * amounts with a single dot and no comma (e.g. "1.234" meaning 1234, not 1.234). Disambiguate
+ * before delegating:
+ *
+ *   1. Contains a comma            → unambiguously Greek-formatted → delegate as-is.
+ *   2. Single dot w/ exactly 3 fractional digits, or repeated 3-digit groups and no comma
+ *      (e.g. "1.234", "100.000", "1.234.567") → Greek thousands grouping, no decimal part →
+ *      strip the dots and read as a plain integer.
+ *   3. Single dot w/ fractional-digit count != 3, no comma (e.g. "1.5", "1234.56") → plain
+ *      decimal → read as a plain JS number.
+ *   4. Anything else → delegate as-is.
  */
-function parsePlainOrGreekNumber(s: string): number | null {
+function disambiguateGreekNumeric(s: string, fallbackParse: (v: string) => number | null): number | null {
+  if (s.includes(',')) return fallbackParse(s);
+  if (/^\d+\.\d{3}$/.test(s) || /^\d{1,3}(\.\d{3})+$/.test(s)) {
+    const n = Number(s.replace(/\./g, ''));
+    return Number.isFinite(n) ? n : null;
+  }
   if (/^\d+\.\d+$/.test(s)) {
     const n = Number(s);
     return Number.isFinite(n) ? n : null;
   }
-  return parseGreekNumber(s);
+  return fallbackParse(s);
+}
+
+function parsePlainOrGreekNumber(s: string): number | null {
+  return disambiguateGreekNumeric(s, parseGreekNumber);
+}
+
+function parsePlainOrGreekCurrency(s: string): number | null {
+  return disambiguateGreekNumeric(s, parseGreekCurrency);
 }
 
 /**
@@ -55,7 +77,7 @@ export function coerceValue(raw: unknown, valueType: TemplateValueType): Coerced
     }
     case 'CURRENCY': {
       const cleaned = s.replace(/EUR|€/gi, '').trim();
-      const n = /^\d+\.\d+$/.test(cleaned) ? Number(cleaned) : parseGreekCurrency(cleaned);
+      const n = parsePlainOrGreekCurrency(cleaned);
       return n == null || !Number.isFinite(n) ? null : n;
     }
     case 'DATE': {
