@@ -23,10 +23,10 @@ export function toConditionDto(c: TemplateCondition) {
   return { id: c.id, name: c.name, order: c.order, isActive: c.isActive, logic: (c.logic === 'OR' ? 'OR' : 'AND') as 'AND' | 'OR', clauses: (c.clauses as unknown as Clause[]) ?? [], actions: (c.actions as unknown as Action[]) ?? [] };
 }
 
-export function toTemplateDto(t: ExtractionTemplate & { fields: TemplateField[]; mappings: TemplateMapping[]; conditions: TemplateCondition[]; _count?: { runs: number } }) {
+export function toTemplateDto(t: ExtractionTemplate & { fields: TemplateField[]; mappings: TemplateMapping[]; conditions: TemplateCondition[]; _count: { runs: number } }) {
   return {
     id: t.id, name: t.name, slug: t.slug, department: t.department, vatNumber: t.vatNumber, traderTrdr: t.traderTrdr,
-    supplierName: t.supplierName, runsCount: t._count?.runs ?? 0,
+    supplierName: t.supplierName, runsCount: t._count.runs,
     mode: t.mode, status: t.status, version: t.version,
     sample: t.sampleStorageKey ? { mimeType: t.sampleMimeType, pageCount: t.samplePageCount ?? 1, thumbUrl: t.sampleThumbUrl } : null,
     notifyEmails: t.notifyEmails, timesUsed: t.timesUsed, createdAt: t.createdAt, updatedAt: t.updatedAt,

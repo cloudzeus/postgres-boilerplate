@@ -22,6 +22,13 @@ export const LIST_QUERY = { orderBy: [{ name: 'asc' as const }], include: { _cou
 
 /** First free slug for `base` (base, base_2, …) — one query, no loop of round-trips. */
 export async function freeSlug(base: string): Promise<string> {
-  const rows = await prisma.extractionTemplate.findMany({ where: { slug: { startsWith: base } }, select: { slug: true } });
+  // Only `base` itself and the `base_N` family can collide — a bare `startsWith: base` also drags in
+  // unrelated neighbours (`ironworks` for `iron`) and inflates the suffix. Note `_` is a LIKE wildcard
+  // that Prisma does not escape, so `base_` also matches `baseX`; harmless here because uniqueKey()
+  // tests exact membership (`base_2`, `base_3`, …) rather than counting the rows it got back.
+  const rows = await prisma.extractionTemplate.findMany({
+    where: { OR: [{ slug: base }, { slug: { startsWith: `${base}_` } }] },
+    select: { slug: true },
+  });
   return uniqueKey(base, rows.map((r) => r.slug));
 }

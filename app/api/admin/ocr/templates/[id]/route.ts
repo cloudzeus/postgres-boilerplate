@@ -24,13 +24,13 @@ export async function GET(_req: Request, { params }: Ctx) {
 const PatchBody = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   slug: z.string().trim().regex(SLUG_RE, 'Slug: μόνο a-z, 0-9, _').optional(),
-  department: z.string().trim().max(80).nullable().optional(),
+  department: z.string().trim().max(80).transform((v) => v || null).nullable().optional(),
   mode: z.enum(['AUTO', 'SEMI_AUTO', 'MANUAL']).optional(),
   status: z.enum(['DRAFT', 'ACTIVE']).optional(),
   notifyEmails: z.string().trim().max(500).nullable().optional(),
   vatNumber: z.string().trim().regex(/^\d{9}$/, 'ΑΦΜ 9 ψηφίων').nullable().optional(),
   traderTrdr: z.number().int().positive().nullable().optional(),
-  supplierName: z.string().trim().max(200).nullable().optional(),
+  supplierName: z.string().trim().max(200).transform((v) => v || null).nullable().optional(),
 });
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -44,7 +44,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (!t) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
   // Το slug είναι το κλειδί του JSON εξόδου — κλειδώνει μόλις υπάρχουν εκτελέσεις.
-  if (b.slug !== undefined && b.slug !== t.slug && (t._count?.runs ?? 0) > 0) {
+  if (b.slug !== undefined && b.slug !== t.slug && t._count.runs > 0) {
     return NextResponse.json({ error: 'slug_locked', message: 'Το slug κλειδώνει μόλις το πρότυπο αποκτήσει εκτελέσεις' }, { status: 409 });
   }
 
@@ -54,8 +54,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: 'forbidden', message: 'Η αυτόματη λειτουργία απαιτεί δικαίωμα ανάρτησης (ocr.post)' }, { status: 403 });
   }
   // ACTIVE needs a sample and a field with a region; a mapping only when the mode posts to SoftOne (spec §14.1-4).
+  // Only on an actual transition: a plain {name}/{notifyEmails} PATCH must not be blocked because an
+  // already-ACTIVE template drifted out of readiness (e.g. its only mapping was deleted elsewhere).
   const status = b.status ?? t.status;
-  if (status === 'ACTIVE') {
+  if (status === 'ACTIVE' && (b.status !== undefined || b.mode !== undefined)) {
     const hasRegion = t.fields.some((f) => f.region != null);
     const needsMapping = mode !== 'MANUAL' && t.mappings.length === 0;
     if (!hasRegion || !t.sampleStorageKey || needsMapping) {
