@@ -5,6 +5,8 @@ import type { Action, Clause, Region, TemplateFieldKind, TemplateMode, MappingTa
 export type FlowTemplate = {
   id: string;
   name: string;
+  /** Second line of the root node — supplier, else department, else the slug. */
+  subtitle: string | null;
   mode: TemplateMode;
   samplePageCount: number | null;
   fields: { key: string; label: string; color: string; kind: TemplateFieldKind; region: Region | null }[];
@@ -30,7 +32,7 @@ export function buildFlow(t: FlowTemplate, run?: FlowRun): { nodes: FlowNode[]; 
   const edges: FlowEdge[] = [];
   const col = (i: number, row: number) => ({ x: COL_X[i], y: row * ROW_H });
 
-  nodes.push({ id: 'sample', type: 'sample', position: col(0, 0), data: { label: 'Δείγμα', pageCount: t.samplePageCount ?? 0, templateName: t.name } });
+  nodes.push({ id: 'sample', type: 'sample', position: col(0, 0), data: { label: t.name, subtitle: t.subtitle, pageCount: t.samplePageCount ?? 0 } });
 
   t.fields.forEach((f, i) => {
     const v = run?.values[f.key]?.value;
@@ -91,6 +93,9 @@ function outputLabel(mode: TemplateMode): string {
 export type FlowTemplateSource = {
   id: string;
   name: string;
+  slug: string;
+  department: string | null;
+  supplierName: string | null;
   mode: TemplateMode;
   sample: { pageCount: number } | null;
   fields: { key: string; label: string; color: string; kind: TemplateFieldKind; region: Region | null }[];
@@ -103,6 +108,7 @@ export function toFlowTemplate(dto: FlowTemplateSource): FlowTemplate {
   return {
     id: dto.id,
     name: dto.name,
+    subtitle: dto.supplierName ?? dto.department ?? dto.slug,
     mode: dto.mode,
     samplePageCount: dto.sample?.pageCount ?? null,
     fields: dto.fields.map((f) => ({ key: f.key, label: f.label, color: f.color, kind: f.kind, region: f.region })),

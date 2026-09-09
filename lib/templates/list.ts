@@ -18,6 +18,9 @@ export function toListRow(t: ListRow) {
   };
 }
 
+/** The list row as the UI sees it — one source of truth for the table's row type. */
+export type TemplateListRow = ReturnType<typeof toListRow>;
+
 export const LIST_QUERY = { orderBy: [{ name: 'asc' as const }], include: { _count: { select: { fields: true, runs: true } } } };
 
 /** First free slug for `base` (base, base_2, …) — one query, no loop of round-trips. */

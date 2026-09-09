@@ -2,12 +2,12 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { FiArrowLeft, FiCheckCircle, FiChevronRight, FiCpu, FiGitBranch, FiImage, FiLayers, FiUser } from 'react-icons/fi';
+import { FiArrowLeft, FiCheckCircle, FiChevronRight, FiCpu, FiFileText, FiGitBranch, FiImage, FiLayers } from 'react-icons/fi';
 import { cn } from '@/lib/utils';
 import type { TemplateDto } from '@/lib/templates/serialize';
 import { MODE_LABEL, STATUS_LABEL } from '@/lib/templates/labels';
 import { DesignerContext } from './designer-context';
-import { SupplierStep } from './supplier-step';
+import { DetailsStep } from './details-step';
 import { SampleStep } from './sample-step';
 import { RegionsStep } from './regions-step';
 import { MappingStep } from './mapping-step';
@@ -15,10 +15,10 @@ import { ConditionsStep } from './conditions-step';
 import { FlowPanel } from './flow-panel';
 
 const STEPS = [
-  { key: 'supplier', label: 'Προμηθευτής', icon: FiUser },
+  { key: 'details', label: 'Στοιχεία', icon: FiFileText },
   { key: 'sample', label: 'Δείγμα', icon: FiImage },
   { key: 'regions', label: 'Περιοχές & πεδία', icon: FiLayers },
-  { key: 'mapping', label: 'Mapping', icon: FiGitBranch },
+  { key: 'mapping', label: 'Mapping (προαιρετικό)', icon: FiGitBranch },
   { key: 'conditions', label: 'Conditions & λειτουργία', icon: FiCpu },
 ] as const;
 
@@ -27,10 +27,10 @@ const LEAVE_MSG = 'Υπάρχουν μη αποθηκευμένες αλλαγέ
 /** Readiness per step — drives the check marks in the stepper. */
 function stepDone(dto: TemplateDto, i: number): boolean {
   switch (i) {
-    case 0: return !!dto.name && /^\d{9}$/.test(dto.vatNumber);
+    case 0: return !!dto.name;
     case 1: return !!dto.sample;
     case 2: return dto.fields.some((f) => f.region);
-    case 3: return dto.mappings.length > 0;
+    case 3: return dto.mode === 'MANUAL' || dto.mappings.length > 0;
     case 4: return dto.status === 'ACTIVE';
     default: return false;
   }
@@ -38,7 +38,8 @@ function stepDone(dto: TemplateDto, i: number): boolean {
 
 export function TemplateDesigner({ initial, canManage, canPost }: { initial: TemplateDto; canManage: boolean; canPost: boolean }) {
   const [dto, setDto] = React.useState(initial);
-  const [step, setStep] = React.useState(() => (initial.sample ? (initial.fields.length ? 2 : 1) : 0));
+  // A fresh template lands on «Δείγμα» — the details step only needs the name, which the dialog already asked for.
+  const [step, setStep] = React.useState(() => (initial.sample ? (initial.fields.length ? 2 : 1) : 1));
   const [focusKey, setFocusKey] = React.useState<string | null>(null);
   // The regions step needs the width, so start with the flow panel collapsed when
   // we land there. Only the initial default — navigating to it later keeps it open.
@@ -63,7 +64,7 @@ export function TemplateDesigner({ initial, canManage, canPost }: { initial: Tem
   }, [dirty]);
 
   const ctx = React.useMemo(() => ({ dto, setDto, canManage, canPost, focusKey, setFocusKey, goToStep, dirty, setDirty }), [dto, canManage, canPost, focusKey, goToStep, dirty]);
-  const Current = [SupplierStep, SampleStep, RegionsStep, MappingStep, ConditionsStep][step];
+  const Current = [DetailsStep, SampleStep, RegionsStep, MappingStep, ConditionsStep][step];
 
   return (
     <DesignerContext.Provider value={ctx}>
@@ -90,7 +91,8 @@ export function TemplateDesigner({ initial, canManage, canPost }: { initial: Tem
             })}
           </div>
           <div className="mt-3 rounded-md border border-border bg-white p-3 text-[11px] text-muted-foreground shadow-fluent-2">
-            <div className="flex justify-between"><span>Κατάσταση</span><span className="font-medium text-foreground">{STATUS_LABEL[dto.status]}</span></div>
+            <div className="flex justify-between"><span>Slug</span><span className="font-mono text-foreground">{dto.slug}</span></div>
+            <div className="mt-1 flex justify-between"><span>Κατάσταση</span><span className="font-medium text-foreground">{STATUS_LABEL[dto.status]}</span></div>
             <div className="mt-1 flex justify-between"><span>Λειτουργία</span><span className="font-medium text-foreground">{MODE_LABEL[dto.mode]}</span></div>
             <div className="mt-1 flex justify-between"><span>Έκδοση</span><span className="font-mono">{dto.version}</span></div>
           </div>

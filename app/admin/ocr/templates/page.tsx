@@ -1,34 +1,28 @@
 import { FiLayers } from 'react-icons/fi';
 import { prisma } from '@/lib/db';
 import { requirePermission, hasPermission } from '@/lib/rbac';
+import { LIST_QUERY, toListRow } from '@/lib/templates/list';
 import { PageHeader } from '@/components/admin/page-header';
 import { TemplatesTable, type TemplateRow } from './templates-table';
 import { NewTemplateDialog } from './new-template-dialog';
 
 export const dynamic = 'force-dynamic';
 
-// Πρότυπα εξαγωγής προμηθευτών — λίστα. Αντικαθιστά την παλιά σελίδα SupplierTemplate.
+// Πρότυπα εξαγωγής — λίστα. Το πρότυπο είναι ανεξάρτητο· ο προμηθευτής/τμήμα είναι προαιρετικά.
 export default async function TemplatesPage() {
   await requirePermission('ocr.read');
   const [rows, canManage] = await Promise.all([
-    prisma.extractionTemplate.findMany({
-      orderBy: [{ supplierName: 'asc' }, { name: 'asc' }],
-      include: { _count: { select: { fields: true, runs: true } } },
-    }),
+    prisma.extractionTemplate.findMany(LIST_QUERY),
     hasPermission('ocr.categorize'),
   ]);
-  const data: TemplateRow[] = rows.map((t) => ({
-    id: t.id, name: t.name, vatNumber: t.vatNumber, supplierName: t.supplierName, docType: t.docType,
-    mode: t.mode, status: t.status, version: t.version, fieldsCount: t._count.fields, runsCount: t._count.runs,
-    timesUsed: t.timesUsed, hasSample: !!t.sampleStorageKey, updatedAt: t.updatedAt.toISOString(),
-  }));
+  const data: TemplateRow[] = rows.map(toListRow);
 
   return (
     <div className="w-full">
       <PageHeader
         icon={<FiLayers />}
-        title="Πρότυπα προμηθευτών"
-        description={`Περιοχές, πεδία, mapping και conditions ανά προμηθευτή (${data.length} πρότυπα).`}
+        title="Πρότυπα εξαγωγής"
+        description={`Έντυπα με περιοχές και πεδία· έξοδος JSON ανά έγγραφο (${data.length} πρότυπα).`}
         helpAnchor="templates"
         actions={canManage ? <NewTemplateDialog /> : undefined}
       />

@@ -6,15 +6,13 @@ import { type ColumnDef } from '@tanstack/react-table';
 import { FiEdit3, FiTrash2 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { DataTable, RowActionsTrigger } from '@/components/ui/data-table';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { MODE_LABEL, STATUS_LABEL } from '@/lib/templates/labels';
+import type { TemplateListRow } from '@/lib/templates/list';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { templatesApi, errorMessage } from '@/components/templates/api';
 
-export type TemplateRow = {
-  id: string; name: string; vatNumber: string; supplierName: string | null; docType: string;
-  mode: 'AUTO' | 'SEMI_AUTO' | 'MANUAL'; status: 'DRAFT' | 'ACTIVE'; version: number;
-  fieldsCount: number; runsCount: number; timesUsed: number; hasSample: boolean; updatedAt: string;
-};
+// One source of truth for the row shape: whatever the server list builder returns.
+export type TemplateRow = TemplateListRow;
 
 // Inline hex (DG palette) so the JIT never purges them.
 const MODE_STYLE: Record<TemplateRow['mode'], { bg: string; fg: string }> = {
@@ -34,13 +32,21 @@ export function TemplatesTable({ rows, canManage }: { rows: TemplateRow[]; canMa
     catch (e) { toast.error(errorMessage(e)); }
   };
   const columns = React.useMemo<ColumnDef<TemplateRow>[]>(() => [
-    { accessorKey: 'supplierName', header: 'Προμηθευτής', size: 260, cell: ({ row }) => (
-      <div className="min-w-0"><div className="truncate text-[12px] font-medium">{row.original.supplierName || '—'}</div><div className="font-mono text-[10px] text-muted-foreground">{row.original.vatNumber}</div></div>) },
-    // Hidden by default: the ΑΦΜ is already printed under the supplier name, but the
-    // global filter only sees accessor columns — without this the placeholder lies.
+    { accessorKey: 'name', header: 'Πρότυπο', size: 260, cell: ({ row }) => (
+      <div className="min-w-0">
+        <button type="button" onClick={() => router.push(`/admin/ocr/templates/${row.original.id}`)} className="block max-w-full cursor-pointer truncate text-[13px] font-medium text-sisyphus-700 hover:underline">{row.original.name}</button>
+        <div className="truncate font-mono text-[10px] text-muted-foreground">{row.original.slug}</div>
+      </div>) },
+    // Hidden by default: the slug and the ΑΦΜ are already printed under their cells, but the
+    // global filter only sees accessor columns — without these the search placeholder lies.
+    { accessorKey: 'slug', header: 'Slug', size: 160, enableHiding: true, cell: ({ row }) => <span className="font-mono text-[12px]">{row.original.slug}</span> },
+    { accessorKey: 'department', header: 'Τμήμα', size: 140, cell: ({ row }) => <span className="text-[12px]">{row.original.department || '—'}</span> },
+    { accessorKey: 'supplierName', header: 'Προμηθευτής', size: 220, cell: ({ row }) => (
+      <div className="min-w-0">
+        <div className="truncate text-[12px] font-medium">{row.original.supplierName || (row.original.vatNumber ? '' : '—')}</div>
+        <div className="font-mono text-[10px] text-muted-foreground">{row.original.vatNumber}</div>
+      </div>) },
     { accessorKey: 'vatNumber', header: 'ΑΦΜ', size: 110, enableHiding: true, cell: ({ row }) => <span className="font-mono text-[12px]">{row.original.vatNumber}</span> },
-    { accessorKey: 'name', header: 'Πρότυπο', size: 220, cell: ({ row }) => <button type="button" onClick={() => router.push(`/admin/ocr/templates/${row.original.id}`)} className="cursor-pointer text-[13px] font-medium text-sisyphus-700 hover:underline">{row.original.name}</button> },
-    { accessorKey: 'docType', header: 'Τύπος', size: 100, cell: ({ row }) => <span className="text-[12px]">{row.original.docType === 'RECEIPT' ? 'Απόδειξη' : 'Τιμολόγιο'}</span> },
     { accessorKey: 'mode', header: 'Λειτουργία', size: 120, cell: ({ row }) => <Pill text={MODE_LABEL[row.original.mode]} {...MODE_STYLE[row.original.mode]} /> },
     { accessorKey: 'status', header: 'Κατάσταση', size: 100, cell: ({ row }) => <Pill text={STATUS_LABEL[row.original.status]} {...STATUS_STYLE[row.original.status]} /> },
     { accessorKey: 'fieldsCount', header: 'Πεδία', size: 70, cell: ({ row }) => <span className="tabular-nums">{row.original.fieldsCount}</span> },
@@ -61,9 +67,9 @@ export function TemplatesTable({ rows, canManage }: { rows: TemplateRow[]; canMa
       columns={columns}
       data={rows}
       searchKey="name"
-      searchPlaceholder="Αναζήτηση (προμηθευτής, ΑΦΜ, πρότυπο…)"
-      persistKey="admin.templates.table.v1"
-      initialColumnVisibility={{ vatNumber: false }}
+      searchPlaceholder="Αναζήτηση (πρότυπο, slug, τμήμα, προμηθευτής…)"
+      persistKey="admin.templates.table.v2"
+      initialColumnVisibility={{ slug: false, vatNumber: false }}
       emptyState="Δεν υπάρχουν πρότυπα. Πάτησε «Νέο πρότυπο»."
     />
   );

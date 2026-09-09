@@ -11,7 +11,14 @@ type D = Record<string, unknown>;
 const card = 'rounded-md border bg-white px-2.5 py-2 text-[11px] shadow-fluent-2 min-w-[150px] max-w-[170px]';
 
 function SampleNode({ data }: NodeProps<Node<D>>) {
-  return <div className={`${card} border-border`}><Handle type="source" position={Position.Bottom} /><div className="flex items-center gap-1.5 font-semibold truncate"><FiImage className="size-3.5 shrink-0 text-sisyphus-600" /> <span className="truncate">{String(data.label)}</span></div><div className="text-muted-foreground truncate">{Number(data.pageCount)} σελίδ{Number(data.pageCount) === 1 ? 'α' : 'ες'}</div></div>;
+  const subtitle = data.subtitle as string | null;
+  return (
+    <div className={`${card} border-border`}>
+      <Handle type="source" position={Position.Bottom} />
+      <div className="flex items-center gap-1.5 font-semibold truncate"><FiImage className="size-3.5 shrink-0 text-sisyphus-600" /> <span className="truncate">{String(data.label)}</span></div>
+      {subtitle && <div className="text-muted-foreground truncate">{subtitle}</div>}
+      <div className="text-muted-foreground truncate">{Number(data.pageCount)} σελίδ{Number(data.pageCount) === 1 ? 'α' : 'ες'}</div>
+    </div>);
 }
 function FieldNode({ data }: NodeProps<Node<D>>) {
   const color = String(data.color); const status = data.status as string | undefined;
