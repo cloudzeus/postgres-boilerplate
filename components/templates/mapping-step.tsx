@@ -13,14 +13,44 @@ import { useDesigner } from './designer-context';
 import { templatesApi, errorMessage } from './api';
 
 type Mapping = TemplateDto['mappings'][number];
+type Source = { key: string; label: string; color: string; line: boolean };
+
+const sel = 'h-9 w-full rounded-sm border border-input bg-background px-2 text-[12px]';
+const KNOWN_INVOICE_KEYS = new Set(INVOICE_KEY_GROUPS.flatMap((g) => g.keys.map((k) => k.key)));
+
+/** Module scope on purpose: declared inside MappingStep these would be a fresh component
+ *  type each render, remounting every row and dropping focus after each keystroke. */
+function SourceSelect({ value, onChange, sources, disabled }: { value: string; onChange: (v: string) => void; sources: Source[]; disabled: boolean }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={sel} disabled={disabled} style={{ borderLeft: `4px solid ${sources.find((s) => s.key === value)?.color ?? '#D1D1D1'}` }}>
+      {sources.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+    </select>);
+}
+
+function InvoiceKeySelect({ value, fieldKey, isLine, onChange, disabled }: { value: string; fieldKey: string; isLine: boolean; onChange: (v: string) => void; disabled: boolean }) {
+  // A line source can only feed `items.*`, so offer the custom header key only for
+  // simple fields — and always render whatever is stored, or the select would show
+  // the first option while the row actually holds something else.
+  const custom = isLine ? null : `customFields.${fieldKey.replace(/\./g, '_')}`;
+  const stored = value && value !== custom && !KNOWN_INVOICE_KEYS.has(value) ? value : null;
+  return (
+    <select value={value} className={sel} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
+      {INVOICE_KEY_GROUPS.map((g) => <optgroup key={g.label} label={g.label}>{g.keys.map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}</optgroup>)}
+      {custom && <option value={custom}>Ειδικό πεδίο: {fieldKey}</option>}
+      {stored && <option value={stored}>{stored}</option>}
+    </select>);
+}
 
 export function MappingStep() {
-  const { dto, setDto, canManage } = useDesigner();
+  const { dto, setDto, canManage, setDirty } = useDesigner();
   const [mappings, setMappings] = React.useState<Mapping[]>(dto.mappings);
   const [active, setActive] = React.useState(0);
   const [busy, setBusy] = React.useState(false);
+  // Only one step is mounted at a time, so this draft is discarded on navigation —
+  // syncing on `dto.mappings` alone cannot clobber another step's unsaved edits.
   React.useEffect(() => setMappings(dto.mappings), [dto.mappings]);
   const dirty = JSON.stringify(mappings) !== JSON.stringify(dto.mappings);
+  React.useEffect(() => { setDirty(dirty); return () => setDirty(false); }, [dirty, setDirty]);
 
   // Source keys: SINGLE fields by key, TABLE columns as `table.col`.
   const sources = React.useMemo(() => dto.fields.flatMap((f) => f.kind === 'TABLE'
@@ -41,12 +71,6 @@ export function MappingStep() {
     try { setDto(await templatesApi.putMappings(dto.id, mappings)); toast.success('Αποθηκεύτηκε'); }
     catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
   };
-
-  const sel = 'h-9 w-full rounded-sm border border-input bg-background px-2 text-[12px]';
-  const SourceSelect = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className={sel} style={{ borderLeft: `4px solid ${sources.find((s) => s.key === value)?.color ?? '#D1D1D1'}` }}>
-      {sources.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-    </select>);
 
   return (
     <div className="space-y-4">
@@ -70,14 +94,11 @@ export function MappingStep() {
             <tbody>
               {m.rows.map((r, i) => (
                 <tr key={i} className="border-t border-border">
-                  <td className="py-1.5 pr-2"><SourceSelect value={r.fieldKey} onChange={(v) => setRow(i, { ...r, fieldKey: v } as MappingRowInvoice | MappingRowExcel)} /></td>
+                  <td className="py-1.5 pr-2"><SourceSelect value={r.fieldKey} sources={sources} disabled={!canManage} onChange={(v) => setRow(i, { ...r, fieldKey: v } as MappingRowInvoice | MappingRowExcel)} /></td>
                   <td className="py-1.5 pr-2">{m.target === 'INVOICE'
-                    ? <select value={(r as MappingRowInvoice).invoiceKey} className={sel} onChange={(e) => setRow(i, { ...r, invoiceKey: e.target.value } as MappingRowInvoice)}>
-                        {INVOICE_KEY_GROUPS.map((g) => <optgroup key={g.label} label={g.label}>{g.keys.map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}</optgroup>)}
-                        <option value={`customFields.${r.fieldKey.replace('.', '_')}`}>Ειδικό πεδίο: {r.fieldKey}</option>
-                      </select>
-                    : <Input value={(r as MappingRowExcel).column} placeholder="Όνομα στήλης" onChange={(e) => setRow(i, { ...r, column: e.target.value } as MappingRowExcel)} />}</td>
-                  {m.target === 'EXCEL' && <td className="py-1.5 pr-2"><Input type="number" min={0} value={(r as MappingRowExcel).order} onChange={(e) => setRow(i, { ...r, order: Number(e.target.value) } as MappingRowExcel)} /></td>}
+                    ? <InvoiceKeySelect value={(r as MappingRowInvoice).invoiceKey} fieldKey={r.fieldKey} isLine={!!sources.find((s) => s.key === r.fieldKey)?.line} disabled={!canManage} onChange={(v) => setRow(i, { ...r, invoiceKey: v } as MappingRowInvoice)} />
+                    : <Input value={(r as MappingRowExcel).column} placeholder="Όνομα στήλης" disabled={!canManage} onChange={(e) => setRow(i, { ...r, column: e.target.value } as MappingRowExcel)} />}</td>
+                  {m.target === 'EXCEL' && <td className="py-1.5 pr-2"><Input type="number" min={0} value={(r as MappingRowExcel).order} disabled={!canManage} onChange={(e) => setRow(i, { ...r, order: Number(e.target.value) || 0 } as MappingRowExcel)} /></td>}
                   <td className="py-1.5">{canManage && <button type="button" aria-label="Αφαίρεση" onClick={() => delRow(i)} className="grid size-7 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:bg-[var(--cx-hover)] hover:text-dg-red-600"><FiTrash2 className="size-3.5" /></button>}</td>
                 </tr>))}
               {m.rows.length === 0 && <tr><td colSpan={4} className="py-4 text-center text-[12px] italic text-muted-foreground">Καμία γραμμή.</td></tr>}

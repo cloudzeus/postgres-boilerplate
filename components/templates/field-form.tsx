@@ -49,7 +49,7 @@ export function FieldForm({ field, usedColors, onChange, disabled }: { field: Fi
             {(field.columns ?? []).map((c, i) => (
               <div key={i} className="grid grid-cols-[1fr_1fr_120px_28px] items-center gap-2">
                 <Input value={c.label} disabled={disabled} placeholder="Ετικέτα" onChange={(e) => setCol(i, { label: e.target.value, key: slugKey(e.target.value) || c.key })} />
-                <Input value={c.key} disabled={disabled} placeholder="key" className="font-mono text-[12px]" onChange={(e) => setCol(i, { key: e.target.value })} />
+                <Input value={c.key} disabled={disabled} placeholder="key" className="font-mono text-[12px]" onChange={(e) => setCol(i, { key: slugKey(e.target.value) || c.key })} />
                 <select value={c.valueType} disabled={disabled} className="h-9 rounded-sm border border-input bg-background px-2 text-[12px]" onChange={(e) => setCol(i, { valueType: e.target.value as TemplateValueType })}>
                   {VALUE_TYPES.map((v) => <option key={v} value={v}>{VALUE_TYPE_LABEL[v]}</option>)}</select>
                 {!disabled && <button type="button" aria-label="Αφαίρεση στήλης" onClick={() => set({ columns: (field.columns ?? []).filter((_, j) => j !== i) })} className="grid size-7 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:bg-[var(--cx-hover)] hover:text-dg-red-600"><FiX className="size-3.5" /></button>}

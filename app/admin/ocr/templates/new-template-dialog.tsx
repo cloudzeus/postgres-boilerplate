@@ -26,15 +26,21 @@ export function NewTemplateDialog() {
   // Debounced supplier search (≥2 chars).
   React.useEffect(() => {
     if (q.trim().length < 2) { setResults([]); return; }
-    const h = setTimeout(() => { templatesApi.searchSuppliers(q.trim()).then((r) => setResults(r.results)).catch(() => setResults([])); }, 250);
-    return () => clearTimeout(h);
+    // `ignore` so a slow in-flight search cannot land after a newer query's results.
+    let ignore = false;
+    const h = setTimeout(() => {
+      templatesApi.searchSuppliers(q.trim())
+        .then((r) => { if (!ignore) setResults(r.results); })
+        .catch(() => { if (!ignore) setResults([]); });
+    }, 250);
+    return () => { ignore = true; clearTimeout(h); };
   }, [q]);
 
   const pick = (s: Supplier) => {
     setSupplier(s);
     const afm = /\b(\d{9})\b/.exec(s.sub)?.[1] ?? '';
     setVat(afm);
-    if (!name) setName(`${s.name} — Τιμολόγιο`);
+    if (!name) setName(`${s.name} — ${docType === 'RECEIPT' ? 'Απόδειξη' : 'Τιμολόγιο'}`);
     setResults([]); setQ(s.name);
   };
 

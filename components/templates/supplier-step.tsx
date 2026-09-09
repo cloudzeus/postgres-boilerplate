@@ -9,11 +9,12 @@ import { useDesigner } from './designer-context';
 import { templatesApi, errorMessage } from './api';
 
 export function SupplierStep() {
-  const { dto, setDto, canManage } = useDesigner();
+  const { dto, setDto, canManage, setDirty } = useDesigner();
   const [name, setName] = React.useState(dto.name);
   const [supplierName, setSupplierName] = React.useState(dto.supplierName ?? '');
   const [busy, setBusy] = React.useState(false);
   const dirty = name !== dto.name || supplierName !== (dto.supplierName ?? '');
+  React.useEffect(() => { setDirty(dirty); return () => setDirty(false); }, [dirty, setDirty]);
 
   const save = async () => {
     setBusy(true);

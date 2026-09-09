@@ -17,6 +17,13 @@ describe('FieldsBody', () => {
     expect(FieldsBody.safeParse({ fields: [{ key: 'lines', label: 'Γραμμές', color: '#0078D4', kind: 'TABLE' }] }).success).toBe(false);
     expect(FieldsBody.safeParse({ fields: [{ key: 'lines', label: 'Γραμμές', color: '#0078D4', kind: 'TABLE', columns: [] }] }).success).toBe(false);
   });
+  it('rejects a table column key that is not a slug', () => {
+    const table = (key: string) => ({ fields: [{ key: 'lines', label: 'Γραμμές', color: '#0078D4', kind: 'TABLE', columns: [{ key, label: 'Ποσότητα', valueType: 'NUMBER' }] }] });
+    const bad = FieldsBody.safeParse(table('Qty.1'));
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.issues.some((i) => i.message === 'Κλειδί στήλης: μόνο a-z, 0-9, _')).toBe(true);
+    expect(FieldsBody.safeParse(table('qty_1')).success).toBe(true);
+  });
   it('rejects two fields sharing a colour regardless of case', () => {
     const dup = FieldsBody.safeParse({ fields: [{ key: 'a', label: 'A', color: '#0078D4' }, { key: 'b', label: 'B', color: '#0078d4' }] });
     expect(dup.success).toBe(false);

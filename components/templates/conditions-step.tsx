@@ -16,15 +16,40 @@ import { templatesApi, errorMessage } from './api';
 type Cond = TemplateDto['conditions'][number];
 const sel = 'h-9 rounded-sm border border-input bg-background px-2 text-[12px]';
 
+/** Module scope on purpose: declared inside ConditionsStep it would be a new component
+ *  type on every render, remounting the inputs and dropping focus after each keystroke. */
+function ActionEditor({ a, onChange, onRemove, fields, mappings, canManage }: {
+  a: Action; onChange: (a: Action) => void; onRemove: () => void;
+  fields: TemplateDto['fields']; mappings: TemplateDto['mappings']; canManage: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-[160px_1fr_28px] items-center gap-2">
+      <select value={a.type} className={sel} disabled={!canManage} onChange={(e) => { const type = e.target.value as Action['type']; onChange(type === 'SET_FIELD' ? { type, params: { fieldKey: fields[0]?.key, value: '' } } : type === 'SWITCH_MAPPING' ? { type, params: { mappingName: mappings[0]?.name ?? 'default' } } : type === 'NOTIFY' ? { type, params: { subject: 'Ειδοποίηση' } } : { type, params: { reason: 'Έλεγχος' } } as Action); }}>
+        {(Object.keys(ACTION_LABEL) as Action['type'][]).map((t) => <option key={t} value={t}>{ACTION_LABEL[t]}</option>)}</select>
+      <div className="flex gap-2">
+        {a.type === 'SET_FIELD' && <><select value={a.params.fieldKey ?? ''} className={sel} disabled={!canManage} onChange={(e) => onChange({ type: 'SET_FIELD', params: { ...a.params, fieldKey: e.target.value } })}>{fields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select><Input value={a.params.value} placeholder="τιμή" disabled={!canManage} onChange={(e) => onChange({ type: 'SET_FIELD', params: { ...a.params, value: e.target.value } })} /></>}
+        {(a.type === 'FLAG_REVIEW' || a.type === 'BLOCK_POSTING') && <Input value={a.params.reason} placeholder="λόγος" disabled={!canManage} onChange={(e) => onChange({ type: a.type, params: { reason: e.target.value } })} />}
+        {a.type === 'SWITCH_MAPPING' && <select value={a.params.mappingName} className={sel} disabled={!canManage} onChange={(e) => onChange({ type: 'SWITCH_MAPPING', params: { mappingName: e.target.value } })}>{mappings.map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}</select>}
+        {a.type === 'NOTIFY' && <><Input value={a.params.subject} placeholder="θέμα" disabled={!canManage} onChange={(e) => onChange({ type: 'NOTIFY', params: { ...a.params, subject: e.target.value } })} /><Input value={a.params.emails ?? ''} placeholder="emails (προαιρ.)" disabled={!canManage} onChange={(e) => onChange({ type: 'NOTIFY', params: { ...a.params, emails: e.target.value || undefined } })} /></>}
+      </div>
+      {canManage && <button type="button" aria-label="Αφαίρεση" onClick={onRemove} className="grid size-7 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:text-dg-red-600"><FiTrash2 className="size-3.5" /></button>}
+    </div>);
+}
+
 export function ConditionsStep() {
-  const { dto, setDto, canManage, canPost } = useDesigner();
+  const { dto, setDto, canManage, canPost, setDirty } = useDesigner();
   const [conds, setConds] = React.useState<Cond[]>(dto.conditions);
   const [mode, setMode] = React.useState<TemplateMode>(dto.mode);
   const [emails, setEmails] = React.useState(dto.notifyEmails ?? '');
   const [busy, setBusy] = React.useState(false);
-  React.useEffect(() => { setConds(dto.conditions); setMode(dto.mode); setEmails(dto.notifyEmails ?? ''); }, [dto]);
+  // Two independent drafts, two independent syncs: saving the rules must not throw
+  // away unsaved mode edits (and vice versa), which one `[dto]` effect did.
+  React.useEffect(() => setConds(dto.conditions), [dto.conditions]);
+  React.useEffect(() => { setMode(dto.mode); setEmails(dto.notifyEmails ?? ''); }, [dto.mode, dto.notifyEmails]);
   const dirtyRules = JSON.stringify(conds) !== JSON.stringify(dto.conditions);
   const dirtyMode = mode !== dto.mode || emails !== (dto.notifyEmails ?? '');
+  const dirty = dirtyRules || dirtyMode;
+  React.useEffect(() => { setDirty(dirty); return () => setDirty(false); }, [dirty, setDirty]);
 
   const fieldOptions = [...dto.fields.map((f) => ({ key: f.key, label: f.label, color: f.color })), ...EXTRA_VARS.map((v) => ({ key: v.key, label: v.label, color: '#5C5C5C' }))];
   const setC = (i: number, patch: Partial<Cond>) => setConds((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
@@ -32,7 +57,7 @@ export function ConditionsStep() {
 
   const saveRules = async () => {
     setBusy(true);
-    try { setDto(await templatesApi.putConditions(dto.id, conds.map((c) => ({ ...c, id: c.id || undefined })) as Cond[])); toast.success('Οι κανόνες αποθηκεύτηκαν'); }
+    try { setDto(await templatesApi.putConditions(dto.id, conds.map((c, i) => ({ ...c, id: c.id || undefined, order: i })) as Cond[])); toast.success('Οι κανόνες αποθηκεύτηκαν'); }
     catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
   };
   const saveMode = async () => {
@@ -45,19 +70,6 @@ export function ConditionsStep() {
     try { setDto(await templatesApi.patch(dto.id, { status })); toast.success(status === 'ACTIVE' ? 'Το πρότυπο ενεργοποιήθηκε' : 'Το πρότυπο έγινε πρόχειρο'); }
     catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
   };
-
-  const ActionEditor = ({ a, onChange, onRemove }: { a: Action; onChange: (a: Action) => void; onRemove: () => void }) => (
-    <div className="grid grid-cols-[160px_1fr_28px] items-center gap-2">
-      <select value={a.type} className={sel} disabled={!canManage} onChange={(e) => { const type = e.target.value as Action['type']; onChange(type === 'SET_FIELD' ? { type, params: { fieldKey: dto.fields[0]?.key, value: '' } } : type === 'SWITCH_MAPPING' ? { type, params: { mappingName: dto.mappings[0]?.name ?? 'default' } } : type === 'NOTIFY' ? { type, params: { subject: 'Ειδοποίηση' } } : { type, params: { reason: 'Έλεγχος' } } as Action); }}>
-        {(Object.keys(ACTION_LABEL) as Action['type'][]).map((t) => <option key={t} value={t}>{ACTION_LABEL[t]}</option>)}</select>
-      <div className="flex gap-2">
-        {a.type === 'SET_FIELD' && <><select value={a.params.fieldKey ?? ''} className={sel} disabled={!canManage} onChange={(e) => onChange({ type: 'SET_FIELD', params: { ...a.params, fieldKey: e.target.value } })}>{dto.fields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select><Input value={a.params.value} placeholder="τιμή" disabled={!canManage} onChange={(e) => onChange({ type: 'SET_FIELD', params: { ...a.params, value: e.target.value } })} /></>}
-        {(a.type === 'FLAG_REVIEW' || a.type === 'BLOCK_POSTING') && <Input value={a.params.reason} placeholder="λόγος" disabled={!canManage} onChange={(e) => onChange({ type: a.type, params: { reason: e.target.value } })} />}
-        {a.type === 'SWITCH_MAPPING' && <select value={a.params.mappingName} className={sel} disabled={!canManage} onChange={(e) => onChange({ type: 'SWITCH_MAPPING', params: { mappingName: e.target.value } })}>{dto.mappings.map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}</select>}
-        {a.type === 'NOTIFY' && <><Input value={a.params.subject} placeholder="θέμα" disabled={!canManage} onChange={(e) => onChange({ type: 'NOTIFY', params: { ...a.params, subject: e.target.value } })} /><Input value={a.params.emails ?? ''} placeholder="emails (προαιρ.)" disabled={!canManage} onChange={(e) => onChange({ type: 'NOTIFY', params: { ...a.params, emails: e.target.value || undefined } })} /></>}
-      </div>
-      {canManage && <button type="button" aria-label="Αφαίρεση" onClick={onRemove} className="grid size-7 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:text-dg-red-600"><FiTrash2 className="size-3.5" /></button>}
-    </div>);
 
   return (
     <div className="space-y-6">
@@ -86,7 +98,7 @@ export function ConditionsStep() {
                 </div>))}
               {canManage && <button type="button" onClick={() => setC(i, { clauses: [...c.clauses, { fieldKey: fieldOptions[0]?.key ?? '$total', op: 'notEmpty' } as Clause] })} className="inline-flex cursor-pointer items-center gap-1 text-[12px] text-sisyphus-700 hover:underline"><FiPlus className="size-3" /> Ρήτρα</button>}
               <p className="pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Τότε</p>
-              {c.actions.map((a, k) => <ActionEditor key={k} a={a} onChange={(na) => setC(i, { actions: c.actions.map((x, j) => (j === k ? na : x)) })} onRemove={() => setC(i, { actions: c.actions.filter((_, j) => j !== k) })} />)}
+              {c.actions.map((a, k) => <ActionEditor key={k} a={a} fields={dto.fields} mappings={dto.mappings} canManage={canManage} onChange={(na) => setC(i, { actions: c.actions.map((x, j) => (j === k ? na : x)) })} onRemove={() => setC(i, { actions: c.actions.filter((_, j) => j !== k) })} />)}
               {canManage && <button type="button" onClick={() => setC(i, { actions: [...c.actions, { type: 'FLAG_REVIEW', params: { reason: 'Έλεγχος' } }] })} className="inline-flex cursor-pointer items-center gap-1 text-[12px] text-sisyphus-700 hover:underline"><FiPlus className="size-3" /> Ενέργεια</button>}
             </div>
           </div>))}

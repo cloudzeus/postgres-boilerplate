@@ -15,11 +15,13 @@ type Props = {
   onError?: () => void;
   /** Show the built-in ← page N/M → row. Set false when the parent renders its own nav. */
   showNav?: boolean;
+  /** Alt text for the page image. Defaults to «Δείγμα εγγράφου, σελίδα N». */
+  pageLabel?: string;
   className?: string;
 };
 
 export function RegionMarker({
-  pageImageUrl, pageCount = 1, page = 0, onPageChange, savedRegions = [], isMarking, onRegionComplete, onError, showNav = true, className,
+  pageImageUrl, pageCount = 1, page = 0, onPageChange, savedRegions = [], isMarking, onRegionComplete, onError, showNav = true, className, pageLabel,
 }: Props) {
   const url = pageImageUrl(page);
   const [objUrl, setObjUrl] = React.useState<string | null>(null);
@@ -39,7 +41,7 @@ export function RegionMarker({
         if (!res.ok) {
           const body = await res.text().catch(() => '');
           if (!alive) return;
-          setErrMsg(`HTTP ${res.status} — ${body.slice(0, 400)}`);
+          setErrMsg(`HTTP ${res.status} — ${body.slice(0, 200)}`);
           setObjUrl(null);
           setLoading(false);
           onError?.();
@@ -89,7 +91,7 @@ export function RegionMarker({
         <div ref={ref} {...(isMarking ? handlers : {})} className="relative w-full select-none"
           style={{ cursor: isMarking ? 'crosshair' : 'default', touchAction: isMarking ? 'none' : undefined }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={objUrl} alt="" className="block w-full" draggable={false} />
+          <img src={objUrl} alt={pageLabel ?? `Δείγμα εγγράφου, σελίδα ${page + 1}`} className="block w-full" draggable={false} />
           {isMarking && active && box && (
             <div className="pointer-events-none absolute border-2 border-sisyphus-500 bg-sisyphus-500/10"
               style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%` }} />
