@@ -94,6 +94,12 @@ describe('slugDraft', () => {
   it('never leaves the server charset', () => {
     for (const v of ['iron_', 'ΗΡΩΝ — Εκκαθαριστικός', 'Foo Bar!', 'a']) expect(slugDraft(v)).toMatch(SLUG_RE);
   });
+  it('stays inside 60 chars even when a separator is appended to a maxed-out key', () => {
+    const long = 'a'.repeat(65) + ' ';
+    const d = slugDraft(long);
+    expect(d.length).toBe(60);
+    expect(d).toMatch(SLUG_RE);
+  });
 });
 
 describe('templateSlug', () => {

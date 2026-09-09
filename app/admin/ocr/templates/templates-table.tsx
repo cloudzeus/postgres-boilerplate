@@ -42,10 +42,12 @@ export function TemplatesTable({ rows, canManage }: { rows: TemplateRow[]; canMa
     { accessorKey: 'slug', header: 'Slug', size: 160, enableHiding: true, cell: ({ row }) => <span className="font-mono text-[12px]">{row.original.slug}</span> },
     { accessorKey: 'department', header: 'Τμήμα', size: 140, cell: ({ row }) => <span className="text-[12px]">{row.original.department || '—'}</span> },
     { accessorKey: 'supplierName', header: 'Προμηθευτής', size: 220, cell: ({ row }) => (
-      <div className="min-w-0">
-        <div className="truncate text-[12px] font-medium">{row.original.supplierName || (row.original.vatNumber ? '' : '—')}</div>
-        <div className="font-mono text-[10px] text-muted-foreground">{row.original.vatNumber}</div>
-      </div>) },
+      row.original.supplierName || row.original.vatNumber ? (
+        <div className="min-w-0">
+          <div className="truncate text-[12px] font-medium">{row.original.supplierName}</div>
+          <div className="font-mono text-[10px] text-muted-foreground">{row.original.vatNumber}</div>
+        </div>
+      ) : <span className="text-[12px]">—</span>) },
     { accessorKey: 'vatNumber', header: 'ΑΦΜ', size: 110, enableHiding: true, cell: ({ row }) => <span className="font-mono text-[12px]">{row.original.vatNumber}</span> },
     { accessorKey: 'mode', header: 'Λειτουργία', size: 120, cell: ({ row }) => <Pill text={MODE_LABEL[row.original.mode]} {...MODE_STYLE[row.original.mode]} /> },
     { accessorKey: 'status', header: 'Κατάσταση', size: 100, cell: ({ row }) => <Pill text={STATUS_LABEL[row.original.status]} {...STATUS_STYLE[row.original.status]} /> },

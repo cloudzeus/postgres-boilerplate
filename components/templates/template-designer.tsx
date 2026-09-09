@@ -39,7 +39,7 @@ function stepDone(dto: TemplateDto, i: number): boolean {
 export function TemplateDesigner({ initial, canManage, canPost }: { initial: TemplateDto; canManage: boolean; canPost: boolean }) {
   const [dto, setDto] = React.useState(initial);
   // A fresh template lands on «Δείγμα» — the details step only needs the name, which the dialog already asked for.
-  const [step, setStep] = React.useState(() => (initial.sample ? (initial.fields.length ? 2 : 1) : 1));
+  const [step, setStep] = React.useState(() => (initial.sample && initial.fields.length ? 2 : 1));
   const [focusKey, setFocusKey] = React.useState<string | null>(null);
   // The regions step needs the width, so start with the flow panel collapsed when
   // we land there. Only the initial default — navigating to it later keeps it open.

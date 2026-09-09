@@ -26,11 +26,16 @@ export function NewTemplateDialog() {
     if (!v) { setName(''); setSlug(''); setSlugTouched(false); setDepartment(''); setBusy(false); }
   };
 
-  const submit = async () => {
-    if (!name.trim()) { toast.error('Δώσε όνομα προτύπου'); return; }
+  const submit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (busy || !name.trim()) return;
+    // `slugDraft` keeps a just-typed trailing `_`; strip it before it reaches the server.
+    // An untouched slug is left to the server: it derives one from the name and de-duplicates
+    // it with `freeSlug`, where sending our own copy would 409 on the second «Τιμολόγιο».
+    const clean = slug.replace(/_+$/, '');
     setBusy(true);
     try {
-      const r = await templatesApi.create({ name: name.trim(), slug: slug || undefined, department: department.trim() || null });
+      const r = await templatesApi.create({ name: name.trim(), slug: slugTouched && clean ? clean : undefined, department: department.trim() || null });
       toast.success('Το πρότυπο δημιουργήθηκε');
       onOpenChange(false);
       router.push(`/admin/ocr/templates/${r.id}`);
@@ -46,7 +51,7 @@ export function NewTemplateDialog() {
             <DialogTitle>Νέο πρότυπο</DialogTitle>
             <DialogDescription>Δώσε ένα όνομα. Προμηθευτή ή τμήμα συνδέεις αργότερα, αν χρειάζεται.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
+          <form onSubmit={submit} className="space-y-3">
             <div>
               <Label htmlFor="nm">Όνομα</Label>
               <Input id="nm" value={name} onChange={(e) => { const v = e.target.value; setName(v); if (!slugTouched) setSlug(v.trim() ? templateSlug(v) : ''); }} className="mt-1" placeholder="π.χ. ΗΡΩΝ — Εκκαθαριστικός" autoComplete="off" />
@@ -61,10 +66,10 @@ export function NewTemplateDialog() {
               <Input id="dp" value={department} onChange={(e) => setDepartment(e.target.value)} className="mt-1" placeholder="π.χ. Λογιστήριο, Συνεργείο" autoComplete="off" />
             </div>
             <div className="flex justify-end gap-2 pt-1">
-              <Button variant="ghost" onClick={() => onOpenChange(false)}>Άκυρο</Button>
-              <Button onClick={submit} disabled={busy || !name.trim()}>{busy ? 'Δημιουργία…' : 'Δημιουργία'}</Button>
+              <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Άκυρο</Button>
+              <Button type="submit" disabled={busy || !name.trim()}>{busy ? 'Δημιουργία…' : 'Δημιουργία'}</Button>
             </div>
-          </div>
+          </form>
         </DialogContent>
       </Dialog>
     </>

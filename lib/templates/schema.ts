@@ -106,7 +106,8 @@ export const SLUG_RE = /^[a-z0-9_]{1,60}$/;
  */
 export function slugDraft(typed: string): string {
   if (!typed.trim()) return '';
-  return slugKey(typed) + (/[^\p{L}\p{N}]$/u.test(typed) ? '_' : '');
+  // slugKey() already caps at 60; the appended separator can push it to 61, so re-cap.
+  return (slugKey(typed) + (/[^\p{L}\p{N}]$/u.test(typed) ? '_' : '')).slice(0, 60);
 }
 
 /** Template slug — the key of the JSON output. Same charset/rules as a field key. */

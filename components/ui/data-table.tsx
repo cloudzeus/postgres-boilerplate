@@ -217,6 +217,10 @@ export function DataTable<TData, TValue>({
     onRowSelectionChange: setRowSelection,
     onExpandedChange: setExpanded,
     onGlobalFilterChange: setGlobalFilter,
+    // TanStack samples the FIRST row to decide which columns the global filter may look at,
+    // so a column that is null in row 0 (or rendered purely from a custom cell) would be
+    // skipped for the whole table. Every column is searchable instead.
+    getColumnCanGlobalFilter: () => true,
     columnResizeMode: 'onChange',
     enableColumnResizing: true,
     enableExpanding: !!expandable,

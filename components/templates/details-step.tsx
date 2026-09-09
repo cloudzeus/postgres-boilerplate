@@ -19,20 +19,25 @@ export function DetailsStep() {
   const [slug, setSlug] = useServerDraft(dto.slug);
   const [department, setDepartment] = useServerDraft(dto.department ?? '');
   const [vat, setVat] = useServerDraft(dto.vatNumber ?? '');
-  const [supplier, setSupplier] = useServerDraft<SupplierPick | null>(dto.traderTrdr ? { id: dto.traderTrdr, name: dto.supplierName ?? '', vat: dto.vatNumber ?? '' } : null);
+  // Seeded from EITHER id or name: a template can carry a supplier name with no SoftOne link,
+  // and seeding from the id alone made the next save send `supplierName: null` and wipe it.
+  const [supplier, setSupplier] = useServerDraft<SupplierPick | null>(dto.traderTrdr || dto.supplierName ? { id: dto.traderTrdr, name: dto.supplierName ?? '', vat: dto.vatNumber ?? '' } : null);
   const [busy, setBusy] = React.useState(false);
   const slugLocked = dto.runsCount > 0;
-  const dirty = name.trim() !== dto.name || slug !== dto.slug || department.trim() !== (dto.department ?? '') || vat !== (dto.vatNumber ?? '') || (supplier?.id ?? null) !== dto.traderTrdr;
+  const dirty = name.trim() !== dto.name || slug !== dto.slug || department.trim() !== (dto.department ?? '') || vat !== (dto.vatNumber ?? '') || (supplier?.id ?? null) !== dto.traderTrdr || (supplier?.name ?? null) !== dto.supplierName;
   React.useEffect(() => { setDirty(dirty); return () => setDirty(false); }, [dirty, setDirty]);
 
   const pickSupplier = (s: SupplierPick | null) => { setSupplier(s); if (s?.vat) setVat(s.vat); };
   const save = async () => {
     if (vat && !/^\d{9}$/.test(vat)) { toast.error('Το ΑΦΜ έχει 9 ψηφία'); return; }
+    // `slugDraft` keeps a just-typed trailing `_` so the next word can be joined; it must never be saved.
+    const cleanSlug = slug.replace(/_+$/, '');
+    if (!slugLocked && !cleanSlug) { toast.error('Δώσε slug'); return; }
     setBusy(true);
     try {
       setDto(await templatesApi.patch(dto.id, {
-        name: name.trim(), ...(slugLocked ? {} : { slug }), department: department.trim() || null,
-        vatNumber: vat || null, traderTrdr: supplier?.id ?? null, supplierName: supplier?.name ?? null,
+        name: name.trim(), ...(slugLocked ? {} : { slug: cleanSlug }), department: department.trim() || null,
+        vatNumber: vat || null, traderTrdr: supplier?.id ?? null, supplierName: supplier?.name || null,
       }));
       toast.success('Αποθηκεύτηκε');
     } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
