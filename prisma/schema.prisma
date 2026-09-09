@@ -447,44 +447,40 @@ model PurchaseDocType {
   name      String                    // NAME (Περιγραφή)
   section   String?                   // Υποενότητα (SOREDIR)
   isActive  Boolean  @default(true)
+  enabled   Boolean  @default(false)   // on/off: τη χρησιμοποιούμε στην εφαρμογή (χειροκίνητο, δεν το αγγίζει το sync)
   order     Int      @default(0)
 
   @@index([order])
 }
 
-// Πελάτες (TRDR SODTYPE=13) από SoftOne via GetTable — μητρώο αναφοράς.
-model SoftoneCustomer {
-  id         Int     @id @default(autoincrement())
-  trdr       Int     @unique           // SoftOne TRDR id
-  code       String                    // CODE (κωδικός)
-  name       String                    // NAME (επωνυμία)
-  kind       String?                   // Πελάτης/Προμηθευτής/Πιστωτής (SODTYPE)
-  afm        String?                   // Α.Φ.Μ.
-  doy        String?                   // IRSDATA (Δ.Ο.Υ.)
-  profession String?                   // JOBTYPETRD (επάγγελμα)
-  address    String?
-  district   String?
-  zip        String?
-  city       String?
-  phone      String?                   // PHONE01
-  phone2     String?                   // PHONE02
-  fax        String?
-  email      String?
-  webpage    String?
-  isActive   Boolean @default(true)
+// Σειρές παραστατικών SoftOne (πίνακας SERIES) για όλες τις ενότητες εκτός
+// αγορών (1251 → PurchaseDocType): έξοδα, πάγια, άρθρα λογιστικής, εισπράξεις κλπ.
+// Ομαδοποιούνται ανά SOSOURCE (ενότητα) — μητρώο αναφοράς.
+model SoftoneDocSeries {
+  id        Int      @id @default(autoincrement())
+  sosource  Int                        // SoftOne SOSOURCE (ενότητα/module id)
+  family    String                     // Ετικέτα ενότητας (π.χ. «Πάγια»)
+  code      String                     // SERIES (αριθμός σειράς)
+  abbrev    String?                    // CODE (σύντμηση)
+  name      String                     // NAME (Περιγραφή)
+  section   String?                    // FPRMS (Τύπος)
+  isActive  Boolean  @default(true)    // ενεργή στο SoftOne (από sync)
+  enabled   Boolean  @default(false)   // on/off: τη χρησιμοποιούμε στην εφαρμογή (χειροκίνητο, δεν το αγγίζει το sync)
+  order     Int      @default(0)
 
-  @@index([name])
-  @@index([code])
-  @@index([afm])
+  @@unique([sosource, code])
+  @@index([sosource])
 }
 
-// Προμηθευτές (TRDR SODTYPE=12) από SoftOne via GetTable — μητρώο αναφοράς.
-model SoftoneSupplier {
+// Συναλλασσόμενοι (TRDR) από SoftOne via GetTable — ένα μητρώο για όλους τους τύπους:
+// SODTYPE 12 Προμηθευτές · 13 Πελάτες · 14 Χρηματικοί λογαριασμοί · 15 Χρεώστες · 16 Πιστωτές.
+model SoftoneTrader {
   id         Int     @id @default(autoincrement())
   trdr       Int     @unique           // SoftOne TRDR id
+  sodtype    Int                       // SoftOne SODTYPE (τύπος συναλλασσομένου)
+  kind       String                    // Ετικέτα τύπου (Πελάτης, Προμηθευτής, …)
   code       String                    // CODE (κωδικός)
   name       String                    // NAME (επωνυμία)
-  kind       String?                   // Πελάτης/Προμηθευτής/Πιστωτής (SODTYPE)
   afm        String?                   // Α.Φ.Μ.
   doy        String?                   // IRSDATA (Δ.Ο.Υ.)
   profession String?                   // JOBTYPETRD (επάγγελμα)
@@ -499,6 +495,7 @@ model SoftoneSupplier {
   webpage    String?
   isActive   Boolean @default(true)
 
+  @@index([sodtype])
   @@index([name])
   @@index([code])
   @@index([afm])
