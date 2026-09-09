@@ -11,7 +11,7 @@
 **Spec:** `docs/superpowers/specs/2026-09-09-extraction-templates-design.md`
 
 **Related plans (written after this one ships):**
-- Plan 2/3 — Designer UI: `/admin/ocr/templates` list + 5-step designer, React Flow panel (`@xyflow/react` 12.11.x), sidebar, wiki.
+- Plan 2/3 — Designer UI: `/admin/ocr/templates` list + 5-step designer, React Flow panel (`@xyflow/react` 12.11.x), sidebar, wiki. NOTE: Task 9 of this plan replaced the legacy `app/api/admin/ocr/templates/route.ts` (SupplierTemplate list/delete); the legacy page `app/admin/ocr/templates/page.tsx` + `delete-button.tsx` must be replaced by the new list page in plan 2 (their delete button is broken in the meantime; the page still renders).
 - Plan 3/3 — Pipeline: `runTemplateOnDocument`, upload hook, manual run, run-result view with per-field colours, Excel outputs, modes/notify, field-rules migration and cleanup.
 - Plan 4/4 — Training samples (spec §11) and batch scan jobs (spec §12): sample upload/verify/score API + UI, job queue worker, jobs pages. Models for both are created in this plan's Task 1 so a single migration covers everything.
 
