@@ -1,6 +1,10 @@
 // components/templates/api.ts — CLIENT. Typed fetch helpers for the template endpoints + Greek error text.
 import type { TemplateDto } from '@/lib/templates/serialize';
+import type { RunDto } from '@/lib/templates/run-dto';
 import type { FieldDef, FieldValue, Region } from '@/lib/templates/schema';
+
+export type { RunDto };
+export type RunOutcome = { runId: string; status: RunDto['status']; flags: { review: string[]; blocked: string[] }; error: string | null };
 
 export type Cleanup = { mappings: { name: string; removedRows: number }[]; conditions: { id: string; name: string; removedClauses: number; removedActions: number }[] };
 export type TestFieldResult = { raw: string | null; value: unknown; source: string; model: string | null; tokensUsed: number; color: string; durationMs: number };
@@ -18,6 +22,8 @@ const ERROR_TEXT: Record<string, string> = {
   forbidden: 'Δεν έχεις δικαίωμα για αυτή την ενέργεια.',
   has_history: 'Το πρότυπο έχει ιστορικό εκτελέσεων. Απενεργοποίησέ το αντί να το διαγράψεις.',
   unknown_field: 'Άγνωστο πεδίο.',
+  no_template: 'Δεν βρέθηκε πρότυπο για το ΑΦΜ του εκδότη — επίλεξε ένα.',
+  not_completed: 'Το έγγραφο δεν έχει ολοκληρωθεί.',
   multiple_tables: 'Το mapping χαρτογραφεί γραμμές από δύο πίνακες. Επίλεξε έναν.',
   table_to_header: 'Πεδίο πίνακα μπορεί να χαρτογραφηθεί μόνο σε στήλες γραμμών.',
   single_to_line: 'Απλό πεδίο δεν μπορεί να χαρτογραφηθεί σε στήλη γραμμών.',
@@ -50,6 +56,7 @@ async function handle<T>(res: Response): Promise<T> {
 
 const json = (body: unknown, method = 'POST'): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 const base = (id: string) => `/api/admin/ocr/templates/${id}`;
+const runsBase = (docId: string) => `/api/admin/ocr/${docId}/template-runs`;
 
 export const templatesApi = {
   create: (b: { name: string; slug?: string; department?: string | null; vatNumber?: string | null; traderTrdr?: number | null; supplierName?: string | null }) =>
@@ -71,6 +78,15 @@ export const templatesApi = {
   test: (id: string) => fetch(`${base(id)}/test`, json({})).then((r) => handle<TestTemplateResult>(r)),
   searchSuppliers: (q: string) => fetch(`/api/admin/softone/search?type=suppliers&q=${encodeURIComponent(q)}`).then((r) => handle<{ results: { id: number; code: string; name: string; sub: string; afm: string | null }[] }>(r)),
   pageImageUrl: (id: string, page: number, version: number, scale = 3) => `${base(id)}/page-image?page=${page}&scale=${scale}&v=${version}`,
+
+  /** Template runs of one OCR document (spec §15.5) — these live under the document, not the template. */
+  runs: {
+    list: (docId: string) => fetch(runsBase(docId), { cache: 'no-store' }).then((r) => handle<{ runs: RunDto[] }>(r)),
+    // Without a templateId the server matches the issuer ΑΦΜ; `no_template` when nothing matches.
+    run: (docId: string, templateId?: string) => fetch(runsBase(docId), json(templateId ? { templateId } : {})).then((r) => handle<{ run: RunDto | null; outcome: RunOutcome }>(r)),
+    patch: (docId: string, runId: string, values: Record<string, unknown>) => fetch(`${runsBase(docId)}/${runId}`, json({ values }, 'PATCH')).then((r) => handle<RunDto>(r)),
+    outputUrl: (docId: string, runId: string, download = false) => `${runsBase(docId)}/${runId}${download ? '?download=1' : ''}`,
+  },
 };
 
 export function errorMessage(e: unknown): string {

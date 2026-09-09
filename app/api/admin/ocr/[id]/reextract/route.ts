@@ -5,9 +5,12 @@ import { bunnyDownload } from '@/lib/bunny';
 import { extractDocument } from '@/lib/ocr/extract';
 import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
 import { getSetting } from '@/lib/settings';
+import { runMatchingTemplate } from '@/lib/templates/run';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// Re-extraction plus a template run (one vision call per region) easily outruns the 60s default.
+export const maxDuration = 300;
 
 /**
  * Re-run extraction on an existing OcrDocument with a higher-tier vision model.
@@ -96,7 +99,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       await prisma.ocrDocument.update({ where: { id }, data: dup }).catch(() => null);
     }
 
-    return NextResponse.json({ ok: true, model: result.model, data: result.data });
+    // Extraction template linked to this issuer (spec §15.1). Best-effort; failures become a FAILED run.
+    // Runs while the upgraded vision model is still in effect — a manual re-extract is exactly when
+    // the caller wants the higher-tier read for the template regions too.
+    const templateRun = await runMatchingTemplate(id, result.data?.vatNumber, 'reextract');
+
+    return NextResponse.json({ ok: true, model: result.model, data: result.data, templateRun });
   } catch (err: any) {
     await prisma.ocrDocument.update({
       where: { id },

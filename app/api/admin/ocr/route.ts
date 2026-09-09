@@ -8,9 +8,12 @@ import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr
 import { ensureOcrThumbnail } from '@/lib/ocr/thumbnail';
 import { inferDocKind } from '@/lib/ocr/validate';
 import { type DocType, type SupportedLang } from '@/lib/ocr/templates';
+import { runMatchingTemplate } from '@/lib/templates/run';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// Base OCR plus a template run (one vision call per region) easily outruns the 60s default.
+export const maxDuration = 300;
 
 const slug = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 8);
 const MAX_OCR_BYTES = 25 * 1024 * 1024; // 25 MB
@@ -176,10 +179,13 @@ export async function POST(req: Request) {
       await prisma.ocrDocument.update({ where: { id: doc.id }, data: dup }).catch(() => null);
     }
 
+    // Extraction template linked to this issuer (spec §15.1). Best-effort; failures become a FAILED run.
+    const templateRun = await runMatchingTemplate(doc.id, result.data?.vatNumber, 'upload');
+
     // Best-effort thumbnail generation (don't fail the request if it errors).
     ensureOcrThumbnail(doc.id).catch(() => null);
 
-    return NextResponse.json({ id: doc.id, data: result.data, durationMs: result.durationMs });
+    return NextResponse.json({ id: doc.id, data: result.data, durationMs: result.durationMs, templateRun });
   } catch (err: any) {
     await prisma.ocrDocument.update({
       where: { id: doc.id },
