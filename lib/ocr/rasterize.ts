@@ -6,6 +6,19 @@ export function isPdfBuffer(buf: Buffer): boolean {
   return buf.subarray(0, 5).toString('latin1') === '%PDF-';
 }
 
+/**
+ * Identify an image by its magic bytes. Browsers (and some mobile pickers) hand us
+ * an empty or bogus `file.type` — rejecting those as unsupported turned away files
+ * we can read perfectly well. PDFs are covered by isPdfBuffer, so this returns null
+ * for them. Returns null whenever the bytes are not a PNG / JPEG / WebP.
+ */
+export function sniffImageType(buf: Buffer): 'image/png' | 'image/jpeg' | 'image/webp' | null {
+  if (buf.length >= 8 && buf.subarray(0, 4).toString('hex') === '89504e47') return 'image/png';
+  if (buf.length >= 3 && buf.subarray(0, 3).toString('hex') === 'ffd8ff') return 'image/jpeg';
+  if (buf.length >= 12 && buf.subarray(0, 4).toString('latin1') === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
+  return null;
+}
+
 // PDFium (Chrome's PDF engine, WASM) renders embedded fonts reliably — unlike the
 // pdf-to-img canvas backend, which throws on TrueType glyphs ("Value is none of
 // these types String, Path" at paintChar). The WASM library is initialized once

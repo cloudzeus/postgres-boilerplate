@@ -105,6 +105,19 @@ describe('extractTemplateFields', () => {
     expect(readValue.mock.calls[0][0].ref).toEqual({ refType: 'TemplateRun', refId: 'r1' });
   });
 
+  it('degrades to vision when the PDF text layer cannot be parsed, once per page', async () => {
+    // A malformed/encrypted text layer must not fail the field — and must not be
+    // re-attempted for every field on the same page.
+    textItems.mockRejectedValue(new Error('bad pdf'));
+    readValue.mockResolvedValue({ value: 'v', model: 'm', tokensUsed: 1 });
+    const out = await extractTemplateFields(pdf, 'application/pdf', [field({ key: 'a' }), field({ key: 'b' })]);
+    expect(readValue).toHaveBeenCalledTimes(2);
+    expect(textItems).toHaveBeenCalledTimes(1);
+    expect(out.errors).toEqual([]);
+    expect(out.values.a).toMatchObject({ raw: 'v', source: 'vision' });
+    expect(out.values.b).toMatchObject({ raw: 'v', source: 'vision' });
+  });
+
   it('fields without a region are returned as null without any call; per-field errors do not abort the batch', async () => {
     readValue.mockRejectedValueOnce(new Error('boom'));
     const out = await extractTemplateFields(png, 'image/png', [field({ key: 'a', region: null }), field({ key: 'b' })]);

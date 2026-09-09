@@ -64,17 +64,25 @@ async function callVision(crop: Buffer, system: string, operation: string, ref?:
   return tryModels(cfg.models, async (model) => {
     // NOTE: every failure path in here must RETURN `{ ok: false }` rather than
     // throw — a throw escapes tryModels and skips the remaining fallback models.
-    const res = await fetchWithRetry(cfg.url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.key}` },
-      body: JSON.stringify({
-        model, temperature: 0,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: [{ type: 'image_url', image_url: { url: `data:image/png;base64,${crop.toString('base64')}` } }] },
-        ],
-      }),
-    });
+    // fetchWithRetry re-throws the transport error after its last attempt
+    // (ECONNRESET / ETIMEDOUT / DNS). Left unwrapped it escaped tryModels and
+    // aborted the whole chain — exactly the case the fallback exists for.
+    let res: Response;
+    try {
+      res = await fetchWithRetry(cfg.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.key}` },
+        body: JSON.stringify({
+          model, temperature: 0,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: [{ type: 'image_url', image_url: { url: `data:image/png;base64,${crop.toString('base64')}` } }] },
+          ],
+        }),
+      });
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e : new Error(String(e)) };
+    }
     if (!res.ok) {
       // Upstream bodies can carry request echoes / key fragments and are often huge.
       // Keep the surfaced error short (it reaches API responses); log the rest.

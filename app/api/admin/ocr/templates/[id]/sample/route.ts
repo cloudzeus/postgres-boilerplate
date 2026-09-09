@@ -3,25 +3,13 @@ import { nanoid } from 'nanoid';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { bunnyUploadPrivate, bunnyDelete } from '@/lib/bunny';
-import { countPdfPages, isPdfBuffer } from '@/lib/ocr/rasterize';
+import { countPdfPages, isPdfBuffer, sniffImageType } from '@/lib/ocr/rasterize';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const ALLOWED = new Set(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']);
 const MAX_BYTES = 25 * 1024 * 1024;
-
-/**
- * Identify an image by its magic bytes. Browsers (and some mobile pickers) hand us
- * an empty or bogus `file.type` — rejecting those as unsupported turned away files
- * we can read perfectly well. PDFs are already covered by isPdfBuffer.
- */
-function sniffImageType(buf: Buffer): string | null {
-  if (buf.length >= 8 && buf.subarray(0, 4).toString('hex') === '89504e47') return 'image/png';
-  if (buf.length >= 3 && buf.subarray(0, 3).toString('hex') === 'ffd8ff') return 'image/jpeg';
-  if (buf.length >= 12 && buf.subarray(0, 4).toString('latin1') === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
-  return null;
-}
 
 // POST multipart { file } — αποθηκεύει το δείγμα στο private Bunny zone και μετρά σελίδες.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -40,6 +28,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // when the bytes are unrecognised. 415 only if NEITHER is something we support.
   const sniffed = isPdfBuffer(buffer) ? 'application/pdf' : sniffImageType(buffer);
   const declared = file.type || '';
+  // A file that CLAIMS to be an image but carries bytes we cannot recognise is
+  // rejected outright: trusting the declared type would push a corrupt/renamed
+  // file into sharp/pdfium and fail later with an opaque error.
+  if (sniffed === null && declared.startsWith('image/')) return NextResponse.json({ error: 'unsupported_type' }, { status: 415 });
   const mimeType = sniffed && ALLOWED.has(sniffed) ? sniffed : declared;
   if (!ALLOWED.has(mimeType)) return NextResponse.json({ error: 'unsupported_type' }, { status: 415 });
 

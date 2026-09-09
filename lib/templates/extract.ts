@@ -41,7 +41,18 @@ export async function extractTemplateFields(
   };
   const text = async (page: number) => {
     let t = pageText.get(page);
-    if (!t) { t = await extractPdfTextItems(buffer, page); pageText.set(page, t); }
+    if (!t) {
+      // A text layer we cannot parse (malformed/encrypted PDF) is not a field
+      // error — it just means this document has to be read by the vision model.
+      // Cache the empty result so it is not re-attempted for every field.
+      try {
+        t = await extractPdfTextItems(buffer, page);
+      } catch (e) {
+        console.warn(`[templates] text layer unavailable for page ${page}: ${(e as Error).message}`);
+        t = [];
+      }
+      pageText.set(page, t);
+    }
     return t;
   };
 

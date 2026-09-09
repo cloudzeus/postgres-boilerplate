@@ -73,6 +73,24 @@ describe('callVision resilience', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps a REJECTED fetch inside the attempt and falls back to the next model', async () => {
+    // A transport failure (fetchWithRetry exhausting its retries and re-throwing
+    // ECONNRESET) used to escape tryModels and abort the whole chain — the exact
+    // situation the fallback exists for.
+    fetchMock.mockRejectedValueOnce(new Error('ECONNRESET'));
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: 'OK' } }] }) });
+    const r = await readCropValue({ crop: png, prompt: 'p', operation: 'x' });
+    expect(r.model).toBe('gemini-2.5-pro');
+    expect(r.value).toBe('OK');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('surfaces the transport error when every model fails to connect', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('ECONNRESET'));
+    fetchMock.mockRejectedValueOnce(new Error('ETIMEDOUT'));
+    await expect(readCropValue({ crop: png, prompt: 'p', operation: 'x' })).rejects.toThrow(/ECONNRESET/);
+  });
+
   it('throws the FIRST error when every model fails', async () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'primary is busy' });
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ error: { message: 'quota' } }) });
