@@ -59,7 +59,7 @@ type CallResult = { content: string; model: string; tokensUsed: number | null };
 /** Optional attribution for the AiUsage row, so spend can be traced back to a document/template. */
 export type UsageRef = { refType: string; refId: string };
 
-async function callVision(crop: Buffer, system: string, operation: string, ref?: UsageRef): Promise<CallResult> {
+export async function callVision(crop: Buffer, system: string, operation: string, ref?: UsageRef): Promise<CallResult> {
   const cfg = await visionConfig();
   return tryModels(cfg.models, async (model) => {
     // NOTE: every failure path in here must RETURN `{ ok: false }` rather than
@@ -121,7 +121,7 @@ const NULLISH = new Set(['', 'null', 'none', '—', '-', 'n/a', 'κενό']);
 
 /** Read one field's value from a crop. `prompt` describes the field (label + hint). */
 export async function readCropValue(input: { crop: Buffer; prompt: string; operation: string; ref?: UsageRef }): Promise<{ value: string; model: string; tokensUsed: number | null }> {
-  const system = `${input.prompt}\nThe image is a cropped area of a Greek invoice/receipt. Respond with ONLY the raw value text as printed, no labels, no quotes, no explanation. If the area is empty respond with an empty string.`;
+  const system = `${input.prompt}\nThe image is a cropped area of a scanned business document (Greek or English). Respond with ONLY the raw value text as printed, no labels, no quotes, no explanation. If the area is empty respond with an empty string.`;
   const r = await callVision(input.crop, system, input.operation, input.ref);
   const v = r.content.trim();
   return { value: NULLISH.has(v.toLowerCase()) ? '' : v, model: r.model, tokensUsed: r.tokensUsed };
@@ -130,7 +130,7 @@ export async function readCropValue(input: { crop: Buffer; prompt: string; opera
 /** Read a table crop into rows keyed by the template's column keys. */
 export async function readCropTable(input: { crop: Buffer; columns: { key: string; label: string }[]; operation: string; hint?: string | null; ref?: UsageRef }): Promise<{ rows: Record<string, string>[]; model: string; tokensUsed: number | null }> {
   const cols = input.columns.map((c) => `"${c.key}" (${c.label})`).join(', ');
-  const system = `Extract every row of the table in this cropped image of a Greek document.${input.hint ? ` ${input.hint}` : ''}\nReturn ONLY JSON: {"rows":[{${input.columns.map((c) => `"${c.key}":"…"`).join(',')}}]} with columns ${cols}. Values are raw strings exactly as printed; use "" when a cell is empty. No markdown.`;
+  const system = `Extract every row of the table in this cropped image of a scanned business document.${input.hint ? ` ${input.hint}` : ''}\nReturn ONLY JSON: {"rows":[{${input.columns.map((c) => `"${c.key}":"…"`).join(',')}}]} with columns ${cols}. Values are raw strings exactly as printed; use "" when a cell is empty. No markdown.`;
   const r = await callVision(input.crop, system, input.operation, input.ref);
   const rows = parseRows(r.content, input.columns.map((c) => c.key));
   return { rows, model: r.model, tokensUsed: r.tokensUsed };
