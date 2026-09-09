@@ -275,3 +275,7 @@ components/templates/
 - Επεξεργασία: worker loop μέσα στον ίδιο server (`lib/templates/jobs.ts::processJob`), σειριακά ανά job, ένα job τη φορά ανά instance (claim με `UPDATE … WHERE status='QUEUED' … LIMIT 1`), επανεκκίνηση: items RUNNING > 10 λεπτά επιστρέφουν σε QUEUED. Κάθε item: download → `extractTemplateFields` → conditions → αποθήκευση.
 - UI: σελίδα `/admin/ocr/templates/jobs` (λίστα εργασιών: id, πρότυπο, πρόοδος done/total, κατάσταση, ημερομηνία) και `/admin/ocr/templates/jobs/[id]` (πρόοδος ζωντανά με polling 2s, πίνακας αρχείων × πεδία με χρωματιστές τιμές, κλικ σε γραμμή → προβολή σελίδας με περιοχές, Excel εξαγωγή όλου του job, ακύρωση).
 - Τα αποτελέσματα μένουν αποθηκευμένα (audit) και εξάγονται σε Excel μέσω του EXCEL mapping του προτύπου (ή, αν δεν υπάρχει, μία στήλη ανά πεδίο).
+
+## 13. Σημειώσεις από review (2026-09-10)
+- **Διαγραφή προτύπου με ιστορικό:** το DELETE αρνείται (409) όταν υπάρχουν `TemplateRun` ή `TemplateJob`. Το πρότυπο μπορεί να γίνει DRAFT/ανενεργό αντί να διαγραφεί, ώστε να μη χαθεί audit/κόστος. (plan 3)
+- **Ακύρωση job:** τα items που είναι ακόμη QUEUED μένουν QUEUED· ο worker ελέγχει `job.status` πριν πάρει item και σταματά σε CANCELLED. Η λίστα δείχνει «ακυρώθηκε (Ν εκκρεμή)». (plan 4)
