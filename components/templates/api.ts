@@ -65,7 +65,8 @@ export const templatesApi = {
   testField: (id: string, fieldKey: string, region?: Region) => fetch(`${base(id)}/test-field`, json({ fieldKey, region })).then((r) => handle<TestFieldResult>(r)),
   // `takenKeys` = keys of unsaved proposals already on screen, so the server does not hand back a duplicate.
   detectField: (id: string, region: Region, takenKeys: string[] = []) => fetch(`${base(id)}/detect-field`, json({ region, takenKeys })).then((r) => handle<DetectFieldResult>(r)),
-  detectMarks: (id: string, page: number, mode: 'marks' | 'all' = 'all', takenKeys: string[] = []) => fetch(`${base(id)}/detect-marks`, json({ page, mode, takenKeys })).then((r) => handle<DetectMarksResult>(r)),
+  // `max` = free colour slots in the DRAFT; the server caps against saved fields alone and would pay for extras.
+  detectMarks: (id: string, page: number, mode: 'marks' | 'all' = 'all', takenKeys: string[] = [], max?: number) => fetch(`${base(id)}/detect-marks`, json({ page, mode, takenKeys, max })).then((r) => handle<DetectMarksResult>(r)),
   test: (id: string) => fetch(`${base(id)}/test`, json({})).then((r) => handle<TestTemplateResult>(r)),
   searchSuppliers: (q: string) => fetch(`/api/admin/softone/search?type=suppliers&q=${encodeURIComponent(q)}`).then((r) => handle<{ results: { id: number; code: string; name: string; sub: string }[] }>(r)),
   pageImageUrl: (id: string, page: number, version: number, scale = 3) => `${base(id)}/page-image?page=${page}&scale=${scale}&v=${version}`,

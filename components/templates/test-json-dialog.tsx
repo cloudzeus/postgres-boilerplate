@@ -15,9 +15,20 @@ export function TestJsonDialog({ open, onOpenChange, result, slug }: { open: boo
     [result],
   );
 
+  // The Clipboard API is missing outside a secure context and can be denied by permissions —
+  // fall back to selecting the JSON so the user only has to press Cmd/Ctrl+C.
+  const preRef = React.useRef<HTMLPreElement>(null);
   const copy = async () => {
-    try { await navigator.clipboard.writeText(json); toast.success('Αντιγράφηκε'); }
-    catch { toast.error('Δεν ήταν δυνατή η αντιγραφή'); }
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
+      await navigator.clipboard.writeText(json);
+      toast.success('Αντιγράφηκε');
+    } catch {
+      const el = preRef.current;
+      const sel = typeof window !== 'undefined' ? window.getSelection() : null;
+      if (el && sel) { const range = document.createRange(); range.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(range); }
+      toast.error('Επίλεξε και αντίγραψε το κείμενο');
+    }
   };
 
   const download = () => {
@@ -25,8 +36,12 @@ export function TestJsonDialog({ open, onOpenChange, result, slug }: { open: boo
     const a = document.createElement('a');
     a.href = url;
     a.download = `${slug}.json`;
+    // Firefox ignores a click on an anchor that is not in the document, and revoking the URL
+    // in the same tick can beat the download off the line — hand the browser a turn first.
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   return (
@@ -44,12 +59,12 @@ export function TestJsonDialog({ open, onOpenChange, result, slug }: { open: boo
               {Object.entries(result.fields).map(([k, v]) => (
                 <li key={k} className="inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: v.color, color: v.color }}>
                   <span className="font-mono">{k}</span>
-                  <span className="truncate text-foreground">{v.value == null ? '∅' : typeof v.value === 'object' ? `${(v.value as unknown[]).length} γραμμές` : String(v.value)}</span>
+                  <span className="truncate text-foreground">{v.value == null ? '∅' : Array.isArray(v.value) ? `${v.value.length} γραμμές` : String(v.value)}</span>
                 </li>
               ))}
             </ul>
             {result.errors.length > 0 && <p className="text-[11px] text-dg-red-600">{result.errors.map((e) => `${e.fieldKey}: ${e.message}`).join(' · ')}</p>}
-            <pre className="max-h-[50vh] overflow-auto rounded-md border border-border bg-neutral-4 p-3 font-mono text-[11px] leading-relaxed">{json}</pre>
+            <pre ref={preRef} className="max-h-[50vh] overflow-auto rounded-md border border-border bg-neutral-4 p-3 font-mono text-[11px] leading-relaxed">{json}</pre>
             <div className="flex justify-end gap-2">
               <Button variant="secondary" size="sm" onClick={copy}><FiCopy className="mr-1 size-3.5" /> Αντιγραφή</Button>
               <Button size="sm" onClick={download}><FiDownload className="mr-1 size-3.5" /> Λήψη .json</Button>
