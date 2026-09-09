@@ -78,6 +78,20 @@ export function slugKey(label: string): string {
   return slugifyFieldKey(label);
 }
 
+/** `base` if not taken, else `base_2`, `base_3`, … (exact, case-sensitive match). */
+export function uniqueKey(base: string, taken: Iterable<string>): string {
+  const set = new Set(taken);
+  if (!set.has(base)) return base;
+  let n = 2;
+  while (set.has(`${base}_${n}`)) n += 1;
+  return `${base}_${n}`;
+}
+
+/** Template slug — the key of the JSON output. Same charset/rules as a field key. */
+export function templateSlug(name: string): string {
+  return slugKey(name);
+}
+
 export function isValidBbox(b: unknown): b is Bbox {
   if (!Array.isArray(b) || b.length !== 4) return false;
   const [x, y, w, h] = b;
