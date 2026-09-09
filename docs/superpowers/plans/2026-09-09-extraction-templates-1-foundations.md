@@ -621,33 +621,40 @@ export type InvoiceKeyInfo = { key: string; label: string; valueType: TemplateVa
 
 /** The app's invoice schema keys a template can map onto (OcrDocument.extractedData). */
 export const INVOICE_SCHEMA: InvoiceKeyInfo[] = [
-  { key: 'invoiceNumber',   label: 'Αριθμός παραστατικού',     valueType: 'TEXT',     isLine: false },
-  { key: 'invoiceType',     label: 'Τύπος παραστατικού',       valueType: 'TEXT',     isLine: false },
-  { key: 'issueDate',       label: 'Ημερομηνία έκδοσης',       valueType: 'DATE',     isLine: false },
-  { key: 'dueDate',         label: 'Ημερομηνία λήξης',         valueType: 'DATE',     isLine: false },
-  { key: 'vatNumber',       label: 'ΑΦΜ εκδότη',               valueType: 'TEXT',     isLine: false },
-  { key: 'supplierName',    label: 'Επωνυμία εκδότη',          valueType: 'TEXT',     isLine: false },
-  { key: 'currency',        label: 'Νόμισμα',                  valueType: 'TEXT',     isLine: false },
-  { key: 'netTotal',        label: 'Καθαρή αξία',              valueType: 'CURRENCY', isLine: false },
-  { key: 'vatTotal',        label: 'ΦΠΑ',                      valueType: 'CURRENCY', isLine: false },
-  { key: 'grossTotal',      label: 'Συνολική αξία',            valueType: 'CURRENCY', isLine: false },
-  { key: 'paymentMethod',   label: 'Τρόπος πληρωμής',          valueType: 'TEXT',     isLine: false },
-  { key: 'mark',            label: 'ΜΑΡΚ ΑΑΔΕ',                valueType: 'TEXT',     isLine: false },
-  { key: 'notes',           label: 'Παρατηρήσεις',             valueType: 'TEXT',     isLine: false },
-  { key: 'items.code',      label: 'Γραμμή: κωδικός',          valueType: 'TEXT',     isLine: true },
-  { key: 'items.name',      label: 'Γραμμή: περιγραφή',        valueType: 'TEXT',     isLine: true },
-  { key: 'items.quantity',  label: 'Γραμμή: ποσότητα',         valueType: 'NUMBER',   isLine: true },
-  { key: 'items.price',     label: 'Γραμμή: τιμή μονάδας',     valueType: 'CURRENCY', isLine: true },
-  { key: 'items.discount',  label: 'Γραμμή: έκπτωση',          valueType: 'NUMBER',   isLine: true },
-  { key: 'items.vatRate',   label: 'Γραμμή: ΦΠΑ %',            valueType: 'NUMBER',   isLine: true },
-  { key: 'items.total',     label: 'Γραμμή: αξία',             valueType: 'CURRENCY', isLine: true },
+  // Header keys — exactly the names the OCR pipeline writes into OcrDocument.extractedData
+  // (see lib/ocr/templates.ts TEMPLATE_SCHEMAS.invoice.jsonStructure).
+  { key: 'companyName',        label: 'Επωνυμία εκδότη',            valueType: 'TEXT',     isLine: false },
+  { key: 'vatNumber',          label: 'ΑΦΜ εκδότη',                 valueType: 'TEXT',     isLine: false },
+  { key: 'companyAddress',     label: 'Διεύθυνση εκδότη',           valueType: 'TEXT',     isLine: false },
+  { key: 'companyDoy',         label: 'ΔΟΥ εκδότη',                 valueType: 'TEXT',     isLine: false },
+  { key: 'companyProfession',  label: 'Επάγγελμα εκδότη',           valueType: 'TEXT',     isLine: false },
+  { key: 'companyPhone',       label: 'Τηλέφωνο εκδότη',            valueType: 'TEXT',     isLine: false },
+  { key: 'companyEmail',       label: 'Email εκδότη',               valueType: 'TEXT',     isLine: false },
+  { key: 'customerName',       label: 'Επωνυμία παραλήπτη',         valueType: 'TEXT',     isLine: false },
+  { key: 'customerVatNumber',  label: 'ΑΦΜ παραλήπτη',              valueType: 'TEXT',     isLine: false },
+  { key: 'documentTypeLabel',  label: 'Τύπος παραστατικού',         valueType: 'TEXT',     isLine: false },
+  { key: 'invoiceNumber',      label: 'Αριθμός παραστατικού',       valueType: 'TEXT',     isLine: false },
+  { key: 'aadeMark',           label: 'ΜΑΡΚ ΑΑΔΕ',                  valueType: 'TEXT',     isLine: false },
+  { key: 'date',               label: 'Ημερομηνία',                 valueType: 'DATE',     isLine: false },
+  { key: 'time',               label: 'Ώρα',                        valueType: 'TEXT',     isLine: false },
+  { key: 'itemsCount',         label: 'Πλήθος ειδών',               valueType: 'NUMBER',   isLine: false },
+  { key: 'subtotal',           label: 'Καθαρή αξία',                valueType: 'CURRENCY', isLine: false },
+  { key: 'vatAmount',          label: 'ΦΠΑ',                        valueType: 'CURRENCY', isLine: false },
+  { key: 'totalAmount',        label: 'Γενικό σύνολο',              valueType: 'CURRENCY', isLine: false },
+  { key: 'items.code',         label: 'Γραμμή: κωδικός',            valueType: 'TEXT',     isLine: true },
+  { key: 'items.name',         label: 'Γραμμή: περιγραφή',          valueType: 'TEXT',     isLine: true },
+  { key: 'items.quantity',     label: 'Γραμμή: ποσότητα',           valueType: 'NUMBER',   isLine: true },
+  { key: 'items.price',        label: 'Γραμμή: τιμή μονάδας',       valueType: 'CURRENCY', isLine: true },
+  { key: 'items.discount',     label: 'Γραμμή: έκπτωση',            valueType: 'NUMBER',   isLine: true },
+  { key: 'items.vatRate',      label: 'Γραμμή: ΦΠΑ %',              valueType: 'NUMBER',   isLine: true },
+  { key: 'items.total',        label: 'Γραμμή: αξία',               valueType: 'CURRENCY', isLine: true },
 ];
 
 /** Info for a mapping target key. `customFields.<anything>` is always accepted as a TEXT header key. */
 export function invoiceKeyInfo(key: string): InvoiceKeyInfo | null {
   const found = INVOICE_SCHEMA.find((k) => k.key === key);
   if (found) return found;
-  const m = /^customFields\.([A-Za-z0-9_]+)$/.exec(key);
+  const m = /^customFields\.([a-z0-9_]+)$/.exec(key);   // slugKey output charset
   if (m) return { key, label: m[1], valueType: 'TEXT', isLine: false };
   return null;
 }
@@ -1081,7 +1088,7 @@ describe('projectToInvoice', () => {
   });
   it('does not mutate the input object', () => {
     const existing = { a: 1 };
-    projectToInvoice({ n: fv('x') }, [{ fieldKey: 'n', invoiceKey: 'notes' }], existing);
+    projectToInvoice({ n: fv('x') }, [{ fieldKey: 'n', invoiceKey: 'aadeMark' }], existing);
     expect(existing).toEqual({ a: 1 });
   });
 });
