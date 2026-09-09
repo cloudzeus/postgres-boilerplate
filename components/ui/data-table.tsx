@@ -60,6 +60,12 @@ export interface DataTableProps<TData, TValue> {
   persistKey?: string;
   className?: string;
   /**
+   * Stretch the table card to the bottom of the viewport (rows scroll inside, header
+   * sticky, pagination pinned). Default true; pass false for tables embedded in
+   * dialogs or below other content.
+   */
+  fullHeight?: boolean;
+  /**
    * Optional row grouping. When provided, a full-width group-header row is rendered
    * before the first row of each group on the current page. `rows` is every row in
    * that group across the entire (filtered) dataset, not just the current page — so
@@ -82,13 +88,14 @@ export function DataTable<TData, TValue>({
   data,
   searchKey,
   searchPlaceholder = 'Αναζήτηση...',
-  pageSize = 20,
+  pageSize = 50,
   expandable,
   emptyState,
   toolbar,
   enableSelection = false,
   initialColumnVisibility,
   persistKey,
+  fullHeight = true,
   className,
   groupBy,
 }: DataTableProps<TData, TValue>) {
@@ -240,6 +247,29 @@ export function DataTable<TData, TValue>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupBy, data, globalFilter, columnFilters]);
 
+  // Full-height card: measure where the card starts and give it the rest of the
+  // viewport, minus the page/app paddings below it (mobile bottom nav included).
+  const cardRef = React.useRef<HTMLDivElement>(null);
+  const [minHeight, setMinHeight] = React.useState<number | undefined>(undefined);
+  React.useLayoutEffect(() => {
+    if (!fullHeight) { setMinHeight(undefined); return; }
+    const el = cardRef.current;
+    if (!el) return;
+    const measure = () => {
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      const main = el.closest('main');
+      const pad = (node: Element | null) => (node ? parseFloat(getComputedStyle(node).paddingBottom) || 0 : 0);
+      const bottomGap = pad(main) + pad(main?.parentElement ?? null);
+      const h = Math.floor(window.innerHeight - top - bottomGap);
+      setMinHeight(h > 320 ? h : 320);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(document.body);
+    return () => { window.removeEventListener('resize', measure); ro?.disconnect(); };
+  }, [fullHeight]);
+
   return (
     <div className={cn('flex flex-col gap-3', className)}>
       {/* Toolbar */}
@@ -288,10 +318,14 @@ export function DataTable<TData, TValue>({
       </div>
 
       {/* Table */}
-      <div className="relative rounded-lg border border-border dark:border-border bg-white dark:bg-card shadow-fluent-2 overflow-hidden">
-        <div className="overflow-x-auto">
+      <div
+        ref={cardRef}
+        style={minHeight ? { height: minHeight } : undefined}
+        className="relative flex flex-col rounded-lg border border-border dark:border-border bg-white dark:bg-card shadow-fluent-2 overflow-hidden"
+      >
+        <div className="min-h-0 flex-1 overflow-auto">
           <table className="w-full text-[12px]" style={{ tableLayout: 'fixed', width: table.getTotalSize() }}>
-            <thead className="bg-muted/40 dark:bg-muted border-b border-border dark:border-input">
+            <thead className="sticky top-0 z-10 bg-neutral-4 dark:bg-muted shadow-[inset_0_-1px_0_0_var(--border)]">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id}>
                   {headerGroup.headers.map((header) => {
@@ -410,8 +444,8 @@ export function DataTable<TData, TValue>({
           </table>
         </div>
 
-        {/* Footer / pagination */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border dark:border-border bg-muted/30 dark:bg-muted/30 px-3 py-2">
+        {/* Footer / pagination — pinned to the bottom of the card */}
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border dark:border-border bg-muted/30 dark:bg-muted/30 px-3 py-2">
           <div className="text-[12px] text-muted-foreground">
             {enableSelection && Object.keys(rowSelection).length > 0 ? (
               <span>{Object.keys(rowSelection).length} επιλεγμένα από {totalRows}</span>

@@ -4,8 +4,8 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  FiGrid, FiUsers, FiShield, FiKey, FiUpload, FiImage,
-  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiTag, FiLayers, FiCpu, FiGlobe, FiBookOpen, FiMapPin, FiUserCheck, FiTruck, FiBox, FiTool, FiUploadCloud, FiFolder, FiLink, FiAlertCircle,
+  FiGrid, FiUsers, FiShield, FiKey, FiImage, FiChevronDown, FiList,
+  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiLayers, FiCpu, FiBookOpen, FiUserCheck, FiBox, FiTool, FiFolder, FiLink, FiAlertCircle,
 } from 'react-icons/fi';
 
 type IconType = React.ComponentType<{ className?: string }>;
@@ -19,53 +19,39 @@ type NavItem = {
   /** When set, only users with this role.key can see this item. */
   requireRoleKey?: string;
   badgeKey?: keyof Badges;
-  /** Opens in a new tab (e.g. the public SaaS demo). */
-  newTab?: boolean;
 };
 type NavGroup = { label: string; items: NavItem[] };
 
 export interface Badges {
   pendingUsers?: number;
-  newImports?: number;
 }
+
+/** DGsoft wordmark shown at the top of the sidebar. */
+const BRAND_LOGO_URL = 'https://espa-stamos.b-cdn.net/media/2026/05/dgplain-9bb7skuy.webp';
+const OPEN_GROUPS_KEY = 'admin-sidebar-open-groups';
 
 const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Επισκόπηση',
     items: [
       { href: '/admin', label: 'Dashboard', icon: FiGrid, exact: true },
-      { href: '/saas-ocr', label: 'SaaS OCR', icon: FiUploadCloud, newTab: true },
-    ],
-  },
-  {
-    label: 'Access control',
-    items: [
-      { href: '/admin/users', label: 'Χρήστες', icon: FiUsers, permissions: ['users.read'], badgeKey: 'pendingUsers' },
-      { href: '/admin/roles', label: 'Ρόλοι', icon: FiShield, permissions: ['roles.read'] },
-      { href: '/admin/permissions', label: 'Δικαιώματα', icon: FiKey, permissions: ['permissions.read'] },
     ],
   },
   {
     label: 'Δεδομένα',
     items: [
-      { href: '/admin/companies', label: 'Εταιρίες', icon: FiBriefcase, permissions: ['companies.read'] },
-      { href: '/admin/customers', label: 'Πελάτες', icon: FiUserCheck, permissions: ['metadata.read'] },
-      { href: '/admin/suppliers', label: 'Προμηθευτές', icon: FiTruck, permissions: ['metadata.read'] },
+      { href: '/admin/traders', label: 'Συναλλασσόμενοι', icon: FiUserCheck, permissions: ['metadata.read'] },
       { href: '/admin/items', label: 'Είδη', icon: FiBox, permissions: ['metadata.read'] },
       { href: '/admin/services', label: 'Υπηρεσίες', icon: FiTool, permissions: ['metadata.read'] },
-      { href: '/admin/kad-codes', label: 'Μητρώο ΚΑΔ', icon: FiTag, permissions: ['kad.read'] },
-      { href: '/admin/regions', label: 'Μητρώο Περιφερειών', icon: FiMapPin, permissions: ['metadata.read'] },
+      { href: '/admin/doc-series', label: 'Σειρές παραστατικών', icon: FiList, permissions: ['metadata.read'] },
       { href: '/admin/reference-data', label: 'Μητρώα αναφοράς', icon: FiLayers, permissions: ['metadata.read'] },
       { href: '/admin/document-types', label: 'Τύποι Δικαιολογητικών', icon: FiFileText, permissions: ['metadata.read'] },
       { href: '/admin/business-types', label: 'Νομικές Μορφές', icon: FiBriefcase, permissions: ['metadata.read'] },
-      { href: '/admin/imports', label: 'Excel Imports', icon: FiUpload, permissions: ['imports.read'], badgeKey: 'newImports' },
       { href: '/admin/media', label: 'Media', icon: FiImage },
       { href: '/admin/ocr', label: 'OCR / Έγγραφα', icon: FiCpu, permissions: ['ocr.read'], exact: true },
       { href: '/admin/ocr/batches', label: 'Φάκελοι OCR', icon: FiFolder, permissions: ['ocr.read'] },
       { href: '/admin/ocr/matching', label: 'Αντιστοιχίσεις SoftOne', icon: FiLink, permissions: ['ocr.read'] },
       { href: '/admin/ocr/pending', label: 'Εκκρεμότητες OCR', icon: FiAlertCircle, permissions: ['ocr.read'] },
-      { href: '/admin/tax-templates', label: 'Πρότυπα Φορολογικών Εντύπων', icon: FiFileText, permissions: ['ocr.read'] },
-      { href: '/admin/programs', label: 'Ευρωπαϊκά Προγράμματα', icon: FiGlobe, permissions: ['programs.read'] },
     ],
   },
   {
@@ -76,6 +62,14 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/settings', label: 'Ρυθμίσεις', icon: FiSettings, permissions: ['system.settings'] },
       { href: '/admin/ai-usage', label: 'AI Usage', icon: FiCpu, requireRoleKey: 'SUPER_ADMIN' },
       { href: '/admin/docs', label: 'API Docs', icon: FiFileText },
+    ],
+  },
+  {
+    label: 'Access control',
+    items: [
+      { href: '/admin/users', label: 'Χρήστες', icon: FiUsers, permissions: ['users.read'], badgeKey: 'pendingUsers' },
+      { href: '/admin/roles', label: 'Ρόλοι', icon: FiShield, permissions: ['roles.read'] },
+      { href: '/admin/permissions', label: 'Δικαιώματα', icon: FiKey, permissions: ['permissions.read'] },
     ],
   },
   {
@@ -107,13 +101,37 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
 
   const allowed = (perms?: string[]) => !perms || perms.length === 0 || perms.some((p) => permissionKeys.includes(p));
   const allowedItem = (it: NavItem) => allowed(it.permissions) && (!it.requireRoleKey || it.requireRoleKey === roleKey);
+  const isActive = (item: NavItem) => item.exact ? path === item.href : (path === item.href || path.startsWith(`${item.href}/`));
+
+  // Collapsible groups: all open by default, remembered per browser, and the
+  // group holding the current route is always forced open on navigation.
+  const [open, setOpen] = React.useState<Record<string, boolean>>({});
+  React.useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(OPEN_GROUPS_KEY) ?? '{}') as Record<string, boolean>;
+      setOpen(saved);
+    } catch { /* ignore */ }
+  }, []);
+  React.useEffect(() => {
+    const current = NAV_GROUPS.find((g) => g.items.some(isActive));
+    if (current && open[current.label] === false) {
+      setOpen((o) => ({ ...o, [current.label]: true }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
+  const toggleGroup = (label: string) => {
+    setOpen((o) => {
+      const next = { ...o, [label]: o[label] === false };
+      try { localStorage.setItem(OPEN_GROUPS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   return (
     <aside className="sticky top-0 hidden h-screen w-[244px] shrink-0 flex-col self-start border-r border-sidebar-border bg-sidebar lg:flex">
       <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
-        <Link href="/admin" className="-m-1.5 rounded-md p-1.5 flex items-center gap-2">
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-sm bg-dg-red-500 text-white text-[11px] font-bold">DG</span>
-          <span className="text-[14px] font-semibold tracking-tight">DGEspa</span>
+        <Link href="/admin" className="-m-1.5 flex items-center rounded-md p-1.5" aria-label="DGsoft">
+          <img src={BRAND_LOGO_URL} alt="DGsoft" className="h-7 w-auto" />
         </Link>
         <span className="ml-auto inline-flex items-center gap-1 rounded-sm border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
           <FiShield className="size-3" /> Admin
@@ -129,19 +147,31 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
         {NAV_GROUPS.map((group) => {
           const visible = group.items.filter(allowedItem);
           if (visible.length === 0) return null;
+          const expanded = open[group.label] !== false;
+          const groupId = `nav-group-${group.label.replace(/\s+/g, '-')}`;
           return (
             <div key={group.label}>
-              <p className="cx-eyebrow mb-1 px-2">{group.label}</p>
-              <ul className="flex flex-col">
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.label)}
+                aria-expanded={expanded}
+                aria-controls={groupId}
+                className="mb-1 flex h-7 w-full items-center gap-1 rounded-sm px-2 text-left cx-transition hover:bg-[var(--cx-hover)]"
+              >
+                <span className="cx-eyebrow flex-1">{group.label}</span>
+                <FiChevronDown
+                  aria-hidden
+                  className={cn('size-3.5 text-muted-foreground/80 cx-transition', expanded ? 'rotate-0' : '-rotate-90')}
+                />
+              </button>
+              <ul id={groupId} className={cn('flex-col', expanded ? 'flex' : 'hidden')}>
                 {visible.map((item) => {
-                  const active = item.exact ? path === item.href : (path === item.href || path.startsWith(`${item.href}/`));
+                  const active = isActive(item);
                   const badge = item.badgeKey ? badges[item.badgeKey] : undefined;
                   return (
                     <li key={item.href}>
                       <Link
                         href={item.href}
-                        target={item.newTab ? '_blank' : undefined}
-                        rel={item.newTab ? 'noreferrer' : undefined}
                         className={cn(
                           'group/item relative flex h-8 items-center gap-2.5 rounded-sm px-2 text-[13px] font-medium cx-transition',
                           active
