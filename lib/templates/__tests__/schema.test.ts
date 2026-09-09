@@ -74,6 +74,13 @@ describe('uniqueKey', () => {
     expect(uniqueKey('total', ['total', 'total_2'])).toBe('total_3');
   });
   it('accepts any iterable', () => { expect(uniqueKey('a', new Set(['a']))).toBe('a_2'); });
+  it('keeps the suffixed key inside the 60-char limit', () => {
+    const base = 'a'.repeat(60);
+    const k = uniqueKey(base, [base]);
+    expect(k.length).toBeLessThanOrEqual(60);
+    expect(k.endsWith('_2')).toBe(true);
+    expect(k).toMatch(SLUG_RE);
+  });
 });
 
 describe('slugDraft', () => {

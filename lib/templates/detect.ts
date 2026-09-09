@@ -13,9 +13,10 @@ const FIELD_PROMPT = [
   'No markdown, no explanation.',
 ].join('\n');
 
-export async function detectFieldFromCrop(pageBuf: Buffer, bbox: Bbox, opts: { taken: Iterable<string>; fallbackLabel: string; ref?: UsageRef }): Promise<{ field: DetectedField; model: string; tokensUsed: number | null }> {
+/** `field` is null when the model answered with something that is not JSON — the caller turns that into an error, not into an empty field. */
+export async function detectFieldFromCrop(pageBuf: Buffer, bbox: Bbox, opts: { taken: Iterable<string>; fallbackLabel: string; ref?: UsageRef }): Promise<{ field: DetectedField | null; model: string; tokensUsed: number | null }> {
   const crop = await prepareCrop(pageBuf, bbox);
-  const r = await callVision(crop, FIELD_PROMPT, 'template.detectField', opts.ref);
+  const r = await callVision(crop, FIELD_PROMPT, 'template.detect_field', opts.ref);
   return { field: parseDetectField(r.content, { taken: opts.taken, fallbackLabel: opts.fallbackLabel }), model: r.model, tokensUsed: r.tokensUsed };
 }
 
@@ -33,9 +34,14 @@ const ALL_PROMPT = [
 
 export type DetectMode = 'marks' | 'all';
 
-/** Whole-page detection. `marks` = only what the accountant circled/wrote; `all` = every labelled value (clean samples). The bitmap is downscaled (boxes are normalized, so scale is irrelevant) and kept in colour — pen marks matter. */
-export async function detectMarksOnPage(pageBuf: Buffer, opts: { taken: Iterable<string>; mode?: DetectMode; ref?: UsageRef }): Promise<{ marks: DetectedMark[]; model: string; tokensUsed: number | null }> {
-  const img = await sharp(pageBuf).resize({ width: 1600, height: 2000, fit: 'inside', withoutEnlargement: true }).png().toBuffer();
-  const r = await callVision(img, opts.mode === 'all' ? ALL_PROMPT : MARKS_PROMPT, opts.mode === 'all' ? 'template.detectAll' : 'template.detectMarks', opts.ref);
-  return { marks: parseMarks(r.content, { taken: opts.taken }), model: r.model, tokensUsed: r.tokensUsed };
+/**
+ * Whole-page detection. `marks` = only what the accountant circled/wrote; `all` = every labelled value
+ * (clean samples). The bitmap is downscaled (boxes are normalized, so scale is irrelevant) and kept in
+ * colour — pen marks matter — and shipped as JPEG: a full page of scan is several MB as PNG.
+ * `marks` is null when the model answered with something that is not JSON.
+ */
+export async function detectMarksOnPage(pageBuf: Buffer, opts: { taken: Iterable<string>; mode?: DetectMode; max?: number; ref?: UsageRef }): Promise<{ marks: DetectedMark[] | null; model: string; tokensUsed: number | null }> {
+  const img = await sharp(pageBuf).resize({ width: 1600, height: 2000, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
+  const r = await callVision(img, opts.mode === 'all' ? ALL_PROMPT : MARKS_PROMPT, opts.mode === 'all' ? 'template.detect_all' : 'template.detect_marks', opts.ref, 'image/jpeg');
+  return { marks: parseMarks(r.content, { taken: opts.taken, max: opts.max }), model: r.model, tokensUsed: r.tokensUsed };
 }

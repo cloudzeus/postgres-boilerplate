@@ -28,6 +28,9 @@ const ERROR_TEXT: Record<string, string> = {
   no_fields: 'Δεν υπάρχουν πεδία με περιοχή.',
   bad_page: 'Μη έγκυρη σελίδα.',
   read_failed: 'Η ανάγνωση απέτυχε.',
+  color_cap: 'Μέγιστο 12 πεδία ανά πρότυπο.',
+  // The routes send this code with a space (kept as-is for consistency with the older OCR routes).
+  'file unavailable': 'Το δείγμα δεν είναι διαθέσιμο.',
   unsupported_type: 'Μη υποστηριζόμενος τύπος αρχείου (PDF, PNG, JPEG, WebP).',
   too_large: 'Το αρχείο ξεπερνά τα 25 MB.',
   file_required: 'Επίλεξε αρχείο.',
@@ -60,8 +63,9 @@ export const templatesApi = {
   putMappings: (id: string, mappings: TemplateDto['mappings']) => fetch(`${base(id)}/mappings`, json({ mappings }, 'PUT')).then((r) => handle<TemplateDto>(r)),
   putConditions: (id: string, conditions: TemplateDto['conditions']) => fetch(`${base(id)}/conditions`, json({ conditions }, 'PUT')).then((r) => handle<TemplateDto>(r)),
   testField: (id: string, fieldKey: string, region?: Region) => fetch(`${base(id)}/test-field`, json({ fieldKey, region })).then((r) => handle<TestFieldResult>(r)),
-  detectField: (id: string, region: Region) => fetch(`${base(id)}/detect-field`, json({ region })).then((r) => handle<DetectFieldResult>(r)),
-  detectMarks: (id: string, page: number, mode: 'marks' | 'all' = 'all') => fetch(`${base(id)}/detect-marks`, json({ page, mode })).then((r) => handle<DetectMarksResult>(r)),
+  // `takenKeys` = keys of unsaved proposals already on screen, so the server does not hand back a duplicate.
+  detectField: (id: string, region: Region, takenKeys: string[] = []) => fetch(`${base(id)}/detect-field`, json({ region, takenKeys })).then((r) => handle<DetectFieldResult>(r)),
+  detectMarks: (id: string, page: number, mode: 'marks' | 'all' = 'all', takenKeys: string[] = []) => fetch(`${base(id)}/detect-marks`, json({ page, mode, takenKeys })).then((r) => handle<DetectMarksResult>(r)),
   test: (id: string) => fetch(`${base(id)}/test`, json({})).then((r) => handle<TestTemplateResult>(r)),
   searchSuppliers: (q: string) => fetch(`/api/admin/softone/search?type=suppliers&q=${encodeURIComponent(q)}`).then((r) => handle<{ results: { id: number; code: string; name: string; sub: string }[] }>(r)),
   pageImageUrl: (id: string, page: number, version: number, scale = 3) => `${base(id)}/page-image?page=${page}&scale=${scale}&v=${version}`,

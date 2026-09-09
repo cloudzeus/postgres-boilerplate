@@ -9,6 +9,8 @@ import { toFieldDef } from '@/lib/templates/serialize';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// A template can hold a dozen regions, each its own vision call — the default 60s ceiling is not enough.
+export const maxDuration = 300;
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   await requirePermission('ocr.categorize');

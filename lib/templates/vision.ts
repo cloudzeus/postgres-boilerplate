@@ -59,7 +59,8 @@ type CallResult = { content: string; model: string; tokensUsed: number | null };
 /** Optional attribution for the AiUsage row, so spend can be traced back to a document/template. */
 export type UsageRef = { refType: string; refId: string };
 
-export async function callVision(crop: Buffer, system: string, operation: string, ref?: UsageRef): Promise<CallResult> {
+/** `mime` is the media type of `crop` — whole-page payloads ship as JPEG, crops as PNG. */
+export async function callVision(crop: Buffer, system: string, operation: string, ref?: UsageRef, mime = 'image/png'): Promise<CallResult> {
   const cfg = await visionConfig();
   return tryModels(cfg.models, async (model) => {
     // NOTE: every failure path in here must RETURN `{ ok: false }` rather than
@@ -76,7 +77,7 @@ export async function callVision(crop: Buffer, system: string, operation: string
           model, temperature: 0,
           messages: [
             { role: 'system', content: system },
-            { role: 'user', content: [{ type: 'image_url', image_url: { url: `data:image/png;base64,${crop.toString('base64')}` } }] },
+            { role: 'user', content: [{ type: 'image_url', image_url: { url: `data:${mime};base64,${crop.toString('base64')}` } }] },
           ],
         }),
       });

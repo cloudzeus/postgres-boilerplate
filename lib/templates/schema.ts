@@ -78,13 +78,21 @@ export function slugKey(label: string): string {
   return slugifyFieldKey(label);
 }
 
-/** `base` if not taken, else `base_2`, `base_3`, … (exact, case-sensitive match). */
+/**
+ * `base` if not taken, else `base_2`, `base_3`, … (exact, case-sensitive match).
+ * The suffix must fit inside the 60-char key limit, so a long base is trimmed before it is suffixed
+ * (`slugKey` already caps the un-suffixed base at 60).
+ */
 export function uniqueKey(base: string, taken: Iterable<string>): string {
   const set = new Set(taken);
   if (!set.has(base)) return base;
   let n = 2;
-  while (set.has(`${base}_${n}`)) n += 1;
-  return `${base}_${n}`;
+  for (;;) {
+    const b = base.slice(0, 60 - String(n).length - 1);
+    const candidate = `${b}_${n}`;
+    if (!set.has(candidate)) return candidate;
+    n += 1;
+  }
 }
 
 /** Charset a template slug (and any hand-typed correction of one) must stay inside. */
