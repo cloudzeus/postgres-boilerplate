@@ -44,6 +44,11 @@ describe('isValidBbox', () => {
     expect(isValidBbox([0, 0, 0.5])).toBe(false);
     expect(isValidBbox('x')).toBe(false);
   });
+  it('tolerates a box that touches the right/bottom edge within floating-point noise', () => {
+    expect(isValidBbox([0.5, 0.5, 0.5, 0.5])).toBe(true);
+    expect(isValidBbox([0.5, 0.5, 0.50005, 0.5])).toBe(true);
+    expect(isValidBbox([0.5, 0.5, 0.51, 0.5])).toBe(false);
+  });
 });
 
 describe('INVOICE_SCHEMA', () => {
@@ -51,9 +56,11 @@ describe('INVOICE_SCHEMA', () => {
     expect(invoiceKeyInfo('invoiceNumber')?.isLine).toBe(false);
     expect(invoiceKeyInfo('items.quantity')?.isLine).toBe(true);
     expect(invoiceKeyInfo('nope')).toBeNull();
+    expect(invoiceKeyInfo('totalAmount')?.valueType).toBe('CURRENCY');
+    expect(invoiceKeyInfo('netTotal')).toBeNull();
   });
   it('treats any customFields.* key as a valid TEXT header key', () => {
-    expect(invoiceKeyInfo('customFields.orderNo')).toEqual({ key: 'customFields.orderNo', label: 'orderNo', valueType: 'TEXT', isLine: false });
+    expect(invoiceKeyInfo('customFields.order_no')).toEqual({ key: 'customFields.order_no', label: 'order_no', valueType: 'TEXT', isLine: false });
   });
   it('has unique keys', () => {
     expect(new Set(INVOICE_SCHEMA.map((k) => k.key)).size).toBe(INVOICE_SCHEMA.length);
