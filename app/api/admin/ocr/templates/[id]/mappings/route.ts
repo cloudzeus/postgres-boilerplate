@@ -1,0 +1,47 @@
+import { NextResponse } from 'next/server';
+import type { Prisma } from '@prisma/client';
+import { prisma } from '@/lib/db';
+import { requirePermission } from '@/lib/rbac';
+import { MappingsBody } from '@/lib/templates/validate';
+import { TEMPLATE_INCLUDE, toTemplateDto } from '@/lib/templates/serialize';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+// PUT { mappings } — αντικαθιστά όλα τα mappings. Ακριβώς ένα isDefault=true (το πρώτο αν κανένα).
+export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  await requirePermission('ocr.categorize');
+  const { id } = await params;
+  const parsed = MappingsBody.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: 'invalid_body', issues: parsed.error.issues }, { status: 400 });
+  const t = await prisma.extractionTemplate.findUnique({ where: { id }, include: { fields: { select: { key: true, kind: true, columns: true } } } });
+  if (!t) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+
+  // Every row must reference an existing field key (or `<tableKey>.<columnKey>` for TABLE fields).
+  const valid = new Set<string>();
+  for (const f of t.fields) {
+    valid.add(f.key);
+    for (const c of (Array.isArray(f.columns) ? (f.columns as { key: string }[]) : [])) valid.add(`${f.key}.${c.key}`);
+  }
+  const bad = parsed.data.mappings.flatMap((m) => m.rows.map((r) => r.fieldKey)).filter((k) => !valid.has(k));
+  if (bad.length) return NextResponse.json({ error: 'unknown_field', message: `Άγνωστα πεδία: ${bad.join(', ')}` }, { status: 422 });
+  // projectToInvoice rebuilds items[] from ONE table: reject INVOICE mappings whose line rows span two tables.
+  for (const m of parsed.data.mappings) {
+    if (m.target !== 'INVOICE') continue;
+    const tables = new Set(m.rows.filter((r) => r.invoiceKey.startsWith('items.')).map((r) => r.fieldKey.split('.')[0]));
+    if (tables.size > 1) return NextResponse.json({ error: 'multiple_tables', message: `Το mapping «${m.name}» χαρτογραφεί γραμμές από δύο πίνακες (${[...tables].join(', ')}). Επίλεξε έναν.` }, { status: 422 });
+  }
+
+  // Exactly one default: the first flagged one, else the first mapping.
+  const firstDefault = parsed.data.mappings.findIndex((m) => m.isDefault);
+  const defaultIdx = firstDefault >= 0 ? firstDefault : 0;
+  const mappings = parsed.data.mappings.map((m, i) => ({ ...m, isDefault: i === defaultIdx }));
+
+  await prisma.$transaction(async (tx) => {
+    await tx.templateMapping.deleteMany({ where: { templateId: id } });
+    for (const m of mappings) await tx.templateMapping.create({ data: { templateId: id, name: m.name, target: m.target, isDefault: m.isDefault, rows: m.rows as unknown as Prisma.InputJsonValue } });
+    await tx.extractionTemplate.update({ where: { id }, data: { version: { increment: 1 } } });
+  });
+  const full = await prisma.extractionTemplate.findUniqueOrThrow({ where: { id }, include: TEMPLATE_INCLUDE });
+  return NextResponse.json(toTemplateDto(full));
+}
