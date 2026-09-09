@@ -11,6 +11,7 @@ import type { MappingRowExcel, MappingRowInvoice } from '@/lib/templates/schema'
 import { INVOICE_KEY_GROUPS } from '@/lib/templates/labels';
 import { useDesigner } from './designer-context';
 import { templatesApi, errorMessage } from './api';
+import { useServerDraft } from './use-server-draft';
 
 type Mapping = TemplateDto['mappings'][number];
 type Source = { key: string; label: string; color: string; line: boolean };
@@ -43,13 +44,11 @@ function InvoiceKeySelect({ value, fieldKey, isLine, onChange, disabled }: { val
 
 export function MappingStep() {
   const { dto, setDto, canManage, setDirty } = useDesigner();
-  const [mappings, setMappings] = React.useState<Mapping[]>(dto.mappings);
+  // Content-keyed draft: every save returns a fresh DTO object, and an identity-keyed
+  // sync would drop unsaved rows whenever another step (or the status button) saved.
+  const [mappings, setMappings, dirty] = useServerDraft<Mapping[]>(dto.mappings);
   const [active, setActive] = React.useState(0);
   const [busy, setBusy] = React.useState(false);
-  // Only one step is mounted at a time, so this draft is discarded on navigation —
-  // syncing on `dto.mappings` alone cannot clobber another step's unsaved edits.
-  React.useEffect(() => setMappings(dto.mappings), [dto.mappings]);
-  const dirty = JSON.stringify(mappings) !== JSON.stringify(dto.mappings);
   React.useEffect(() => { setDirty(dirty); return () => setDirty(false); }, [dirty, setDirty]);
 
   // Source keys: SINGLE fields by key, TABLE columns as `table.col`.
@@ -63,10 +62,18 @@ export function MappingStep() {
   const removeMapping = () => { setMappings((ms) => ms.filter((_, i) => i !== active)); setActive(0); };
 
   const setRow = (i: number, row: MappingRowInvoice | MappingRowExcel) => setM({ rows: (m.rows as (MappingRowInvoice | MappingRowExcel)[]).map((r, j) => (j === i ? row : r)) as Mapping['rows'] });
-  const addRow = () => setM({ rows: [...m.rows, m.target === 'INVOICE' ? { fieldKey: sources[0]?.key ?? '', invoiceKey: 'invoiceNumber' } : { fieldKey: sources[0]?.key ?? '', column: '', order: m.rows.length + 1 }] as Mapping['rows'] });
+  // A line source (table column) can only feed `items.*`, so a header key would be an
+  // invalid row the moment it is added.
+  const addRow = () => { const s0 = sources[0]; return setM({ rows: [...m.rows, m.target === 'INVOICE' ? { fieldKey: s0?.key ?? '', invoiceKey: s0?.line ? 'items.name' : 'invoiceNumber' } : { fieldKey: s0?.key ?? '', column: '', order: m.rows.length + 1 }] as Mapping['rows'] }); };
   const delRow = (i: number) => setM({ rows: (m.rows as unknown[]).filter((_, j) => j !== i) as Mapping['rows'] });
 
   const save = async () => {
+    // A mapping name is the only handle a SWITCH_MAPPING action has, so renaming or
+    // removing one silently breaks every rule that points at it.
+    const kept = new Set(mappings.map((x) => x.name));
+    const gone = dto.mappings.map((x) => x.name).filter((n) => !kept.has(n));
+    const broken = gone.filter((n) => dto.conditions.some((c) => c.actions.some((a) => a.type === 'SWITCH_MAPPING' && a.params.mappingName === n)));
+    if (broken.length && !window.confirm(`Κανόνες αναφέρονται σε mapping που αλλάζει/αφαιρείται: ${broken.join(', ')}. Οι αναφορές θα σπάσουν. Συνέχεια;`)) return;
     setBusy(true);
     try { setDto(await templatesApi.putMappings(dto.id, mappings)); toast.success('Αποθηκεύτηκε'); }
     catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
@@ -77,7 +84,7 @@ export function MappingStep() {
       <div><h2 className="text-[16px] font-semibold">Mapping</h2><p className="text-[12px] text-muted-foreground">Πού πηγαίνει κάθε εξαγόμενο πεδίο: στα πεδία του παραστατικού ή σε στήλες Excel. Οι κανόνες μπορούν να αλλάζουν mapping.</p></div>
       <div className="flex flex-wrap items-center gap-1.5">
         {mappings.map((x, i) => (
-          <button key={i} type="button" onClick={() => setActive(i)} className={cn('inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[12px] cx-transition', i === active ? 'border-sisyphus-500 bg-sisyphus-50 font-medium text-sisyphus-700' : 'border-border bg-white hover:border-sisyphus-300')}>
+          <button key={x.name || `new-${i}`} type="button" onClick={() => setActive(i)} className={cn('inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[12px] cx-transition', i === active ? 'border-sisyphus-500 bg-sisyphus-50 font-medium text-sisyphus-700' : 'border-border bg-white hover:border-sisyphus-300')}>
             {x.target === 'EXCEL' ? 'Excel' : 'Παραστατικό'}: {x.name}{x.isDefault && <span className="text-[10px] opacity-70">· προεπιλογή</span>}</button>))}
         {canManage && <><Button size="sm" variant="secondary" onClick={() => addMapping('INVOICE')}><FiPlus className="mr-1 size-3.5" /> Παραστατικό</Button><Button size="sm" variant="secondary" onClick={() => addMapping('EXCEL')}><FiPlus className="mr-1 size-3.5" /> Excel</Button></>}
         {canManage && <Button size="sm" className="ml-auto" onClick={save} disabled={!dirty || busy}><FiSave className="mr-1 size-3.5" /> {busy ? 'Αποθήκευση…' : 'Αποθήκευση'}</Button>}
@@ -93,7 +100,7 @@ export function MappingStep() {
             <thead><tr className="text-left text-[10px] uppercase tracking-wide text-muted-foreground"><th className="pb-1">Πεδίο προτύπου</th><th className="pb-1">{m.target === 'EXCEL' ? 'Στήλη Excel' : 'Πεδίο παραστατικού'}</th>{m.target === 'EXCEL' && <th className="w-20 pb-1">Σειρά</th>}<th className="w-8" /></tr></thead>
             <tbody>
               {m.rows.map((r, i) => (
-                <tr key={i} className="border-t border-border">
+                <tr key={`${r.fieldKey}-${i}`} className="border-t border-border">
                   <td className="py-1.5 pr-2"><SourceSelect value={r.fieldKey} sources={sources} disabled={!canManage} onChange={(v) => setRow(i, { ...r, fieldKey: v } as MappingRowInvoice | MappingRowExcel)} /></td>
                   <td className="py-1.5 pr-2">{m.target === 'INVOICE'
                     ? <InvoiceKeySelect value={(r as MappingRowInvoice).invoiceKey} fieldKey={r.fieldKey} isLine={!!sources.find((s) => s.key === r.fieldKey)?.line} disabled={!canManage} onChange={(v) => setRow(i, { ...r, invoiceKey: v } as MappingRowInvoice)} />

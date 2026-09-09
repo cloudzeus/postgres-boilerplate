@@ -7,13 +7,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useDesigner } from './designer-context';
 import { templatesApi, errorMessage } from './api';
+import { useServerDraft } from './use-server-draft';
 
 export function SupplierStep() {
   const { dto, setDto, canManage, setDirty } = useDesigner();
-  const [name, setName] = React.useState(dto.name);
-  const [supplierName, setSupplierName] = React.useState(dto.supplierName ?? '');
+  // Content-keyed drafts: a save elsewhere in the designer returns a fresh DTO and
+  // must not reset what is typed here. Compare trimmed — that is what `save` sends.
+  const [name, setName] = useServerDraft(dto.name);
+  const [supplierName, setSupplierName] = useServerDraft(dto.supplierName ?? '');
   const [busy, setBusy] = React.useState(false);
-  const dirty = name !== dto.name || supplierName !== (dto.supplierName ?? '');
+  const dirty = name.trim() !== dto.name.trim() || supplierName.trim() !== (dto.supplierName ?? '').trim();
   React.useEffect(() => { setDirty(dirty); return () => setDirty(false); }, [dirty, setDirty]);
 
   const save = async () => {

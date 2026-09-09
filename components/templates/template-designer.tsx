@@ -22,6 +22,8 @@ const STEPS = [
   { key: 'conditions', label: 'Conditions & λειτουργία', icon: FiCpu },
 ] as const;
 
+const LEAVE_MSG = 'Υπάρχουν μη αποθηκευμένες αλλαγές. Να συνεχίσεις χωρίς αποθήκευση;';
+
 /** Readiness per step — drives the check marks in the stepper. */
 function stepDone(dto: TemplateDto, i: number): boolean {
   switch (i) {
@@ -47,10 +49,18 @@ export function TemplateDesigner({ initial, canManage, canPost }: { initial: Tem
 
   const goToStep = React.useCallback((next: number) => {
     if (next === step) return;
-    if (dirty && !window.confirm('Υπάρχουν μη αποθηκευμένες αλλαγές. Να συνεχίσεις χωρίς αποθήκευση;')) return;
+    if (dirty && !window.confirm(LEAVE_MSG)) return;
     setDirty(false);
     setStep(next);
   }, [step, dirty]);
+
+  // Leaving the page entirely (reload, close, external link) bypasses `goToStep`.
+  React.useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [dirty]);
 
   const ctx = React.useMemo(() => ({ dto, setDto, canManage, canPost, focusKey, setFocusKey, goToStep, dirty, setDirty }), [dto, canManage, canPost, focusKey, goToStep, dirty]);
   const Current = [SupplierStep, SampleStep, RegionsStep, MappingStep, ConditionsStep][step];
@@ -60,7 +70,7 @@ export function TemplateDesigner({ initial, canManage, canPost }: { initial: Tem
       <div className="flex min-h-[calc(100dvh-8rem)] flex-col gap-3 rounded-lg bg-neutral-8 p-3 lg:flex-row lg:gap-4 lg:p-4">
         {/* Stepper */}
         <nav aria-label="Βήματα" className="shrink-0 lg:w-52">
-          <Link href="/admin/ocr/templates" className="mb-2 inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground"><FiArrowLeft className="size-3" /> Πρότυπα</Link>
+          <Link href="/admin/ocr/templates" onClick={(e) => { if (dirty && !window.confirm(LEAVE_MSG)) e.preventDefault(); }} className="mb-2 inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground"><FiArrowLeft className="size-3" /> Πρότυπα</Link>
           <div className="rounded-md border border-border bg-white p-1 shadow-fluent-2">
             {STEPS.map((s, i) => {
               const active = i === step; const done = stepDone(dto, i);

@@ -10,7 +10,14 @@ import { KIND_LABEL, VALUE_TYPE_LABEL } from '@/lib/templates/labels';
 
 const VALUE_TYPES = Object.keys(VALUE_TYPE_LABEL) as TemplateValueType[];
 
-export function FieldForm({ field, usedColors, onChange, disabled }: { field: FieldDef; usedColors: string[]; onChange: (f: FieldDef) => void; disabled?: boolean }) {
+export function FieldForm({ field, usedColors, onChange, disabled, isNew, keyUnlocked, onUnlockKey }: {
+  field: FieldDef; usedColors: string[]; onChange: (f: FieldDef) => void; disabled?: boolean;
+  /** The field has never been saved — only then may the key follow the label. */
+  isNew: boolean;
+  /** «Αλλαγή κλειδιού» was pressed for this (saved) field. */
+  keyUnlocked?: boolean;
+  onUnlockKey?: () => void;
+}) {
   const set = (patch: Partial<FieldDef>) => onChange({ ...field, ...patch });
   const setCol = (i: number, patch: Partial<ColumnDef>) => set({ columns: (field.columns ?? []).map((c, j) => (j === i ? { ...c, ...patch } : c)) });
   const sel = 'mt-1 h-9 w-full rounded-sm border border-input bg-background px-2 text-[13px]';
@@ -19,8 +26,23 @@ export function FieldForm({ field, usedColors, onChange, disabled }: { field: Fi
     <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2"><Label>Ετικέτα</Label>
-          <Input value={field.label} disabled={disabled} className="mt-1" onChange={(e) => { const label = e.target.value; set({ label, key: field.key && field.key !== slugKey(field.label) ? field.key : slugKey(label) }); }} />
-          <p className="mt-1 font-mono text-[10px] text-muted-foreground">key: {field.key || '—'}</p></div>
+          <Input value={field.label} disabled={disabled} className="mt-1" onChange={(e) => {
+            const label = e.target.value;
+            // The key is the only handle mappings/conditions have on a field, so it may
+            // trail the label only until the field is first saved.
+            set(isNew ? { label, key: field.key && field.key !== slugKey(field.label) ? field.key : slugKey(label) } : { label });
+          }} />
+          {isNew
+            ? <p className="mt-1 font-mono text-[10px] text-muted-foreground">key: {field.key || '—'}</p>
+            : keyUnlocked
+              ? <div className="mt-1">
+                  <Input value={field.key} disabled={disabled} aria-label="Κλειδί πεδίου" className="font-mono text-[12px]" onChange={(e) => set({ key: slugKey(e.target.value) || field.key })} />
+                  <p className="mt-1 text-[10px] text-[#B45309]">Η αλλαγή κλειδιού αφαιρεί αναφορές σε mappings/conditions</p>
+                </div>
+              : <p className="mt-1 flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+                  <span>key: {field.key || '—'}</span>
+                  {!disabled && <button type="button" onClick={onUnlockKey} className="cursor-pointer font-sans text-[10px] text-sisyphus-700 hover:underline">Αλλαγή κλειδιού</button>}
+                </p>}</div>
         <div><Label>Είδος</Label>
           <select value={field.kind} disabled={disabled} className={sel} onChange={(e) => { const kind = e.target.value as FieldDef['kind']; set({ kind, columns: kind === 'TABLE' ? (field.columns?.length ? field.columns : [{ key: 'col1', label: 'Στήλη 1', valueType: 'TEXT' }]) : null }); }}>
             {(Object.keys(KIND_LABEL) as FieldDef['kind'][]).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}

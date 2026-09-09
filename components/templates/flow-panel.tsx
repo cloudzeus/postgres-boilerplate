@@ -50,6 +50,9 @@ function OutputNode({ data }: NodeProps<Node<D>>) {
 }
 const nodeTypes = { sample: SampleNode, field: FieldNode, condition: ConditionNode, mapping: MappingNode, output: OutputNode };
 
+/** Nodes per line before a column wraps (5 × 190px ≈ 950px, the widest we let the panel get). */
+const PER_ROW = 5;
+
 export function FlowPanel() {
   const { dto, setFocusKey, goToStep } = useDesigner();
   const { nodes, edges } = React.useMemo(() => buildFlow(toFlowTemplate(dto)), [dto]);
@@ -57,17 +60,27 @@ export function FlowPanel() {
     // The pure buildFlow layout is 5 columns left→right, meant for a wide canvas.
     // Transpose it for the narrow side panel: columns become rows (top→bottom),
     // and rows within a column become horizontal position, centred under the column.
+    // A column of more than PER_ROW nodes wraps onto further lines, so a template with
+    // a dozen fields stays inside ~950px instead of running off to the right.
     const countByCol = new Map<number, number>();
     for (const n of nodes) {
       const col = Math.round(n.position.x / 260);
       countByCol.set(col, (countByCol.get(col) ?? 0) + 1);
     }
+    // Stack the columns cumulatively: a wrapped column is taller than one line, and a
+    // flat `col * 120` would drop the next column on top of its second line.
+    const topByCol = new Map<number, number>();
+    let top = 0;
+    for (const col of [...countByCol.keys()].sort((a, b) => a - b)) {
+      topByCol.set(col, top);
+      top += 120 + (Math.ceil((countByCol.get(col) ?? 1) / PER_ROW) - 1) * 90;
+    }
     return nodes.map((n) => {
       const col = Math.round(n.position.x / 260);
       const row = Math.round(n.position.y / 96);
       const count = countByCol.get(col) ?? 1;
-      const x = row * 190 - (count - 1) * 95;
-      const y = col * 120;
+      const x = (row % PER_ROW) * 190 - (Math.min(count, PER_ROW) - 1) * 95;
+      const y = (topByCol.get(col) ?? 0) + Math.floor(row / PER_ROW) * 90;
       return { id: n.id, type: n.type, position: { x, y }, data: n.data, draggable: false };
     });
   }, [nodes]);
@@ -82,7 +95,7 @@ export function FlowPanel() {
 
   return (
     <div className="h-full w-full" data-testid="flow-panel">
-      <ReactFlow nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} onNodeClick={onNodeClick} fitView fitViewOptions={{ padding: 0.15 }} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} minZoom={0.2}>
+      <ReactFlow nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} onNodeClick={onNodeClick} fitView fitViewOptions={{ padding: 0.15 }} nodesConnectable={false} elementsSelectable={false} minZoom={0.2}>
         <Background gap={16} color="#EDEBE9" />
         <Controls showInteractive={false} />
       </ReactFlow>

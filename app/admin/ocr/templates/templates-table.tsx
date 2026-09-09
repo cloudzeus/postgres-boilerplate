@@ -36,6 +36,9 @@ export function TemplatesTable({ rows, canManage }: { rows: TemplateRow[]; canMa
   const columns = React.useMemo<ColumnDef<TemplateRow>[]>(() => [
     { accessorKey: 'supplierName', header: 'Προμηθευτής', size: 260, cell: ({ row }) => (
       <div className="min-w-0"><div className="truncate text-[12px] font-medium">{row.original.supplierName || '—'}</div><div className="font-mono text-[10px] text-muted-foreground">{row.original.vatNumber}</div></div>) },
+    // Hidden by default: the ΑΦΜ is already printed under the supplier name, but the
+    // global filter only sees accessor columns — without this the placeholder lies.
+    { accessorKey: 'vatNumber', header: 'ΑΦΜ', size: 110, enableHiding: true, cell: ({ row }) => <span className="font-mono text-[12px]">{row.original.vatNumber}</span> },
     { accessorKey: 'name', header: 'Πρότυπο', size: 220, cell: ({ row }) => <button type="button" onClick={() => router.push(`/admin/ocr/templates/${row.original.id}`)} className="cursor-pointer text-[13px] font-medium text-sisyphus-700 hover:underline">{row.original.name}</button> },
     { accessorKey: 'docType', header: 'Τύπος', size: 100, cell: ({ row }) => <span className="text-[12px]">{row.original.docType === 'RECEIPT' ? 'Απόδειξη' : 'Τιμολόγιο'}</span> },
     { accessorKey: 'mode', header: 'Λειτουργία', size: 120, cell: ({ row }) => <Pill text={MODE_LABEL[row.original.mode]} {...MODE_STYLE[row.original.mode]} /> },
@@ -60,6 +63,7 @@ export function TemplatesTable({ rows, canManage }: { rows: TemplateRow[]; canMa
       searchKey="name"
       searchPlaceholder="Αναζήτηση (προμηθευτής, ΑΦΜ, πρότυπο…)"
       persistKey="admin.templates.table.v1"
+      initialColumnVisibility={{ vatNumber: false }}
       emptyState="Δεν υπάρχουν πρότυπα. Πάτησε «Νέο πρότυπο»."
     />
   );

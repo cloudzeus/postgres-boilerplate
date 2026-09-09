@@ -10,6 +10,7 @@ import { COLOR_PALETTE, nextColor, type FieldDef, type Region } from '@/lib/temp
 import { KIND_LABEL } from '@/lib/templates/labels';
 import { useDesigner } from './designer-context';
 import { FieldForm } from './field-form';
+import { useServerDraft } from './use-server-draft';
 import { templatesApi, errorMessage, type TestFieldResult } from './api';
 
 const newField = (fields: FieldDef[]): FieldDef => ({
@@ -19,14 +20,16 @@ const newField = (fields: FieldDef[]): FieldDef => ({
 
 export function RegionsStep() {
   const { dto, setDto, canManage, focusKey, setFocusKey, setDirty } = useDesigner();
-  const [fields, setFields] = React.useState<FieldDef[]>(dto.fields);
+  // Content-keyed draft: a save on another slice of the DTO returns a fresh object
+  // but identical `fields`, and must not reset unsaved edits here.
+  const [fields, setFields, dirty] = useServerDraft<FieldDef[]>(dto.fields);
   const [page, setPage] = React.useState(0);
   const [marking, setMarking] = React.useState<string | null>(null);         // key of the field receiving the next drawn box
   const [tests, setTests] = React.useState<Record<string, TestFieldResult | { error: string } | 'busy'>>({});
   const [busy, setBusy] = React.useState(false);
-  // Only one step is mounted at a time, so this draft is discarded on navigation —
-  // syncing on `dto.fields` alone cannot clobber another step's unsaved edits.
-  React.useEffect(() => setFields(dto.fields), [dto.fields]);
+  // Which saved field has its key unlocked for editing. Held here (not in FieldForm)
+  // so it clears when another field is selected but survives a rename of this one.
+  const [keyUnlockedFor, setKeyUnlockedFor] = React.useState<string | null>(null);
 
   // Esc cancels marking from anywhere; a focusable wrapper only worked while it held focus.
   React.useEffect(() => {
@@ -51,8 +54,18 @@ export function RegionsStep() {
     return () => ro.disconnect();
   }, [hasSample]);
 
-  const dirty = JSON.stringify(fields) !== JSON.stringify(dto.fields);
   React.useEffect(() => { setDirty(dirty); return () => setDirty(false); }, [dirty, setDirty]);
+
+  // Keys already on the server. A draft key absent from this set is a field that has
+  // never been saved — the only case where the key may track the label automatically.
+  const savedKeys = React.useMemo(() => new Set(dto.fields.map((f) => f.key)), [dto.fields]);
+  // Renamed draft key → the key it was saved under, so a rename does not make a saved
+  // field look new (which would re-arm auto-slugging and re-hide the unlock toggle).
+  const origin = React.useRef<{ saved: Set<string>; map: Map<string, string> }>({ saved: savedKeys, map: new Map() });
+  if (origin.current.saved !== savedKeys) origin.current = { saved: savedKeys, map: new Map() }; // a save makes every draft key current again
+  const originalKey = (key: string) => origin.current.map.get(key) ?? key;
+  const isNew = (key: string) => !savedKeys.has(originalKey(key));
+
   const selected = fields.find((f) => f.key === focusKey) ?? null;
   const update = (key: string, f: FieldDef) => {
     let next = f;
@@ -64,6 +77,9 @@ export function RegionsStep() {
     }
     setFields((fs) => fs.map((x) => (x.key === key ? next : x)));
     if (next.key !== key) {
+      const from = originalKey(key);
+      origin.current.map.delete(key);
+      if (next.key !== from) origin.current.map.set(next.key, from);
       if (focusKey === key) setFocusKey(next.key);
       setMarking((mk) => (mk === key ? next.key : mk));
       setTests((t) => { if (!(key in t)) return t; const { [key]: moved, ...rest } = t; return { ...rest, [next.key]: moved }; });
@@ -186,7 +202,9 @@ export function RegionsStep() {
         </ul>
         {selected && (
           <div className="rounded-md border border-border p-3" style={{ borderLeft: `4px solid ${selected.color}` }}>
-            <FieldForm field={selected} usedColors={fields.map((f) => f.color)} disabled={!canManage} onChange={(f) => update(selected.key, f)} />
+            <FieldForm field={selected} usedColors={fields.map((f) => f.color)} disabled={!canManage} isNew={isNew(selected.key)}
+              keyUnlocked={keyUnlockedFor === originalKey(selected.key)} onUnlockKey={() => setKeyUnlockedFor(originalKey(selected.key))}
+              onChange={(f) => update(selected.key, f)} />
             {selected.region && <p className="mt-2 font-mono text-[10px] text-muted-foreground">σελίδα {selected.region.page + 1} · bbox {selected.region.bbox.map((n) => n.toFixed(3)).join(', ')}</p>}
           </div>
         )}

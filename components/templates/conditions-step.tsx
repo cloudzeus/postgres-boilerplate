@@ -12,6 +12,7 @@ import type { Action, Clause, ClauseOp, TemplateMode } from '@/lib/templates/sch
 import { ACTION_LABEL, EXTRA_VARS, MODE_HELP, MODE_LABEL, OP_LABEL, OPS_WITHOUT_VALUE } from '@/lib/templates/labels';
 import { useDesigner } from './designer-context';
 import { templatesApi, errorMessage } from './api';
+import { useServerDraft } from './use-server-draft';
 
 type Cond = TemplateDto['conditions'][number];
 const sel = 'h-9 rounded-sm border border-input bg-background px-2 text-[12px]';
@@ -38,16 +39,14 @@ function ActionEditor({ a, onChange, onRemove, fields, mappings, canManage }: {
 
 export function ConditionsStep() {
   const { dto, setDto, canManage, canPost, setDirty } = useDesigner();
-  const [conds, setConds] = React.useState<Cond[]>(dto.conditions);
-  const [mode, setMode] = React.useState<TemplateMode>(dto.mode);
-  const [emails, setEmails] = React.useState(dto.notifyEmails ?? '');
+  // Three drafts synced on CONTENT, not identity: «Ενεργοποίηση» and «Αποθήκευση
+  // λειτουργίας» both return a fresh DTO whose `conditions` are unchanged, and an
+  // identity-keyed sync would wipe the rule edits the user has not saved yet.
+  const [conds, setConds, dirtyRules] = useServerDraft<Cond[]>(dto.conditions);
+  const [mode, setMode] = useServerDraft<TemplateMode>(dto.mode);
+  const [emails, setEmails] = useServerDraft(dto.notifyEmails ?? '');
   const [busy, setBusy] = React.useState(false);
-  // Two independent drafts, two independent syncs: saving the rules must not throw
-  // away unsaved mode edits (and vice versa), which one `[dto]` effect did.
-  React.useEffect(() => setConds(dto.conditions), [dto.conditions]);
-  React.useEffect(() => { setMode(dto.mode); setEmails(dto.notifyEmails ?? ''); }, [dto.mode, dto.notifyEmails]);
-  const dirtyRules = JSON.stringify(conds) !== JSON.stringify(dto.conditions);
-  const dirtyMode = mode !== dto.mode || emails !== (dto.notifyEmails ?? '');
+  const dirtyMode = mode !== dto.mode || emails.trim() !== (dto.notifyEmails ?? '').trim();
   const dirty = dirtyRules || dirtyMode;
   React.useEffect(() => { setDirty(dirty); return () => setDirty(false); }, [dirty, setDirty]);
 
@@ -80,7 +79,7 @@ export function ConditionsStep() {
         </div>
         {conds.length === 0 && <p className="text-[12px] italic text-muted-foreground">Κανένας κανόνας.</p>}
         {conds.map((c, i) => (
-          <div key={i} className={cn('rounded-md border border-border p-3', !c.isActive && 'opacity-60')}>
+          <div key={c.id || `new-${i}`} className={cn('rounded-md border border-border p-3', !c.isActive && 'opacity-60')}>
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <Input value={c.name} disabled={!canManage} onChange={(e) => setC(i, { name: e.target.value })} className="h-8 max-w-[260px]" />
               <label className="inline-flex items-center gap-1.5 text-[12px]"><Switch checked={c.isActive} disabled={!canManage} onCheckedChange={(v) => setC(i, { isActive: v })} /> Ενεργός</label>
