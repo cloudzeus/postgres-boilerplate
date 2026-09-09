@@ -1758,6 +1758,7 @@ model TemplateRun {
   createdAt       DateTime           @default(now())
 
   @@index([documentId])
+  @@index([documentId, createdAt])
   @@index([templateId, createdAt])
 }
 

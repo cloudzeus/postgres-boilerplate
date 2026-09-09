@@ -47,6 +47,7 @@ describe('extractTemplateFields', () => {
     const f = field({ key: 'lines', kind: 'TABLE', valueType: 'TEXT', columns: [{ key: 'code', label: 'Κωδ', valueType: 'TEXT' }, { key: 'qty', label: 'Ποσ', valueType: 'NUMBER' }] });
     const out = await extractTemplateFields(png, 'image/png', [f]);
     expect(out.values.lines.value).toEqual([{ code: 'A1', qty: 2.5 }]);
+    expect(out.values.lines.confidence).toBe(0.8);
     expect(textItems).not.toHaveBeenCalled();
   });
   it('falls through to vision when the text-layer hit is too short to be a value', async () => {

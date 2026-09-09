@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
+import { logAudit } from '@/lib/audit';
 import { ConditionsBody } from '@/lib/templates/validate';
 import { TEMPLATE_INCLUDE, toTemplateDto } from '@/lib/templates/serialize';
 
@@ -10,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 // PUT { conditions } — αντικαθιστά όλους τους κανόνες (κρατά τα ids που δίνονται ώστε να μείνουν σταθερά για το διάγραμμα).
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  await requirePermission('ocr.categorize');
+  const u = await requirePermission('ocr.categorize');
   const { id } = await params;
   const parsed = ConditionsBody.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'invalid_body', issues: parsed.error.issues }, { status: 400 });
@@ -41,5 +42,6 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     await tx.extractionTemplate.update({ where: { id }, data: { version: { increment: 1 } } });
   });
   const full = await prisma.extractionTemplate.findUniqueOrThrow({ where: { id }, include: TEMPLATE_INCLUDE });
+  await logAudit({ userId: u.id, userEmail: u.email, action: 'template.conditions.update', resource: 'extractionTemplate', resourceId: id, metadata: { conditions: parsed.data.conditions.length } });
   return NextResponse.json(toTemplateDto(full));
 }

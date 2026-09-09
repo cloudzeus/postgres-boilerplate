@@ -13,6 +13,15 @@ describe('FieldsBody', () => {
     expect(FieldsBody.safeParse({ fields: [{ key: 'a', label: 'A', color: 'red' }] }).success).toBe(false);
     expect(FieldsBody.safeParse({ fields: [{ key: 'a', label: 'A', color: '#0078D4', region: { page: 0, bbox: [0, 0, 2, 1] } }] }).success).toBe(false);
   });
+  it('rejects a TABLE field with no columns', () => {
+    expect(FieldsBody.safeParse({ fields: [{ key: 'lines', label: 'Γραμμές', color: '#0078D4', kind: 'TABLE' }] }).success).toBe(false);
+    expect(FieldsBody.safeParse({ fields: [{ key: 'lines', label: 'Γραμμές', color: '#0078D4', kind: 'TABLE', columns: [] }] }).success).toBe(false);
+  });
+  it('rejects two fields sharing a colour regardless of case', () => {
+    const dup = FieldsBody.safeParse({ fields: [{ key: 'a', label: 'A', color: '#0078D4' }, { key: 'b', label: 'B', color: '#0078d4' }] });
+    expect(dup.success).toBe(false);
+    if (!dup.success) expect(dup.error.issues.some((i) => i.message === 'Διπλό χρώμα πεδίου')).toBe(true);
+  });
 });
 
 describe('MappingsBody', () => {

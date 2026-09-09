@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { bunnyDownload } from '@/lib/bunny';
 import { prepareCrop, readCropValue } from '@/lib/templates/vision';
+import { isValidBbox } from '@/lib/templates/schema';
 import { renderPage } from '@/lib/ocr/rasterize';
 
 export const runtime = 'nodejs';
@@ -20,7 +21,14 @@ const Body = z.object({
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   await requirePermission('ocr.categorize');
   const { id } = await params;
-  const { field, page, bbox } = Body.parse(await req.json());
+  // safeParse: a thrown ZodError escapes as an unhandled 500 and tells the caller
+  // nothing about which part of the payload was wrong.
+  const parsed = Body.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: 'invalid_body', issues: parsed.error.issues }, { status: 400 });
+  const { field, page, bbox } = parsed.data;
+  // The tuple schema only bounds each number to 0..1; isValidBbox is the shared rule
+  // (positive width/height, stays inside the page) the rest of the template code uses.
+  if (!isValidBbox(bbox)) return NextResponse.json({ error: 'invalid region' }, { status: 422 });
 
   const doc = await prisma.ocrDocument.findUnique({ where: { id } });
   if (!doc) return NextResponse.json({ error: 'not found' }, { status: 404 });

@@ -74,7 +74,9 @@ export async function extractTemplateFields(
           for (const c of f.columns ?? []) o[c.key] = coerceValue(row[c.key], c.valueType);
           return o;
         });
-        out.values[f.key] = { ...base, raw: JSON.stringify(r.rows), value: rows, source: 'vision', confidence: null };
+        // Mirror the SINGLE-field rule: a model read that produced something is
+        // VISION_CONFIDENCE, an empty read has no confidence to report.
+        out.values[f.key] = { ...base, raw: JSON.stringify(r.rows), value: rows, source: 'vision', confidence: r.rows.length > 0 ? VISION_CONFIDENCE : null };
         continue;
       }
 

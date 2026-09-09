@@ -20,10 +20,17 @@ export const FieldSchema = z.object({
   aiHint: z.string().trim().max(1000).nullable().optional(),
   required: z.boolean().default(false),
   order: z.number().int().min(0).default(0),
-}).transform((f) => ({ ...f, key: f.key ?? slugKey(f.label), region: f.region ?? null, columns: f.columns ?? null, aiHint: f.aiHint ?? null }));
+}).transform((f) => ({ ...f, key: f.key ?? slugKey(f.label), region: f.region ?? null, columns: f.columns ?? null, aiHint: f.aiHint ?? null }))
+  // A TABLE with no columns has nothing for readCropTable to ask for and nothing
+  // for a mapping to point at — it can only ever extract empty rows.
+  .refine((f) => f.kind !== 'TABLE' || (f.columns?.length ?? 0) > 0, { message: 'Ο πίνακας χρειάζεται τουλάχιστον μία στήλη', path: ['columns'] });
 
 export const FieldsBody = z.object({ fields: z.array(FieldSchema).max(100) })
-  .refine((b) => new Set(b.fields.map((f) => f.key)).size === b.fields.length, { message: 'Διπλό κλειδί πεδίου', path: ['fields'] });
+  .refine((b) => new Set(b.fields.map((f) => f.key)).size === b.fields.length, { message: 'Διπλό κλειδί πεδίου', path: ['fields'] })
+  // Colour is how the overlay tells one region from another, so two fields sharing
+  // one makes the annotated sample unreadable. Compare case-insensitively — the
+  // route uppercases on write, but the payload can arrive either way.
+  .refine((b) => new Set(b.fields.map((f) => f.color.toUpperCase())).size === b.fields.length, { message: 'Διπλό χρώμα πεδίου', path: ['fields'] });
 
 const InvoiceRow = z.object({ fieldKey: z.string().min(1), invoiceKey: z.string().min(1).refine((k) => invoiceKeyInfo(k) != null, 'Άγνωστο πεδίο παραστατικού') });
 const ExcelRow = z.object({ fieldKey: z.string().min(1), column: z.string().trim().min(1).max(80), order: z.number().int().min(0) });
