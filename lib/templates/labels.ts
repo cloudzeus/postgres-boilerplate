@@ -28,3 +28,5 @@ export const INVOICE_KEY_GROUPS = [
   { label: 'Κεφαλίδα', keys: INVOICE_SCHEMA.filter((k) => !k.isLine) },
   { label: 'Γραμμές', keys: INVOICE_SCHEMA.filter((k) => k.isLine) },
 ];
+export const RUN_STATUS_LABEL = { EXTRACTED: 'Εξήχθη', REVIEW: 'Προς έλεγχο', BLOCKED: 'Μπλοκαρισμένο', POSTED: 'Αναρτήθηκε', FAILED: 'Απέτυχε' } as const;
+export const TRIGGER_LABEL = { upload: 'στο upload', manual: 'χειροκίνητα', reextract: 'στην επανεξαγωγή' } as const;
