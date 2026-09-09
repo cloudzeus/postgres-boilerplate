@@ -60,6 +60,12 @@ describe('coerceValue', () => {
     expect(coerceValue('31/02/2026', 'DATE')).toBeNull();
     expect(coerceValue('March 5, 2026', 'DATE')).toBeNull();
   });
+  it('DATE: dotted yyyy.mm.dd reads as ISO, not as a European tail', () => {
+    expect(coerceValue('2026.06.30', 'DATE')).toBe('2026-06-30');
+    expect(coerceValue('2026.6.3', 'DATE')).toBe('2026-06-03');
+    expect(coerceValue('16.6.2026', 'DATE')).toBe('2026-06-16');
+    expect(coerceValue('30.06.26', 'DATE')).toBe('2026-06-30');
+  });
   it('LIST splits on newline, semicolon or comma and drops empties', () => {
     expect(coerceValue('A123; B456,C789\nD000', 'LIST')).toEqual(['A123', 'B456', 'C789', 'D000']);
     expect(coerceValue('', 'LIST')).toBeNull();

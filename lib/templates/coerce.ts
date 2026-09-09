@@ -55,7 +55,9 @@ function utcDate(year: number, month: number, day: number): Date | null {
  * and it happily mis-reads "05/03/2026" as May 3rd.
  */
 function parseDateFlexible(s: string): Date | null {
-  const iso = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T ].*)?$/);
+  // yyyy-mm-dd, yyyy/mm/dd and yyyy.mm.dd. The dotted form must be caught here: the European
+  // pattern below would otherwise match its tail ("2026.06.30" → 30 Jun 2030).
+  const iso = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T ].*)?$/);
   if (iso) return utcDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
 
   // Greek/European dd/mm/yyyy anywhere in the string, so labels and trailing times are tolerated.
