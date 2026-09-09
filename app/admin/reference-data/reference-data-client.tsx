@@ -11,7 +11,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
 
-type SyncKind = 'gemi' | 'vat' | 'purdoc' | 'customers' | 'suppliers' | 'lookups';
+type SyncKind = 'gemi' | 'vat' | 'purdoc' | 'docseries' | 'traders' | 'lookups';
 type Stat = {
   key: string;
   label: string;
@@ -27,7 +27,7 @@ type Stat = {
 // Registries that expose data through the generic /api/admin/metadata/registry feed
 // (i.e. those without a dedicated page → shown in a modal).
 // Customers/suppliers have dedicated pages (viewHref), so they are not modal keys.
-const MODAL_KEYS = new Set(['legalTypes', 'gemiOffices', 'companyStatuses', 'vatCategories', 'purchaseDocTypes']);
+const MODAL_KEYS = new Set(['legalTypes', 'gemiOffices', 'companyStatuses', 'vatCategories', 'purchaseDocTypes', 'docSeries']);
 
 // Per-source badge colors (inline hex → guaranteed visible in light & dark themes).
 const SOURCE_STYLE: Record<string, { bg: string; fg: string; bd: string }> = {
@@ -120,12 +120,25 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
     }
   };
 
-  const syncTrdr = async (kind: 'customers' | 'suppliers') => {
-    const res = await fetch(`/api/admin/metadata/sync-${kind}-softone`, { method: 'POST' });
-    const label = kind === 'customers' ? 'Πελάτες' : 'Προμηθευτές';
+  const syncDocSeries = async () => {
+    const res = await fetch('/api/admin/metadata/sync-docseries-softone', { method: 'POST' });
     if (res.ok) {
       const d = await res.json();
-      toast.success(`${label}: ${d.total.toLocaleString('el-GR')} συγχρονίστηκαν`);
+      const extra = d.removed ? ` · ${d.removed} διαγραφές` : '';
+      const fams = Array.isArray(d.families) && d.families.length ? ` · ενότητες: ${d.families.join(', ')}` : '';
+      toast.success(`Σειρές παραστατικών: ${d.total} (νέες ${d.created}, ενημερώσεις ${d.updated})${extra}${fams}`);
+      router.refresh();
+    } else {
+      const e = await res.json().catch(() => ({}));
+      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού σειρών');
+    }
+  };
+
+  const syncTraders = async () => {
+    const res = await fetch('/api/admin/metadata/sync-traders-softone', { method: 'POST' });
+    if (res.ok) {
+      const d = await res.json();
+      toast.success(`Συναλλασσόμενοι: ${d.total.toLocaleString('el-GR')} συγχρονίστηκαν`);
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
@@ -145,8 +158,9 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
     try {
       if (stat.syncKind === 'vat') await syncVat();
       else if (stat.syncKind === 'purdoc') await syncPurdoc();
+      else if (stat.syncKind === 'docseries') await syncDocSeries();
       else if (stat.syncKind === 'lookups') await syncLookups();
-      else if (stat.syncKind === 'customers' || stat.syncKind === 'suppliers') await syncTrdr(stat.syncKind);
+      else if (stat.syncKind === 'traders') await syncTraders();
       else await syncGemi();
     } finally {
       setSyncingKey(null);

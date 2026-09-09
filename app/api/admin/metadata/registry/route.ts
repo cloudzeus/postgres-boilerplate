@@ -54,33 +54,6 @@ export async function GET(req: Request) {
       };
       break;
     }
-    case 'customers':
-    case 'suppliers': {
-      const isCust = key === 'customers';
-      const list = isCust
-        ? await prisma.softoneCustomer.findMany({ orderBy: { name: 'asc' } })
-        : await prisma.softoneSupplier.findMany({ orderBy: { name: 'asc' } });
-      data = {
-        title: isCust ? 'Πελάτες' : 'Προμηθευτές',
-        columns: [
-          { key: 'code', label: 'Κωδικός' },
-          { key: 'name', label: 'Επωνυμία' },
-          { key: 'afm', label: 'Α.Φ.Μ.' },
-          { key: 'city', label: 'Πόλη/Περιοχή' },
-          { key: 'phone', label: 'Τηλέφωνο' },
-          { key: 'email', label: 'Email' },
-        ],
-        rows: list.map((r) => ({
-          code: r.code,
-          name: r.name,
-          afm: r.afm ?? '',
-          city: r.city || r.district || '',
-          phone: r.phone ?? '',
-          email: r.email ?? '',
-        })),
-      };
-      break;
-    }
     case 'purchaseDocTypes': {
       const rows = await prisma.purchaseDocType.findMany({ orderBy: [{ order: 'asc' }, { code: 'asc' }] });
       data = {
@@ -98,6 +71,27 @@ export async function GET(req: Request) {
           name: r.name,
           section: r.section ?? '',
           isActive: r.isActive ? 'Ναι' : 'Όχι',
+        })),
+      };
+      break;
+    }
+    case 'docSeries': {
+      const rows = await prisma.softoneDocSeries.findMany({ orderBy: [{ sosource: 'asc' }, { order: 'asc' }, { code: 'asc' }] });
+      data = {
+        title: 'Σειρές παραστατικών SoftOne',
+        columns: [
+          { key: 'code', label: 'Σειρά' },
+          { key: 'family', label: 'Ενότητα' },
+          { key: 'abbrev', label: 'Σύντμηση' },
+          { key: 'name', label: 'Περιγραφή' },
+          { key: 'section', label: 'Τύπος' },
+        ],
+        rows: rows.map((r) => ({
+          code: r.code,
+          family: `${r.family} (${r.sosource})`,
+          abbrev: r.abbrev ?? '',
+          name: r.name,
+          section: r.section ?? '',
         })),
       };
       break;

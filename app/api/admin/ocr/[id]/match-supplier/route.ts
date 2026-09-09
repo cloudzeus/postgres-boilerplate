@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
+import { SUPPLIER_SODTYPES } from '@/lib/softone';
 
 // Manually links a scanned document to a SoftOne supplier (TRDR).
 // POST { trdr }  (trdr null → clear)
@@ -17,8 +18,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ ok: true, cleared: true });
   }
 
-  const sup = await prisma.softoneSupplier.findUnique({ where: { trdr: Number(trdr) } });
-  if (!sup) return NextResponse.json({ error: 'supplier_not_found' }, { status: 404 });
+  const sup = await prisma.softoneTrader.findUnique({ where: { trdr: Number(trdr) } });
+  if (!sup || !(SUPPLIER_SODTYPES as readonly number[]).includes(sup.sodtype)) {
+    return NextResponse.json({ error: 'supplier_not_found' }, { status: 404 });
+  }
 
   await prisma.ocrDocument.update({
     where: { id },

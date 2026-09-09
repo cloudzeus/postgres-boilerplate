@@ -39,10 +39,10 @@ export async function POST(req: Request) {
   }
 
   // Mirror locally so it's instantly searchable/matchable.
-  await prisma.softoneSupplier.upsert({
+  await prisma.softoneTrader.upsert({
     where: { trdr },
-    update: { code, name, afm, kind: 'Προμηθευτής', isActive: true },
-    create: { trdr, code, name, afm, kind: 'Προμηθευτής', isActive: true },
+    update: { code, name, afm, sodtype: 12, kind: 'Προμηθευτής', isActive: true },
+    create: { trdr, code, name, afm, sodtype: 12, kind: 'Προμηθευτής', isActive: true },
   }).catch(() => null);
 
   // Link the originating document, if provided.

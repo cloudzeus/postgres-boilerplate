@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAnyPermission } from '@/lib/rbac';
+import { SUPPLIER_SODTYPES } from '@/lib/softone';
 
 // Searches the local SoftOne mirrors for manual matching (items / suppliers).
 // GET ?type=items|suppliers&q=...
@@ -12,8 +13,11 @@ export async function GET(req: Request) {
   if (q.length < 2) return NextResponse.json({ results: [] });
 
   if (type === 'suppliers') {
-    const rows = await prisma.softoneSupplier.findMany({
-      where: { OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q } }, { afm: { contains: q } }] },
+    const rows = await prisma.softoneTrader.findMany({
+      where: {
+        sodtype: { in: [...SUPPLIER_SODTYPES] },
+        OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q } }, { afm: { contains: q } }],
+      },
       take: 25, orderBy: { name: 'asc' },
       select: { trdr: true, code: true, name: true, afm: true, kind: true, city: true },
     });

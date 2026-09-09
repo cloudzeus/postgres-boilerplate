@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function ReferenceDataPage() {
   await requirePermission('metadata.read');
-  const [legalTypes, gemiOffices, companyStatuses, prefectures, municipalities, vatCategories, purchaseDocTypes, customersCount, suppliersCount, lookupsCount, kadCount, kadLicenseTotal, kadLicenseRoots] = await Promise.all([
+  const [legalTypes, gemiOffices, companyStatuses, prefectures, municipalities, vatCategories, purchaseDocTypes, tradersCount, lookupsCount, kadCount, kadLicenseTotal, kadLicenseRoots] = await Promise.all([
     prisma.legalType.aggregate({ _count: { _all: true }, _max: { lastUpdated: true } }),
     prisma.gemiOfficeRef.aggregate({ _count: { _all: true }, _max: { lastUpdated: true } }),
     prisma.companyStatusRef.aggregate({ _count: { _all: true }, _max: { lastUpdated: true } }),
@@ -17,8 +17,7 @@ export default async function ReferenceDataPage() {
     prisma.municipality.aggregate({ _count: { _all: true }, _max: { lastUpdated: true } }),
     prisma.vatCategory.count(),
     prisma.purchaseDocType.count(),
-    prisma.softoneCustomer.count(),
-    prisma.softoneSupplier.count(),
+    prisma.softoneTrader.count(),
     prisma.softoneLookup.count(),
     prisma.kadCode.count(),
     prisma.kadLicenseRequirement.count({ where: { licenseType: 'OPERATING_LICENSE' } }),
@@ -27,8 +26,9 @@ export default async function ReferenceDataPage() {
   const canManage = await hasPermission('metadata.manage');
   const vatLastSync = await getSetting<string>('integrations.softoneVatLastSync');
   const purdocLastSync = await getSetting<string>('integrations.softonePurdocLastSync');
-  const customersLastSync = await getSetting<string>('integrations.softoneCustomersLastSync');
-  const suppliersLastSync = await getSetting<string>('integrations.softoneSuppliersLastSync');
+  const docSeriesLastSync = await getSetting<string>('integrations.softoneDocSeriesLastSync');
+  const docSeriesCount = await prisma.softoneDocSeries.count();
+  const tradersLastSync = await getSetting<string>('integrations.softoneTradersLastSync');
   const lookupsLastSync = await getSetting<string>('integrations.softoneLookupsLastSync');
 
   return (
@@ -48,8 +48,8 @@ export default async function ReferenceDataPage() {
           { key: 'municipalities', label: 'Δήμοι', count: municipalities._count._all, lastUpdated: municipalities._max.lastUpdated?.toISOString() ?? null, source: 'ΓΕΜΗ', viewHref: '/admin/regions', syncKind: 'gemi' },
           { key: 'vatCategories', label: 'Κατηγορίες ΦΠΑ', count: vatCategories, lastUpdated: vatLastSync ?? null, source: vatLastSync ? 'SoftOne' : 'Manual', syncKind: 'vat' },
           { key: 'purchaseDocTypes', label: 'Τύποι παραστατικών αγορών', count: purchaseDocTypes, lastUpdated: purdocLastSync ?? null, source: 'SoftOne', syncKind: 'purdoc' },
-          { key: 'customers', label: 'Πελάτες', count: customersCount, lastUpdated: customersLastSync ?? null, source: 'SoftOne', syncKind: 'customers', viewHref: '/admin/customers' },
-          { key: 'suppliers', label: 'Προμηθευτές', count: suppliersCount, lastUpdated: suppliersLastSync ?? null, source: 'SoftOne', syncKind: 'suppliers', viewHref: '/admin/suppliers' },
+          { key: 'docSeries', label: 'Σειρές παραστατικών (έξοδα, εισπράξεις, πληρωμές…)', count: docSeriesCount, lastUpdated: docSeriesLastSync ?? null, source: 'SoftOne', syncKind: 'docseries', viewHref: '/admin/doc-series' },
+          { key: 'traders', label: 'Συναλλασσόμενοι (πελάτες, προμηθευτές, χρεώστες, πιστωτές)', count: tradersCount, lastUpdated: tradersLastSync ?? null, source: 'SoftOne', syncKind: 'traders', viewHref: '/admin/traders' },
           { key: 'lookups', label: 'Βοηθητικοί πίνακες (ΦΠΑ/μονάδες/ομάδες…)', count: lookupsCount, lastUpdated: lookupsLastSync ?? null, source: 'SoftOne', syncKind: 'lookups' },
           { key: 'kadCodes', label: 'Μητρώο ΚΑΔ', count: kadCount, lastUpdated: null, source: 'Auto (από lookups)', viewHref: '/admin/kad-codes' },
           { key: 'kadLicense', label: `ΚΑΔ με άδεια λειτουργίας (από ${kadLicenseRoots} ρίζες)`, count: kadLicenseTotal, lastUpdated: null, source: 'NF BUSNESS.xlsx', viewHref: '/admin/kad-codes' },

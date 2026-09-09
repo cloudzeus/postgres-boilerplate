@@ -400,11 +400,117 @@ export async function softoneFetchPurchaseDocTypes(): Promise<PurchaseDocTypeRow
   return out;
 }
 
+/**
+ * SoftOne SOSOURCE (ενότητα) ids → Greek label. SOSOURCE is a system constant
+ * shared across installations. Ids not listed here are shown as «Ενότητα N»
+ * until confirmed on the customer's tenant, so nothing is silently dropped.
+ */
+export const SOSOURCE_LABELS: Record<number, string> = {
+  // Verified against the customer's SERIES table (2026-09-09). Pattern: 1<entity><kind>
+  // entity 2=προμηθευτές 3=πελάτες 4=τράπεζες/ταμείο 5=χρεώστες 6=πιστωτές ·
+  // kind 51=κύρια παραστατικά 53=λοιπές συναλλαγές 61=έσοδα/έξοδα 81=εισπράξεις/πληρωμές.
+  1054: 'Αποσβέσεις παγίων',
+  1089: 'Άρθρα Γενικής Λογιστικής',
+  1090: 'Άρθρα Αναλυτικής Λογιστικής',
+  1140: 'Λογιστικά σημειώματα',
+  1151: 'Αποθήκη',
+  1154: 'Παραστατικά παγίων',
+  1171: 'Εντολές παραγωγής',
+  1181: 'Κινήσεις αξιογράφων',
+  1212: 'Συμψηφισμοί προμηθευτών',
+  1251: 'Αγορές',
+  1253: 'Λοιπές συναλλαγές προμηθευτών',
+  1261: 'Παραστατικά εξόδων',
+  1281: 'Πληρωμές προμηθευτών',
+  1282: 'Κοστολόγηση εισαγωγών',
+  1312: 'Συμψηφισμοί πελατών–προμηθευτών',
+  1313: 'Συμψηφισμοί / επισφάλειες πελατών',
+  1351: 'Πωλήσεις',
+  1352: 'Φάκελοι πωλήσεων',
+  1353: 'Λοιπές συναλλαγές πελατών',
+  1361: 'Παραστατικά εσόδων',
+  1381: 'Εισπράξεις πελατών',
+  1382: 'Κοστολόγηση εξαγωγών',
+  1412: 'Εμβάσματα προμηθευτών',
+  1413: 'Εμβάσματα πελατών',
+  1414: 'Μεταφορές τραπεζικών λογαριασμών',
+  1415: 'Εμβάσματα χρεωστών',
+  1416: 'Εμβάσματα πιστωτών',
+  1453: 'Λοιπές συναλλαγές τραπεζών',
+  1481: 'Ταμείο (καταθέσεις / αναλήψεις)',
+  1553: 'Λοιπές συναλλαγές χρεωστών',
+  1581: 'Εισπράξεις χρεωστών',
+  1653: 'Παραστατικά πιστωτών',
+  1681: 'Πληρωμές πιστωτών',
+  1717: 'Συμψηφισμοί πιστωτών',
+  2021: 'Ενέργειες CRM',
+  2052: 'Ραντεβού',
+  5151: 'Σύνθεση / αποσύνθεση set ειδών',
+  7151: 'Παραγωγή',
+  8100: 'Αξιόγραφα',
+};
+
+export function sosourceLabel(id: number): string {
+  return SOSOURCE_LABELS[id] ?? `Ενότητα ${id}`;
+}
+
+export interface DocSeriesRow {
+  /** SoftOne SOSOURCE (ενότητα). */
+  sosource: number;
+  /** Greek label for the ενότητα. */
+  family: string;
+  /** SERIES (αριθμός σειράς). */
+  code: string;
+  /** CODE (σύντμηση). */
+  abbrev: string | null;
+  /** NAME (Περιγραφή). */
+  name: string;
+  /** FPRMS (Τύπος). */
+  section: string | null;
+}
+
+const SERIES_FIELDS = ['SOSOURCE', 'SERIES', 'CODE', 'NAME', 'FPRMS', 'ISACTIVE'];
+
+/**
+ * Reads every active document series from the SoftOne SERIES table, for all
+ * ενότητες except purchases (1251), which already live in PurchaseDocType.
+ * Uses GetTable (raw table access) because the SERIES browser does not expose
+ * the SOSOURCE column, and we need it to group series per ενότητα.
+ */
+export async function softoneFetchDocSeries(): Promise<DocSeriesRow[]> {
+  // SERIES is per-company. Scope to the company the session authenticated against
+  // (settings, else the tenant's first company) so a multi-company tenant never mixes.
+  const cfg = await loadSoftoneConfig();
+  const company = cfg.company?.trim();
+  const filter = company ? `ISACTIVE=1 AND COMPANY=${Number(company)}` : 'ISACTIVE=1';
+  const rows = await softoneGetTable('SERIES', SERIES_FIELDS, filter);
+  const out: DocSeriesRow[] = [];
+  for (const r of rows) {
+    const sosource = Number(r.SOSOURCE);
+    const code = str(r.SERIES);
+    if (!Number.isFinite(sosource) || !code) continue;
+    if (sosource === SOSOURCE_PURCHASES_NUM) continue;
+    if (isInactive(r.ISACTIVE)) continue;
+    out.push({
+      sosource,
+      family: sosourceLabel(sosource),
+      code,
+      abbrev: str(r.CODE) || null,
+      name: str(r.NAME) || code,
+      section: str(r.FPRMS) || null,
+    });
+  }
+  return out;
+}
+const SOSOURCE_PURCHASES_NUM = 1251;
+
 export interface TrdrRow {
   trdr: number;
+  /** SoftOne SODTYPE (12 προμηθευτής, 13 πελάτης, 14 χρηματικός λογ., 15 χρεώστης, 16 πιστωτής). */
+  sodtype: number;
   code: string;
   name: string;
-  kind: string | null;         // Πελάτης / Προμηθευτής / Πιστωτής (από SODTYPE)
+  kind: string;         // Πελάτης / Προμηθευτής / Πιστωτής (από SODTYPE)
   afm: string | null;
   doy: string | null;          // Δ.Ο.Υ. (IRSDATA)
   profession: string | null;   // Επάγγελμα (JOBTYPETRD)
@@ -462,20 +568,27 @@ const TRDR_FIELDS = [
   'PHONE01', 'PHONE02', 'FAX', 'EMAIL', 'WEBPAGE', 'SODTYPE', 'ISACTIVE',
 ];
 
-// TRDR.SODTYPE → human label (SoftOne standard subledgers).
-const SODTYPE_LABEL: Record<string, string> = {
-  '12': 'Προμηθευτής',
-  '13': 'Πελάτης',
-  '15': 'Πιστωτής',
-  '16': 'Πιστωτής',
+// TRDR.SODTYPE → human label. Verified against the tenant's SoftOne objects:
+// LINSUPDOC=12, LINCUSDOC=13, LINBACDOC=14, LINDEBDOC=15, LINCREDOC=16.
+export const SODTYPE_LABEL: Record<number, string> = {
+  12: 'Προμηθευτής',
+  13: 'Πελάτης',
+  14: 'Χρηματικός λογαριασμός',
+  15: 'Χρεώστης',
+  16: 'Πιστωτής',
 };
+export const TRADER_SODTYPES = [12, 13, 14, 15, 16] as const;
+/** SODTYPEs that can issue a purchase invoice to us (OCR supplier matching). */
+export const SUPPLIER_SODTYPES = [12, 16] as const;
 
 function mapTrdr(o: Record<string, string>): TrdrRow {
+  const sodtype = Number(o.SODTYPE);
   return {
     trdr: Number(o.TRDR),
+    sodtype,
     code: o.CODE,
     name: o.NAME,
-    kind: SODTYPE_LABEL[o.SODTYPE] ?? null,
+    kind: SODTYPE_LABEL[sodtype] ?? `Τύπος ${o.SODTYPE}`,
     afm: o.AFM || null,
     doy: o.IRSDATA || null,
     profession: o.JOBTYPETRD || null,
@@ -492,21 +605,23 @@ function mapTrdr(o: Record<string, string>): TrdrRow {
   };
 }
 
-// TRDR.SODTYPE subledgers: 13 = πελάτης, 12 = προμηθευτής, 15/16 = πιστωτές.
-const SODTYPE_CUSTOMER = '13';
-// "Suppliers" registry = formal suppliers (12) + creditors (15, 16), per user choice.
-const SODTYPE_SUPPLIERS = ['12', '15', '16'];
+// Entries SoftOne users park with these prefixes are dormant/closed and must not
+// show up anywhere in the app: «(Α) …» and «… ΥΠΟ ΕΚΚΑΘΑΡΙΣΗ …».
+const HIDDEN_TRADER = /^\s*\((Α|A)\)|ΥΠΟ\s+ΕΚΚΑΘΑΡΙΣΗ/i;
+export const isHiddenTrader = (name: string) => HIDDEN_TRADER.test(name);
 
-/** Reads all customers from SoftOne (TRDR SODTYPE=13) with full fields, via GetTable. */
-export async function softoneFetchCustomers(): Promise<TrdrRow[]> {
-  const rows = await softoneGetTable('TRDR', TRDR_FIELDS, `SODTYPE=${SODTYPE_CUSTOMER}`);
-  return rows.map(mapTrdr).filter((r) => Number.isFinite(r.trdr));
-}
-
-/** Reads all suppliers + creditors from SoftOne (TRDR SODTYPE 12/15/16) with full fields, via GetTable. */
-export async function softoneFetchSuppliers(): Promise<TrdrRow[]> {
-  const rows = await softoneGetTable('TRDR', TRDR_FIELDS, `SODTYPE IN (${SODTYPE_SUPPLIERS.join(',')})`);
-  return rows.map(mapTrdr).filter((r) => Number.isFinite(r.trdr));
+/**
+ * Reads every συναλλασσόμενος (TRDR SODTYPE 12–16) of the session company from
+ * SoftOne via GetTable. Hidden entries («(Α)», «ΥΠΟ ΕΚΚΑΘΑΡΙΣΗ») are dropped.
+ */
+export async function softoneFetchTraders(): Promise<TrdrRow[]> {
+  const cfg = await loadSoftoneConfig();
+  const company = cfg.company?.trim();
+  const filter = `SODTYPE IN (${TRADER_SODTYPES.join(',')})` + (company ? ` AND COMPANY=${Number(company)}` : '');
+  const rows = await softoneGetTable('TRDR', TRDR_FIELDS, filter);
+  return rows
+    .map(mapTrdr)
+    .filter((r) => Number.isFinite(r.trdr) && !isHiddenTrader(r.name));
 }
 
 export interface ItemRow {
@@ -880,36 +995,36 @@ export async function softoneFindByAfm(afm: string): Promise<AfmLookupResult> {
   const clean = String(afm).replace(/[^0-9A-Za-z]/g, '');
   if (!clean) return { afm: clean, customers: [], suppliers: [] };
   const rows = await softoneGetTable('TRDR', TRDR_FIELDS, `AFM='${clean}'`);
-  // Lookup stays strict: only πελάτης (13) and προμηθευτής (12) — creditors (15/16)
+  // Lookup stays strict: only πελάτης (13) and προμηθευτής (12) — χρεώστες/πιστωτές
   // would just create noise here.
   return {
     afm: clean,
-    customers: rows.filter((o) => o.SODTYPE === SODTYPE_CUSTOMER).map(mapTrdr),
-    suppliers: rows.filter((o) => o.SODTYPE === '12').map(mapTrdr),
+    customers: rows.filter((o) => Number(o.SODTYPE) === 13).map(mapTrdr),
+    suppliers: rows.filter((o) => Number(o.SODTYPE) === 12).map(mapTrdr),
   };
 }
 
 /**
  * Lean lookup of a single vendor by ΑΦΜ — used by the OCR pipeline to tag scanned
- * purchase invoices with their SoftOne supplier/creditor. Searches the same scope
- * as the suppliers registry (SODTYPE 12/15/16) and prefers a formal supplier (12),
- * then creditor (15), then misc creditor (16). Returns the match or null.
+ * purchase invoices with their SoftOne supplier/creditor. Searches προμηθευτές (12)
+ * and πιστωτές (16) and prefers a formal supplier. Returns the match or null.
  */
 export async function softoneFindSupplierByAfm(
   afm: string,
-): Promise<{ trdr: number; code: string; name: string; kind: string | null } | null> {
+): Promise<{ trdr: number; code: string; name: string; kind: string } | null> {
   const clean = String(afm).replace(/[^0-9A-Za-z]/g, '');
   if (!clean) return null;
   const rows = await softoneGetTable(
     'TRDR', ['TRDR', 'CODE', 'NAME', 'SODTYPE'],
-    `AFM='${clean}' AND SODTYPE IN (12,15,16)`,
+    `AFM='${clean}' AND SODTYPE IN (${SUPPLIER_SODTYPES.join(',')})`,
   );
   const valid = rows.filter((o) => Number.isFinite(Number(o.TRDR)));
   if (valid.length === 0) return null;
-  const pref = ['12', '15', '16'];
-  valid.sort((a, b) => pref.indexOf(a.SODTYPE) - pref.indexOf(b.SODTYPE));
+  const pref: readonly number[] = SUPPLIER_SODTYPES;
+  valid.sort((a, b) => pref.indexOf(Number(a.SODTYPE)) - pref.indexOf(Number(b.SODTYPE)));
   const r = valid[0];
-  return { trdr: Number(r.TRDR), code: r.CODE, name: r.NAME, kind: SODTYPE_LABEL[r.SODTYPE] ?? null };
+  const sodtype = Number(r.SODTYPE);
+  return { trdr: Number(r.TRDR), code: r.CODE, name: r.NAME, kind: SODTYPE_LABEL[sodtype] ?? `Τύπος ${sodtype}` };
 }
 
 export interface SoftoneTestResult {
