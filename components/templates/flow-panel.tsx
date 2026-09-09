@@ -1,2 +1,74 @@
 'use client';
-export function FlowPanel() { return <p className="text-[12px] text-muted-foreground">Βήμα σε εξέλιξη.</p>; }
+
+import * as React from 'react';
+import { ReactFlow, Background, Controls, Handle, Position, type Node, type Edge, type NodeProps } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import { FiCpu, FiFileText, FiGitBranch, FiImage, FiUploadCloud } from 'react-icons/fi';
+import { buildFlow, toFlowTemplate } from '@/lib/templates/flow';
+import { useDesigner } from './designer-context';
+
+type D = Record<string, unknown>;
+const card = 'rounded-md border bg-white px-2.5 py-2 text-[11px] shadow-fluent-2 min-w-[150px]';
+
+function SampleNode({ data }: NodeProps<Node<D>>) {
+  return <div className={`${card} border-border`}><Handle type="source" position={Position.Right} /><div className="flex items-center gap-1.5 font-semibold"><FiImage className="size-3.5 text-sisyphus-600" /> {String(data.label)}</div><div className="text-muted-foreground">{Number(data.pageCount)} σελίδ{Number(data.pageCount) === 1 ? 'α' : 'ες'}</div></div>;
+}
+function FieldNode({ data }: NodeProps<Node<D>>) {
+  const color = String(data.color); const status = data.status as string | undefined;
+  return (
+    <div className={`${card} border-border`} style={{ borderLeft: `4px solid ${color}` }}>
+      <Handle type="target" position={Position.Left} /><Handle type="source" position={Position.Right} />
+      <div className="flex items-center gap-1.5 font-semibold" style={{ color }}>{String(data.label)}{status && <span className={`ml-auto rounded-full px-1.5 text-[9px] ${status === 'ok' ? 'bg-[#E8F7F0] text-[#047857]' : 'bg-[#FFF1E6] text-[#C2410C]'}`}>{status === 'ok' ? 'ok' : 'κενό'}</span>}</div>
+      <div className="text-muted-foreground">{data.kind === 'TABLE' ? 'πίνακας' : 'τιμή'}{data.hasRegion ? ` · σ.${Number(data.page) + 1}` : ' · χωρίς περιοχή'}</div>
+      {data.value != null && <div className="mt-0.5 truncate font-mono text-[10px]">{String(data.value)}</div>}
+    </div>);
+}
+function ConditionNode({ data }: NodeProps<Node<D>>) {
+  const matched = data.matched as boolean | undefined;
+  return (
+    <div className={`${card} ${matched === true ? 'border-[#047857]' : 'border-border'}`}>
+      <Handle type="target" position={Position.Left} /><Handle type="source" position={Position.Right} />
+      <div className="flex items-center gap-1.5 font-semibold"><FiGitBranch className="size-3.5 text-[#B45309]" /> {String(data.label)}</div>
+      <div className="text-muted-foreground">{Number(data.clauses)} ρήτρ{Number(data.clauses) === 1 ? 'α' : 'ες'} · {(data.actions as string[]).length} ενέργ.</div>
+    </div>);
+}
+function MappingNode({ data }: NodeProps<Node<D>>) {
+  return (
+    <div className={`${card} ${data.active ? 'border-sisyphus-500' : 'border-border'}`}>
+      <Handle type="target" position={Position.Left} /><Handle type="source" position={Position.Right} />
+      <div className="flex items-center gap-1.5 font-semibold"><FiFileText className="size-3.5 text-sisyphus-600" /> {String(data.label)}</div>
+      <div className="text-muted-foreground">{Number(data.rows)} αντιστοιχίσεις</div>
+    </div>);
+}
+function OutputNode({ data }: NodeProps<Node<D>>) {
+  return (
+    <div className={`${card} border-border bg-neutral-4`}>
+      <Handle type="target" position={Position.Left} />
+      <div className="flex items-center gap-1.5 font-semibold">{data.mode === 'AUTO' ? <FiUploadCloud className="size-3.5 text-[#047857]" /> : <FiCpu className="size-3.5 text-muted-foreground" />} {String(data.label)}</div>
+      {data.runStatus != null && <div className="text-muted-foreground">τελευταία: {String(data.runStatus)}</div>}
+    </div>);
+}
+const nodeTypes = { sample: SampleNode, field: FieldNode, condition: ConditionNode, mapping: MappingNode, output: OutputNode };
+
+export function FlowPanel() {
+  const { dto, setFocusKey, goToStep } = useDesigner();
+  const { nodes, edges } = React.useMemo(() => buildFlow(toFlowTemplate(dto)), [dto]);
+  const rfNodes = React.useMemo<Node<D>[]>(() => nodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data, draggable: false })), [nodes]);
+  const rfEdges = React.useMemo<Edge[]>(() => edges.map((e) => ({ ...e, type: 'smoothstep' })), [edges]);
+
+  const onNodeClick = (_: React.MouseEvent, node: Node) => {
+    if (node.id === 'sample') goToStep(1);
+    else if (node.id.startsWith('field:')) { setFocusKey(node.id.slice(6)); goToStep(2); }
+    else if (node.id.startsWith('map:')) goToStep(3);
+    else if (node.id.startsWith('cond:') || node.id === 'output') goToStep(4);
+  };
+
+  return (
+    <div className="h-full w-full" data-testid="flow-panel">
+      <ReactFlow nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} onNodeClick={onNodeClick} fitView fitViewOptions={{ padding: 0.2 }} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} minZoom={0.2}>
+        <Background gap={16} color="#EDEBE9" />
+        <Controls showInteractive={false} />
+      </ReactFlow>
+    </div>
+  );
+}
