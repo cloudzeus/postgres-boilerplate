@@ -1,13 +1,10 @@
 // app/api/admin/ocr/[id]/read-region/route.ts
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import sharp from 'sharp';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
-import { getSetting } from '@/lib/settings';
-import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
-import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
 import { bunnyDownload } from '@/lib/bunny';
+import { prepareCrop, readCropValue } from '@/lib/templates/vision';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -64,82 +61,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     imgBuf = found;
   }
 
-  // Crop the normalized bbox. Coordinates are clamped to the page so a malformed
-  // (or edge) box can never produce an out-of-bounds extract that throws a 500.
-  const meta = await sharp(imgBuf).metadata();
-  const W = meta.width ?? 0;
-  const H = meta.height ?? 0;
-  if (W < 2 || H < 2) return NextResponse.json({ error: 'unreadable page' }, { status: 422 });
-  const [nx, ny, nw, nh] = bbox;
-  const left = Math.min(W - 1, Math.max(0, Math.round(nx * W)));
-  const top = Math.min(H - 1, Math.max(0, Math.round(ny * H)));
-  const width = Math.min(W - left, Math.max(1, Math.round(nw * W)));
-  const height = Math.min(H - top, Math.max(1, Math.round(nh * H)));
   let crop: Buffer;
   try {
-    crop = await sharp(imgBuf)
-      .extract({ left, top, width, height })
-      .resize({ width: Math.max(width * 2, 400), withoutEnlargement: false })
-      .grayscale()
-      .normalize()
-      .png()
-      .toBuffer();
-  } catch {
-    return NextResponse.json({ error: 'invalid region' }, { status: 422 });
+    crop = await prepareCrop(imgBuf, bbox);
+  } catch (e) {
+    const msg = (e as Error).message;
+    return NextResponse.json({ error: msg === 'unreadable page' ? 'unreadable page' : 'invalid region' }, { status: 422 });
   }
-
-  // Focused vision call — read ONLY this field.
-  const visionKey =
-    (await getSetting<string>('ai.visionApiKey')) ??
-    process.env.GEMINI_API_KEY ??
-    '';
-  const visionUrl =
-    (await getSetting<string>('ai.visionUrl')) ??
-    'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-  const visionModel =
-    (await getSetting<string>('ai.visionModel')) ?? 'gemini-2.5-flash';
-
-  if (!visionKey) return NextResponse.json({ error: 'vision key not configured' }, { status: 500 });
-
-  const visionRes = await fetchWithRetry(visionUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${visionKey}` },
-    body: JSON.stringify({
-      model: visionModel,
-      temperature: 0,
-      messages: [
-        {
-          role: 'system',
-          content: `Read the value of the field "${field}" from this cropped image of a Greek invoice/receipt. Respond with ONLY the raw value text, no labels, no quotes, no explanation.`,
-        },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image_url',
-              image_url: { url: `data:image/png;base64,${crop.toString('base64')}` },
-            },
-          ],
-        },
-      ],
-    }),
-  });
-
-  if (!visionRes.ok) return NextResponse.json({ error: `vision ${visionRes.status}` }, { status: 502 });
-
-  const data = await visionRes.json();
-  const value = String(data?.choices?.[0]?.message?.content ?? '').trim();
-  const u = data?.usage ?? {};
-
-  void logAiUsage({
-    scope: 'OCR_VISION',
-    provider: providerFromUrl(visionUrl),
-    model: visionModel,
-    operation: 'ocr.region',
-    inputTokens: u.prompt_tokens ?? 0,
-    outputTokens: u.completion_tokens ?? 0,
-    totalTokens: u.total_tokens ?? 0,
-  });
-
-  return NextResponse.json({ value });
+  try {
+    const r = await readCropValue({ crop, prompt: `Read the value of the field "${field}".`, operation: 'ocr.region' });
+    return NextResponse.json({ value: r.value });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 502 });
+  }
 }
