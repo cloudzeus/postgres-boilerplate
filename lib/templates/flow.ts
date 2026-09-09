@@ -86,3 +86,27 @@ function outputLabel(mode: TemplateMode): string {
   if (mode === 'SEMI_AUTO') return 'Προς έλεγχο → SoftOne';
   return 'Μόνο εξαγωγή';
 }
+
+/** Minimal DTO shape the adapter needs — matches `TemplateDto` from serialize.ts without importing it (keeps this module isomorphic). */
+export type FlowTemplateSource = {
+  id: string;
+  name: string;
+  mode: TemplateMode;
+  sample: { pageCount: number } | null;
+  fields: { key: string; label: string; color: string; kind: TemplateFieldKind; region: Region | null }[];
+  mappings: { name: string; target: MappingTarget; rows: { fieldKey: string; [k: string]: unknown }[] }[];
+  conditions: { id: string; name: string; isActive: boolean; clauses: Clause[]; actions: Action[]; [k: string]: unknown }[];
+};
+
+/** Designer and run-result views both go through this, so the diagram never drifts between them. */
+export function toFlowTemplate(dto: FlowTemplateSource): FlowTemplate {
+  return {
+    id: dto.id,
+    name: dto.name,
+    mode: dto.mode,
+    samplePageCount: dto.sample?.pageCount ?? null,
+    fields: dto.fields.map((f) => ({ key: f.key, label: f.label, color: f.color, kind: f.kind, region: f.region })),
+    conditions: dto.conditions.filter((c) => c.isActive).map((c) => ({ id: c.id, name: c.name, clauses: c.clauses, actions: c.actions })),
+    mappings: dto.mappings.map((m) => ({ name: m.name, target: m.target, rows: m.rows })),
+  };
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildFlow, type FlowTemplate, type FlowRun } from '../flow';
+import { buildFlow, toFlowTemplate, type FlowTemplate, type FlowRun } from '../flow';
 
 const tpl: FlowTemplate = {
   id: 't1', name: 'ACME', mode: 'SEMI_AUTO', samplePageCount: 2,
@@ -57,5 +57,28 @@ describe('buildFlow', () => {
     const { edges, nodes } = buildFlow(t);
     const targets = new Set(nodes.map((n) => n.id));
     for (const e of edges) expect(targets.has(e.target)).toBe(true);
+  });
+});
+
+describe('toFlowTemplate', () => {
+  it('projects a TemplateDto-shaped object onto FlowTemplate, dropping extra keys', () => {
+    const dto = {
+      id: 't', name: 'N', mode: 'AUTO' as const, sample: { mimeType: 'image/png', pageCount: 3, thumbUrl: '/x' },
+      fields: [{ key: 'a', label: 'A', color: '#000000', kind: 'SINGLE' as const, valueType: 'TEXT' as const, region: null, columns: null, aiHint: null, required: false, order: 0 }],
+      mappings: [{ id: 'm1', name: 'default', target: 'INVOICE' as const, isDefault: true, rows: [{ fieldKey: 'a', invoiceKey: 'invoiceNumber' }] }],
+      conditions: [{ id: 'c1', name: 'C', order: 0, isActive: true, logic: 'AND' as const, clauses: [], actions: [] }],
+    };
+    const ft = toFlowTemplate(dto);
+    expect(ft).toEqual({
+      id: 't', name: 'N', mode: 'AUTO', samplePageCount: 3,
+      fields: [{ key: 'a', label: 'A', color: '#000000', kind: 'SINGLE', region: null }],
+      conditions: [{ id: 'c1', name: 'C', clauses: [], actions: [] }],
+      mappings: [{ name: 'default', target: 'INVOICE', rows: [{ fieldKey: 'a', invoiceKey: 'invoiceNumber' }] }],
+    });
+  });
+  it('uses null page count when there is no sample and skips inactive conditions', () => {
+    const ft = toFlowTemplate({ id: 't', name: 'N', mode: 'MANUAL', sample: null, fields: [], mappings: [], conditions: [{ id: 'c', name: 'off', order: 0, isActive: false, logic: 'AND', clauses: [], actions: [] }] });
+    expect(ft.samplePageCount).toBeNull();
+    expect(ft.conditions).toEqual([]);
   });
 });
