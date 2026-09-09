@@ -1,9 +1,13 @@
 // components/templates/api.ts — CLIENT. Typed fetch helpers for the template endpoints + Greek error text.
 import type { TemplateDto } from '@/lib/templates/serialize';
-import type { FieldDef, Region } from '@/lib/templates/schema';
+import type { FieldDef, FieldValue, Region } from '@/lib/templates/schema';
 
 export type Cleanup = { mappings: { name: string; removedRows: number }[]; conditions: { id: string; name: string; removedClauses: number; removedActions: number }[] };
 export type TestFieldResult = { raw: string | null; value: unknown; source: string; model: string | null; tokensUsed: number; color: string; durationMs: number };
+export type DetectFieldResult = { label: string; key: string; kind: 'SINGLE' | 'TABLE'; valueType: FieldDef['valueType']; value: string; columns: FieldDef['columns']; model: string; tokensUsed: number; durationMs: number };
+export type DetectedMark = { label: string; key: string; valueType: FieldDef['valueType']; value: string; bbox: [number, number, number, number] };
+export type DetectMarksResult = { marks: DetectedMark[]; model: string; tokensUsed: number; durationMs: number };
+export type TestTemplateResult = { template: string; version: number; extractedAt: string; values: Record<string, unknown>; fields: Record<string, FieldValue>; model: string | null; tokensUsed: number; durationMs: number; errors: { fieldKey: string; message: string }[] };
 
 const ERROR_TEXT: Record<string, string> = {
   invalid_body: 'Μη έγκυρα δεδομένα.',
@@ -56,6 +60,9 @@ export const templatesApi = {
   putMappings: (id: string, mappings: TemplateDto['mappings']) => fetch(`${base(id)}/mappings`, json({ mappings }, 'PUT')).then((r) => handle<TemplateDto>(r)),
   putConditions: (id: string, conditions: TemplateDto['conditions']) => fetch(`${base(id)}/conditions`, json({ conditions }, 'PUT')).then((r) => handle<TemplateDto>(r)),
   testField: (id: string, fieldKey: string, region?: Region) => fetch(`${base(id)}/test-field`, json({ fieldKey, region })).then((r) => handle<TestFieldResult>(r)),
+  detectField: (id: string, region: Region) => fetch(`${base(id)}/detect-field`, json({ region })).then((r) => handle<DetectFieldResult>(r)),
+  detectMarks: (id: string, page: number, mode: 'marks' | 'all' = 'all') => fetch(`${base(id)}/detect-marks`, json({ page, mode })).then((r) => handle<DetectMarksResult>(r)),
+  test: (id: string) => fetch(`${base(id)}/test`, json({})).then((r) => handle<TestTemplateResult>(r)),
   searchSuppliers: (q: string) => fetch(`/api/admin/softone/search?type=suppliers&q=${encodeURIComponent(q)}`).then((r) => handle<{ results: { id: number; code: string; name: string; sub: string }[] }>(r)),
   pageImageUrl: (id: string, page: number, version: number, scale = 3) => `${base(id)}/page-image?page=${page}&scale=${scale}&v=${version}`,
 };
