@@ -116,3 +116,68 @@ export function toFlowTemplate(dto: FlowTemplateSource): FlowTemplate {
     mappings: dto.mappings.map((m) => ({ name: m.name, target: m.target, rows: m.rows })),
   };
 }
+
+// ─── Layout ────────────────────────────────────────────────────────────────
+// `buildFlow` lays the pipeline out as 5 columns left→right (`COL_X`), one row per
+// item inside a column. That grid is abstract: the two places that render it want
+// opposite reading directions, so the concrete pixel layout lives here (pure, tested)
+// and the canvas component stays a thin renderer.
+//
+//  • `horizontal` — the wide document page: stages run left→right across ~1100px,
+//    the items of a stage stack vertically underneath each other.
+//  • `vertical` — the narrow designer side panel: the grid is transposed, so stages
+//    run top→bottom and the items of a stage sit side by side, wrapping every
+//    `PER_ROW` items so a template with a dozen fields stays inside ~950px.
+
+export type FlowOrientation = 'vertical' | 'horizontal';
+
+/** Horizontal: 5 stages × 275px = 1100px wide, rows 110px apart. */
+const H_COL_W = 275;
+const H_ROW_H = 110;
+/** Vertical: items per line before a stage wraps (5 × 190px ≈ 950px, the widest we let the panel get). */
+const PER_ROW = 5;
+const V_ITEM_W = 190;
+const V_STAGE_H = 120;
+const V_WRAP_H = 90;
+
+/** Nearest column index of a `buildFlow` x — the grid is fixed, so this never guesses. */
+function stageOf(x: number): number {
+  let best = 0;
+  for (let i = 1; i < COL_X.length; i++) if (Math.abs(COL_X[i] - x) < Math.abs(COL_X[best] - x)) best = i;
+  return best;
+}
+const itemOf = (y: number) => Math.round(y / ROW_H);
+
+/** Places `buildFlow` nodes on screen for the given reading direction. Pure — same input, same pixels. */
+export function layoutFlow(nodes: FlowNode[], orientation: FlowOrientation): FlowNode[] {
+  if (orientation === 'horizontal') {
+    return nodes.map((n) => ({ ...n, position: { x: stageOf(n.position.x) * H_COL_W, y: itemOf(n.position.y) * H_ROW_H } }));
+  }
+
+  const countByStage = new Map<number, number>();
+  for (const n of nodes) {
+    const s = stageOf(n.position.x);
+    countByStage.set(s, (countByStage.get(s) ?? 0) + 1);
+  }
+  // Stack the stages cumulatively: a wrapped stage is taller than one line, and a
+  // flat `stage * V_STAGE_H` would drop the next stage on top of its second line.
+  const topByStage = new Map<number, number>();
+  let top = 0;
+  for (const s of [...countByStage.keys()].sort((a, b) => a - b)) {
+    topByStage.set(s, top);
+    top += V_STAGE_H + (Math.ceil((countByStage.get(s) ?? 1) / PER_ROW) - 1) * V_WRAP_H;
+  }
+  return nodes.map((n) => {
+    const s = stageOf(n.position.x);
+    const item = itemOf(n.position.y);
+    const count = countByStage.get(s) ?? 1;
+    return {
+      ...n,
+      position: {
+        // Centre the line under the stage above it.
+        x: (item % PER_ROW) * V_ITEM_W - ((Math.min(count, PER_ROW) - 1) * V_ITEM_W) / 2,
+        y: (topByStage.get(s) ?? 0) + Math.floor(item / PER_ROW) * V_WRAP_H,
+      },
+    };
+  });
+}

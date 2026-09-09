@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildFlow, toFlowTemplate, type FlowTemplate, type FlowRun } from '../flow';
+import { buildFlow, layoutFlow, toFlowTemplate, type FlowTemplate, type FlowRun } from '../flow';
 
 const tpl: FlowTemplate = {
   id: 't1', name: 'ACME', subtitle: 'ACME AE', mode: 'SEMI_AUTO', samplePageCount: 2,
@@ -83,5 +83,50 @@ describe('toFlowTemplate', () => {
     // Subtitle falls back supplier → department → slug.
     expect(ft.subtitle).toBe('Λογιστήριο');
     expect(toFlowTemplate({ id: 't', name: 'N', slug: 'n', department: null, supplierName: null, mode: 'MANUAL', sample: null, fields: [], mappings: [], conditions: [] }).subtitle).toBe('n');
+  });
+});
+
+describe('layoutFlow', () => {
+  const at = (id: string, orientation: 'vertical' | 'horizontal') =>
+    layoutFlow(buildFlow(tpl).nodes, orientation).find((n) => n.id === id)!.position;
+
+  it('horizontal runs the 5 stages left to right inside 1100px, items 110px apart', () => {
+    expect(at('sample', 'horizontal')).toEqual({ x: 0, y: 0 });
+    expect(at('field:no', 'horizontal')).toEqual({ x: 275, y: 0 });
+    expect(at('field:lines', 'horizontal')).toEqual({ x: 275, y: 110 });
+    expect(at('cond:c1', 'horizontal')).toEqual({ x: 550, y: 0 });
+    expect(at('map:default', 'horizontal')).toEqual({ x: 825, y: 0 });
+    expect(at('map:xls', 'horizontal')).toEqual({ x: 825, y: 110 });
+    expect(at('output', 'horizontal')).toEqual({ x: 1100, y: 0 });
+  });
+
+  it('vertical transposes the grid: stages top to bottom, items of a stage side by side and centred', () => {
+    expect(at('sample', 'vertical')).toEqual({ x: 0, y: 0 });
+    expect(at('field:no', 'vertical')).toEqual({ x: -95, y: 120 });
+    expect(at('field:lines', 'vertical')).toEqual({ x: 95, y: 120 });
+    expect(at('cond:c1', 'vertical')).toEqual({ x: 0, y: 240 });
+    expect(at('map:default', 'vertical')).toEqual({ x: -95, y: 360 });
+    expect(at('map:xls', 'vertical')).toEqual({ x: 95, y: 360 });
+    expect(at('output', 'vertical')).toEqual({ x: 0, y: 480 });
+  });
+
+  it('vertical wraps a stage with more than 5 items and pushes the later stages down', () => {
+    const many: FlowTemplate = { ...tpl, fields: Array.from({ length: 7 }, (_, i) => ({ key: `f${i}`, label: `F${i}`, color: '#000000', kind: 'SINGLE' as const, region: null })), conditions: [], mappings: [tpl.mappings[0]] };
+    const out = layoutFlow(buildFlow(many).nodes, 'vertical');
+    const pos = (id: string) => out.find((n) => n.id === id)!.position;
+    // First line holds 5, the 6th starts a second line 90px lower at the same x as the first.
+    expect(pos('field:f0').y).toBe(120);
+    expect(pos('field:f5').y).toBe(210);
+    expect(pos('field:f5').x).toBe(pos('field:f0').x);
+    // The wrapped stage is two lines tall, so the stage after it clears both.
+    expect(pos('map:default').y).toBe(120 + 120 + 90);
+  });
+
+  it('is pure — it never mutates the nodes it was given', () => {
+    const nodes = buildFlow(tpl).nodes;
+    const before = JSON.stringify(nodes);
+    layoutFlow(nodes, 'horizontal');
+    layoutFlow(nodes, 'vertical');
+    expect(JSON.stringify(nodes)).toBe(before);
   });
 });
