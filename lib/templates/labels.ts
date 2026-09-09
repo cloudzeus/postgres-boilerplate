@@ -1,5 +1,5 @@
 // lib/templates/labels.ts — ISOMORPHIC Greek labels for template enums (designer + run views).
-import { INVOICE_SCHEMA, type ActionType, type ClauseOp, type TemplateFieldKind, type TemplateMode, type TemplateValueType } from './schema';
+import { INVOICE_SCHEMA, type ActionType, type ClauseOp, type FieldValue, type RunStatus, type RunTrigger, type TemplateFieldKind, type TemplateMode, type TemplateValueType } from './schema';
 
 export const MODE_LABEL: Record<TemplateMode, string> = { AUTO: 'Αυτόματο', SEMI_AUTO: 'Ημιαυτόματο', MANUAL: 'Χειροκίνητο' };
 export const MODE_HELP: Record<TemplateMode, string> = {
@@ -28,5 +28,7 @@ export const INVOICE_KEY_GROUPS = [
   { label: 'Κεφαλίδα', keys: INVOICE_SCHEMA.filter((k) => !k.isLine) },
   { label: 'Γραμμές', keys: INVOICE_SCHEMA.filter((k) => k.isLine) },
 ];
-export const RUN_STATUS_LABEL = { EXTRACTED: 'Εξήχθη', REVIEW: 'Προς έλεγχο', BLOCKED: 'Μπλοκαρισμένο', POSTED: 'Αναρτήθηκε', FAILED: 'Απέτυχε' } as const;
-export const TRIGGER_LABEL = { upload: 'στο upload', manual: 'χειροκίνητα', reextract: 'στην επανεξαγωγή' } as const;
+export const RUN_STATUS_LABEL: Record<RunStatus, string> = { EXTRACTED: 'Εξήχθη', REVIEW: 'Προς έλεγχο', BLOCKED: 'Μπλοκαρισμένο', POSTED: 'Αναρτήθηκε', FAILED: 'Απέτυχε' };
+export const TRIGGER_LABEL: Record<RunTrigger, string> = { upload: 'στο upload', manual: 'χειροκίνητα', reextract: 'στην επανεξαγωγή' };
+/** How a stored value was produced (TemplateRun.values[key].source). */
+export const SOURCE_LABEL: Record<FieldValue['source'], string> = { text: 'κείμενο', vision: 'μοντέλο', manual: 'χειροκίνητο', rule: 'κανόνας', none: '—' };

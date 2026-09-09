@@ -28,11 +28,16 @@ export type FieldValue = {
   raw: string | null;                                // what the reader returned
   value: string | number | string[] | Record<string, unknown>[] | null; // coerced (TABLE → rows)
   confidence: number | null;
-  source: 'text' | 'vision' | 'manual' | 'none';   // 'none' = nothing was read (no region, or the read failed)
+  source: 'text' | 'vision' | 'manual' | 'rule' | 'none'; // 'rule' = written by a SET_FIELD action; 'none' = nothing was read (no region, or the read failed)
   page: number | null;
   bbox: Bbox | null;
   color: string;
 };
+
+/** Outcome of one template run, as stored in TemplateRun.status (mirrors prisma enum TemplateRunStatus). */
+export type RunStatus = 'EXTRACTED' | 'REVIEW' | 'BLOCKED' | 'POSTED' | 'FAILED';
+/** What started a run (TemplateRun.trigger). */
+export type RunTrigger = 'upload' | 'manual' | 'reextract';
 
 export type MappingRowInvoice = { fieldKey: string; invoiceKey: string };
 export type MappingRowExcel = { fieldKey: string; column: string; order: number };

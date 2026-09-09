@@ -7,16 +7,16 @@ import { sendRuleNotifications, notificationHtml } from '../notify';
 
 beforeEach(() => send.mockClear());
 
-describe('sendRuleNotifications', () => {
-  const base = {
-    docId: 'd1',
-    fileName: 'a.pdf',
-    templateName: 'T',
-    defaultEmails: 'a@x.gr; b@x.gr' as string | null,
-    values: { total: { value: 12, color: '#000' } },
-    appUrl: 'https://app',
-  };
+const base = {
+  docId: 'd1',
+  fileName: 'a.pdf',
+  templateName: 'T',
+  defaultEmails: 'a@x.gr; b@x.gr' as string | null,
+  values: { total: { value: 12, color: '#000' } },
+  appUrl: 'https://app',
+};
 
+describe('sendRuleNotifications', () => {
   it('sends one email per rule, to the rule emails or the template default, and returns the notified ids', async () => {
     const ids = await sendRuleNotifications({
       ...base,
@@ -63,5 +63,15 @@ describe('notificationHtml', () => {
     expect(html).toContain('a&lt;b&gt;.pdf');
     expect(html).toContain('&lt;i&gt;');
     expect(html).toContain('https://app/admin/ocr/d1');
+  });
+
+  it('with no APP_URL there is no link at all — the email names the document instead', async () => {
+    const html = notificationHtml({ fileName: 'a.pdf', templateName: 'T', values: {}, link: '' });
+    expect(html).not.toContain('<a ');
+    expect(html).toContain('Έγγραφο: <strong>a.pdf</strong>');
+
+    // …and the sender never builds a bare `/admin/ocr/<id>` href out of an empty base.
+    await sendRuleNotifications({ ...base, appUrl: '', notifications: [{ conditionId: 'c1', subject: 'S' }], alreadyNotified: [] });
+    expect(send.mock.calls[0][2]).not.toContain('<a ');
   });
 });

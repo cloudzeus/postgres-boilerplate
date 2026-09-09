@@ -95,7 +95,7 @@ describe('applyRules', () => {
     expect(out.mappingName).toBe('special');
     expect(out.setFields).toEqual([{ fieldKey: 'kind', value: 'X' }]);
     expect(out.flags).toEqual({ review: [], blocked: ['Έλεγχος'] });
-    expect(out.notifications).toEqual([{ subject: 'Hi', emails: undefined }]);
+    expect(out.notifications).toEqual([{ conditionId: 'b', subject: 'Hi', emails: undefined }]);
   });
   it('FLAG_REVIEW collects reasons', () => {
     const out = applyRules([rule({})], ctx);

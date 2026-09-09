@@ -24,7 +24,7 @@ export type ApplyResult = {
   setFields: { fieldKey?: string; invoiceKey?: string; value: string }[];
   flags: { review: string[]; blocked: string[] };
   mappingName: string | null;
-  notifications: { subject: string; emails?: string }[];
+  notifications: { conditionId: string; subject: string; emails?: string }[];
 };
 
 type Resolved = { value: string | number | string[] | null; type: TemplateValueType };
@@ -143,7 +143,7 @@ export function applyRules(rules: RuleDef[], ctx: EvalContext): ApplyResult {
         case 'FLAG_REVIEW': out.flags.review.push(a.params.reason); break;
         case 'BLOCK_POSTING': out.flags.blocked.push(a.params.reason); break;
         case 'SWITCH_MAPPING': out.mappingName = a.params.mappingName; break;
-        case 'NOTIFY': out.notifications.push({ subject: a.params.subject, emails: a.params.emails }); break;
+        case 'NOTIFY': out.notifications.push({ conditionId: rule.id, subject: a.params.subject, emails: a.params.emails }); break;
       }
     }
   }

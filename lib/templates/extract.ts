@@ -1,7 +1,7 @@
 // lib/templates/extract.ts — SERVER. Reads every template field from a document.
 // Digital PDFs: text layer first (free). Otherwise: crop the region → vision model.
 import 'server-only';
-import { isPdfBuffer, renderPage } from '@/lib/ocr/rasterize';
+import { countPdfPages, isPdfBuffer, renderPage } from '@/lib/ocr/rasterize';
 import { textInBox } from '@/lib/ocr/region-text';
 import { extractPdfTextItems } from './pdf-text';
 import { prepareCrop, readCropTable, readCropValue, type UsageRef } from './vision';
@@ -13,6 +13,7 @@ export type ExtractResult = {
   model: string | null;                              // model(s) used, comma-separated
   tokensUsed: number;
   errors: { fieldKey: string; message: string }[];
+  pageCount: number;                                 // real page count of the document (images: 1)
 };
 
 const MIN_TEXT_CHARS = 2;
@@ -25,8 +26,11 @@ export async function extractTemplateFields(
   fields: FieldDef[],
   opts?: { ref?: UsageRef },
 ): Promise<ExtractResult> {
-  const out: ExtractResult = { values: {}, model: null, tokensUsed: 0, errors: [] };
+  const out: ExtractResult = { values: {}, model: null, tokensUsed: 0, errors: [], pageCount: 1 };
   const isPdf = mimeType === 'application/pdf' || isPdfBuffer(buffer);
+  // The real page count drives the `$pageCount` rule variable; a document we cannot count is a
+  // single page as far as the rules are concerned (countPdfPages already swallows its own errors).
+  if (isPdf) out.pageCount = await countPdfPages(buffer).catch(() => 1);
   const pageBitmaps = new Map<number, Buffer>();
   const pageText = new Map<number, Awaited<ReturnType<typeof extractPdfTextItems>>>();
   // Fallback can swap models mid-run, so a single `model` string would report

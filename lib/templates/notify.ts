@@ -1,5 +1,5 @@
 // lib/templates/notify.ts — NOTIFY actions → Mailgun, one email per document and rule (spec §6, §15.3).
-// No `server-only` import: the module stays testable and only reaches the network through lib/mailgun.
+import 'server-only';
 import { sendTransactionalEmail } from '@/lib/mailgun';
 
 export type Notification = { conditionId: string; subject: string; emails?: string };
@@ -15,6 +15,7 @@ const recipients = (s: string | null | undefined) =>
     .map((x) => x.trim())
     .filter((x) => /.+@.+\..+/.test(x));
 
+/** `link` empty (no APP_URL configured) → the email names the document instead of linking to it. */
 export function notificationHtml(i: { fileName: string; templateName: string; values: Record<string, ValueLike>; link: string }): string {
   const rows = Object.entries(i.values)
     .map(
@@ -24,7 +25,10 @@ export function notificationHtml(i: { fileName: string; templateName: string; va
         )}</td></tr>`,
     )
     .join('');
-  return `<p>Το έγγραφο <strong>${esc(i.fileName)}</strong> διαβάστηκε με το πρότυπο <strong>${esc(i.templateName)}</strong>.</p><table>${rows}</table><p><a href="${esc(i.link)}">Άνοιγμα εγγράφου</a></p>`;
+  const tail = i.link
+    ? `<p><a href="${esc(i.link)}">Άνοιγμα εγγράφου</a></p>`
+    : `<p>Έγγραφο: <strong>${esc(i.fileName)}</strong></p>`;
+  return `<p>Το έγγραφο <strong>${esc(i.fileName)}</strong> διαβάστηκε με το πρότυπο <strong>${esc(i.templateName)}</strong>.</p><table>${rows}</table>${tail}`;
 }
 
 /**
@@ -53,7 +57,7 @@ export async function sendRuleNotifications(i: {
       await sendTransactionalEmail(
         to.join(', '),
         n.subject,
-        notificationHtml({ fileName: i.fileName, templateName: i.templateName, values: i.values, link: `${i.appUrl}/admin/ocr/${i.docId}` }),
+        notificationHtml({ fileName: i.fileName, templateName: i.templateName, values: i.values, link: i.appUrl ? `${i.appUrl}/admin/ocr/${i.docId}` : '' }),
       );
       done.push(n.conditionId);
       seen.add(n.conditionId);

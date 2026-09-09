@@ -1752,7 +1752,7 @@ model TemplateRun {
   trigger         String             @default("upload")   // upload | manual | reextract
   error           String?            @db.Text
   values          Json                              // { key: FieldValue }
-  matched         Json                              // [{ conditionId, name, actions }]
+  matched         Json                              // [{ id, name, actions }]
   flags           Json?                             // { review?: string[], blocked?: string[] }
   mappingName     String
   model           String?

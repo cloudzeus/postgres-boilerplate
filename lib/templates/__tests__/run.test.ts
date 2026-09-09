@@ -4,7 +4,7 @@ import type { FieldValue, TemplateValueType } from '../schema';
 const db = vi.hoisted(() => ({
   ocrDocument: { findUnique: vi.fn(), update: vi.fn() },
   extractionTemplate: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
-  templateRun: { create: vi.fn(), findMany: vi.fn() },
+  templateRun: { create: vi.fn(), findMany: vi.fn(), update: vi.fn() },
   ocrInvoiceItem: { deleteMany: vi.fn(), createMany: vi.fn() },
   // The runner hands `$transaction` an ARRAY of promises (prisma batch form).
   $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
@@ -12,14 +12,24 @@ const db = vi.hoisted(() => ({
 const extract = vi.hoisted(() => vi.fn());
 const post = vi.hoisted(() => vi.fn());
 const notify = vi.hoisted(() => vi.fn());
+/** Stand-in for the real PostError: the runner branches on `instanceof`, so the class must be shared. */
+const PostError = vi.hoisted(
+  () =>
+    class PostError extends Error {
+      constructor(public code: string, message: string) {
+        super(message);
+        this.name = 'PostError';
+      }
+    },
+);
 
 vi.mock('@/lib/db', () => ({ prisma: db }));
 vi.mock('@/lib/bunny', () => ({ bunnyDownload: vi.fn(async () => Buffer.from('x')) }));
 vi.mock('../extract', () => ({ extractTemplateFields: (...a: unknown[]) => extract(...a) }));
-vi.mock('@/lib/ocr/post-softone', () => ({ postDocumentToSoftone: (...a: unknown[]) => post(...a) }));
+vi.mock('@/lib/ocr/post-softone', () => ({ PostError, postDocumentToSoftone: (...a: unknown[]) => post(...a) }));
 vi.mock('../notify', () => ({ sendRuleNotifications: (...a: unknown[]) => notify(...a) }));
 
-import { findTemplateForVat, runTemplateOnDocument } from '../run';
+import { findTemplateForVat, runMatchingTemplate, runTemplateOnDocument } from '../run';
 
 // ---------------------------------------------------------------- fixtures
 
@@ -49,13 +59,14 @@ const template = (over: Record<string, unknown> = {}) => ({
 
 const doc = (over: Record<string, unknown> = {}) => ({
   id: 'd1', fileName: 'a.pdf', storageKey: 'ocr/a.pdf', mimeType: 'application/pdf',
-  extractedData: { invoiceNumber: '7' }, items: [], ...over,
+  extractedData: { invoiceNumber: '7' }, _count: { items: 0 }, ...over,
 });
 
 const value = (v: FieldValue['value'], source: FieldValue['source'] = 'vision'): FieldValue =>
   ({ raw: v == null ? null : String(v), value: v, confidence: 1, source, page: 0, bbox: [0, 0, 0.1, 0.1], color: '#0078D4' });
 
-const extractResult = (values: Record<string, FieldValue>) => ({ values, model: 'gpt', tokensUsed: 42, errors: [] });
+const extractResult = (values: Record<string, FieldValue>, over: Record<string, unknown> = {}) =>
+  ({ values, model: 'gpt', tokensUsed: 42, errors: [] as { fieldKey: string; message: string }[], pageCount: 1, ...over });
 
 /** Last `templateRun.create` payload. */
 const runData = () => db.templateRun.create.mock.calls.at(-1)![0].data as Record<string, any>;
@@ -64,13 +75,14 @@ const docUpdates = () => db.ocrDocument.update.mock.calls.map((c) => c[0].data a
 
 beforeEach(() => {
   for (const m of [db.ocrDocument.findUnique, db.ocrDocument.update, db.extractionTemplate.findUnique, db.extractionTemplate.findFirst,
-    db.extractionTemplate.update, db.templateRun.create, db.templateRun.findMany, db.ocrInvoiceItem.deleteMany,
-    db.ocrInvoiceItem.createMany, db.$transaction, extract, post, notify]) m.mockReset();
+    db.extractionTemplate.update, db.templateRun.create, db.templateRun.findMany, db.templateRun.update,
+    db.ocrInvoiceItem.deleteMany, db.ocrInvoiceItem.createMany, db.$transaction, extract, post, notify]) m.mockReset();
   db.$transaction.mockImplementation(async (ops: Promise<unknown>[]) => Promise.all(ops));
   db.ocrDocument.update.mockResolvedValue({});
   db.extractionTemplate.update.mockResolvedValue({});
   db.templateRun.create.mockResolvedValue({ id: 'r1' });
   db.templateRun.findMany.mockResolvedValue([]);
+  db.templateRun.update.mockResolvedValue({});
   db.ocrInvoiceItem.deleteMany.mockResolvedValue({ count: 0 });
   db.ocrInvoiceItem.createMany.mockResolvedValue({ count: 0 });
   post.mockResolvedValue({ ref: 'OCR-1' });
@@ -178,6 +190,108 @@ describe('runTemplateOnDocument', () => {
     expect(runData().error).toBe('Ανάρτηση: SoftOne down');
   });
 
+  it('AUTO: a PostError precondition is a BLOCK with a Greek reason, not a FAILED run', async () => {
+    load(template({ mode: 'AUTO', conditions: [] }));
+    extract.mockResolvedValue(extractResult({ total: value(20), note: value('x') }));
+    post.mockRejectedValue(new PostError('no_category', 'Set a category before posting'));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'upload' });
+
+    expect(out.status).toBe('BLOCKED');
+    expect(out.error).toBeNull();
+    expect(out.flags.blocked).toEqual(['Δεν έχει οριστεί κατηγορία εγγράφου']);
+    expect(out.flags.review).toContain('Δεν έχει οριστεί κατηγορία εγγράφου');
+    expect(runData().status).toBe('BLOCKED');
+  });
+
+  it('SET_FIELD writes the template value as `rule` and the invoice key into extractedData', async () => {
+    load(template({
+      mode: 'SEMI_AUTO',
+      conditions: [{
+        ...CONDITION,
+        actions: [
+          { type: 'SET_FIELD', params: { fieldKey: 'note', value: 'από κανόνα' } },
+          { type: 'SET_FIELD', params: { invoiceKey: 'customFields.po', value: 'PO-9' } },
+        ],
+      }],
+    }));
+    extract.mockResolvedValue(extractResult({ total: value(150), note: value('x') }));
+
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+
+    expect(runData().values.note).toMatchObject({ value: 'από κανόνα', source: 'rule' });
+    const projected = docUpdates().find((d) => 'extractedData' in d)!.extractedData;
+    expect(projected.customFields).toEqual({ po: 'PO-9' });
+  });
+
+  it('SWITCH_MAPPING picks the named mapping', async () => {
+    const credit = { ...MAPPING, id: 'm2', name: 'credit', isDefault: false, rows: [{ fieldKey: 'total', invoiceKey: 'subtotal' }] };
+    load(template({
+      mode: 'SEMI_AUTO',
+      mappings: [MAPPING, credit],
+      conditions: [{ ...CONDITION, actions: [{ type: 'SWITCH_MAPPING', params: { mappingName: 'credit' } }] }],
+    }));
+    extract.mockResolvedValue(extractResult({ total: value(150), note: value('x') }));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+
+    expect(runData().mappingName).toBe('credit');
+    expect(docUpdates().find((d) => 'extractedData' in d)!.extractedData.subtotal).toBe(150);
+    expect(out.flags.review).toEqual([]);
+  });
+
+  it('SWITCH_MAPPING to a mapping that does not exist falls back to the default and says so', async () => {
+    load(template({
+      mode: 'SEMI_AUTO',
+      conditions: [{ ...CONDITION, actions: [{ type: 'SWITCH_MAPPING', params: { mappingName: 'φάντασμα' } }] }],
+    }));
+    extract.mockResolvedValue(extractResult({ total: value(150), note: value('x') }));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+
+    expect(runData().mappingName).toBe('default');
+    expect(out.flags.review).toContain('Ο κανόνας ζήτησε mapping «φάντασμα» που δεν υπάρχει');
+  });
+
+  it('a field the reader could not read becomes a review flag, and $pageCount comes from the extraction', async () => {
+    load(template({
+      mode: 'SEMI_AUTO',
+      conditions: [{ ...CONDITION, id: 'c2', clauses: [{ fieldKey: '$pageCount', op: 'gt', value: '2' }], actions: [{ type: 'FLAG_REVIEW', params: { reason: 'πολυσέλιδο' } }] }],
+    }));
+    extract.mockResolvedValue(extractResult({ total: value(150), note: value(null, 'none') }, { errors: [{ fieldKey: 'note', message: 'boom' }], pageCount: 5 }));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'upload' });
+
+    expect(out.flags.review).toContain('Σφάλμα ανάγνωσης «Σημείωση»: boom');
+    expect(out.flags.review).toContain('πολυσέλιδο');
+    expect(typeof runData().durationMs).toBe('number');
+    expect(runData().durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('the run row is written BEFORE the emails, and the notified ids are folded in afterwards', async () => {
+    load(template({ mode: 'SEMI_AUTO' }));
+    extract.mockResolvedValue(extractResult({ total: value(150), note: value('x') }));
+    notify.mockResolvedValue(['c1']);
+
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'upload' });
+
+    expect(db.templateRun.create.mock.invocationCallOrder[0]).toBeLessThan(notify.mock.invocationCallOrder[0]);
+    expect(runData().flags).toMatchObject({ notified: [] });
+    expect(db.templateRun.update).toHaveBeenCalledWith({ where: { id: 'r1' }, data: { flags: expect.objectContaining({ notified: ['c1'] }) } });
+  });
+
+  it('a failing bookkeeping write does not turn a finished run into a FAILED one', async () => {
+    load(template());
+    extract.mockResolvedValue(extractResult({ total: value(150), note: value('x') }));
+    db.$transaction.mockRejectedValue(new Error('db gone'));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+
+    expect(out.status).toBe('EXTRACTED');
+    expect(out.runId).toBe('r1');
+    expect(db.templateRun.create).toHaveBeenCalledTimes(1);  // no second, FAILED, run for the same work
+  });
+
   it('a failing extraction is non-fatal: FAILED run with the error and reviewFlags, resolves', async () => {
     load(template({ mode: 'AUTO' }));
     extract.mockRejectedValue(new Error('vision exploded'));
@@ -189,6 +303,21 @@ describe('runTemplateOnDocument', () => {
     expect(runData()).toMatchObject({ status: 'FAILED', trigger: 'reextract', error: 'vision exploded', mappingName: '' });
     expect(docUpdates().at(-1)!.reviewFlags).toMatchObject({ runStatus: 'FAILED', runId: 'r1' });
     expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe('runMatchingTemplate', () => {
+  it('resolves null when no template matches the ΑΦΜ', async () => {
+    db.extractionTemplate.findFirst.mockResolvedValue(null);
+    await expect(runMatchingTemplate('d1', '123456789', 'upload')).resolves.toBeNull();
+    expect(db.templateRun.create).not.toHaveBeenCalled();
+  });
+
+  it('resolves null (never throws) when the runner itself rejects', async () => {
+    db.extractionTemplate.findFirst.mockResolvedValue({ id: 't1' });
+    db.ocrDocument.findUnique.mockResolvedValue(null);        // → runTemplateOnDocument throws 'document not found'
+    db.extractionTemplate.findUnique.mockResolvedValue(template());
+    await expect(runMatchingTemplate('d1', '123456789', 'upload')).resolves.toBeNull();
   });
 });
 

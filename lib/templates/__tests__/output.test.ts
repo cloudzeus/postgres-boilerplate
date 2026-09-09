@@ -28,4 +28,17 @@ describe('toRunOutput', () => {
   it('omits classic keys that are null/empty and skips items', () => {
     expect(toRunOutput({ slug: 's', version: 1, file: 'f', documentId: 'd', createdAt: new Date(0), extractedData: { invoiceNumber: '', date: null, items: [] }, values: {} }).values).toEqual({});
   });
+  it('a document with no extractedData at all yields only the template values', () => {
+    const out = toRunOutput({ slug: 's', version: 1, file: 'f', documentId: 'd', createdAt: new Date(0), extractedData: null, values: { kwh: fv(3) } });
+    expect(out.values).toEqual({ kwh: 3 });
+  });
+  it('keeps a classic zero (0 is a value, not an absence) and skips a classic object', () => {
+    const out = toRunOutput({ slug: 's', version: 1, file: 'f', documentId: 'd', createdAt: new Date(0), extractedData: { totalAmount: 0, companyName: { nested: 'x' } }, values: {} });
+    expect(out.values).toEqual({ totalAmount: 0 });
+  });
+  it('keeps a NULL template value — the template declared the field, so «empty» is the answer', () => {
+    const out = toRunOutput({ slug: 's', version: 1, file: 'f', documentId: 'd', createdAt: new Date(0), extractedData: {}, values: { kwh: fv(null) } });
+    expect(out.values).toEqual({ kwh: null });
+    expect(Object.prototype.hasOwnProperty.call(out.values, 'kwh')).toBe(true);
+  });
 });

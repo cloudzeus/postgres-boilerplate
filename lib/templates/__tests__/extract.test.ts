@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const textItems = vi.fn();
 const readValue = vi.fn();
 const readTable = vi.fn();
+const countPages = vi.fn(async (..._a: unknown[]) => 3);
 vi.mock('../pdf-text', () => ({ extractPdfTextItems: (...a: unknown[]) => textItems(...a) }));
 vi.mock('../vision', () => ({
   prepareCrop: vi.fn(async () => Buffer.from('crop')),
@@ -12,6 +13,7 @@ vi.mock('../vision', () => ({
 vi.mock('@/lib/ocr/rasterize', () => ({
   isPdfBuffer: (b: Buffer) => b.subarray(0, 4).toString() === '%PDF',
   renderPage: vi.fn(async () => Buffer.from('page-png')),
+  countPdfPages: (...a: unknown[]) => countPages(...a),
 }));
 
 import { extractTemplateFields } from '../extract';
@@ -24,7 +26,7 @@ const field = (over: Partial<FieldDef>): FieldDef => ({
 const pdf = Buffer.from('%PDF-1.4 fake');
 const png = Buffer.from('not a pdf');
 
-beforeEach(() => { textItems.mockReset(); readValue.mockReset(); readTable.mockReset(); });
+beforeEach(() => { textItems.mockReset(); readValue.mockReset(); readTable.mockReset(); countPages.mockReset(); countPages.mockResolvedValue(3); });
 
 describe('extractTemplateFields', () => {
   it('uses the PDF text layer when it yields text (no vision call)', async () => {
@@ -97,6 +99,17 @@ describe('extractTemplateFields', () => {
   it('reports model null when nothing was read by a model', async () => {
     const out = await extractTemplateFields(png, 'image/png', [field({ region: null })]);
     expect(out.model).toBeNull();
+  });
+
+  it('reports the PDF page count, and 1 for an image (never counting a non-PDF)', async () => {
+    textItems.mockResolvedValue([{ str: 'ΤΙΜ-451', x: 0.12, y: 0.11, w: 0.1, h: 0.02 }]);
+    const pdfOut = await extractTemplateFields(pdf, 'application/pdf', [field({})]);
+    expect(pdfOut.pageCount).toBe(3);
+
+    readValue.mockResolvedValueOnce({ value: 'v', model: 'm', tokensUsed: 1 });
+    const pngOut = await extractTemplateFields(png, 'image/png', [field({})]);
+    expect(pngOut.pageCount).toBe(1);
+    expect(countPages).toHaveBeenCalledTimes(1);
   });
 
   it('threads the usage ref through to both readers', async () => {
