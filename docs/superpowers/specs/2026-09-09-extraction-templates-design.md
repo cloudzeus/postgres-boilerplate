@@ -254,3 +254,24 @@ components/templates/
 - Designer με 5 βήματα, χρωματιστές περιοχές, «Δοκιμή πεδίου», mapping (παραστατικό + Excel), conditions με 4 τύπους ενεργειών, mode AUTO/SEMI/MANUAL, React Flow διάγραμμα που ενημερώνεται ζωντανά.
 - Εκτέλεση στο upload + χειροκίνητη· προβολή αποτελέσματος με χρώματα ανά πεδίο· Excel ανά έγγραφο/φάκελο· AUTO ανάρτηση μέσω υπάρχοντος post-softone με σεβασμό σε block/required.
 - Wiki (Ελληνικά, helpAnchor), tests πράσινα, `tsc` clean, DG design system.
+
+---
+
+## 11. Εκπαίδευση με πολλά δείγματα (training) — προσθήκη 2026-09-09
+
+Ο χρήστης ανεβάζει **πολλά δείγματα** του ίδιου προμηθευτή μέχρι το πρότυπο να διαβάζει **με βεβαιότητα**.
+
+- Μοντέλο `TemplateSample`: ένα δείγμα ανά αρχείο (Bunny private), `expected` JSON (τιμές που επιβεβαίωσε ο χρήστης ανά fieldKey), `lastResult` JSON (τελευταία αυτόματη ανάγνωση ανά fieldKey: raw/value/source/match), `status` PENDING | READ | VERIFIED, `pageCount`.
+- Το «κύριο δείγμα» (`ExtractionTemplate.sampleStorageKey`) είναι αυτό πάνω στο οποίο σχεδιάζονται οι περιοχές. Τα υπόλοιπα δείγματα χρησιμεύουν για **δοκιμή/επιβεβαίωση**.
+- Ροή: «Εκπαίδευση» tab στον designer → drop πολλών αρχείων → κάθε δείγμα διαβάζεται με τις τρέχουσες περιοχές → πίνακας «δείγμα × πεδίο» με τις τιμές (χρωματισμένες ανά πεδίο) → ο χρήστης διορθώνει/επιβεβαιώνει (γίνεται `expected`) → **βαθμός βεβαιότητας ανά πεδίο** = ποσοστό δειγμάτων όπου η αυτόματη τιμή == expected (normalized), και συνολικός βαθμός προτύπου. Το πρότυπο μπορεί να γίνει ACTIVE μόνο αν ο συνολικός βαθμός ≥ 90% σε ≥ 3 επιβεβαιωμένα δείγματα (ρυθμιζόμενο, `template.minTrainingScore`).
+- Όταν μια περιοχή ή hint αλλάζει, «Επανάληψη ανάγνωσης» ξανατρέχει όλα τα δείγματα και ενημερώνει τους βαθμούς. Το διάγραμμα δείχνει τον βαθμό σε κάθε κόμβο πεδίου.
+
+## 12. Εργασίες μαζικής σάρωσης (jobs) — προσθήκη 2026-09-09
+
+Από τη λίστα προτύπων (row action «Σάρωση αρχείων») ή από τη σελίδα του προτύπου: ο χρήστης **επιλέγει πρότυπο**, κάνει **drag & drop πολλών αρχείων** (εικόνες/PDF). Τα αρχεία ανεβαίνουν στο Bunny και η εφαρμογή τα σαρώνει **ένα-ένα**.
+
+- Μοντέλο `TemplateJob`: `id` (το «id εργασίας» που βλέπει ο χρήστης), `templateId`, `templateVersion`, `status` QUEUED | RUNNING | DONE | FAILED | CANCELLED, `total`, `done`, `failed`, `createdById`, `startedAt`, `finishedAt`.
+- Μοντέλο `TemplateJobItem`: `jobId`, `order`, `fileName`, `storageKey`, `mimeType`, `size`, `status` QUEUED | RUNNING | DONE | FAILED, `values` JSON (ανά fieldKey, όπως TemplateRun.values, με χρώματα), `matched`/`flags`, `model`, `tokensUsed`, `durationMs`, `error`, προαιρετικά `documentId` (αν το αρχείο μπήκε και στο OCR ως OcrDocument — v1: **όχι**, τα jobs είναι ανεξάρτητα από τη λίστα OCR).
+- Επεξεργασία: worker loop μέσα στον ίδιο server (`lib/templates/jobs.ts::processJob`), σειριακά ανά job, ένα job τη φορά ανά instance (claim με `UPDATE … WHERE status='QUEUED' … LIMIT 1`), επανεκκίνηση: items RUNNING > 10 λεπτά επιστρέφουν σε QUEUED. Κάθε item: download → `extractTemplateFields` → conditions → αποθήκευση.
+- UI: σελίδα `/admin/ocr/templates/jobs` (λίστα εργασιών: id, πρότυπο, πρόοδος done/total, κατάσταση, ημερομηνία) και `/admin/ocr/templates/jobs/[id]` (πρόοδος ζωντανά με polling 2s, πίνακας αρχείων × πεδία με χρωματιστές τιμές, κλικ σε γραμμή → προβολή σελίδας με περιοχές, Excel εξαγωγή όλου του job, ακύρωση).
+- Τα αποτελέσματα μένουν αποθηκευμένα (audit) και εξάγονται σε Excel μέσω του EXCEL mapping του προτύπου (ή, αν δεν υπάρχει, μία στήλη ανά πεδίο).

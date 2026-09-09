@@ -13,6 +13,7 @@
 **Related plans (written after this one ships):**
 - Plan 2/3 — Designer UI: `/admin/ocr/templates` list + 5-step designer, React Flow panel (`@xyflow/react` 12.11.x), sidebar, wiki.
 - Plan 3/3 — Pipeline: `runTemplateOnDocument`, upload hook, manual run, run-result view with per-field colours, Excel outputs, modes/notify, field-rules migration and cleanup.
+- Plan 4/4 — Training samples (spec §11) and batch scan jobs (spec §12): sample upload/verify/score API + UI, job queue worker, jobs pages. Models for both are created in this plan's Task 1 so a single migration covers everything.
 
 ---
 
@@ -167,6 +168,81 @@ model TemplateRun {
   @@index([documentId])
   @@index([templateId, createdAt])
 }
+
+enum TemplateSampleStatus { PENDING READ VERIFIED }
+enum TemplateJobStatus    { QUEUED RUNNING DONE FAILED CANCELLED }
+enum TemplateJobItemStatus { QUEUED RUNNING DONE FAILED }
+
+// Δείγματα εκπαίδευσης (spec §11) — πολλά αρχεία ανά πρότυπο, με επιβεβαιωμένες τιμές.
+model TemplateSample {
+  id          String               @id @default(cuid())
+  templateId  String
+  template    ExtractionTemplate   @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  fileName    String
+  storageKey  String
+  mimeType    String
+  pageCount   Int?
+  status      TemplateSampleStatus @default(PENDING)
+  expected    Json?                                 // { fieldKey: value } επιβεβαιωμένο από χρήστη
+  lastResult  Json?                                 // { fieldKey: { raw, value, source, match } }
+  score       Float?                                // 0-1 ποσοστό πεδίων που ταιριάζουν
+  createdById String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([templateId])
+}
+
+// Εργασίες μαζικής σάρωσης (spec §12).
+model TemplateJob {
+  id              String            @id @default(cuid())
+  templateId      String
+  template        ExtractionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  templateVersion Int
+  status          TemplateJobStatus @default(QUEUED)
+  total           Int               @default(0)
+  done            Int               @default(0)
+  failed          Int               @default(0)
+  createdById     String?
+  createdAt       DateTime          @default(now())
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  items           TemplateJobItem[]
+
+  @@index([status, createdAt])
+  @@index([templateId, createdAt])
+}
+
+model TemplateJobItem {
+  id         String                @id @default(cuid())
+  jobId      String
+  job        TemplateJob           @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  order      Int
+  fileName   String
+  storageKey String
+  mimeType   String
+  size       Int
+  status     TemplateJobItemStatus @default(QUEUED)
+  values     Json?                                  // { fieldKey: FieldValue }
+  matched    Json?
+  flags      Json?
+  model      String?
+  tokensUsed Int?
+  durationMs Int?
+  error      String?
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  @@index([jobId, order])
+  @@index([status])
+}
+```
+
+Inside `model ExtractionTemplate`, after `  runs             TemplateRun[]` add:
+
+```prisma
+  samples          TemplateSample[]
+  jobs             TemplateJob[]
 ```
 
 Inside `model OcrDocument`, after the line `  taxTemplate   TaxFormTemplate? @relation(fields: [taxTemplateId], references: [id], onDelete: SetNull)` add:
@@ -266,6 +342,63 @@ CREATE TABLE "TemplateRun" (
     CONSTRAINT "TemplateRun_pkey" PRIMARY KEY ("id")
 );
 
+CREATE TYPE "TemplateSampleStatus" AS ENUM ('PENDING', 'READ', 'VERIFIED');
+CREATE TYPE "TemplateJobStatus" AS ENUM ('QUEUED', 'RUNNING', 'DONE', 'FAILED', 'CANCELLED');
+CREATE TYPE "TemplateJobItemStatus" AS ENUM ('QUEUED', 'RUNNING', 'DONE', 'FAILED');
+
+CREATE TABLE "TemplateSample" (
+    "id" TEXT NOT NULL,
+    "templateId" TEXT NOT NULL,
+    "fileName" TEXT NOT NULL,
+    "storageKey" TEXT NOT NULL,
+    "mimeType" TEXT NOT NULL,
+    "pageCount" INTEGER,
+    "status" "TemplateSampleStatus" NOT NULL DEFAULT 'PENDING',
+    "expected" JSONB,
+    "lastResult" JSONB,
+    "score" DOUBLE PRECISION,
+    "createdById" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "TemplateSample_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "TemplateJob" (
+    "id" TEXT NOT NULL,
+    "templateId" TEXT NOT NULL,
+    "templateVersion" INTEGER NOT NULL,
+    "status" "TemplateJobStatus" NOT NULL DEFAULT 'QUEUED',
+    "total" INTEGER NOT NULL DEFAULT 0,
+    "done" INTEGER NOT NULL DEFAULT 0,
+    "failed" INTEGER NOT NULL DEFAULT 0,
+    "createdById" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "startedAt" TIMESTAMP(3),
+    "finishedAt" TIMESTAMP(3),
+    CONSTRAINT "TemplateJob_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "TemplateJobItem" (
+    "id" TEXT NOT NULL,
+    "jobId" TEXT NOT NULL,
+    "order" INTEGER NOT NULL,
+    "fileName" TEXT NOT NULL,
+    "storageKey" TEXT NOT NULL,
+    "mimeType" TEXT NOT NULL,
+    "size" INTEGER NOT NULL,
+    "status" "TemplateJobItemStatus" NOT NULL DEFAULT 'QUEUED',
+    "values" JSONB,
+    "matched" JSONB,
+    "flags" JSONB,
+    "model" TEXT,
+    "tokensUsed" INTEGER,
+    "durationMs" INTEGER,
+    "error" TEXT,
+    "startedAt" TIMESTAMP(3),
+    "finishedAt" TIMESTAMP(3),
+    CONSTRAINT "TemplateJobItem_pkey" PRIMARY KEY ("id")
+);
+
 -- Indexes
 CREATE UNIQUE INDEX "ExtractionTemplate_vatNumber_docType_name_key" ON "ExtractionTemplate"("vatNumber", "docType", "name");
 CREATE INDEX "ExtractionTemplate_vatNumber_docType_status_idx" ON "ExtractionTemplate"("vatNumber", "docType", "status");
@@ -275,12 +408,20 @@ CREATE UNIQUE INDEX "TemplateMapping_templateId_name_key" ON "TemplateMapping"("
 CREATE INDEX "TemplateCondition_templateId_order_idx" ON "TemplateCondition"("templateId", "order");
 CREATE INDEX "TemplateRun_documentId_idx" ON "TemplateRun"("documentId");
 CREATE INDEX "TemplateRun_templateId_createdAt_idx" ON "TemplateRun"("templateId", "createdAt");
+CREATE INDEX "TemplateSample_templateId_idx" ON "TemplateSample"("templateId");
+CREATE INDEX "TemplateJob_status_createdAt_idx" ON "TemplateJob"("status", "createdAt");
+CREATE INDEX "TemplateJob_templateId_createdAt_idx" ON "TemplateJob"("templateId", "createdAt");
+CREATE INDEX "TemplateJobItem_jobId_order_idx" ON "TemplateJobItem"("jobId", "order");
+CREATE INDEX "TemplateJobItem_status_idx" ON "TemplateJobItem"("status");
 
 -- Foreign keys
 ALTER TABLE "TemplateField" ADD CONSTRAINT "TemplateField_templateId_fkey" FOREIGN KEY ("templateId") REFERENCES "ExtractionTemplate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "TemplateMapping" ADD CONSTRAINT "TemplateMapping_templateId_fkey" FOREIGN KEY ("templateId") REFERENCES "ExtractionTemplate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "TemplateCondition" ADD CONSTRAINT "TemplateCondition_templateId_fkey" FOREIGN KEY ("templateId") REFERENCES "ExtractionTemplate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "TemplateRun" ADD CONSTRAINT "TemplateRun_templateId_fkey" FOREIGN KEY ("templateId") REFERENCES "ExtractionTemplate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "TemplateSample" ADD CONSTRAINT "TemplateSample_templateId_fkey" FOREIGN KEY ("templateId") REFERENCES "ExtractionTemplate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "TemplateJob" ADD CONSTRAINT "TemplateJob_templateId_fkey" FOREIGN KEY ("templateId") REFERENCES "ExtractionTemplate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "TemplateJobItem" ADD CONSTRAINT "TemplateJobItem_jobId_fkey" FOREIGN KEY ("jobId") REFERENCES "TemplateJob"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "TemplateRun" ADD CONSTRAINT "TemplateRun_documentId_fkey" FOREIGN KEY ("documentId") REFERENCES "OcrDocument"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ```
 
