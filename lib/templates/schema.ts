@@ -28,7 +28,7 @@ export type FieldValue = {
   raw: string | null;                                // what the reader returned
   value: string | number | string[] | Record<string, unknown>[] | null; // coerced (TABLE → rows)
   confidence: number | null;
-  source: 'text' | 'vision' | 'manual';
+  source: 'text' | 'vision' | 'manual' | 'none';   // 'none' = nothing was read (no region, or the read failed)
   page: number | null;
   bbox: Bbox | null;
   color: string;

@@ -8,12 +8,13 @@ vi.mock('@/lib/ai/usage', () => ({ logAiUsage: vi.fn(async () => {}), providerFr
 const fetchMock = vi.fn();
 vi.mock('@/lib/ocr/fetch-retry', () => ({ fetchWithRetry: (...a: unknown[]) => fetchMock(...a) }));
 
-import { readCropValue, readCropTable, prepareCrop } from '../vision';
+import { readCropValue, readCropTable, prepareCrop, resetVisionConfigCache } from '../vision';
+import sharp from 'sharp';
 import { logAiUsage } from '@/lib/ai/usage';
 
 const png = Buffer.from('89504e470d0a1a0a', 'hex');
 
-beforeEach(() => { fetchMock.mockReset(); (logAiUsage as any).mockClear(); });
+beforeEach(() => { fetchMock.mockReset(); (logAiUsage as any).mockClear(); resetVisionConfigCache(); });
 
 describe('readCropValue', () => {
   it('returns the trimmed content, model and tokens, and logs usage', async () => {
@@ -47,8 +48,76 @@ describe('readCropTable', () => {
   });
 });
 
+describe('callVision resilience', () => {
+  it('treats a non-JSON 200 body as a failed attempt and tries the next model', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => { throw new SyntaxError('Unexpected token <'); } });
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: 'OK' } }] }) });
+    const r = await readCropValue({ crop: png, prompt: 'p', operation: 'x' });
+    expect(r.model).toBe('gemini-2.5-pro');
+    expect(r.value).toBe('OK');
+  });
+
+  it('treats a 200 carrying a provider error as a failed attempt (not an empty reading)', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ error: { message: 'quota' } }) });
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: 'OK' } }] }) });
+    const r = await readCropValue({ crop: png, prompt: 'p', operation: 'x' });
+    expect(r.model).toBe('gemini-2.5-pro');
+    expect(r.value).toBe('OK');
+  });
+
+  it('keeps a well-formed empty content as a legitimate empty value (no fallback)', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: '' } }] }) });
+    const r = await readCropValue({ crop: png, prompt: 'p', operation: 'x' });
+    expect(r.value).toBe('');
+    expect(r.model).toBe('gemini-2.5-flash');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws the FIRST error when every model fails', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'primary is busy' });
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ error: { message: 'quota' } }) });
+    await expect(readCropValue({ crop: png, prompt: 'p', operation: 'x' })).rejects.toThrow(/503.*primary is busy/);
+  });
+
+  it('truncates the upstream body in the surfaced error', async () => {
+    const huge = 'x'.repeat(5000);
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500, text: async () => huge });
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500, text: async () => huge });
+    await expect(readCropValue({ crop: png, prompt: 'p', operation: 'x' }))
+      .rejects.toThrow(expect.objectContaining({ message: expect.stringMatching(/^vision 500: x{200}$/) }));
+  });
+
+  it('forwards the usage ref to logAiUsage', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: 'V' } }], usage: { total_tokens: 3 } }) });
+    await readCropValue({ crop: png, prompt: 'p', operation: 'x', ref: { refType: 'ExtractionTemplate', refId: 't1' } });
+    expect(logAiUsage).toHaveBeenCalledWith(expect.objectContaining({ refType: 'ExtractionTemplate', refId: 't1' }));
+  });
+
+  it('readCropTable returns no rows when the content is not JSON', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: 'Sorry, I cannot read this table.' } }] }) });
+    const r = await readCropTable({ crop: png, columns: [{ key: 'code', label: 'Κωδ' }], operation: 'x' });
+    expect(r.rows).toEqual([]);
+    expect(r.model).toBe('gemini-2.5-flash');
+  });
+});
+
 describe('prepareCrop', () => {
-  it('is exported (sharp pipeline exercised in route/manual tests)', () => {
-    expect(typeof prepareCrop).toBe('function');
+  const PNG_SIG = Buffer.from('89504e470d0a1a0a', 'hex');
+  const white = (w: number, h: number) =>
+    sharp({ create: { width: w, height: h, channels: 3, background: '#fff' } }).png().toBuffer();
+
+  it('crops a normalized bbox and returns a PNG', async () => {
+    const out = await prepareCrop(await white(100, 100), [0.5, 0.5, 0.4, 0.4]);
+    expect(out.subarray(0, 8).equals(PNG_SIG)).toBe(true);
+    const meta = await sharp(out).metadata();
+    expect(meta.format).toBe('png');
+    expect(meta.width).toBeGreaterThan(0);
+  });
+
+  it('caps the upscaled crop at 2000x2600 so full-page bboxes stay a sane payload', async () => {
+    const out = await prepareCrop(await white(3000, 4000), [0, 0, 1, 1]);
+    const meta = await sharp(out).metadata();
+    expect(meta.width!).toBeLessThanOrEqual(2000);
+    expect(meta.height!).toBeLessThanOrEqual(2600);
   });
 });

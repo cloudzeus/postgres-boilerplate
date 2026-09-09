@@ -49,10 +49,66 @@ describe('extractTemplateFields', () => {
     expect(out.values.lines.value).toEqual([{ code: 'A1', qty: 2.5 }]);
     expect(textItems).not.toHaveBeenCalled();
   });
+  it('falls through to vision when the text-layer hit is too short to be a value', async () => {
+    textItems.mockResolvedValueOnce([{ str: 'X', x: 0.12, y: 0.11, w: 0.02, h: 0.02 }]);
+    readValue.mockResolvedValueOnce({ value: 'ΤΙΜ-451', model: 'm', tokensUsed: 4 });
+    const out = await extractTemplateFields(pdf, 'application/pdf', [field({})]);
+    expect(out.values.no).toMatchObject({ raw: 'ΤΙΜ-451', source: 'vision', confidence: 0.8 });
+    expect(readValue).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls through to vision when a typed field\'s text-layer hit will not coerce', async () => {
+    // "abc" sits in the NUMBER field's box (a stray label, or the region is off) —
+    // storing it as source 'text' with confidence 1 would be a confident null.
+    textItems.mockResolvedValueOnce([{ str: 'abc', x: 0.12, y: 0.11, w: 0.05, h: 0.02 }]);
+    readValue.mockResolvedValueOnce({ value: '42', model: 'm', tokensUsed: 2 });
+    const out = await extractTemplateFields(pdf, 'application/pdf', [field({ key: 'qty', valueType: 'NUMBER' })]);
+    expect(out.values.qty).toMatchObject({ raw: '42', value: 42, source: 'vision' });
+    expect(readValue).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a typed text-layer hit that does coerce', async () => {
+    textItems.mockResolvedValueOnce([{ str: '1.240,00', x: 0.12, y: 0.11, w: 0.08, h: 0.02 }]);
+    const out = await extractTemplateFields(pdf, 'application/pdf', [field({ key: 'total', valueType: 'CURRENCY' })]);
+    expect(out.values.total).toMatchObject({ raw: '1.240,00', value: 1240, source: 'text', confidence: 1 });
+    expect(readValue).not.toHaveBeenCalled();
+  });
+
+  it('TABLE fields skip the text layer even on a digital PDF (structure is not recoverable from it)', async () => {
+    readTable.mockResolvedValueOnce({ rows: [{ code: 'A1' }], model: 'm', tokensUsed: 3 });
+    const f = field({ key: 'lines', kind: 'TABLE', columns: [{ key: 'code', label: 'Κωδ', valueType: 'TEXT' }] });
+    const out = await extractTemplateFields(pdf, 'application/pdf', [f]);
+    expect(readTable).toHaveBeenCalledTimes(1);
+    expect(textItems).not.toHaveBeenCalled();
+    expect(out.values.lines.value).toEqual([{ code: 'A1' }]);
+  });
+
+  it('joins the distinct models used across fields', async () => {
+    textItems.mockResolvedValue([]);
+    readValue.mockResolvedValueOnce({ value: 'a', model: 'gemini-flash', tokensUsed: 1 });
+    readValue.mockResolvedValueOnce({ value: 'b', model: 'gemini-pro', tokensUsed: 1 });
+    readValue.mockResolvedValueOnce({ value: 'c', model: 'gemini-flash', tokensUsed: 1 });
+    const out = await extractTemplateFields(pdf, 'application/pdf', [field({ key: 'a' }), field({ key: 'b' }), field({ key: 'c' })]);
+    expect(out.model).toBe('gemini-flash, gemini-pro');
+    expect(out.tokensUsed).toBe(3);
+  });
+
+  it('reports model null when nothing was read by a model', async () => {
+    const out = await extractTemplateFields(png, 'image/png', [field({ region: null })]);
+    expect(out.model).toBeNull();
+  });
+
+  it('threads the usage ref through to both readers', async () => {
+    textItems.mockResolvedValueOnce([]);
+    readValue.mockResolvedValueOnce({ value: 'v', model: 'm', tokensUsed: 1 });
+    await extractTemplateFields(pdf, 'application/pdf', [field({})], { ref: { refType: 'TemplateRun', refId: 'r1' } });
+    expect(readValue.mock.calls[0][0].ref).toEqual({ refType: 'TemplateRun', refId: 'r1' });
+  });
+
   it('fields without a region are returned as null without any call; per-field errors do not abort the batch', async () => {
     readValue.mockRejectedValueOnce(new Error('boom'));
     const out = await extractTemplateFields(png, 'image/png', [field({ key: 'a', region: null }), field({ key: 'b' })]);
-    expect(out.values.a).toMatchObject({ value: null, source: 'vision', bbox: null });
+    expect(out.values.a).toMatchObject({ value: null, source: 'none', bbox: null });
     expect(out.values.b).toMatchObject({ value: null });
     expect(out.errors).toEqual([{ fieldKey: 'b', message: 'boom' }]);
   });
