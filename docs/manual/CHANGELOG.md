@@ -1,3 +1,10 @@
+## 2026-09-10 — Designer προτύπων προμηθευτών
+
+- Νέα σελίδα `/admin/ocr/templates` (αντικαθιστά τα παλιά «Πρότυπα Προμηθευτών (OCR)») με δημιουργία προτύπου από αναζήτηση προμηθευτή SoftOne.
+- Designer 5 βημάτων: προμηθευτής, δείγμα, περιοχές & πεδία (χρώμα ανά πεδίο, ζωντανή δοκιμή ανάγνωσης), mapping (παραστατικό / Excel), conditions & λειτουργία.
+- Διάγραμμα ροής (React Flow) που παράγεται από τη ρύθμιση και ενημερώνεται σε κάθε αποθήκευση.
+- Σύνδεσμος στο sidebar και σελίδα wiki.
+
 ## 2026-09-10 — Πρότυπα εξαγωγής προμηθευτή (θεμέλια)
 
 - Νέα μοντέλα `ExtractionTemplate`, `TemplateField`, `TemplateMapping`, `TemplateCondition`, `TemplateRun`, `TemplateSample`, `TemplateJob`, `TemplateJobItem`.
