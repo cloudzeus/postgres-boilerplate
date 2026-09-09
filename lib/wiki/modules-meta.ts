@@ -1,7 +1,7 @@
 import type * as React from 'react';
 import {
-  FiBookOpen, FiUser, FiUsers, FiShield, FiBriefcase, FiUpload, FiImage,
-  FiCpu, FiGlobe, FiLayers, FiTag, FiActivity, FiHome, FiMapPin, FiFileText,
+  FiBookOpen, FiUser, FiUsers, FiShield, FiBriefcase, FiImage,
+  FiCpu, FiLayers, FiTag, FiActivity, FiHome, FiMapPin, FiFileText,
 } from 'react-icons/fi';
 import type { IconType } from 'react-icons';
 
@@ -49,12 +49,6 @@ export const MODULE_META: Record<string, ModuleMeta> = {
     gradientFrom: '#34d399', gradientTo: '#10b981',
     accent: '#059669', accentSoft: '#d1fae5',
   },
-  programs: {
-    label: 'Ευρωπαϊκά Προγράμματα', description: 'Προσκλήσεις ΕΣΠΑ και εξαγωγή στοιχείων',
-    icon: FiGlobe,
-    gradientFrom: '#fbbf24', gradientTo: '#f97316',
-    accent: '#d97706', accentSoft: '#fef3c7',
-  },
   ocr: {
     label: 'OCR & Έγγραφα', description: 'Αυτόματη αναγνώριση τιμολογίων',
     icon: FiCpu,
@@ -66,12 +60,6 @@ export const MODULE_META: Record<string, ModuleMeta> = {
     icon: FiImage,
     gradientFrom: '#22d3ee', gradientTo: '#0ea5e9',
     accent: '#0891b2', accentSoft: '#cffafe',
-  },
-  imports: {
-    label: 'Excel Imports', description: 'Μαζική εισαγωγή από Excel',
-    icon: FiUpload,
-    gradientFrom: '#a3e635', gradientTo: '#65a30d',
-    accent: '#65a30d', accentSoft: '#ecfccb',
   },
   'kad-codes': {
     label: 'Μητρώο ΚΑΔ', description: 'Κωδικοί δραστηριότητας',
@@ -102,12 +90,6 @@ export const MODULE_META: Record<string, ModuleMeta> = {
     icon: FiMapPin,
     gradientFrom: '#38bdf8', gradientTo: '#0284c7',
     accent: '#0369a1', accentSoft: '#e0f2fe',
-  },
-  'tax-templates': {
-    label: 'Πρότυπα Φορολογικών Εντύπων', description: 'Πρότυπα Ε3/Ε1 με region marking πεδίων για OCR εξαγωγή',
-    icon: FiFileText,
-    gradientFrom: '#f472b6', gradientTo: '#db2777',
-    accent: '#be185d', accentSoft: '#fce7f3',
   },
 };
 

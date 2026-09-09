@@ -25,8 +25,6 @@ const PERMISSIONS = [
   { key: 'permissions.read', resource: 'permissions', action: 'read', description: 'View permissions' },
   { key: 'permissions.assign', resource: 'permissions', action: 'assign', description: 'Grant/revoke permissions' },
   { key: 'permissions.reorder', resource: 'permissions', action: 'reorder', description: 'Reorder permissions' },
-  { key: 'imports.read', resource: 'imports', action: 'read', description: 'View Excel imports' },
-  { key: 'imports.create', resource: 'imports', action: 'create', description: 'Upload Excel imports' },
   { key: 'system.audit', resource: 'system', action: 'audit', description: 'View audit log' },
   { key: 'system.settings', resource: 'system', action: 'settings', description: 'Modify system settings' },
   { key: 'system.backups', resource: 'system', action: 'backups', description: 'Manage database backups' },
@@ -48,10 +46,6 @@ const PERMISSIONS = [
   { key: 'ocr.delete', resource: 'ocr', action: 'delete', description: 'Delete OCR documents' },
   { key: 'ocr.categorize', resource: 'ocr', action: 'categorize', description: 'Set category / notes on OCR documents' },
   { key: 'ocr.post', resource: 'ocr', action: 'post', description: 'Post OCR document to SoftOne' },
-  { key: 'programs.read',   resource: 'programs', action: 'read',   description: 'View European funding programs' },
-  { key: 'programs.create', resource: 'programs', action: 'create', description: 'Upload & extract program PDFs' },
-  { key: 'programs.update', resource: 'programs', action: 'update', description: 'Edit extracted program data' },
-  { key: 'programs.delete', resource: 'programs', action: 'delete', description: 'Delete programs' },
 ];
 
 const BUSINESS_TYPES = [
@@ -96,10 +90,10 @@ const SYSTEM_ROLES = [
 
 const ROLE_DEFAULTS = {
   SUPER_ADMIN: PERMISSIONS.map((p) => p.key),
-  ADMIN: ['users.read', 'users.create', 'users.update', 'users.assign_role', 'roles.read', 'permissions.read', 'imports.read', 'imports.create', 'companies.read', 'companies.create', 'companies.update', 'companies.delete', 'companies.manage_types', 'kad.read', 'kad.manage', 'metadata.read', 'metadata.manage', 'ocr.read', 'ocr.create', 'ocr.delete', 'ocr.categorize', 'ocr.post', 'programs.read', 'programs.create', 'programs.update', 'programs.delete'],
-  EMPLOYEE: ['users.read', 'imports.read', 'imports.create'],
-  COLLABORATOR: ['users.read', 'imports.read'],
-  SUPPLIER: ['imports.read'],
+  ADMIN: ['users.read', 'users.create', 'users.update', 'users.assign_role', 'roles.read', 'permissions.read', 'companies.read', 'companies.create', 'companies.update', 'companies.delete', 'companies.manage_types', 'kad.read', 'kad.manage', 'metadata.read', 'metadata.manage', 'ocr.read', 'ocr.create', 'ocr.delete', 'ocr.categorize', 'ocr.post'],
+  EMPLOYEE: ['users.read'],
+  COLLABORATOR: ['users.read'],
+  SUPPLIER: [],
   CUSTOMER: [],
 };
 

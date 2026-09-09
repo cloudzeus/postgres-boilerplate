@@ -1,4 +1,4 @@
-import { canonicalLegalForm } from '@/lib/programs/eligibility';
+import { canonicalLegalForm } from '@/lib/companies/legal-form';
 
 export interface BusinessTypeRef { id: string; code: string }
 

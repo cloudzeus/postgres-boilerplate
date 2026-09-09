@@ -41,13 +41,11 @@ export interface WikiModule {
 
 export const MODULE_LABELS: Record<string, string> = {
   'getting-started': 'Ξεκινώντας',
-  programs: 'Ευρωπαϊκά Προγράμματα',
   users: 'Χρήστες',
   roles: 'Ρόλοι & Δικαιώματα',
   companies: 'Εταιρίες',
   media: 'Media',
   ocr: 'OCR / Έγγραφα',
-  imports: 'Excel Imports',
   'kad-codes': 'Μητρώο ΚΑΔ',
   'reference-data': 'Μητρώα αναφοράς',
   audit: 'Audit log',

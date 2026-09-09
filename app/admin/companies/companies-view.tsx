@@ -8,11 +8,9 @@ import {
   FiAlertTriangle, FiSettings, FiLayers, FiMapPin, FiStar,
   FiInfo, FiFileText, FiPhone, FiCreditCard, FiTag, FiEdit3,
   FiUpload, FiArchive, FiExternalLink, FiImage, FiRefreshCw,
-  FiUserPlus, FiUser, FiMail, FiSmartphone, FiClipboard, FiSearch,
+  FiUserPlus, FiUser, FiMail, FiSmartphone, FiSearch,
   FiBarChart2,
 } from 'react-icons/fi';
-import { TaxFormCapture } from '@/components/admin/tax-form-capture';
-import { CompanyFinancialsMatrix } from '@/components/admin/company-financials-matrix';
 import { SoftoneAfmDialog } from '@/components/admin/softone-afm-dialog';
 import { toast } from 'sonner';
 import { DataTable } from '@/components/ui/data-table';
@@ -34,7 +32,6 @@ import { AadeLookupButton, type AadeResult } from '@/components/aade/aade-lookup
 import { GemiSyncButton } from '@/components/gemi/gemi-sync-button';
 import { CountrySelect, DEFAULT_COUNTRY, countryName } from '@/components/forms/country-select';
 import { RegionField } from '@/components/regions/region-field';
-import { AssessmentDialog } from '@/components/companies/assessment-dialog';
 
 export type TypeOption = {
   id: string; key: string; name: string; pluralName: string;
@@ -194,7 +191,6 @@ export function CompaniesView({
   const [creating, setCreating] = React.useState(false);
   const [managingTypes, setManagingTypes] = React.useState(false);
   const [contactFor, setContactFor] = React.useState<CompanyRow | null>(null);
-  const [assessing, setAssessing] = React.useState<CompanyRow | null>(null);
   const [tab, setTab] = React.useState<string>('ALL');
   const [lookupAfm, setLookupAfm] = React.useState<string | null>(null);
   const [lookupCtx, setLookupCtx] = React.useState<string | undefined>(undefined);
@@ -335,9 +331,6 @@ export function CompaniesView({
               <DropdownMenuItem onClick={() => setContactFor(c)}>
                 <FiUserPlus /> Προσθήκη επαφής
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setAssessing(c)}>
-                <FiClipboard /> Αξιολόγηση
-              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => { setLookupCtx(c.name); setLookupAfm(c.afm); }}
                 disabled={!c.afm}
@@ -443,13 +436,6 @@ export function CompaniesView({
         contact={null}
         onClose={() => setContactFor(null)}
         onSaved={() => { setContactFor(null); router.refresh(); }}
-      />
-
-      <AssessmentDialog
-        open={!!assessing}
-        companyId={assessing?.id ?? null}
-        companyName={assessing?.name ?? ''}
-        onClose={() => setAssessing(null)}
       />
 
       <CompanyTypesDialog
@@ -682,7 +668,6 @@ function CompanyDialog({
     ...(isEdit && company ? [{ id: 'branches', label: 'Υποκαταστήματα', icon: FiMapPin, hint: 'Έδρα + υποκαταστήματα' }] : []),
     ...(isEdit && company ? [{ id: 'documents', label: 'Έγγραφα ΓΕΜΗ', icon: FiArchive, hint: 'Δημόσια έγγραφα από ΓΕΜΗ' }] : []),
     { id: 'financial', label: 'Οικονομικά', icon: FiCreditCard, hint: 'IBAN · πιστωτικό όριο · έκπτωση' },
-    ...(isEdit && company ? [{ id: 'tax-matrix', label: 'Οικονομικά στοιχεία', icon: FiBarChart2, hint: 'Ε3/Ε1 · χρηματοοικονομικά δεδομένα' }] : []),
     { id: 'notes', label: 'Σημειώσεις', icon: FiEdit3, hint: 'Ελεύθερο κείμενο' },
   ];
 
@@ -1004,9 +989,6 @@ function CompanyDialog({
               </SectionBlock>
             </div>}
 
-            {activeSection === 'tax-matrix' && isEdit && company && (
-              <TaxMatrixSection companyId={company.id} />
-            )}
 
             {activeSection === 'notes' && <div className="p-5">
               <SectionBlock title="Σημειώσεις" hint="Εσωτερικές σημειώσεις, ορατές μόνο σε χρήστες με πρόσβαση στην εταιρία.">
@@ -1824,7 +1806,7 @@ function ActivitiesEditor({
   );
 }
 
-type ExpandTab = 'info' | 'contact' | 'contacts' | 'tax' | 'branches' | 'documents' | 'financial' | 'map' | 'assessments';
+type ExpandTab = 'info' | 'contact' | 'contacts' | 'tax' | 'branches' | 'documents' | 'financial' | 'map';
 
 function CompanyExpandedRow({ company }: { company: CompanyRow }) {
   const [tab, setTab] = React.useState<ExpandTab>('info');
@@ -1865,34 +1847,11 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
     setDocsLoading(false);
   }, [company.id, docs, docsLoading]);
 
-  const [assessments, setAssessments] = React.useState<any[] | null>(null);
-  const [assessmentsLoading, setAssessmentsLoading] = React.useState(false);
-  const loadAssessments = React.useCallback(async () => {
-    setAssessmentsLoading(true);
-    const r = await fetch(`/api/admin/companies/${company.id}/assessments`);
-    setAssessments(r.ok ? await r.json() : []);
-    setAssessmentsLoading(false);
-  }, [company.id]);
-  const ensureAssessments = React.useCallback(async () => {
-    if (assessments || assessmentsLoading) return;
-    await loadAssessments();
-  }, [assessments, assessmentsLoading, loadAssessments]);
-  const deleteAssessment = React.useCallback(async (aid: string) => {
-    if (!confirm('Διαγραφή αυτής της αξιολόγησης; Η ενέργεια δεν αναιρείται.')) return;
-    const r = await fetch(`/api/admin/companies/${company.id}/assessments/${aid}`, { method: 'DELETE' });
-    if (r.ok) { toast.success('Διαγράφηκε'); loadAssessments(); }
-    else toast.error('Αποτυχία διαγραφής');
-  }, [company.id, loadAssessments]);
-
-  const [assessOpen, setAssessOpen] = React.useState(false);
-  const [assessPreset, setAssessPreset] = React.useState<string | null>(null);
-
   const switchTo = (next: ExpandTab) => {
     setTab(next);
     if (['info', 'contact', 'tax', 'financial'].includes(next)) ensureDetail();
     if (next === 'branches') ensureBranches();
     if (next === 'documents') ensureDocs();
-    if (next === 'assessments') ensureAssessments();
   };
 
   // Info tab also benefits from full detail (notes, gemiObjective, etc.) — kick off on mount.
@@ -1923,7 +1882,6 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
     { id: 'documents', label: 'Έγγραφα ΓΕΜΗ', icon: FiArchive },
     { id: 'financial', label: 'Οικονομικά', icon: FiCreditCard },
     { id: 'map', label: 'Χάρτης', icon: FiMapPin },
-    { id: 'assessments', label: 'Αξιολογήσεις', icon: FiClipboard, badge: assessments && assessments.length > 0 ? assessments.length : undefined },
   ];
 
   return (
@@ -2216,84 +2174,6 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
         />
       )}
 
-      {tab === 'assessments' && (
-        <div className="space-y-3 px-1 py-1">
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] font-semibold text-foreground">Αξιολογήσεις προγραμμάτων</span>
-            <button
-              type="button"
-              onClick={() => { setAssessPreset(null); setAssessOpen(true); }}
-              className="inline-flex items-center gap-1 rounded bg-violet-600 px-2.5 py-1 text-[12px] text-white hover:bg-violet-700"
-            >
-              <FiClipboard className="size-3" /> Νέα αξιολόγηση
-            </button>
-          </div>
-          {assessmentsLoading && <p className="text-[12px] text-muted-foreground">Φόρτωση…</p>}
-          {!assessmentsLoading && assessments && assessments.length === 0 && (
-            <p className="text-[12px] italic text-muted-foreground">Δεν υπάρχουν αξιολογήσεις.</p>
-          )}
-          {!assessmentsLoading && assessments && assessments.length > 0 && (
-            <div className="rounded border border-border text-[12px]">
-              <ul className="divide-y divide-border">
-                {assessments.map((a: any) => {
-                  const verdictMap: Record<string, { label: string; cls: string }> = {
-                    ELIGIBLE: { label: 'Επιλέξιμη', cls: 'border-emerald-300 text-emerald-700' },
-                    NOT_ELIGIBLE: { label: 'Μη επιλέξιμη', cls: 'border-red-300 text-red-700' },
-                    NEEDS_REVIEW: { label: 'Προς έλεγχο', cls: 'border-amber-300 text-amber-700' },
-                  };
-                  const verdict = verdictMap[a.overallVerdict] ?? null;
-                  const score = a.questionnaireScore != null
-                    ? `${Number(a.questionnaireScore).toFixed(1)} ${a.questionnairePassed ? '✅' : '❌'}`
-                    : '—';
-                  return (
-                    <li key={a.id} className="flex items-center gap-3 px-3 py-2">
-                      <div className="flex-1 min-w-0">
-                        <span className="font-medium">{a.program?.title ?? '—'}</span>
-                        <span className="ml-2 text-muted-foreground">{new Date(a.createdAt).toLocaleDateString('el-GR')}</span>
-                      </div>
-                      {verdict && (
-                        <Badge variant="outline" className={`text-[10px] ${verdict.cls}`}>{verdict.label}</Badge>
-                      )}
-                      <span className="tabular-nums text-muted-foreground">{score}</span>
-                      <a
-                        href={`/api/admin/companies/${company.id}/assessments/${a.id}/report`}
-                        className="inline-flex items-center gap-1 rounded border border-sisyphus-300 px-2 py-0.5 text-[11px] text-sisyphus-700 hover:bg-sisyphus-50"
-                        title="Λήψη έκθεσης Word"
-                      >
-                        <FiFileText className="size-3" /> Word
-                      </a>
-                      <button
-                        type="button"
-                        onClick={() => { setAssessPreset(a.programId); setAssessOpen(true); }}
-                        className="rounded border border-border px-2 py-0.5 text-[11px] hover:bg-muted"
-                      >
-                        Επανεκτέλεση
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => deleteAssessment(a.id)}
-                        title="Διαγραφή αξιολόγησης"
-                        className="inline-flex size-6 items-center justify-center rounded text-dg-red-600 hover:bg-dg-red-500/10 hover:text-dg-red-700"
-                      >
-                        <FiTrash2 className="size-3.5" />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-
-      <AssessmentDialog
-        open={assessOpen}
-        companyId={company.id}
-        companyName={company.name}
-        presetProgramId={assessPreset}
-        onClose={() => setAssessOpen(false)}
-        onSaved={() => loadAssessments()}
-      />
     </div>
   );
 }
@@ -2701,29 +2581,3 @@ function DeleteDialog({
   );
 }
 
-// ─── TaxMatrixSection ─────────────────────────────────────────────────────────
-
-function TaxMatrixSection({ companyId }: { companyId: string }) {
-  const [matrixKey, setMatrixKey] = React.useState(0);
-
-  return (
-    <div className="flex flex-col gap-5 p-5">
-      <SectionBlock
-        title="Εισαγωγή φορολογικού εντύπου"
-        hint="Ανεβάστε Ε3/Ε1 για αυτόματη εξαγωγή τιμών μέσω OCR."
-      >
-        <TaxFormCapture
-          companyId={companyId}
-          onConfirmed={() => setMatrixKey((k) => k + 1)}
-        />
-      </SectionBlock>
-
-      <SectionBlock
-        title="Χρηματοοικονομικά στοιχεία"
-        hint="Πίνακας αποθηκευμένων τιμών ανά πεδίο και χρήση. Κάντε κλικ σε κελί για επεξεργασία."
-      >
-        <CompanyFinancialsMatrix companyId={companyId} refreshKey={matrixKey} />
-      </SectionBlock>
-    </div>
-  );
-}

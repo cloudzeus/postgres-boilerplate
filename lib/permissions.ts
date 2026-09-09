@@ -29,8 +29,6 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: 'permissions.reorder', resource: 'permissions', action: 'reorder', description: 'Reorder permissions' },
 
   // Imports
-  { key: 'imports.read', resource: 'imports', action: 'read', description: 'View Excel imports' },
-  { key: 'imports.create', resource: 'imports', action: 'create', description: 'Upload Excel imports' },
 
   // Media
   { key: 'media.read',   resource: 'media', action: 'read',   description: 'View media gallery' },
@@ -61,10 +59,6 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: 'ocr.post', resource: 'ocr', action: 'post', description: 'Post OCR document to SoftOne' },
 
   // European funding programs (ΕΣΠΑ / EU calls)
-  { key: 'programs.read',   resource: 'programs', action: 'read',   description: 'View European funding programs' },
-  { key: 'programs.create', resource: 'programs', action: 'create', description: 'Upload & extract program PDFs' },
-  { key: 'programs.update', resource: 'programs', action: 'update', description: 'Edit extracted program data' },
-  { key: 'programs.delete', resource: 'programs', action: 'delete', description: 'Delete programs' },
 
   // System
   { key: 'system.audit', resource: 'system', action: 'audit', description: 'View audit log' },
@@ -79,16 +73,14 @@ export const ROLE_DEFAULTS: Record<string, string[]> = {
     'users.read', 'users.create', 'users.update', 'users.assign_role',
     'roles.read',
     'permissions.read',
-    'imports.read', 'imports.create',
     'companies.read', 'companies.create', 'companies.update', 'companies.delete', 'companies.manage_types',
     'kad.read', 'kad.manage',
     'metadata.read', 'metadata.manage',
     'ocr.read', 'ocr.create', 'ocr.delete', 'ocr.categorize', 'ocr.post',
-    'programs.read', 'programs.create', 'programs.update', 'programs.delete',
   ],
-  EMPLOYEE: ['users.read', 'imports.read', 'imports.create'],
-  COLLABORATOR: ['users.read', 'imports.read'],
-  SUPPLIER: ['imports.read'],
+  EMPLOYEE: ['users.read'],
+  COLLABORATOR: ['users.read'],
+  SUPPLIER: [],
   CUSTOMER: [],
 };
 
