@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { normalizeAfm } from '@/lib/ocr/validate';
-import { slugifyFieldKey, upsertFieldRule } from '@/lib/ocr/field-rules';
+import { slugifyFieldKey } from '@/lib/ocr/field-rules';
+import { upsertFieldRule } from '@/lib/ocr/field-rules-db';
 import { extractDocument } from '@/lib/ocr/extract';
 import { bunnyDownload } from '@/lib/bunny';
 

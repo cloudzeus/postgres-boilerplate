@@ -6,9 +6,10 @@ import { qualityScore, fixSwappedParties, normalizeAfmFields } from '@/lib/ocr/v
 import { resolveOwnAfm } from '@/lib/ocr/own-afm';
 import { findSupplierTemplate, mergeFromTemplatePass } from '@/lib/ocr/templates-store';
 import {
-  findActiveFieldRules, buildCustomFieldsPrompt, mergeCustomFields,
+  buildCustomFieldsPrompt, mergeCustomFields,
   buildLineFieldsPrompt, mergeLineCustomFields, type FieldRuleLite,
 } from '@/lib/ocr/field-rules';
+import { findActiveFieldRules } from '@/lib/ocr/field-rules-db';
 import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
 import { buildModelChain, tryModels } from '@/lib/ocr/model-fallback';
 
