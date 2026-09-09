@@ -7,6 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { OcrResultView } from './result-view';
 import { DeleteButton } from './delete-button';
 import { SoftoneChecksStrip } from '@/components/admin/softone-checks-strip';
+import { RunResult } from '@/components/templates/run-result';
+import type { TemplateSummary } from '@/components/templates/template-picker';
+import { RUN_INCLUDE, toRunDto } from '@/lib/templates/run-dto';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +22,19 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
   });
   if (!doc) notFound();
 
-  const canDelete = await hasPermission('ocr.delete');
+  const [canDelete, canManage, canPost, runRows, templateRows] = await Promise.all([
+    hasPermission('ocr.delete'),
+    hasPermission('ocr.categorize'),
+    hasPermission('ocr.post'),
+    prisma.templateRun.findMany({ where: { documentId: id }, orderBy: { createdAt: 'desc' }, take: 20, include: RUN_INCLUDE }),
+    prisma.extractionTemplate.findMany({
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, slug: true, status: true, mode: true, vatNumber: true, department: true },
+    }),
+  ]);
+  const runs = runRows.map(toRunDto);
+  const templates: TemplateSummary[] = templateRows;
+  const issuerVat = ((doc.extractedData ?? {}) as { vatNumber?: unknown }).vatNumber;
 
   return (
     <div className="p-6 space-y-5">
@@ -61,6 +76,19 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
       </header>
 
       {doc.status === 'COMPLETED' && <SoftoneChecksStrip docId={doc.id} />}
+
+      {doc.status === 'COMPLETED' && (
+        <RunResult
+          docId={doc.id}
+          fileName={doc.fileName}
+          issuerVat={typeof issuerVat === 'string' ? issuerVat : null}
+          initialRuns={runs}
+          templates={templates}
+          canManage={canManage}
+          canPost={canPost}
+          postStatus={doc.postStatus}
+        />
+      )}
 
       <OcrResultView doc={doc} />
     </div>
