@@ -90,6 +90,17 @@ export function uniqueKey(base: string, taken: Iterable<string>): string {
 /** Charset a template slug (and any hand-typed correction of one) must stay inside. */
 export const SLUG_RE = /^[a-z0-9_]{1,60}$/;
 
+/**
+ * `slugKey` for a CONTROLLED INPUT the user is typing into. Two differences:
+ * an empty box stays empty (`slugKey('')` invents a random `field_<id>`), and a
+ * separator just typed survives the round trip, so `iron` → `iron_` → `iron_2`
+ * is reachable — the plain slugger trims the trailing `_` and swallows the key.
+ */
+export function slugDraft(typed: string): string {
+  if (!typed.trim()) return '';
+  return slugKey(typed) + (/[^\p{L}\p{N}]$/u.test(typed) ? '_' : '');
+}
+
 /** Template slug — the key of the JSON output. Same charset/rules as a field key. */
 export function templateSlug(name: string): string {
   return slugKey(name);

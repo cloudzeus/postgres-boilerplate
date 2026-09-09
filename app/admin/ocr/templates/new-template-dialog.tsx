@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { slugKey, templateSlug } from '@/lib/templates/schema';
+import { slugDraft, templateSlug } from '@/lib/templates/schema';
 import { templatesApi, errorMessage } from '@/components/templates/api';
 
 export function NewTemplateDialog() {
@@ -49,11 +49,11 @@ export function NewTemplateDialog() {
           <div className="space-y-3">
             <div>
               <Label htmlFor="nm">Όνομα</Label>
-              <Input id="nm" value={name} onChange={(e) => { const v = e.target.value; setName(v); if (!slugTouched) setSlug(templateSlug(v)); }} className="mt-1" placeholder="π.χ. ΗΡΩΝ — Εκκαθαριστικός" autoComplete="off" />
+              <Input id="nm" value={name} onChange={(e) => { const v = e.target.value; setName(v); if (!slugTouched) setSlug(v.trim() ? templateSlug(v) : ''); }} className="mt-1" placeholder="π.χ. ΗΡΩΝ — Εκκαθαριστικός" autoComplete="off" />
             </div>
             <div>
               <Label htmlFor="sl">Slug</Label>
-              <Input id="sl" value={slug} onChange={(e) => { setSlug(slugKey(e.target.value)); setSlugTouched(true); }} className="mt-1 font-mono" autoComplete="off" />
+              <Input id="sl" value={slug} onChange={(e) => { setSlug(slugDraft(e.target.value)); setSlugTouched(true); }} className="mt-1 font-mono" autoComplete="off" />
               <p className="mt-1 text-[10px] text-muted-foreground">Κλειδί του JSON εξόδου. Παράγεται από το όνομα, μπορείς να το αλλάξεις.</p>
             </div>
             <div>

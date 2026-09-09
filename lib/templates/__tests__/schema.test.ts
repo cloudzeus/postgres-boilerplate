@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  COLOR_PALETTE, nextColor, slugKey, isValidBbox, INVOICE_SCHEMA, invoiceKeyInfo, uniqueKey, templateSlug,
+  COLOR_PALETTE, nextColor, slugKey, isValidBbox, INVOICE_SCHEMA, invoiceKeyInfo, uniqueKey, templateSlug, slugDraft, SLUG_RE,
 } from '../schema';
 
 describe('COLOR_PALETTE / nextColor', () => {
@@ -74,6 +74,19 @@ describe('uniqueKey', () => {
     expect(uniqueKey('total', ['total', 'total_2'])).toBe('total_3');
   });
   it('accepts any iterable', () => { expect(uniqueKey('a', new Set(['a']))).toBe('a_2'); });
+});
+
+describe('slugDraft', () => {
+  it('is empty while the box is empty', () => { expect(slugDraft('')).toBe(''); expect(slugDraft('  ')).toBe(''); });
+  it('keeps a separator the user just typed so the next word can be joined', () => {
+    expect(slugDraft('iron_')).toBe('iron_');
+    expect(slugDraft('iron_2')).toBe('iron_2');
+    expect(slugDraft('ΗΡΩΝ ')).toBe('iron_');
+  });
+  it('slugs like slugKey otherwise', () => { expect(slugDraft('ΗΡΩΝ — Εκκαθαριστικός')).toBe('iron_ekkatharistikos'); });
+  it('never leaves the server charset', () => {
+    for (const v of ['iron_', 'ΗΡΩΝ — Εκκαθαριστικός', 'Foo Bar!', 'a']) expect(slugDraft(v)).toMatch(SLUG_RE);
+  });
 });
 
 describe('templateSlug', () => {
