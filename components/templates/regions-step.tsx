@@ -28,7 +28,17 @@ export function RegionsStep() {
 
   const dirty = JSON.stringify(fields) !== JSON.stringify(dto.fields);
   const selected = fields.find((f) => f.key === focusKey) ?? null;
-  const update = (key: string, f: FieldDef) => setFields((fs) => fs.map((x) => (x.key === key ? f : x)));
+  const update = (key: string, f: FieldDef) => {
+    let next = f;
+    if (f.key !== key && fields.some((x) => x.key === f.key && x.key !== key)) {
+      let n = 2;
+      let candidate = `${f.key}_${n}`;
+      while (fields.some((x) => x.key === candidate && x.key !== key)) { n += 1; candidate = `${f.key}_${n}`; }
+      next = { ...f, key: candidate };
+    }
+    setFields((fs) => fs.map((x) => (x.key === key ? next : x)));
+    if (focusKey === key && next.key !== key) setFocusKey(next.key);
+  };
 
   const add = () => { const f = newField(fields); setFields((fs) => [...fs, f]); setFocusKey(''); };
   const remove = (key: string) => { setFields((fs) => fs.filter((f) => f.key !== key).map((f, i) => ({ ...f, order: i }))); if (focusKey === key) setFocusKey(null); };
