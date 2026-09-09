@@ -5,7 +5,7 @@ export const MODE_LABEL: Record<TemplateMode, string> = { AUTO: 'Αυτόματ�
 export const MODE_HELP: Record<TemplateMode, string> = {
   AUTO: 'Εξαγωγή → mapping → conditions → ανάρτηση στο SoftOne χωρίς έλεγχο (εκτός αν κανόνας μπλοκάρει).',
   SEMI_AUTO: 'Εξαγωγή → mapping → conditions → «Προς έλεγχο». Η ανάρτηση γίνεται από χρήστη.',
-  MANUAL: 'Μόνο εξαγωγή πεδίων. Τα υπόλοιπα γίνονται χειροκίνητα.',
+  MANUAL: 'Μόνο εξαγωγή πεδίων σε JSON. Χωρίς mapping/ανάρτηση — τα υπόλοιπα γίνονται χειροκίνητα.',
 };
 export const STATUS_LABEL = { DRAFT: 'Πρόχειρο', ACTIVE: 'Ενεργό' } as const;
 export const KIND_LABEL: Record<TemplateFieldKind, string> = { SINGLE: 'Απλή τιμή', TABLE: 'Πίνακας' };

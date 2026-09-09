@@ -87,6 +87,9 @@ export function uniqueKey(base: string, taken: Iterable<string>): string {
   return `${base}_${n}`;
 }
 
+/** Charset a template slug (and any hand-typed correction of one) must stay inside. */
+export const SLUG_RE = /^[a-z0-9_]{1,60}$/;
+
 /** Template slug — the key of the JSON output. Same charset/rules as a field key. */
 export function templateSlug(name: string): string {
   return slugKey(name);

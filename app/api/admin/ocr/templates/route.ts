@@ -1,49 +1,57 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
+import { SLUG_RE, templateSlug } from '@/lib/templates/schema';
+import { LIST_QUERY, freeSlug, toListRow } from '@/lib/templates/list';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// GET — λίστα προτύπων (για τη σελίδα /admin/ocr/templates)
+// GET — λίστα προτύπων
 export async function GET() {
   await requirePermission('ocr.read');
-  const rows = await prisma.extractionTemplate.findMany({
-    orderBy: [{ supplierName: 'asc' }, { name: 'asc' }],
-    include: { _count: { select: { fields: true, runs: true } } },
-  });
-  return NextResponse.json({
-    templates: rows.map((t) => ({
-      id: t.id, name: t.name, vatNumber: t.vatNumber, supplierName: t.supplierName, docType: t.docType,
-      mode: t.mode, status: t.status, version: t.version, fieldsCount: t._count.fields, runsCount: t._count.runs,
-      timesUsed: t.timesUsed, hasSample: !!t.sampleStorageKey, updatedAt: t.updatedAt,
-    })),
-  });
+  const rows = await prisma.extractionTemplate.findMany(LIST_QUERY);
+  return NextResponse.json({ templates: rows.map(toListRow) });
 }
 
 const CreateBody = z.object({
   name: z.string().trim().min(1).max(120),
-  vatNumber: z.string().trim().regex(/^\d{9}$/, 'ΑΦΜ 9 ψηφίων'),
+  slug: z.string().trim().regex(SLUG_RE, 'Slug: μόνο a-z, 0-9, _').optional(),
+  department: z.string().trim().max(80).nullable().optional(),
+  vatNumber: z.string().trim().regex(/^\d{9}$/, 'ΑΦΜ 9 ψηφίων').nullable().optional(),
   traderTrdr: z.number().int().positive().nullable().optional(),
   supplierName: z.string().trim().max(200).nullable().optional(),
-  docType: z.enum(['INVOICE', 'RECEIPT']).default('INVOICE'),
 });
 
-// POST — νέο πρότυπο (DRAFT)
+// POST — νέο πρότυπο (DRAFT). Μόνο το όνομα είναι υποχρεωτικό (spec §14.1).
 export async function POST(req: Request) {
   const u = await requirePermission('ocr.categorize');
   const parsed = CreateBody.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'invalid_body', issues: parsed.error.issues }, { status: 400 });
   const b = parsed.data;
 
-  const exists = await prisma.extractionTemplate.findUnique({ where: { vatNumber_docType_name: { vatNumber: b.vatNumber, docType: b.docType, name: b.name } } });
-  if (exists) return NextResponse.json({ error: 'duplicate', message: 'Υπάρχει ήδη πρότυπο με αυτό το όνομα για τον προμηθευτή' }, { status: 409 });
+  let slug: string;
+  if (b.slug) {
+    if (await prisma.extractionTemplate.findUnique({ where: { slug: b.slug }, select: { id: true } })) {
+      return NextResponse.json({ error: 'duplicate_slug', message: 'Υπάρχει ήδη πρότυπο με αυτό το slug' }, { status: 409 });
+    }
+    slug = b.slug;
+  } else slug = await freeSlug(templateSlug(b.name));
 
-  const t = await prisma.extractionTemplate.create({
-    data: { name: b.name, vatNumber: b.vatNumber, traderTrdr: b.traderTrdr ?? null, supplierName: b.supplierName ?? null, docType: b.docType, createdById: u.id },
-  });
-  await logAudit({ userId: u.id, userEmail: u.email, action: 'template.create', resource: 'extractionTemplate', resourceId: t.id, metadata: { name: t.name, vatNumber: t.vatNumber } });
-  return NextResponse.json({ ok: true, id: t.id }, { status: 201 });
+  try {
+    const t = await prisma.extractionTemplate.create({
+      data: { name: b.name, slug, department: b.department ?? null, vatNumber: b.vatNumber ?? null, traderTrdr: b.traderTrdr ?? null, supplierName: b.supplierName ?? null, createdById: u.id },
+    });
+    await logAudit({ userId: u.id, userEmail: u.email, action: 'template.create', resource: 'extractionTemplate', resourceId: t.id, metadata: { name: t.name, slug: t.slug } });
+    return NextResponse.json({ ok: true, id: t.id, slug: t.slug }, { status: 201 });
+  } catch (err) {
+    // Two concurrent creates can race freeSlug(); the unique index is the arbiter.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      return NextResponse.json({ error: 'duplicate_slug', message: 'Υπάρχει ήδη πρότυπο με αυτό το slug' }, { status: 409 });
+    }
+    throw err;
+  }
 }

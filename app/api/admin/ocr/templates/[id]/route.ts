@@ -6,6 +6,7 @@ import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { bunnyDelete } from '@/lib/bunny';
 import { TEMPLATE_INCLUDE, toTemplateDto } from '@/lib/templates/serialize';
+import { SLUG_RE } from '@/lib/templates/schema';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,9 +23,12 @@ export async function GET(_req: Request, { params }: Ctx) {
 
 const PatchBody = z.object({
   name: z.string().trim().min(1).max(120).optional(),
+  slug: z.string().trim().regex(SLUG_RE, 'Slug: μόνο a-z, 0-9, _').optional(),
+  department: z.string().trim().max(80).nullable().optional(),
   mode: z.enum(['AUTO', 'SEMI_AUTO', 'MANUAL']).optional(),
   status: z.enum(['DRAFT', 'ACTIVE']).optional(),
   notifyEmails: z.string().trim().max(500).nullable().optional(),
+  vatNumber: z.string().trim().regex(/^\d{9}$/, 'ΑΦΜ 9 ψηφίων').nullable().optional(),
   traderTrdr: z.number().int().positive().nullable().optional(),
   supplierName: z.string().trim().max(200).nullable().optional(),
 });
@@ -39,15 +43,23 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const t = await prisma.extractionTemplate.findUnique({ where: { id }, include: TEMPLATE_INCLUDE });
   if (!t) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
-  // AUTO mode needs the posting right; ACTIVE needs a sample, ≥1 field with a region and ≥1 mapping.
+  // Το slug είναι το κλειδί του JSON εξόδου — κλειδώνει μόλις υπάρχουν εκτελέσεις.
+  if (b.slug !== undefined && b.slug !== t.slug && (t._count?.runs ?? 0) > 0) {
+    return NextResponse.json({ error: 'slug_locked', message: 'Το slug κλειδώνει μόλις το πρότυπο αποκτήσει εκτελέσεις' }, { status: 409 });
+  }
+
+  // AUTO mode needs the posting right.
   const mode = b.mode ?? t.mode;
   if (mode === 'AUTO' && u.role.key !== 'SUPER_ADMIN' && !u.permissionKeys.has('ocr.post')) {
     return NextResponse.json({ error: 'forbidden', message: 'Η αυτόματη λειτουργία απαιτεί δικαίωμα ανάρτησης (ocr.post)' }, { status: 403 });
   }
-  if (b.status === 'ACTIVE') {
+  // ACTIVE needs a sample and a field with a region; a mapping only when the mode posts to SoftOne (spec §14.1-4).
+  const status = b.status ?? t.status;
+  if (status === 'ACTIVE') {
     const hasRegion = t.fields.some((f) => f.region != null);
-    if (!hasRegion || t.mappings.length === 0 || !t.sampleStorageKey) {
-      return NextResponse.json({ error: 'not_ready', message: 'Για ενεργοποίηση χρειάζονται δείγμα, ένα πεδίο με περιοχή και ένα mapping' }, { status: 422 });
+    const needsMapping = mode !== 'MANUAL' && t.mappings.length === 0;
+    if (!hasRegion || !t.sampleStorageKey || needsMapping) {
+      return NextResponse.json({ error: 'not_ready', message: 'Για ενεργοποίηση χρειάζονται δείγμα και ένα πεδίο με περιοχή — και mapping για ημιαυτόματη/αυτόματη λειτουργία' }, { status: 422 });
     }
   }
 
@@ -57,9 +69,12 @@ export async function PATCH(req: Request, { params }: Ctx) {
       where: { id },
       data: {
         ...(b.name !== undefined && { name: b.name }),
+        ...(b.slug !== undefined && { slug: b.slug }),
+        ...(b.department !== undefined && { department: b.department }),
         ...(b.mode !== undefined && { mode: b.mode }),
         ...(b.status !== undefined && { status: b.status }),
         ...(b.notifyEmails !== undefined && { notifyEmails: b.notifyEmails }),
+        ...(b.vatNumber !== undefined && { vatNumber: b.vatNumber }),
         ...(b.traderTrdr !== undefined && { traderTrdr: b.traderTrdr }),
         ...(b.supplierName !== undefined && { supplierName: b.supplierName }),
         version: { increment: 1 },
@@ -68,7 +83,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-      return NextResponse.json({ error: 'duplicate', message: 'Υπάρχει ήδη πρότυπο με αυτό το όνομα για τον προμηθευτή' }, { status: 409 });
+      return NextResponse.json({ error: 'duplicate_slug', message: 'Υπάρχει ήδη πρότυπο με αυτό το slug' }, { status: 409 });
     }
     throw err;
   }

@@ -7,9 +7,10 @@ export type TestFieldResult = { raw: string | null; value: unknown; source: stri
 
 const ERROR_TEXT: Record<string, string> = {
   invalid_body: 'Μη έγκυρα δεδομένα.',
-  duplicate: 'Υπάρχει ήδη πρότυπο με αυτό το όνομα για τον προμηθευτή.',
+  duplicate_slug: 'Υπάρχει ήδη πρότυπο με αυτό το slug.',
+  slug_locked: 'Το slug κλειδώνει μόλις το πρότυπο αποκτήσει εκτελέσεις.',
   not_found: 'Δεν βρέθηκε.',
-  not_ready: 'Για ενεργοποίηση χρειάζονται δείγμα, ένα πεδίο με περιοχή και ένα mapping.',
+  not_ready: 'Για ενεργοποίηση χρειάζονται δείγμα και ένα πεδίο με περιοχή — και mapping για ημιαυτόματη/αυτόματη λειτουργία.',
   forbidden: 'Δεν έχεις δικαίωμα για αυτή την ενέργεια.',
   has_history: 'Το πρότυπο έχει ιστορικό εκτελέσεων. Απενεργοποίησέ το αντί να το διαγράψεις.',
   unknown_field: 'Άγνωστο πεδίο.',
@@ -20,6 +21,8 @@ const ERROR_TEXT: Record<string, string> = {
   foreign_condition: 'Μη έγκυρο αναγνωριστικό κανόνα.',
   no_sample: 'Ανέβασε πρώτα δείγμα.',
   no_region: 'Το πεδίο δεν έχει περιοχή.',
+  no_fields: 'Δεν υπάρχουν πεδία με περιοχή.',
+  bad_page: 'Μη έγκυρη σελίδα.',
   read_failed: 'Η ανάγνωση απέτυχε.',
   unsupported_type: 'Μη υποστηριζόμενος τύπος αρχείου (PDF, PNG, JPEG, WebP).',
   too_large: 'Το αρχείο ξεπερνά τα 25 MB.',
@@ -42,10 +45,10 @@ const json = (body: unknown, method = 'POST'): RequestInit => ({ method, headers
 const base = (id: string) => `/api/admin/ocr/templates/${id}`;
 
 export const templatesApi = {
-  create: (b: { name: string; vatNumber: string; traderTrdr?: number | null; supplierName?: string | null; docType: 'INVOICE' | 'RECEIPT' }) =>
-    fetch('/api/admin/ocr/templates', json(b)).then((r) => handle<{ ok: true; id: string }>(r)),
+  create: (b: { name: string; slug?: string; department?: string | null; vatNumber?: string | null; traderTrdr?: number | null; supplierName?: string | null }) =>
+    fetch('/api/admin/ocr/templates', json(b)).then((r) => handle<{ ok: true; id: string; slug: string }>(r)),
   get: (id: string) => fetch(base(id), { cache: 'no-store' }).then((r) => handle<TemplateDto>(r)),
-  patch: (id: string, b: Partial<{ name: string; mode: TemplateDto['mode']; status: TemplateDto['status']; notifyEmails: string | null; traderTrdr: number | null; supplierName: string | null }>) =>
+  patch: (id: string, b: Partial<{ name: string; slug: string; department: string | null; vatNumber: string | null; traderTrdr: number | null; supplierName: string | null; mode: TemplateDto['mode']; status: TemplateDto['status']; notifyEmails: string | null }>) =>
     fetch(base(id), json(b, 'PATCH')).then((r) => handle<TemplateDto>(r)),
   remove: (id: string) => fetch(base(id), { method: 'DELETE' }).then((r) => handle<{ ok: true }>(r)),
   uploadSample: (id: string, file: File) => { const fd = new FormData(); fd.append('file', file); return fetch(`${base(id)}/sample`, { method: 'POST', body: fd }).then((r) => handle<{ ok: true; mimeType: string; pageCount: number }>(r)); },
