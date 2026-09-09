@@ -122,3 +122,9 @@ export async function rasterizeToWebp(
     .webp({ quality: 82 })
     .toBuffer();
 }
+
+/** Page bitmap (PNG) for a PDF page, or the original bytes for an image. Shared by the template extractor. */
+export async function renderPage(buffer: Buffer, mimeType: string, page: number, scale = 3): Promise<Buffer> {
+  const treatAsPdf = mimeType === 'application/pdf' || isPdfBuffer(buffer);
+  return treatAsPdf ? renderPdfPagePng(buffer, page, scale) : buffer;
+}
