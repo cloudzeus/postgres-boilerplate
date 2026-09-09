@@ -21,7 +21,7 @@
 
 | File | Responsibility |
 |---|---|
-| `prisma/migrations/20260909200000_template_standalone/migration.sql` | slug/department columns, drop docType, vatNumber nullable, MANUAL default |
+| `prisma/migrations/20260910110000_template_standalone/migration.sql` | slug/department columns, drop docType, vatNumber nullable, MANUAL default |
 | `prisma/schema.prisma` | `ExtractionTemplate` model changes |
 | `lib/templates/schema.ts` | + `uniqueKey`, `templateSlug` |
 | `lib/templates/guess.ts` | `guessValueType`, `isGlAccount` (pure) |
@@ -106,7 +106,7 @@ export function templateSlug(name: string): string {
 ### Task 2: Migration + Prisma model + DTO + sample storage key
 
 **Files:**
-- Create: `prisma/migrations/20260909200000_template_standalone/migration.sql`
+- Create: `prisma/migrations/20260910110000_template_standalone/migration.sql`
 - Modify: `prisma/schema.prisma` (model `ExtractionTemplate`), `lib/templates/serialize.ts`, `app/api/admin/ocr/templates/[id]/sample/route.ts`
 
 - [ ] **Step 1: Migration SQL** — create the file with exactly:
