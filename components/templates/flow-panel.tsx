@@ -8,18 +8,18 @@ import { buildFlow, toFlowTemplate } from '@/lib/templates/flow';
 import { useDesigner } from './designer-context';
 
 type D = Record<string, unknown>;
-const card = 'rounded-md border bg-white px-2.5 py-2 text-[11px] shadow-fluent-2 min-w-[150px]';
+const card = 'rounded-md border bg-white px-2.5 py-2 text-[11px] shadow-fluent-2 min-w-[150px] max-w-[170px]';
 
 function SampleNode({ data }: NodeProps<Node<D>>) {
-  return <div className={`${card} border-border`}><Handle type="source" position={Position.Right} /><div className="flex items-center gap-1.5 font-semibold"><FiImage className="size-3.5 text-sisyphus-600" /> {String(data.label)}</div><div className="text-muted-foreground">{Number(data.pageCount)} σελίδ{Number(data.pageCount) === 1 ? 'α' : 'ες'}</div></div>;
+  return <div className={`${card} border-border`}><Handle type="source" position={Position.Bottom} /><div className="flex items-center gap-1.5 font-semibold truncate"><FiImage className="size-3.5 shrink-0 text-sisyphus-600" /> <span className="truncate">{String(data.label)}</span></div><div className="text-muted-foreground truncate">{Number(data.pageCount)} σελίδ{Number(data.pageCount) === 1 ? 'α' : 'ες'}</div></div>;
 }
 function FieldNode({ data }: NodeProps<Node<D>>) {
   const color = String(data.color); const status = data.status as string | undefined;
   return (
     <div className={`${card} border-border`} style={{ borderLeft: `4px solid ${color}` }}>
-      <Handle type="target" position={Position.Left} /><Handle type="source" position={Position.Right} />
-      <div className="flex items-center gap-1.5 font-semibold" style={{ color }}>{String(data.label)}{status && <span className={`ml-auto rounded-full px-1.5 text-[9px] ${status === 'ok' ? 'bg-[#E8F7F0] text-[#047857]' : 'bg-[#FFF1E6] text-[#C2410C]'}`}>{status === 'ok' ? 'ok' : 'κενό'}</span>}</div>
-      <div className="text-muted-foreground">{data.kind === 'TABLE' ? 'πίνακας' : 'τιμή'}{data.hasRegion ? ` · σ.${Number(data.page) + 1}` : ' · χωρίς περιοχή'}</div>
+      <Handle type="target" position={Position.Top} /><Handle type="source" position={Position.Bottom} />
+      <div className="flex items-center gap-1.5 font-semibold truncate" style={{ color }}><span className="truncate">{String(data.label)}</span>{status && <span className={`ml-auto shrink-0 rounded-full px-1.5 text-[9px] ${status === 'ok' ? 'bg-[#E8F7F0] text-[#047857]' : 'bg-[#FFF1E6] text-[#C2410C]'}`}>{status === 'ok' ? 'ok' : 'κενό'}</span>}</div>
+      <div className="text-muted-foreground truncate">{data.kind === 'TABLE' ? 'πίνακας' : 'τιμή'}{data.hasRegion ? ` · σ.${Number(data.page) + 1}` : ' · χωρίς περιοχή'}</div>
       {data.value != null && <div className="mt-0.5 truncate font-mono text-[10px]">{String(data.value)}</div>}
     </div>);
 }
@@ -27,25 +27,25 @@ function ConditionNode({ data }: NodeProps<Node<D>>) {
   const matched = data.matched as boolean | undefined;
   return (
     <div className={`${card} ${matched === true ? 'border-[#047857]' : 'border-border'}`}>
-      <Handle type="target" position={Position.Left} /><Handle type="source" position={Position.Right} />
-      <div className="flex items-center gap-1.5 font-semibold"><FiGitBranch className="size-3.5 text-[#B45309]" /> {String(data.label)}</div>
-      <div className="text-muted-foreground">{Number(data.clauses)} ρήτρ{Number(data.clauses) === 1 ? 'α' : 'ες'} · {(data.actions as string[]).length} ενέργ.</div>
+      <Handle type="target" position={Position.Top} /><Handle type="source" position={Position.Bottom} />
+      <div className="flex items-center gap-1.5 font-semibold truncate"><FiGitBranch className="size-3.5 shrink-0 text-[#B45309]" /> <span className="truncate">{String(data.label)}</span></div>
+      <div className="text-muted-foreground truncate">{Number(data.clauses)} ρήτρ{Number(data.clauses) === 1 ? 'α' : 'ες'} · {(data.actions as string[]).length} ενέργ.</div>
     </div>);
 }
 function MappingNode({ data }: NodeProps<Node<D>>) {
   return (
     <div className={`${card} ${data.active ? 'border-sisyphus-500' : 'border-border'}`}>
-      <Handle type="target" position={Position.Left} /><Handle type="source" position={Position.Right} />
-      <div className="flex items-center gap-1.5 font-semibold"><FiFileText className="size-3.5 text-sisyphus-600" /> {String(data.label)}</div>
-      <div className="text-muted-foreground">{Number(data.rows)} αντιστοιχίσεις</div>
+      <Handle type="target" position={Position.Top} /><Handle type="source" position={Position.Bottom} />
+      <div className="flex items-center gap-1.5 font-semibold truncate"><FiFileText className="size-3.5 shrink-0 text-sisyphus-600" /> <span className="truncate">{String(data.label)}</span></div>
+      <div className="text-muted-foreground truncate">{Number(data.rows)} αντιστοιχίσεις</div>
     </div>);
 }
 function OutputNode({ data }: NodeProps<Node<D>>) {
   return (
     <div className={`${card} border-border bg-neutral-4`}>
-      <Handle type="target" position={Position.Left} />
-      <div className="flex items-center gap-1.5 font-semibold">{data.mode === 'AUTO' ? <FiUploadCloud className="size-3.5 text-[#047857]" /> : <FiCpu className="size-3.5 text-muted-foreground" />} {String(data.label)}</div>
-      {data.runStatus != null && <div className="text-muted-foreground">τελευταία: {String(data.runStatus)}</div>}
+      <Handle type="target" position={Position.Top} />
+      <div className="flex items-center gap-1.5 font-semibold truncate">{data.mode === 'AUTO' ? <FiUploadCloud className="size-3.5 shrink-0 text-[#047857]" /> : <FiCpu className="size-3.5 shrink-0 text-muted-foreground" />} <span className="truncate">{String(data.label)}</span></div>
+      {data.runStatus != null && <div className="text-muted-foreground truncate">τελευταία: {String(data.runStatus)}</div>}
     </div>);
 }
 const nodeTypes = { sample: SampleNode, field: FieldNode, condition: ConditionNode, mapping: MappingNode, output: OutputNode };
@@ -53,7 +53,24 @@ const nodeTypes = { sample: SampleNode, field: FieldNode, condition: ConditionNo
 export function FlowPanel() {
   const { dto, setFocusKey, goToStep } = useDesigner();
   const { nodes, edges } = React.useMemo(() => buildFlow(toFlowTemplate(dto)), [dto]);
-  const rfNodes = React.useMemo<Node<D>[]>(() => nodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data, draggable: false })), [nodes]);
+  const rfNodes = React.useMemo<Node<D>[]>(() => {
+    // The pure buildFlow layout is 5 columns left→right, meant for a wide canvas.
+    // Transpose it for the narrow side panel: columns become rows (top→bottom),
+    // and rows within a column become horizontal position, centred under the column.
+    const countByCol = new Map<number, number>();
+    for (const n of nodes) {
+      const col = Math.round(n.position.x / 260);
+      countByCol.set(col, (countByCol.get(col) ?? 0) + 1);
+    }
+    return nodes.map((n) => {
+      const col = Math.round(n.position.x / 260);
+      const row = Math.round(n.position.y / 96);
+      const count = countByCol.get(col) ?? 1;
+      const x = row * 190 - (count - 1) * 95;
+      const y = col * 120;
+      return { id: n.id, type: n.type, position: { x, y }, data: n.data, draggable: false };
+    });
+  }, [nodes]);
   const rfEdges = React.useMemo<Edge[]>(() => edges.map((e) => ({ ...e, type: 'smoothstep' })), [edges]);
 
   const onNodeClick = (_: React.MouseEvent, node: Node) => {
@@ -65,7 +82,7 @@ export function FlowPanel() {
 
   return (
     <div className="h-full w-full" data-testid="flow-panel">
-      <ReactFlow nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} onNodeClick={onNodeClick} fitView fitViewOptions={{ padding: 0.2 }} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} minZoom={0.2}>
+      <ReactFlow nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} onNodeClick={onNodeClick} fitView fitViewOptions={{ padding: 0.15 }} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} minZoom={0.2}>
         <Background gap={16} color="#EDEBE9" />
         <Controls showInteractive={false} />
       </ReactFlow>
