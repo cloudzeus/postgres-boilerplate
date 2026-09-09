@@ -1,0 +1,16 @@
+import { describe, it, expect } from 'vitest';
+import { toOutputJson } from '../output';
+import type { FieldValue } from '../schema';
+
+const fv = (value: FieldValue['value']): FieldValue => ({ raw: String(value), value, confidence: 1, source: 'text', page: 0, bbox: [0, 0, 0.1, 0.1], color: '#0078D4' });
+
+describe('toOutputJson', () => {
+  it('keys coerced values by field key, with slug/version/timestamp', () => {
+    const at = new Date('2026-09-09T18:00:00.000Z');
+    const out = toOutputJson({ slug: 'kapaline', version: 3 }, { arithmos: fv('309'), poso: fv(229.4), lines: fv([{ eidos: 'x', poso: 185 }]) }, at);
+    expect(out).toEqual({ template: 'kapaline', version: 3, extractedAt: '2026-09-09T18:00:00.000Z', values: { arithmos: '309', poso: 229.4, lines: [{ eidos: 'x', poso: 185 }] } });
+  });
+  it('keeps null for fields that were not read', () => {
+    expect(toOutputJson({ slug: 's', version: 1 }, { a: { ...fv(null), source: 'none' } }).values).toEqual({ a: null });
+  });
+});
