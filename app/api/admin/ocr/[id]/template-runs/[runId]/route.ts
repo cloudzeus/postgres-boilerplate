@@ -6,10 +6,13 @@ import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { coerceValue } from '@/lib/templates/coerce';
+import { projectToInvoice } from '@/lib/templates/mapping';
 import { toRunOutput } from '@/lib/templates/output';
+import { applyProjectionToDocument } from '@/lib/templates/run';
+import { buildReviewFlags, pickMapping, requiredMissing } from '@/lib/templates/run-logic';
 import { RUN_INCLUDE, toRunDto } from '@/lib/templates/run-dto';
-import { toFieldDef } from '@/lib/templates/serialize';
-import type { FieldValue } from '@/lib/templates/schema';
+import { toFieldDef, toMappingDto } from '@/lib/templates/serialize';
+import type { FieldValue, MappingRowInvoice } from '@/lib/templates/schema';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,6 +48,9 @@ export async function GET(req: Request, { params }: Ctx) {
 
 const Body = z.object({ values: z.record(z.string(), z.unknown()) });
 
+/** Prefix of the review/blocked entry the runner writes for an empty required field. */
+const MISSING_PREFIX = 'Λείπει υποχρεωτικό πεδίο «';
+
 export async function PATCH(req: Request, { params }: Ctx) {
   const u = await requirePermission('ocr.categorize');
   const { id, runId } = await params;
@@ -62,6 +68,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const field = fields.find((f) => f.key === key);
     // A key the run never produced and the template does not define cannot be corrected.
     if (!prev && !field) return NextResponse.json({ error: 'unknown_field', message: `Άγνωστο πεδίο «${key}»` }, { status: 400 });
+    // A TABLE value is an array of rows; a single text box cannot express one, so refuse rather than
+    // silently flattening the rows into a string.
+    if (field?.kind === 'TABLE') {
+      return NextResponse.json({ error: 'table_not_editable', message: `Το πεδίο «${field.label}» είναι πίνακας` }, { status: 400 });
+    }
     const text = String(raw ?? '');
     values[key] = {
       raw: text,
@@ -74,14 +85,45 @@ export async function PATCH(req: Request, { params }: Ctx) {
     };
   }
 
+  // Rebuild the "missing required field" flags from the corrected values: entries for fields the
+  // human just filled in are dropped, and a field they emptied gains one. Rule-authored reasons
+  // (FLAG_REVIEW / BLOCK_POSTING) and read errors are left exactly as the run recorded them.
+  const prevFlags = (run.flags as { review?: string[]; blocked?: string[]; notified?: string[] } | null) ?? {};
+  const notMissing = (s: string) => !s.startsWith(MISSING_PREFIX);
+  const missingLabels = requiredMissing(fields, values).map((f) => `${MISSING_PREFIX}${f.label}»`);
+  // Same rule as the runner: only AUTO lets a missing required field block the posting.
+  const blocked = [...new Set([...(prevFlags.blocked ?? []).filter(notMissing), ...(run.template.mode === 'AUTO' ? missingLabels : [])])];
+  const review = [...new Set([...(prevFlags.review ?? []).filter(notMissing), ...missingLabels])];
+  const flags = { ...prevFlags, review, blocked };
+
   const updated = await prisma.templateRun.update({
     where: { id: runId },
-    data: { values: values as unknown as Prisma.InputJsonValue },
+    data: { values: values as unknown as Prisma.InputJsonValue, flags: flags as unknown as Prisma.InputJsonValue },
     include: RUN_INCLUDE,
   });
+
+  // Re-project — a correction is only worth anything if it reaches the document the ERP posts from.
+  // MANUAL templates never rewrite the document (same rule as the runner), and a template with no
+  // INVOICE mapping has nothing to project.
+  const mapping = run.template.mode === 'MANUAL' ? null : pickMapping(run.template.mappings.map(toMappingDto), run.mappingName || null);
+  if (mapping) {
+    const doc = await prisma.ocrDocument.findUnique({ where: { id }, select: { extractedData: true } });
+    const extracted = ((doc?.extractedData ?? {}) as Record<string, unknown>);
+    const nextData = projectToInvoice(values, mapping.rows as MappingRowInvoice[], extracted);
+    await applyProjectionToDocument(id, nextData, extracted.items);
+  }
+
+  // The document's banner mirrors its LATEST run only — correcting an older run must not overwrite it.
+  const latest = await prisma.templateRun.findFirst({ where: { documentId: id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true } });
+  if (latest?.id === runId) {
+    await prisma.ocrDocument
+      .update({ where: { id }, data: { reviewFlags: buildReviewFlags(run.template, run.status, runId, { review, blocked }) as unknown as Prisma.InputJsonValue } })
+      .catch((e) => console.error('[templates] reviewFlags refresh failed', runId, (e as Error).message));
+  }
+
   await logAudit({
     userId: u.id, userEmail: u.email, action: 'template.run.edit', resource: 'templateRun', resourceId: runId,
     metadata: { documentId: id, keys: Object.keys(parsed.data.values) },
   });
-  return NextResponse.json(toRunDto(updated));
+  return NextResponse.json({ run: toRunDto(updated) });
 }

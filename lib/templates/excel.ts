@@ -10,7 +10,6 @@ export type SheetInput = {
   templateSlug: string;
   templateName: string;
   file: string;
-  documentId: string;
   fields: SheetField[];
   /** Rows of the template's EXCEL mapping, or null when it has none (→ one column per SINGLE field). */
   excelRows: MappingRowExcel[] | null;
@@ -110,8 +109,10 @@ export function buildSheets(inputs: SheetInput[]): Sheet[] {
     for (const { field } of lineRows) {
       for (const c of field.columns ?? []) if (!cols.some((x) => x.key === c.key)) cols.push(c);
     }
+    // Built from the RAW template name, not from `name`: a name already at the 31-char cap would be
+    // truncated straight back to `name` and collide with its own main sheet.
     sheets.push({
-      name: sheetName(name + LINES_SUFFIX, used),
+      name: sheetName(head.templateName.slice(0, MAX_NAME - LINES_SUFFIX.length) + LINES_SUFFIX, used),
       columns: [FILE_COL, FIELD_COL, ...cols.map((c) => c.label)],
       rows: lineRows.map(({ field, file, row }) => [file, field.label, ...cols.map((c) => cell(row[c.key]))]),
     });

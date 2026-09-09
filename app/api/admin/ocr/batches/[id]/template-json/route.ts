@@ -8,14 +8,21 @@ import type { FieldValue } from '@/lib/templates/schema';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// A folder's worth of runs plus their documents' extractedData — well past the 60s default.
+export const maxDuration = 120;
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   await requirePermission('ocr.read');
   const { id } = await params;
 
   const runs = await prisma.templateRun.findMany({
-    where: { document: { batchId: id } },
-    orderBy: { createdAt: 'desc' },
+    // A FAILED run stored no values: exporting it would emit an empty document entry and hide the
+    // last run that actually read something.
+    where: { document: { batchId: id }, status: { not: 'FAILED' } },
+    // One row per document, newest first; the `id` tie-break keeps the pick deterministic when two
+    // runs of the same document share a createdAt.
+    distinct: ['documentId'],
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     include: {
       template: { select: { slug: true } },
       document: { select: { id: true, fileName: true, extractedData: true } },

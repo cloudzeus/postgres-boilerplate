@@ -38,6 +38,12 @@ export type FieldValue = {
 export type RunStatus = 'EXTRACTED' | 'REVIEW' | 'BLOCKED' | 'POSTED' | 'FAILED';
 /** What started a run (TemplateRun.trigger). */
 export type RunTrigger = 'upload' | 'manual' | 'reextract';
+/**
+ * What a run reports back to its caller. Isomorphic on purpose: the runner (`lib/templates/run.ts`)
+ * returns it and the client (`components/templates/api.ts`) types the POST response with it, so the
+ * two can never drift apart.
+ */
+export type RunOutcome = { runId: string; status: RunStatus; flags: { review: string[]; blocked: string[] }; error: string | null };
 
 export type MappingRowInvoice = { fieldKey: string; invoiceKey: string };
 export type MappingRowExcel = { fieldKey: string; column: string; order: number };

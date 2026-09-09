@@ -6,9 +6,13 @@ import { buildSheets, type Sheet, type SheetInput } from './excel';
 import { toFieldDef, toMappingDto } from './serialize';
 import type { FieldValue, MappingRowExcel } from './schema';
 
-/** Everything `runsToSheetInputs` needs from Prisma. */
+/**
+ * Everything `runsToSheetInputs` needs from Prisma. `TemplateMapping` has no `createdAt` column, so
+ * mappings are ordered by `id` — a cuid, which is time-prefixed, so this is insertion order in
+ * practice and, above all, stable between requests (the column set of an export must not shuffle).
+ */
 export const EXPORT_INCLUDE = {
-  template: { include: { fields: true, mappings: true } },
+  template: { include: { fields: true, mappings: { orderBy: { id: 'asc' } } } },
   document: { select: { id: true, fileName: true } },
 } as const;
 
@@ -31,14 +35,18 @@ export function runsToSheetInputs(runs: RunForExport[]): SheetInput[] {
     templateSlug: r.template.slug,
     templateName: r.template.name,
     file: r.document.fileName,
-    documentId: r.document.id,
     fields: [...r.template.fields].sort((a, b) => a.order - b.order).map(toFieldDef),
     excelRows: excelRowsOf(r.template.mappings),
     values: ((r.values as unknown as Record<string, FieldValue>) ?? {}) as SheetInput['values'],
   }));
 }
 
-/** From runs ordered newest-first, keep one row per document — the latest run of each. */
+/**
+ * From runs ordered newest-first, keep one row per document — the latest run of each.
+ * The caller must order by `[{ createdAt: 'desc' }, { id: 'desc' }]`: two runs of the same document
+ * can share a `createdAt` (they are written within the same millisecond on a fast re-run), and the
+ * `id` tie-break is what makes "the latest" the same run on every request.
+ */
 export function latestPerDocument<T extends { documentId: string }>(runs: T[]): T[] {
   const seen = new Set<string>();
   const out: T[] = [];
@@ -51,7 +59,7 @@ export function runsToSheets(runs: RunForExport[]): Sheet[] {
   return buildSheets(runsToSheetInputs(runs));
 }
 
-export async function sheetsToXlsx(sheets: Sheet[]): Promise<Buffer> {
+export async function sheetsToXlsx(sheets: Sheet[]): Promise<ArrayBuffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'DGEspa ERP';
   wb.created = new Date();
@@ -73,11 +81,13 @@ export async function sheetsToXlsx(sheets: Sheet[]): Promise<Buffer> {
   // An empty workbook is not a valid file — the routes 404 before getting here, but be safe.
   if (wb.worksheets.length === 0) wb.addWorksheet('Κενό');
 
-  return Buffer.from(await wb.xlsx.writeBuffer());
+  // exceljs hands back an ArrayBuffer; `Response` takes one as a body directly, so an export of a
+  // few hundred rows is never copied through a Buffer and then a Uint8Array on the way out.
+  return wb.xlsx.writeBuffer();
 }
 
-export function xlsxResponse(buffer: Buffer, filename: string): Response {
-  return new Response(new Uint8Array(buffer), {
+export function xlsxResponse(body: ArrayBuffer, filename: string): Response {
+  return new Response(body, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': `attachment; filename="${filename}"`,

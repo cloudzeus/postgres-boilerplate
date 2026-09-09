@@ -6,6 +6,7 @@ import { extractDocument } from '@/lib/ocr/extract';
 import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
 import { getSetting } from '@/lib/settings';
 import { runMatchingTemplate } from '@/lib/templates/run';
+import type { RunOutcome } from '@/lib/templates/schema';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -41,6 +42,13 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     update: { value: upgradedModel },
     create: { key: 'ai.visionModel', value: upgradedModel },
   });
+
+  // Hoisted out of the try so the template run can happen AFTER the `finally` restores the model:
+  // the global `ai.visionModel` override is shared by every request, so its window stays as narrow
+  // as the re-extraction itself.
+  let vat: unknown = null;
+  let ok: { model: string; data: unknown } | null = null;
+  let failure: string | null = null;
 
   try {
     const docTypeMap: Record<string, 'invoice' | 'receipt' | 'general_text'> = {
@@ -99,18 +107,14 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       await prisma.ocrDocument.update({ where: { id }, data: dup }).catch(() => null);
     }
 
-    // Extraction template linked to this issuer (spec §15.1). Best-effort; failures become a FAILED run.
-    // Runs while the upgraded vision model is still in effect — a manual re-extract is exactly when
-    // the caller wants the higher-tier read for the template regions too.
-    const templateRun = await runMatchingTemplate(id, result.data?.vatNumber, 'reextract');
-
-    return NextResponse.json({ ok: true, model: result.model, data: result.data, templateRun });
+    vat = result.data?.vatNumber;
+    ok = { model: result.model, data: result.data };
   } catch (err: any) {
     await prisma.ocrDocument.update({
       where: { id },
       data: { status: 'FAILED', errorMessage: String(err?.message ?? err).slice(0, 2000) },
     });
-    return NextResponse.json({ error: String(err?.message ?? err) }, { status: 422 });
+    failure = String(err?.message ?? err);
   } finally {
     // Restore the previous model setting.
     if (originalModel) {
@@ -122,4 +126,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       await prisma.appSetting.deleteMany({ where: { key: 'ai.visionModel' } });
     }
   }
+
+  if (!ok) return NextResponse.json({ error: failure }, { status: 422 });
+
+  // Extraction template linked to this issuer (spec §15.1). Best-effort; failures become a FAILED run.
+  // Deliberately outside the try/finally above: the template run does its own vision calls and would
+  // otherwise keep the global model override in place for everyone else while it works.
+  const templateRun: RunOutcome | null = await runMatchingTemplate(id, vat, 'reextract');
+  return NextResponse.json({ ok: true, ...ok, templateRun });
 }

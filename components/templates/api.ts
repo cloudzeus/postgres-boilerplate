@@ -1,10 +1,9 @@
 // components/templates/api.ts — CLIENT. Typed fetch helpers for the template endpoints + Greek error text.
 import type { TemplateDto } from '@/lib/templates/serialize';
 import type { RunDto } from '@/lib/templates/run-dto';
-import type { FieldDef, FieldValue, Region } from '@/lib/templates/schema';
+import type { FieldDef, FieldValue, Region, RunOutcome } from '@/lib/templates/schema';
 
-export type { RunDto };
-export type RunOutcome = { runId: string; status: RunDto['status']; flags: { review: string[]; blocked: string[] }; error: string | null };
+export type { RunDto, RunOutcome };
 
 export type Cleanup = { mappings: { name: string; removedRows: number }[]; conditions: { id: string; name: string; removedClauses: number; removedActions: number }[] };
 export type TestFieldResult = { raw: string | null; value: unknown; source: string; model: string | null; tokensUsed: number; color: string; durationMs: number };
@@ -22,6 +21,7 @@ const ERROR_TEXT: Record<string, string> = {
   forbidden: 'Δεν έχεις δικαίωμα για αυτή την ενέργεια.',
   has_history: 'Το πρότυπο έχει ιστορικό εκτελέσεων. Απενεργοποίησέ το αντί να το διαγράψεις.',
   unknown_field: 'Άγνωστο πεδίο.',
+  table_not_editable: 'Τα πεδία πίνακα δεν διορθώνονται χειροκίνητα.',
   no_template: 'Δεν βρέθηκε πρότυπο για το ΑΦΜ του εκδότη — επίλεξε ένα.',
   not_completed: 'Το έγγραφο δεν έχει ολοκληρωθεί.',
   multiple_tables: 'Το mapping χαρτογραφεί γραμμές από δύο πίνακες. Επίλεξε έναν.',
@@ -84,7 +84,7 @@ export const templatesApi = {
     list: (docId: string) => fetch(runsBase(docId), { cache: 'no-store' }).then((r) => handle<{ runs: RunDto[] }>(r)),
     // Without a templateId the server matches the issuer ΑΦΜ; `no_template` when nothing matches.
     run: (docId: string, templateId?: string) => fetch(runsBase(docId), json(templateId ? { templateId } : {})).then((r) => handle<{ run: RunDto | null; outcome: RunOutcome }>(r)),
-    patch: (docId: string, runId: string, values: Record<string, unknown>) => fetch(`${runsBase(docId)}/${runId}`, json({ values }, 'PATCH')).then((r) => handle<RunDto>(r)),
+    patch: (docId: string, runId: string, values: Record<string, unknown>) => fetch(`${runsBase(docId)}/${runId}`, json({ values }, 'PATCH')).then((r) => handle<{ run: RunDto }>(r)),
     outputUrl: (docId: string, runId: string, download = false) => `${runsBase(docId)}/${runId}${download ? '?download=1' : ''}`,
   },
 };

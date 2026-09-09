@@ -17,10 +17,9 @@ import {
   pickMapping, requiredMissing, setInvoicePath,
   type RunFlags,
 } from './run-logic';
-import type { MappingRowInvoice, RunTrigger } from './schema';
+import type { MappingRowInvoice, RunOutcome, RunTrigger } from './schema';
 
-export type { RunTrigger };
-export type RunOutcome = { runId: string; status: TemplateRunStatus; flags: RunFlags; error: string | null };
+export type { RunOutcome, RunTrigger };
 
 /** Public base URL for the links inside notification emails ('' → the email names the file instead of linking). */
 const APP_URL = () => process.env.APP_URL ?? '';
@@ -31,6 +30,27 @@ const POST_BLOCK_REASON: Record<PostError['code'], string> = {
   not_completed: 'Το έγγραφο δεν έχει ολοκληρωθεί',
   not_found: 'Το έγγραφο δεν βρέθηκε',
 };
+
+/**
+ * Persist a projection onto the document: the mapped `extractedData` and, when the mapping rebuilt
+ * `items`, the `OcrInvoiceItem` rows that mirror it. Shared by the runner and by a manual correction
+ * of a run (`PATCH /template-runs/[runId]`) so both apply the projection by exactly the same rule.
+ * `previousItems` is the `items` array the projection started from — `projectToInvoice` returns the
+ * same reference when the mapping has no line rows, which is how "the lines changed" is detected.
+ */
+export async function applyProjectionToDocument(documentId: string, nextData: Record<string, unknown> | null, previousItems: unknown): Promise<void> {
+  const itemsChanged = nextData != null && nextData.items !== previousItems && Array.isArray(nextData.items);
+  const docUpdate: Prisma.OcrDocumentUpdateInput = {};
+  if (nextData) docUpdate.extractedData = nextData as Prisma.InputJsonValue;
+  const ops: Prisma.PrismaPromise<unknown>[] = [];
+  if (itemsChanged) {
+    ops.push(prisma.ocrInvoiceItem.deleteMany({ where: { documentId } }));
+    ops.push(prisma.ocrInvoiceItem.createMany({ data: itemsToRows(nextData!.items as unknown[]).map((r) => ({ ...r, documentId })) }));
+  }
+  if (Object.keys(docUpdate).length || ops.length) {
+    await prisma.$transaction([prisma.ocrDocument.update({ where: { id: documentId }, data: docUpdate }), ...ops]);
+  }
+}
 
 /** The ACTIVE template linked to this issuer ΑΦΜ (most recently updated wins). */
 export async function findTemplateForVat(vat: unknown): Promise<string | null> {
@@ -87,20 +107,8 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
       nextData = projectToInvoice(values, mapping.rows as MappingRowInvoice[], extracted);
       for (const s of applied.setFields) if (s.invoiceKey) setInvoicePath(nextData, s.invoiceKey, s.value);
     }
-    // projectToInvoice only replaces `items` when the mapping has line rows; otherwise the array is the same reference.
-    const itemsChanged = nextData != null && nextData.items !== extracted.items && Array.isArray(nextData.items);
-
     // Persist the document changes BEFORE posting, so the poster sees the mapped data.
-    const docUpdate: Prisma.OcrDocumentUpdateInput = {};
-    if (nextData) docUpdate.extractedData = nextData as Prisma.InputJsonValue;
-    const ops: Prisma.PrismaPromise<unknown>[] = [];
-    if (itemsChanged) {
-      ops.push(prisma.ocrInvoiceItem.deleteMany({ where: { documentId: doc.id } }));
-      ops.push(prisma.ocrInvoiceItem.createMany({ data: itemsToRows(nextData!.items as unknown[]).map((r) => ({ ...r, documentId: doc.id })) }));
-    }
-    if (Object.keys(docUpdate).length || ops.length) {
-      await prisma.$transaction([prisma.ocrDocument.update({ where: { id: doc.id }, data: docUpdate }), ...ops]);
-    }
+    await applyProjectionToDocument(doc.id, nextData, extracted.items);
 
     const decision = decideOutcome(t.mode, flags);
     let status: TemplateRunStatus = decision === 'POST' ? 'POSTED' : decision;
