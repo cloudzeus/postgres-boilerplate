@@ -514,7 +514,7 @@ describe('INVOICE_SCHEMA', () => {
     expect(invoiceKeyInfo('nope')).toBeNull();
   });
   it('treats any customFields.* key as a valid TEXT header key', () => {
-    expect(invoiceKeyInfo('customFields.orderNo')).toEqual({ key: 'customFields.orderNo', label: 'orderNo', valueType: 'TEXT', isLine: false });
+    expect(invoiceKeyInfo('customFields.order_no')).toEqual({ key: 'customFields.order_no', label: 'orderNo', valueType: 'TEXT', isLine: false });
   });
   it('has unique keys', () => {
     expect(new Set(INVOICE_SCHEMA.map((k) => k.key)).size).toBe(INVOICE_SCHEMA.length);
@@ -1070,7 +1070,7 @@ describe('projectToInvoice', () => {
     };
     const rows = [
       { fieldKey: 'no', invoiceKey: 'invoiceNumber' },
-      { fieldKey: 'order', invoiceKey: 'customFields.orderNo' },
+      { fieldKey: 'order', invoiceKey: 'customFields.order_no' },
       { fieldKey: 'lines.code', invoiceKey: 'items.code' },
       { fieldKey: 'lines.qty', invoiceKey: 'items.quantity' },
       { fieldKey: 'lines.price', invoiceKey: 'items.price' },
@@ -1079,7 +1079,7 @@ describe('projectToInvoice', () => {
     const out = projectToInvoice(values, rows, existing);
     expect(out.vatNumber).toBe('123456789');
     expect(out.invoiceNumber).toBe('ΤΙΜ-451');
-    expect(out.customFields).toEqual({ keep: 'me', orderNo: 'PO-77' });
+    expect(out.customFields).toEqual({ keep: 'me', order_no: 'PO-77' });
     expect(out.items).toEqual([{ code: 'A1', quantity: 2, price: 10 }, { code: 'B2', quantity: 1, price: 5.5 }]);
   });
   it('skips null values and unknown invoice keys, keeps existing items when no line mapping', () => {
