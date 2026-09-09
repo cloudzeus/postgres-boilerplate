@@ -991,7 +991,22 @@ export async function storeSample(templateId: string, buffer: Buffer): Promise<{
 ```
 Keep the existing comments about sniffing and cache-busting (move them along). The route becomes: permission → form → `file` check → `storeSample(id, Buffer.from(await file.arrayBuffer()))` inside try/catch mapping `SampleError.code` to 404 / 413 (`too_large`, message «Μέγιστο 25 MB») / 415, then `logAudit` and `{ ok: true, mimeType, pageCount }`.
 
-- [ ] **Step 2: Install** — `npm i -D pdf-lib` and add `"templates:seed": "npx tsx --conditions=react-server scripts/templates/seed-from-pdf.ts"` to `package.json` scripts. (`--conditions=react-server` resolves the `server-only` package to its no-op build, so `lib/*` modules that import it load under tsx. Verify with `npx tsx --conditions=react-server -e "import('server-only').then(()=>console.log('ok'))"`; if that prints an error, fall back to `--import ./scripts/templates/server-only-shim.mjs` that registers a loader mapping `server-only` to `lib/__mocks__/server-only.ts` — say which one worked in your report.)
+- [ ] **Step 2: Install + loader** — `npm i -D pdf-lib`. The `server-only` package is NOT installed (Next.js provides it internally), so `lib/*` modules that `import 'server-only'` cannot load under tsx. Create a loader that maps it to the vitest mock:
+
+`scripts/templates/server-only-loader.mjs`:
+```js
+// Maps the bare `server-only` specifier (provided by Next.js at build time) to the no-op mock so lib/* loads under tsx.
+export async function resolve(specifier, context, next) {
+  if (specifier === 'server-only') return { url: new URL('../../lib/__mocks__/server-only.ts', import.meta.url).href, shortCircuit: true };
+  return next(specifier, context);
+}
+```
+`scripts/templates/register.mjs`:
+```js
+import { register } from 'node:module';
+register('./server-only-loader.mjs', import.meta.url);
+```
+Add to `package.json` scripts: `"templates:seed": "tsx --import ./scripts/templates/register.mjs scripts/templates/seed-from-pdf.ts"`. Verify with a throwaway `scripts/templates/_probe.ts` containing `import 'server-only'; import { COLOR_PALETTE } from '../../lib/templates/schema'; console.log('ok', COLOR_PALETTE.length);` run as `npx tsx --import ./scripts/templates/register.mjs scripts/templates/_probe.ts` → prints `ok 12`; delete the probe.
 
 - [ ] **Step 3: `scripts/templates/seed-from-pdf.ts`**
 
