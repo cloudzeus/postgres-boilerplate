@@ -5,7 +5,7 @@ import { FiCrosshair, FiTrash2, FiZap } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { RegionMarker } from '@/components/ui/region-marker';
-import { COLOR_PALETTE, nextColor, uniqueKey, type FieldDef, type Region } from '@/lib/templates/schema';
+import { COLOR_PALETTE, nextColor, uniqueKey, type Bbox, type FieldDef, type Region } from '@/lib/templates/schema';
 import { KIND_LABEL } from '@/lib/templates/labels';
 import { useDesigner } from './designer-context';
 import { FieldForm } from './field-form';
@@ -177,7 +177,14 @@ export function RegionsStep() {
 
   if (!dto.sample) return <p className="text-[12px] text-muted-foreground">Ανέβασε πρώτα δείγμα στο βήμα «Δείγμα».</p>;
 
-  const saved = fields.filter((f) => f.region && f.region.page === page).map((f) => ({ bbox: f.region!.bbox, color: f.color, active: f.key === focusKey, label: f.label || f.key }));
+  const saved = fields.filter((f) => f.region && f.region.page === page).map((f) => ({ key: f.key, bbox: f.region!.bbox, color: f.color, active: f.key === focusKey, label: f.label || f.key }));
+  // The canvas addresses regions by position in `saved`, the draft by key — translate both ways.
+  const selectedIndex = saved.findIndex((r) => r.key === focusKey);
+  const moveRegion = (i: number, bbox: Bbox) => {
+    const target = fields.find((f) => f.key === saved[i]?.key);
+    if (!target) return;
+    update(target.key, { ...target, region: { page, bbox } });
+  };
   const hasResult = testResult != null && !testing;         // the run finished — reopen it instead of paying for it again
   const markingText = marking == null ? null
     : marking === NEW_MARK ? 'Σύρε πλαίσιο — θα αναγνωριστεί το πεδίο · Esc για ακύρωση'
@@ -197,9 +204,12 @@ export function RegionsStep() {
             pageImageUrl={(p) => templatesApi.pageImageUrl(dto.id, p, dto.version)}
             pageCount={dto.sample.pageCount} page={page} onPageChange={setPage}
             savedRegions={saved} isMarking={marking != null} onRegionComplete={onRegion} showNav={false}
+            editable={canManage && marking == null} selectedIndex={selectedIndex < 0 ? null : selectedIndex}
+            onRegionSelect={(i) => setFocusKey(i == null ? null : saved[i]?.key ?? null)} onRegionChange={moveRegion}
             className="w-full"
           />
         </div>
+        {canManage && <p className="mt-1.5 text-[11px] text-muted-foreground">Σύρε μια περιοχή για μετακίνηση, λαβές για μέγεθος, βέλη/Shift+βέλη για ακρίβεια</p>}
         <ul className="mt-2 flex flex-wrap gap-1.5">
           {fields.filter((f) => f.region).map((f) => (
             <li key={f.key}><button type="button" onClick={() => { setFocusKey(f.key); setPage(f.region!.page); }} className={cn('inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px]', f.key === focusKey ? 'border-transparent text-white' : 'border-border bg-white')} style={f.key === focusKey ? { backgroundColor: f.color } : undefined}>
