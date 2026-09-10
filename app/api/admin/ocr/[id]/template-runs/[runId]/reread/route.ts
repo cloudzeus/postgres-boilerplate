@@ -25,8 +25,10 @@ const Body = z.object({
 const FAILURE: Record<RereadError, { status: number; message: string }> = {
   not_found: { status: 404, message: 'Δεν βρέθηκε' },
   not_latest: { status: 409, message: 'Μόνο η τελευταία εκτέλεση μπορεί να διορθωθεί' },
+  posted: { status: 409, message: 'Το έγγραφο έχει αναρτηθεί — δεν επιτρέπονται αλλαγές στην εκτέλεση' },
   unknown_field: { status: 400, message: 'Άγνωστο πεδίο' },
   no_region: { status: 422, message: 'Το πεδίο δεν έχει περιοχή' },
+  bad_page: { status: 400, message: 'Μη έγκυρη σελίδα' },
   read_failed: { status: 502, message: 'Η ανάγνωση από το μοντέλο απέτυχε' },
 };
 

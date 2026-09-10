@@ -21,15 +21,15 @@ const ROWS = [{ fieldKey: 'total', invoiceKey: 'totalAmount' }, { fieldKey: 'net
 const run = (over: {
   flags?: StoredFlags | null;
   values?: Record<string, FieldValue>;
-  extracted?: Record<string, unknown>;
+  /** Folded into `flags.baseOcr` — the pre-projection snapshot the runner stored on the run. */
+  baseOcr?: Record<string, unknown>;
   mode?: 'AUTO' | 'SEMI_AUTO' | 'MANUAL';
   rows?: { fieldKey: string; invoiceKey: string }[];
 } = {}) =>
   recomputeFieldFlags({
-    flags: over.flags ?? null,
+    flags: over.baseOcr ? { ...(over.flags ?? {}), baseOcr: over.baseOcr } : over.flags ?? null,
     fields: FIELDS,
     values: over.values ?? { total: value(150), net: value(120), note: value('x') },
-    extracted: over.extracted ?? {},
     mode: over.mode ?? 'SEMI_AUTO',
     rows: over.rows,
   });
@@ -68,34 +68,63 @@ describe('recomputeFieldFlags — required fields', () => {
 });
 
 describe('recomputeFieldFlags — cross-check against the base OCR', () => {
+  const STALE_NET = 'Ασυμφωνία «Καθαρή αξία»: πρότυπο 12 · OCR 120';
+
   it('re-adds the flag when the corrected total contradicts the OCR, without blocking', () => {
-    const out = run({ values: { total: value(229.4), net: value(120), note: value('x') }, extracted: { totalAmount: 22.94 }, rows: ROWS });
+    const out = run({ values: { total: value(229.4), net: value(120), note: value('x') }, baseOcr: { totalAmount: 22.94 }, rows: ROWS });
     expect(out.review).toEqual(['Ασυμφωνία «Σύνολο»: πρότυπο 229.4 · OCR 22.94']);
     expect(out.blocked).toEqual([]);
     expect(out.fields).toEqual({ total: 'review' });
   });
 
+  it('re-adds the mismatch of a field the human did NOT correct', () => {
+    // `net` is still 12 against the OCR's 120: the correction next door does not make the run agree.
+    const out = run({
+      values: { total: value(150), net: value(12), note: value('x') },
+      baseOcr: { totalAmount: 150, subtotal: 120 }, rows: ROWS,
+      flags: { review: [STALE_NET], blocked: [], fields: { net: 'review' } },
+    });
+    expect(out.review).toEqual([STALE_NET]);
+    expect(out.fields).toEqual({ net: 'review' });
+  });
+
   it('drops a mismatch the correction resolved', () => {
-    const stale = 'Ασυμφωνία «Καθαρή αξία»: πρότυπο 12 · OCR 120';
     const out = run({
       values: { total: value(150), net: value(120), note: value('x') },
-      extracted: { subtotal: 120 }, rows: ROWS,
-      flags: { review: [stale, 'μεγάλο ποσό'], blocked: [], fields: { net: 'review' } },
+      baseOcr: { subtotal: 120 }, rows: ROWS,
+      flags: { review: [STALE_NET, 'μεγάλο ποσό'], blocked: [], fields: { net: 'review' } },
     });
     expect(out.review).toEqual(['μεγάλο ποσό']);
     expect(out.fields).toEqual({});
   });
 
+  it('keeps the snapshot on the flags it returns, so the NEXT correction can re-check too', () => {
+    const out = run({ baseOcr: { totalAmount: 150 }, rows: ROWS });
+    expect(out.baseOcr).toEqual({ totalAmount: 150 });
+  });
+
   it('leaves an existing mismatch alone when there is no projection to re-check it against', () => {
-    const stale = 'Ασυμφωνία «Καθαρή αξία»: πρότυπο 12 · OCR 120';
-    const out = run({ mode: 'MANUAL', flags: { review: [stale], blocked: [], fields: { net: 'review' } } });
-    expect(out.review).toEqual([stale]);
+    const out = run({ mode: 'MANUAL', flags: { review: [STALE_NET], blocked: [], fields: { net: 'review' } } });
+    expect(out.review).toEqual([STALE_NET]);
+    expect(out.fields).toEqual({ net: 'review' });
+  });
+
+  it('leaves an existing mismatch alone on a run that stored no baseOcr — even one that projects', () => {
+    // Runs written before `baseOcr` existed. The document's `extractedData` is by now this run's OWN
+    // projection, so there is nothing independent left to re-check against: dropping the reason here
+    // would erase a genuine «Ασυμφωνία» on the very first correction.
+    const out = run({
+      values: { total: value(150), net: value(120), note: value('x') },
+      rows: ROWS,
+      flags: { review: [STALE_NET, 'μεγάλο ποσό'], blocked: [], fields: { net: 'review' } },
+    });
+    expect(out.review).toEqual([STALE_NET, 'μεγάλο ποσό']);
     expect(out.fields).toEqual({ net: 'review' });
   });
 
   it('only cross-checks the keys worth money — an unrelated mapped field keeps its own verdict', () => {
     const out = run({
-      extracted: { notes: 'άλλο κείμενο' }, rows: ROWS,
+      baseOcr: { notes: 'άλλο κείμενο' }, rows: ROWS,
       flags: { review: ['μεγάλο ποσό'], blocked: [], fields: { note: 'review' } },
     });
     expect(out.review).toEqual(['μεγάλο ποσό']);

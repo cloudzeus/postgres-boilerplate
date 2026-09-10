@@ -14,7 +14,7 @@ import { projectToInvoice } from './mapping';
 import { TEMPLATE_INCLUDE, toConditionDto, toFieldDef, toMappingDto } from './serialize';
 import { sendRuleNotifications } from './notify';
 import {
-  applySetFields, buildReviewFlags, canPost, crossCheckOcr, decideOutcome, extrasFrom, itemsToRows,
+  applySetFields, baseOcrSnapshot, buildReviewFlags, canPost, crossCheckOcr, decideOutcome, extrasFrom, itemsToRows,
   mappingFellBack, pickMapping, requiredMissing, setInvoicePath, tableFellThrough,
   type FieldFlag, type ItemRow, type RunFlags,
 } from './run-logic';
@@ -112,6 +112,10 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
   const mappings = t.mappings.map(toMappingDto);
   const base = { templateId: t.id, templateVersion: t.version, documentId: doc.id, trigger: input.trigger };
   const extracted = (doc.extractedData ?? {}) as Record<string, unknown>;
+  // What the base OCR read, captured NOW — the projection below overwrites `extractedData` with the
+  // template's own values, and every later re-check of «Ασυμφωνία …» (a correction, a re-read) needs
+  // the independent reading to compare against. Stored on the run; see `baseOcrSnapshot`.
+  const baseOcr = baseOcrSnapshot(extracted);
 
   try {
     const buffer = await bunnyDownload(doc.storageKey);
@@ -204,7 +208,7 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
         status,
         values: values as unknown as Prisma.InputJsonValue,
         matched: applied.matched as unknown as Prisma.InputJsonValue,
-        flags: { ...flags, notified: [] as string[] } as unknown as Prisma.InputJsonValue,
+        flags: { ...flags, notified: [] as string[], baseOcr } as unknown as Prisma.InputJsonValue,
         mappingName: mapping?.name ?? '',
         model: ex.model,
         tokensUsed: ex.tokensUsed,
@@ -228,7 +232,7 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
     });
     if (notified.length) {
       await prisma.templateRun
-        .update({ where: { id: run.id }, data: { flags: { ...flags, notified } as unknown as Prisma.InputJsonValue } })
+        .update({ where: { id: run.id }, data: { flags: { ...flags, notified, baseOcr } as unknown as Prisma.InputJsonValue } })
         .catch((e) => console.error('[templates] notified flags not stored', run.id, (e as Error).message));
     }
 
@@ -310,7 +314,9 @@ export async function finalizeRunEdit(input: {
     extracted = (doc?.extractedData ?? {}) as Record<string, unknown>;
   }
 
-  const flags = recomputeFieldFlags({ flags: run.flags as StoredFlags | null, fields, values, extracted, mode: t.mode, rows });
+  // The cross-check compares against `flags.baseOcr` (the pre-projection snapshot the run stored),
+  // NOT against `extracted` — by now that is this run's own projection.
+  const flags = recomputeFieldFlags({ flags: run.flags as StoredFlags | null, fields, values, mode: t.mode, rows });
 
   const updated = await prisma.templateRun.update({
     where: { id: run.id },
@@ -333,7 +339,10 @@ export async function finalizeRunEdit(input: {
 }
 
 /** Why a re-read could not happen. The route turns each into its own status code. */
-export type RereadError = 'not_found' | 'not_latest' | 'unknown_field' | 'no_region' | 'read_failed';
+export type RereadError = 'not_found' | 'not_latest' | 'posted' | 'unknown_field' | 'no_region' | 'bad_page' | 'read_failed';
+
+/** `renderPage` throws exactly this when the region names a page the document does not have. */
+const PAGE_OUT_OF_RANGE = 'page out of range';
 export type RereadResult =
   | { ok: true; run: RunWithTemplate; value: FieldValue; region: Region; overridden: boolean; model: string | null; tokensUsed: number }
   | { ok: false; error: RereadError };
@@ -349,6 +358,9 @@ export async function rereadField(input: { documentId: string; runId: string; fi
   const run = await prisma.templateRun.findUnique({ where: { id: input.runId }, include: RUN_INCLUDE });
   if (!run || run.documentId !== input.documentId) return { ok: false, error: 'not_found' };
   if (!(await isLatestRun(input.documentId, input.runId))) return { ok: false, error: 'not_latest' };
+  // A POSTED run has already reached the ERP: re-reading it would re-project over the very data
+  // SoftOne was given, and nothing here can take that back.
+  if (run.status === 'POSTED') return { ok: false, error: 'posted' };
 
   const doc = await prisma.ocrDocument.findUnique({ where: { id: input.documentId }, select: { storageKey: true, mimeType: true, extractedData: true } });
   if (!doc) return { ok: false, error: 'not_found' };
@@ -382,6 +394,9 @@ export async function rereadField(input: { documentId: string; runId: string; fi
   if (ex.errors.length) {
     // The extractor's message names the model/provider — log it, hand the browser one fixed code.
     console.error('[templates] reread errors', input.documentId, field.key, ex.errors);
+    // …except a page the document does not have: that is the CALLER's box, not a failure of the
+    // reader, and «Μη έγκυρη σελίδα» is something the user can actually act on.
+    if (ex.errors.some((e) => e.message === PAGE_OUT_OF_RANGE)) return { ok: false, error: 'bad_page' };
     return { ok: false, error: 'read_failed' };
   }
 
@@ -389,6 +404,11 @@ export async function rereadField(input: { documentId: string; runId: string; fi
   // and the canvas keeps drawing the region the value actually came from.
   const value: FieldValue = { ...ex.values[field.key], page: region.page, bbox: region.bbox };
   values[field.key] = value;
+
+  // The vision call takes seconds, and a re-run of the template can land in the middle of it. Ask
+  // again, now: `finalizeRunEdit` projects onto the document and moves its banner, so committing
+  // against a run that is no longer the latest would overwrite the newer run's work with ours.
+  if (!(await isLatestRun(input.documentId, input.runId))) return { ok: false, error: 'not_latest' };
 
   const updated = await finalizeRunEdit({ run, values, extracted: (doc.extractedData ?? {}) as Record<string, unknown> });
   return { ok: true, run: updated, value, region, overridden: input.region != null, model: ex.model, tokensUsed: ex.tokensUsed };

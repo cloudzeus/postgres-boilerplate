@@ -58,6 +58,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (!(await isLatestRun(id, runId))) {
     return NextResponse.json({ error: 'not_latest', message: 'Μόνο η τελευταία εκτέλεση μπορεί να διορθωθεί' }, { status: 409 });
   }
+  // A POSTED run has already reached SoftOne: correcting it would re-project over the data the ERP
+  // was handed, with nothing here able to take that back. Same refusal as a per-field re-read.
+  if (run.status === 'POSTED') {
+    return NextResponse.json({ error: 'posted', message: 'Το έγγραφο έχει αναρτηθεί — δεν επιτρέπονται αλλαγές στην εκτέλεση' }, { status: 409 });
+  }
 
   const fields = [...run.template.fields].sort((a, b) => a.order - b.order).map(toFieldDef);
   const values = { ...((run.values as unknown as Record<string, FieldValue>) ?? {}) };

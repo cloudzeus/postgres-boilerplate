@@ -15,30 +15,40 @@ export const MISSING_PREFIX = 'Λείπει υποχρεωτικό πεδίο «
 /** Prefix of the review entry the runner writes when the template and the base OCR disagree. */
 export const MISMATCH_PREFIX = 'Ασυμφωνία «';
 
-/** `TemplateRun.flags` as it comes out of the database — every list optional, older runs have none. */
-export type StoredFlags = { review?: string[]; blocked?: string[]; notified?: string[]; fields?: Record<string, FieldFlag> };
+/**
+ * `TemplateRun.flags` as it comes out of the database — every list optional, older runs have none.
+ * `baseOcr` is the snapshot of what the base OCR read before this run projected over it
+ * (`baseOcrSnapshot`), and is the ONLY thing a re-check may compare against: the document's own
+ * `extractedData` has since been overwritten with the template's values.
+ */
+export type StoredFlags = { review?: string[]; blocked?: string[]; notified?: string[]; fields?: Record<string, FieldFlag>; baseOcr?: Record<string, unknown> };
 export type RecomputedFlags = StoredFlags & { review: string[]; blocked: string[]; fields: Record<string, FieldFlag> };
 
 export function recomputeFieldFlags(input: {
   flags: StoredFlags | null;
   fields: FieldDef[];
   values: Record<string, FieldValue>;
-  extracted: Record<string, unknown>;
   mode: TemplateMode;
   /** Rows of the INVOICE mapping this run projects through; omitted/empty when it projects nothing. */
   rows?: { fieldKey: string; invoiceKey: string }[];
 }): RecomputedFlags {
-  const { fields, values, extracted, mode } = input;
+  const { fields, values, mode } = input;
   const prev = input.flags ?? {};
   const rows = input.rows ?? [];
-  // Only a run WITH a projection can produce a cross-check reason, so only such a run may drop one:
-  // recomputing a MANUAL run against no rows would silently erase a verdict nobody re-examined.
-  const checking = rows.length > 0;
+  const baseOcr = prev.baseOcr;
+  // Two conditions before this recomputation may speak about a cross-check at all:
+  //  · the run HAS a projection — recomputing a MANUAL run against no rows would silently erase a
+  //    verdict nobody re-examined;
+  //  · the run recorded what the base OCR read. Runs written before `baseOcr` existed have nothing
+  //    to compare against — comparing with the live `extractedData` would compare the template with
+  //    its OWN projection and drop every genuine «Ασυμφωνία» on the first correction. Such a run
+  //    keeps the mismatch reasons it already carries, untouched.
+  const checking = rows.length > 0 && baseOcr != null;
 
   const labelOf = (key: string) => fields.find((f) => f.key === key)?.label ?? key;
   const missing = requiredMissing(fields, values);
   const missingLabels = missing.map((f) => `${MISSING_PREFIX}${f.label}»`);
-  const mismatches = checking ? crossCheckOcr(rows, values, extracted, labelOf) : [];
+  const mismatches = checking ? crossCheckOcr(rows, values, baseOcr ?? {}, labelOf) : [];
 
   const stale = (s: string) => s.startsWith(MISSING_PREFIX) || (checking && s.startsWith(MISMATCH_PREFIX));
   const keep = (list: string[] | undefined) => (list ?? []).filter((s) => !stale(s));

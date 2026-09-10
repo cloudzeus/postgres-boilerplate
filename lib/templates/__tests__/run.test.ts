@@ -484,6 +484,19 @@ describe('cross-check against the base OCR', () => {
     expect(docUpdates().find((d) => 'extractedData' in d)!.extractedData.totalAmount).toBe(229.4);
   });
 
+  it('stores what the base OCR read BEFORE the projection overwrites it — cross-check keys only', async () => {
+    load(template({ mode: 'SEMI_AUTO', conditions: [] }),
+      doc({ extractedData: { totalAmount: 22.94, invoiceNumber: '7', vendorName: 'ΑΦΟΙ Χ' } }));
+    extract.mockResolvedValue(extractResult({ total: value(229.4), note: value('x') }));
+
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+
+    // `vendorName` is not worth cross-checking, so it is not carried; the OCR's own 22.94 is, even
+    // though the document now says 229.4.
+    expect(runData().flags.baseOcr).toEqual({ totalAmount: 22.94, invoiceNumber: '7' });
+    expect(docUpdates().find((d) => 'extractedData' in d)!.extractedData.totalAmount).toBe(229.4);
+  });
+
   it('says nothing when the two readings agree', async () => {
     load(template({ mode: 'SEMI_AUTO', conditions: [] }), doc({ extractedData: { totalAmount: '229,40' } }));
     extract.mockResolvedValue(extractResult({ total: value(229.4), note: value('x') }));
@@ -620,13 +633,67 @@ describe('rereadField', () => {
   });
 
   it('flags a re-read value that now contradicts the base OCR', async () => {
-    loadRun(runRow(), docRow({ extractedData: { totalAmount: 22.94 } }));
+    // The run's own snapshot is what the cross-check compares against — `extractedData` is by now
+    // this run's projection, and comparing with it would find the template agreeing with itself.
+    loadRun(
+      runRow({ flags: { review: [], blocked: [], notified: [], fields: {}, baseOcr: { totalAmount: 22.94 } } }),
+      docRow({ extractedData: { totalAmount: 20 } }),
+    );
     extract.mockResolvedValue(extractResult({ total: value(229.4) }));
 
     await rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total' });
 
     expect(runUpdate().flags.review).toContain('Ασυμφωνία «Σύνολο»: πρότυπο 229.4 · OCR 22.94');
     expect(runUpdate().flags.fields).toEqual({ total: 'review' });
+  });
+
+  it('keeps a genuine mismatch across a re-read of ANOTHER field — the snapshot outlives the projection', async () => {
+    const stale = 'Ασυμφωνία «Σύνολο»: πρότυπο 229.4 · OCR 22.94';
+    loadRun(
+      runRow({
+        values: { total: value(229.4), note: value('x') },
+        flags: { review: [stale], blocked: [], notified: [], fields: { total: 'review' }, baseOcr: { totalAmount: 22.94 } },
+      }),
+      // The document already carries the projected 229.4 — the naive comparison would see two
+      // readers in perfect agreement and drop the flag.
+      docRow({ extractedData: { totalAmount: 229.4 } }),
+    );
+    extract.mockResolvedValue(extractResult({ note: value('y') }));
+
+    await rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'note' });
+
+    expect(runUpdate().flags.review).toEqual([stale]);
+    expect(runUpdate().flags.fields).toEqual({ total: 'review' });
+  });
+
+  it('refuses a run that stopped being the latest WHILE the model was reading', async () => {
+    loadRun();
+    // Latest when we check on entry; a re-run of the template landed by the time the read came back.
+    db.templateRun.findFirst.mockResolvedValueOnce({ id: 'r1' }).mockResolvedValue({ id: 'r2' });
+    extract.mockResolvedValue(extractResult({ total: value(229.4) }));
+
+    await expect(rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total' })).resolves.toEqual({ ok: false, error: 'not_latest' });
+
+    // The read happened, but nothing was committed over the newer run's work.
+    expect(extract).toHaveBeenCalled();
+    expect(db.templateRun.update).not.toHaveBeenCalled();
+    expect(docUpdates()).toEqual([]);
+  });
+
+  it('refuses a run that has already been posted, before spending a model call', async () => {
+    loadRun(runRow({ status: 'POSTED' }));
+    await expect(rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total' })).resolves.toEqual({ ok: false, error: 'posted' });
+    expect(extract).not.toHaveBeenCalled();
+    expect(db.templateRun.update).not.toHaveBeenCalled();
+  });
+
+  it('reports a region on a page the document does not have as bad_page, not as a failed read', async () => {
+    loadRun();
+    extract.mockResolvedValue(extractResult({ total: value(null, 'none') }, { errors: [{ fieldKey: 'total', message: 'page out of range' }] }));
+
+    await expect(rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total', region: { page: 9, bbox: [0, 0, 0.1, 0.1] } }))
+      .resolves.toEqual({ ok: false, error: 'bad_page' });
+    expect(db.templateRun.update).not.toHaveBeenCalled();
   });
 
   it('refuses a run that is not the document\'s latest, an unknown field, and a field with no region', async () => {

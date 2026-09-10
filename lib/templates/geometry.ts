@@ -38,9 +38,20 @@ export function resizeBbox(b: Bbox, handle: Handle, dx: number, dy: number): Bbo
   return clampBbox([nx, ny, nx2 - nx, ny2 - ny]);
 }
 
-/** Arrow key → move by one step; with Shift → resize from the south-east corner. Unknown keys are a no-op. */
+/**
+ * Arrow key → move by one step; with Shift → resize from the south-east corner. Unknown keys are a
+ * no-op — including `toString`, `constructor` and friends: `key` is whatever the browser reports, so
+ * the lookup is a `switch` rather than an object index that would inherit Object.prototype.
+ */
 export function nudgeBbox(b: Bbox, key: string, shift: boolean): Bbox {
-  const d = { ArrowLeft: [-NUDGE, 0], ArrowRight: [NUDGE, 0], ArrowUp: [0, -NUDGE], ArrowDown: [0, NUDGE] }[key as 'ArrowLeft'];
-  if (!d) return b;
-  return shift ? resizeBbox(b, 'se', d[0], d[1]) : moveBbox(b, d[0], d[1]);
+  let dx = 0;
+  let dy = 0;
+  switch (key) {
+    case 'ArrowLeft': dx = -NUDGE; break;
+    case 'ArrowRight': dx = NUDGE; break;
+    case 'ArrowUp': dy = -NUDGE; break;
+    case 'ArrowDown': dy = NUDGE; break;
+    default: return b;
+  }
+  return shift ? resizeBbox(b, 'se', dx, dy) : moveBbox(b, dx, dy);
 }

@@ -153,6 +153,19 @@ export function crossCheckKeys(rows: { fieldKey: string; invoiceKey: string }[])
 }
 
 /**
+ * The base OCR's own reading of the cross-checked keys, taken BEFORE the run projects over it.
+ * Without this snapshot the second opinion is lost: `OcrDocument.extractedData` now holds the
+ * TEMPLATE's values, so a later re-check would compare the template against itself and conclude —
+ * every single time — that the two readers agree. Stored on the run (`flags.baseOcr`) because that is
+ * where the verdict it feeds lives; only the keys of `CROSS_CHECK_KEYS`, so it stays a few bytes.
+ */
+export function baseOcrSnapshot(extracted: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of CROSS_CHECK_KEYS) if (extracted[k] !== undefined) out[k] = extracted[k];
+  return out;
+}
+
+/**
  * Every INVOICE mapping row whose target is one of `CROSS_CHECK_KEYS` and whose template value
  * contradicts what the base OCR read. Blank on either side is not a contradiction — a value only
  * one of the two readers found is not evidence that either is wrong.

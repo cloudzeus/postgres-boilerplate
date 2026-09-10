@@ -1715,7 +1715,14 @@ model TemplateRun {
   error           String?            @db.Text
   values          Json                              // { key: FieldValue }
   matched         Json                              // [{ id, name, actions }]
-  flags           Json?                             // { review: string[], blocked: string[], fields: Record<string, 'review'|'blocked'>, notified: string[] }
+  // { review: string[], blocked: string[], fields: Record<string, 'review'|'blocked'>, notified: string[],
+  //   baseOcr: Record<string, unknown> }
+  // baseOcr = what the base OCR read for the cross-checked keys (totalAmount, subtotal, vatAmount,
+  // invoiceNumber, date) BEFORE this run projected over document.extractedData. Every later re-check of
+  // «Ασυμφωνία …» (a manual correction, a per-field re-read) compares against it — comparing with the
+  // live extractedData would compare the template with its own projection. Runs written before this
+  // existed have no baseOcr and keep the mismatch reasons they already carry.
+  flags           Json?
   mappingName     String
   model           String?
   tokensUsed      Int?

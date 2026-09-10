@@ -122,6 +122,14 @@ export function RegionMarker({
   // produces lives in state, so only this component repaints until the edit is committed.
   const drag = React.useRef<DragSession | null>(null);
   const [live, setLive] = React.useState<{ index: number; bbox: Bbox } | null>(null);
+  // On-screen width of the page image, so a normalized box can be judged in pixels. Measured when
+  // the image lands and again at every drag start — enough to keep up with a resized window without
+  // paying for a ResizeObserver on a canvas nobody resizes mid-edit.
+  const [pageWidth, setPageWidth] = React.useState(0);
+  React.useEffect(() => {
+    if (!objUrl) return;
+    setPageWidth(ref.current?.getBoundingClientRect().width ?? 0);
+  }, [objUrl, ref]);
 
   const nextBox = React.useCallback((d: DragSession, clientX: number, clientY: number): Bbox => {
     const dx = (clientX - d.clientX) / d.width;
@@ -130,8 +138,13 @@ export function RegionMarker({
   }, []);
 
   const onBoxPointerDown = React.useCallback((i: number, bbox: Bbox, e: React.PointerEvent) => {
+    // Only the primary button drags. A right-click must reach the context menu, and a middle-click
+    // that started a drag would never get its pointerup (the browser eats it) — leaving the session
+    // stuck and every later pointermove silently editing the box.
+    if (e.button !== 0) return;
     const rect = ref.current?.getBoundingClientRect();
     if (!rect || rect.width === 0 || rect.height === 0) return;
+    setPageWidth(rect.width);
     e.preventDefault();
     e.stopPropagation();
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
@@ -161,6 +174,9 @@ export function RegionMarker({
     else onRegionSelect?.(d.index);
   }, [nextBox, onRegionChange, onRegionSelect]);
 
+  // Both a cancelled pointer and a LOST capture (the browser hands the pointer to someone else — a
+  // scroll gesture, a dragged-away touch, an alert) end the session without a pointerup, so the live
+  // box has to be dropped here or the next pointermove would resume an edit the user abandoned.
   const onBoxPointerCancel = React.useCallback(() => {
     drag.current = null;
     setLive(null);
@@ -204,7 +220,13 @@ export function RegionMarker({
         <div className="p-3 text-[12px] text-muted-foreground">Φόρτωση…</div>
       ) : objUrl ? (
         <div ref={ref} {...(isMarking ? handlers : {})} className="relative w-full select-none"
-          style={{ cursor: isMarking ? 'crosshair' : 'default', touchAction: isMarking || interactive ? 'none' : undefined }}>
+          style={{
+            cursor: isMarking ? 'crosshair' : 'default',
+            // `touch-action: none` belongs on whatever actually swallows the gesture: while marking
+            // that is the whole canvas, but in edit mode only the boxes themselves (below) — killing
+            // the page scroll over a full-page document image would trap a touch user on it.
+            touchAction: isMarking ? 'none' : undefined,
+          }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={objUrl} alt={pageLabel ?? `Δείγμα εγγράφου, σελίδα ${page + 1}`} className="block w-full" draggable={false} />
           {isMarking && active && box && (
@@ -217,6 +239,10 @@ export function RegionMarker({
             // A box at the very top of the page has no room above it for its label — hang it under
             // the box instead, where it is still readable rather than clipped off the image.
             const labelBelow = bb[1] < 0.04;
+            // A box only a few pixels wide has no room for 8 handles — they would cover the region
+            // entirely and every grab would land on a handle instead of the box. Move it, or nudge it
+            // wider with Shift+arrow, and they come back.
+            const roomForHandles = pageWidth === 0 || bb[2] * pageWidth >= 16;
             return (
               <div key={i} className={`absolute overflow-visible ${onRegionHover || interactive ? '' : 'pointer-events-none'}${interactive ? ' group cursor-move outline-none' : ''}`}
                 onMouseEnter={onRegionHover ? () => onRegionHover(i) : undefined}
@@ -229,21 +255,28 @@ export function RegionMarker({
                 onPointerMove={interactive ? onBoxPointerMove : undefined}
                 onPointerUp={interactive ? onBoxPointerUp : undefined}
                 onPointerCancel={interactive ? onBoxPointerCancel : undefined}
+                onLostPointerCapture={interactive ? onBoxPointerCancel : undefined}
                 onKeyDown={interactive ? (e) => onBoxKeyDown(i, r.bbox, e) : undefined}
                 style={{
                   left: `${bb[0] * 100}%`, top: `${bb[1] * 100}%`, width: `${bb[2] * 100}%`, height: `${bb[3] * 100}%`,
                   border: `${r.active ? 3 : 2}px solid ${c}`,
                   background: c + (r.active ? '33' : '1A'),
                   boxShadow: r.active ? `0 0 0 2px #fff, 0 0 0 4px ${c}` : undefined,
+                  touchAction: interactive ? 'none' : undefined,
                 }}>
                 {r.label && (
                   <span className={`pointer-events-none absolute left-0 rounded-sm px-1 text-[10px] font-medium text-white ${labelBelow ? 'top-full' : '-top-4'}`}
                     style={{ background: c }}>{r.label}</span>
                 )}
-                {interactive && HANDLES.map((hd) => (
+                {interactive && roomForHandles && HANDLES.map((hd) => (
+                  // 12px of paint with an invisible 4px skirt (`after:-inset-1`) → a 20px target, which
+                  // a finger can hit without the handle itself covering a small region.
+                  // Only the SELECTED box may be resized: an unselected one reveals its handles on
+                  // hover as an affordance, but they stay click-through so the first press moves or
+                  // selects the box, never resizes it by accident.
                   <span key={hd.h} data-handle={hd.h} aria-hidden
-                    className={`absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 bg-white ${selectedIndex === i ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus:opacity-100'}`}
-                    style={{ left: `${hd.x}%`, top: `${hd.y}%`, borderColor: c, cursor: hd.cursor }} />
+                    className={`absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 bg-white after:absolute after:-inset-1 after:content-[''] ${selectedIndex === i ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover:opacity-100 group-focus:opacity-100'}`}
+                    style={{ left: `${hd.x}%`, top: `${hd.y}%`, borderColor: c, cursor: hd.cursor, touchAction: 'none' }} />
                 ))}
               </div>
             );
