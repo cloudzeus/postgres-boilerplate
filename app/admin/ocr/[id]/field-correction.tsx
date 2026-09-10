@@ -4,8 +4,6 @@ import { useState, useMemo } from 'react';
 import { Button } from '@/lib/design-system';
 import { useMarquee, type NormBox } from './use-marquee';
 
-type Hints = Record<string, { page: number; bbox: [number, number, number, number] }>;
-
 const FIELD_LABELS: Record<string, string> = {
   companyName: 'Επωνυμία Εκδότη', vatNumber: 'ΑΦΜ Εκδότη',
   customerName: 'Επωνυμία Πελάτη', customerVatNumber: 'ΑΦΜ Πελάτη',
@@ -23,7 +21,6 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
 }) {
   const [data, setData] = useState<Record<string, any>>(initialData ?? {});
   const [activeField, setActiveField] = useState<string | null>(null);
-  const [hints, setHints] = useState<Hints>({});
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const page = 0; // single-page marquee for v1
@@ -37,10 +34,7 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
         body: JSON.stringify({ field: activeField, page, bbox: [box.x, box.y, box.w, box.h] }),
       });
       const json = await res.json();
-      if (res.ok && json.value) {
-        setData((d) => ({ ...d, [activeField]: json.value }));
-        setHints((h) => ({ ...h, [activeField]: { page, bbox: [box.x, box.y, box.w, box.h] } }));
-      }
+      if (res.ok && json.value) setData((d) => ({ ...d, [activeField]: json.value }));
     } finally { setBusy(false); setActiveField(null); }
   }, [activeField, docId]);
 
@@ -53,17 +47,6 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ extractedData: data, items: Array.isArray(data.items) ? data.items : undefined }) });
       setSaved(res.ok ? 'Οι διορθώσεις αποθηκεύτηκαν.' : 'Σφάλμα αποθήκευσης.');
-    } finally { setBusy(false); }
-  }
-  async function saveTemplate() {
-    setBusy(true);
-    try {
-      await fetch(`/api/admin/ocr/${docId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ extractedData: data }) });
-      const res = await fetch(`/api/admin/ocr/${docId}/save-template`, { method: 'POST',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fieldHints: hints }) });
-      const json = await res.json();
-      setSaved(res.ok ? 'Αποθηκεύτηκε ως πρότυπο προμηθευτή.' : (json.error ?? 'Σφάλμα'));
     } finally { setBusy(false); }
   }
 
@@ -102,7 +85,6 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
         ))}
         <div className="flex gap-2 pt-2">
           <Button variant="primary" onClick={saveCorrections} isLoading={busy}>Αποθήκευση διορθώσεων</Button>
-          <Button variant="secondary" onClick={saveTemplate} isLoading={busy}>Αποθήκευση ως πρότυπο</Button>
         </div>
         {saved && <p className="text-sm text-green-600">{saved}</p>}
       </div>

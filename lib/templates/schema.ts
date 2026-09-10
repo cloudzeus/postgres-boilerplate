@@ -1,5 +1,5 @@
 // lib/templates/schema.ts — ISOMORPHIC (no prisma, no React). Shared by client + server.
-import { slugifyFieldKey } from '@/lib/ocr/field-rules';
+import { slugifyFieldKey } from './slug';
 
 export type Bbox = [number, number, number, number];           // x, y, w, h normalized 0-1
 export type Region = { page: number; bbox: Bbox };
@@ -84,7 +84,7 @@ export function nextColor(used: string[]): string {
   return best;
 }
 
-/** Stable machine key from a label (Greek → Latin, snake_case). Reuses the OCR field-rules slugger. */
+/** Stable machine key from a label (Greek → Latin, snake_case). Reuses the shared slugger (`./slug`). */
 export function slugKey(label: string): string {
   return slugifyFieldKey(label);
 }

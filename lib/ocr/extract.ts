@@ -4,12 +4,6 @@ import { buildSystemPrompt, countMissingRequired, REQUIRED_FIELDS, type DocType,
 import { logAiUsage, providerFromUrl, type AiScope } from '@/lib/ai/usage';
 import { qualityScore, fixSwappedParties, normalizeAfmFields } from '@/lib/ocr/validate';
 import { resolveOwnAfm } from '@/lib/ocr/own-afm';
-import { findSupplierTemplate, mergeFromTemplatePass } from '@/lib/ocr/templates-store';
-import {
-  buildCustomFieldsPrompt, mergeCustomFields,
-  buildLineFieldsPrompt, mergeLineCustomFields, type FieldRuleLite,
-} from '@/lib/ocr/field-rules';
-import { findActiveFieldRules } from '@/lib/ocr/field-rules-db';
 import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
 import { buildModelChain, tryModels } from '@/lib/ocr/model-fallback';
 
@@ -618,138 +612,11 @@ async function runScannedPdf(
   };
 }
 
-/**
- * After a normal pass, if required fields are still missing AND we have a verified
- * template for this issuer ΑΦΜ, run ONE more pass with a few-shot prompt and merge
- * in only the fields pass 1 missed. Extra model call only for known suppliers with
- * incomplete first passes.
- */
-async function applySupplierTemplate(input: ExtractInput, base: ExtractResult): Promise<ExtractResult> {
-  if (countMissingRequired(base.data, input.docType) === 0) return base;
-  const issuerAfm = String(base.data?.vatNumber ?? '').replace(/\D+/g, '');
-  if (!/^\d{9}$/.test(issuerAfm)) return base;
-  const tpl = await findSupplierTemplate(issuerAfm, input.docType);
-  if (!tpl) return base;
-
-  const cfg = await resolveCfg();
-  const system = buildSystemPrompt(input.docType, input.language, tpl.example, tpl.fieldHints);
-  let pass2: any = null;
-  try {
-    if (input.mimeType === 'application/pdf'
-        && cfg.visionUrl.includes('generativelanguage.googleapis.com')) {
-      const out = await callGeminiPdfNative(cfg, system, input.buffer, UPGRADED_VISION_MODEL);
-      pass2 = parseJsonLoose(out.content);
-    } else if (input.mimeType.startsWith('image/')) {
-      const enhanced = await enhanceForOcr(input.buffer);
-      const out = await callVisionLLM(cfg, system, enhanced.buffer.toString('base64'),
-        enhanced.mimeType, UPGRADED_VISION_MODEL);
-      pass2 = parseJsonLoose(out.content);
-    } else if (base.rawText) {
-      const out = await callTextLLM(cfg, system,
-        `Here is the digital text payload extracted from the document:\n\n${base.rawText}`);
-      pass2 = parseJsonLoose(out.content);
-    }
-  } catch { return base; }
-  if (!pass2) return base;
-
-  const merged = mergeFromTemplatePass(base.data, pass2, input.docType);
-  try {
-    const { prisma } = await import('@/lib/db');
-    await prisma.supplierTemplate.update({ where: { id: tpl.id }, data: { timesUsed: { increment: 1 } } });
-  } catch { /* best effort */ }
-  return { ...base, data: merged, model: `${base.model} + template`, retried: true };
-}
-
-type LoadedFieldRule = { id: string; key: string; label: string; description: string | null; regionHint: unknown; scope: string; valueType: string };
-
-function ruleToLite(r: LoadedFieldRule): FieldRuleLite {
-  return {
-    key: r.key, label: r.label, description: r.description, regionHint: r.regionHint,
-    scope: (r.scope as 'document' | 'line') ?? 'document',
-    valueType: (r.valueType as 'text' | 'list') ?? 'text',
-  };
-}
-
-/** Run one targeted field pass with the given system prompt; returns parsed JSON or null. */
-async function runFieldPass(
-  cfg: DeepSeekCfg, input: ExtractInput, base: ExtractResult, system: string,
-): Promise<any | null> {
-  if (input.mimeType === 'application/pdf' && cfg.visionUrl.includes('generativelanguage.googleapis.com')) {
-    const out = await callGeminiPdfNative(cfg, system, input.buffer);
-    return parseJsonLoose(out.content);
-  }
-  if (input.mimeType.startsWith('image/')) {
-    const enhanced = await enhanceForOcr(input.buffer);
-    const out = await callVisionLLM(cfg, system, enhanced.buffer.toString('base64'), enhanced.mimeType);
-    return parseJsonLoose(out.content);
-  }
-  if (base.rawText) {
-    const out = await callTextLLM(cfg, system,
-      `Here is the digital text payload extracted from the document:\n\n${base.rawText}`);
-    return parseJsonLoose(out.content);
-  }
-  return null;
-}
-
-async function bumpRulesUsed(rules: { id: string }[]): Promise<void> {
-  const { prisma } = await import('@/lib/db');
-  await prisma.supplierFieldRule.updateMany({
-    where: { id: { in: rules.map((r) => r.id) } },
-    data: { timesUsed: { increment: 1 } },
-  }).catch(() => null);
-}
-
-/**
- * After the ΑΦΜ is resolved, extract this supplier's active custom fields.
- * Runs up to two best-effort passes (never throws): a document pass for
- * scope="document" rules → data.customFields, and a line pass for scope="line"
- * rules → data.items[i].customFields (only when the doc has line items).
- * Uses the default vision model.
- */
-async function applyCustomFieldRules(input: ExtractInput, base: ExtractResult): Promise<ExtractResult> {
-  try {
-    if (!base.data) return base;
-    const all = await findActiveFieldRules(String(base.data.vatNumber ?? ''), input.docType) as unknown as LoadedFieldRule[];
-    if (all.length === 0) return base;
-
-    const docRules = all.filter((r) => (r.scope ?? 'document') === 'document');
-    const lineRules = all.filter((r) => r.scope === 'line');
-
-    const cfg = await resolveCfg();
-    let out = base;
-
-    if (docRules.length > 0) {
-      const parsed = await runFieldPass(cfg, input, out, buildCustomFieldsPrompt(docRules.map(ruleToLite)));
-      if (parsed) {
-        out = { ...out, data: mergeCustomFields(out.data, parsed, docRules.map(ruleToLite)) };
-        await bumpRulesUsed(docRules);
-      }
-    }
-
-    if (lineRules.length > 0 && Array.isArray(out.data.items) && out.data.items.length > 0) {
-      const lines = out.data.items.map((it: any, i: number) => ({
-        index: i, code: it?.code ?? null, name: String(it?.name ?? ''),
-      }));
-      const parsed = await runFieldPass(cfg, input, out, buildLineFieldsPrompt(lineRules.map(ruleToLite), lines));
-      const parsedLines = Array.isArray(parsed?.lines) ? parsed.lines : null;
-      if (parsedLines) {
-        out = { ...out, data: mergeLineCustomFields(out.data, parsedLines, lineRules.map(ruleToLite)) };
-        await bumpRulesUsed(lineRules);
-      }
-    }
-
-    return out;
-  } catch {
-    return base;
-  }
-}
-
 export async function extractDocument(input: ExtractInput): Promise<ExtractResult> {
   const base = await extractDocumentRaw(input);
-  const withTemplate = await applySupplierTemplate(input, base);
   // Strip country prefixes (EL999863881 → 999863881) so the stored ΑΦΜ is what
-  // AADE / SoftOne searches expect — everything downstream reads this value.
-  if (withTemplate.data) normalizeAfmFields(withTemplate.data);
-  // Supplier-specific custom fields (best-effort, after ΑΦΜ is resolved+normalized).
-  return applyCustomFieldRules(input, withTemplate);
+  // AADE / SoftOne searches expect — everything downstream reads this value, including
+  // the extraction-template runner that picks a template by issuer ΑΦΜ.
+  if (base.data) normalizeAfmFields(base.data);
+  return base;
 }
