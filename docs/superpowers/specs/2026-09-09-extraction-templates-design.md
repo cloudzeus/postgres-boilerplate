@@ -412,3 +412,41 @@ Bunny key δείγματος: `templates/<id>/sample-<nanoid>.<ext>` (χωρίς
 4. **Endpoint** `POST /api/admin/ocr/[id]/template-runs/[runId]/reread { fieldKey, region? }` — μόνο στο τελευταίο run· ξαναδιαβάζει το πεδίο (SINGLE ή TABLE), ενημερώνει `values[key]`, ξαναϋπολογίζει τα flags του πεδίου (required, διασταύρωση OCR), ξανακάνει projection όταν mode ≠ MANUAL (ίδια λογική με το PATCH), επιστρέφει `{ run }`. Καταγράφεται σε audit και κόστος (`logAiUsage` refType OcrDocument).
 5. **Κόμβοι ροής**: κλικ σε κόμβο πεδίου στην κάρτα εστιάζει τη γραμμή του πεδίου (και την περιοχή), όπου υπάρχει το «Επανάγνωση».
 6. Δεν χρειάζεται migration: το `TemplateRun.values[key].bbox/page` ήδη κρατά την περιοχή που χρησιμοποιήθηκε.
+
+---
+
+## 17. Κανονικό JSON εγγράφου και προσαρμοστικές περιοχές (αίτημα 2026-09-10)
+
+Ο χρήστης: «ό,τι και να γίνει, η έξοδός μας είναι JSON και από εκεί είτε καταχώριση στο SoftOne είτε Excel. Μόλις καταλάβεις ότι είναι παραστατικό, προσπάθησε να εξάγεις **όλα** τα πεδία: εκδότη, αποδέκτη, γραμμές, σύνολα, ΦΠΑ, ψηφιακή σήμανση, τύπο παραστατικού, και μετά όλα τα υπόλοιπα. Αν δεν είναι παραστατικό, ό,τι μπορεί να χαρτογραφηθεί. Η δομή των παραστατικών είναι σχετικά κοινή (βλ. SoftOne) και υπάρχει πάντα ένα object με τις custom τιμές» (παράδειγμα: webhook παραγγελίας Skroutz — πλήρες, δομημένο JSON με `customer`, `line_items`, σύνολα, `fees`).
+
+### 17.1 Κανονικό σχήμα (plan 5)
+Κάθε εκτέλεση (OCR + πρότυπο) παράγει **ένα** έγγραφο JSON:
+```json
+{ "template": "<slug|null>", "version": 3, "extractedAt": "…", "file": "…", "documentId": "…",
+  "document": {
+    "kind": "invoice" | "receipt" | "general",
+    "type": { "label": "ΤΙΜΟΛΟΓΙΟ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ", "series": "ΤΠΥ", "number": "17", "myDataType": "2.1" },
+    "date": "2026-06-22", "dueDate": null, "currency": "EUR",
+    "issuer":    { "name", "vat", "doy", "profession", "address", "city", "zip", "country", "phone", "email", "gemi" },
+    "recipient": { "name", "vat", "doy", "profession", "address", "city", "zip", "country", "code" },
+    "lines": [ { "code", "name", "unit", "quantity", "unitPrice", "discount", "net", "vatRate", "vatAmount", "total", "custom": {} } ],
+    "totals": { "net", "discount", "vatAmount", "withholding", "fees", "total", "payable" },
+    "vatBreakdown": [ { "rate": 24, "net": 185, "vat": 44.4 } ],
+    "digital": { "mark": "400014…", "uid": "…", "authCode": "…", "provider": "timologio", "qr": true },
+    "payment": { "method": "Επί πιστώσει", "terms": "60 ημέρες", "ibans": [ { "bank": "Eurobank", "iban": "GR…" } ] },
+    "references": { "orderNo", "deliveryNote", "contract", "shipment", "plates": [], "period": { "from", "to" }, "quantities": [ { "label": "Κατανάλωση", "value": 437775.64, "unit": "kWh" } ] },
+    "notes": "…",
+    "handwritten": { "glAccount": "64.00.03.000.023", "reference": "260883", "allocations": [ { "label": "Pudralac", "amount": 3298.53 } ] },
+    "custom": { "<template field key>": … }
+  } }
+```
+- **Το βασικό OCR** (prompt τιμολογίου) εξάγει ολόκληρο το `document` (όχι μόνο τα σημερινά flat κλειδιά)· τα σημερινά κλειδιά του `extractedData` παράγονται από αυτό (συμβατότητα με λίστα/ανάρτηση).
+- **Το πρότυπο** συμπληρώνει/διορθώνει: κάθε πεδίο του προτύπου χαρτογραφείται είτε σε **διαδρομή** του κανονικού σχήματος (`totals.payable`, `references.quantities[]`, `handwritten.glAccount`…) είτε στο `custom`. Το INVOICE mapping του §1 γίνεται mapping σε διαδρομές του `document`.
+- Γενικό έγγραφο: `kind: "general"`, `document` έχει μόνο `custom` (+ `notes`).
+- Το SoftOne posting (§14.8) και το Excel διαβάζουν **μόνο** αυτό το JSON.
+
+### 17.2 Προσαρμοστικές περιοχές — ακτίνα γύρω από την τελευταία επιτυχημένη ανάγνωση (plan 4)
+«Καταχώρησε και τη θέση, ώστε στα κριτήρια αναζήτησης να έχεις την ακτίνα γύρω από την τελευταία επιτυχημένη σάρωση.» Κάθε επιτυχημένη ανάγνωση (τιμή που επιβεβαιώθηκε ή δεν διορθώθηκε) αποθηκεύει τη θέση της ανά πεδίο (`TemplateField.lastGood: { page, bbox, at, n }`, κινητός μέσος όρος). Στην εξαγωγή: 1) διάβασε στην περιοχή του προτύπου· 2) αν κενό/μη έγκυρο, ξαναδιάβασε σε **διευρυμένη** περιοχή (ακτίνα r γύρω από το `lastGood`, π.χ. +15 % του πλάτους/ύψους) με οδηγία «βρες την ετικέτα «X» και δώσε την τιμή δίπλα της»· 3) αν βρεθεί, καταγράφεται η νέα θέση. Σε συνδυασμό με τα δείγματα εκπαίδευσης (§11) η ακτίνα μικραίνει όσο αυξάνεται η βεβαιότητα.
+
+### 17.3 Σειρά υλοποίησης
+plan 3b (διαδραστικές περιοχές, νέο πεδίο από το έγγραφο) → **plan 5 κανονικό JSON** (σχήμα, prompt βασικού OCR, mapping σε διαδρομές, έξοδος/Excel/posting από το JSON) → plan 4 εκπαίδευση + προσαρμοστικές περιοχές + jobs → layer καταχώρησης SoftOne.
