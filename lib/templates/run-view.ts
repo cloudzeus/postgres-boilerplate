@@ -32,8 +32,9 @@ export function editSeed(v: FieldValue | undefined): string {
 /**
  * How many pages the marker may page through: one past the deepest page any value came from, but
  * never fewer than `minPages`. The floor is the template's own sample: «Νέο πεδίο» marks a box on a
- * page the run read NOTHING from, and without it those pages are unreachable. A page the document
- * does not actually have answers 422 on its image, which the marker already renders as "no page".
+ * page the run read NOTHING from, and without it those pages are unreachable. Overshooting is safe:
+ * a page the document does not actually have answers 422 on its image, and the marker renders that
+ * one status as «Το έγγραφο δεν έχει αυτή τη σελίδα.» instead of an HTTP error.
  */
 export function pageCountOf(values: Record<string, FieldValue>, minPages = 0): number {
   let max = 0;

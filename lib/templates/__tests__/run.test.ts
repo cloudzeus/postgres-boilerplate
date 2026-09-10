@@ -666,6 +666,24 @@ describe('rereadField', () => {
     expect(runUpdate().flags.fields).toEqual({ total: 'review' });
   });
 
+  it('keeps a correction that landed on ANOTHER field while the model was reading', async () => {
+    loadRun();
+    // The row this re-read snapshotted is not the row it commits against: a PATCH corrected «note»
+    // (and left its own review flag) in between. Only «total» may carry over from the snapshot.
+    db.templateRun.findUnique.mockResolvedValueOnce(runRow()).mockResolvedValue(runRow({
+      values: { total: value(20), note: value('διορθωμένο') },
+      flags: { review: ['χειροκίνητη διόρθωση'], blocked: [], notified: [], fields: {} },
+    }));
+    extract.mockResolvedValue(extractResult({ total: value(229.4) }));
+
+    await rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total' });
+
+    expect(runUpdate().values.total).toMatchObject({ value: 229.4 });
+    expect(runUpdate().values.note).toMatchObject({ value: 'διορθωμένο' });
+    // The flags are rebuilt from the FRESH row too, or the correction's own verdict would go with it.
+    expect(runUpdate().flags.review).toEqual(['χειροκίνητη διόρθωση']);
+  });
+
   it('refuses a run that stopped being the latest WHILE the model was reading', async () => {
     loadRun();
     // Latest when we check on entry; a re-run of the template landed by the time the read came back.

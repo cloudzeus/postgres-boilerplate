@@ -55,7 +55,16 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
   const [runs, setRuns] = React.useState<RunDto[]>(initialRuns);
   const [selectedId, setSelectedId] = React.useState<string | null>(initialRuns[0]?.id ?? null);
   const [templateId, setTemplateId] = React.useState(() => defaultTemplateId(templates, issuerVat, initialRuns[0]?.template.id));
-  const [focusKey, setFocusKey] = React.useState<string | null>(null);
+  // Two different things the card could call "the current field", kept apart on purpose: what the
+  // pointer happens to be over, and what the user PICKED. Only a pick may arm a box's resize handles
+  // — handles that followed the pointer would appear on a box merely being crossed, and the press
+  // that follows would resize a region nobody chose.
+  const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
+  const [hoverKey, setHoverKey] = React.useState<string | null>(null);
+  // Hover wins for the HIGHLIGHT alone (row tint, thicker box): under the pointer while there is
+  // one, back to the selection the moment it leaves.
+  const focusKey = hoverKey ?? selectedKey;
+  const clearFocus = React.useCallback(() => { setSelectedKey(null); setHoverKey(null); }, []);
   const [page, setPage] = React.useState(0);
   const [busy, setBusy] = React.useState(false);
   const [posting, setPosting] = React.useState(false);
@@ -70,7 +79,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
   const regionEdit = useRunRegions({ docId, run, onRun: replaceRun });
   // «Νέο πεδίο»: mark a box on the DOCUMENT, name it, and the template gains the field. The row and
   // the box are both new, so the card puts the user in front of them instead of making them hunt.
-  const addField = useRunAddField({ docId, run, onRun: replaceRun, onAdded: (key, p) => { setFocusKey(key); setPage(p); } });
+  const addField = useRunAddField({ docId, run, onRun: replaceRun, onAdded: (key, p) => { setSelectedKey(key); setPage(p); } });
   const values = React.useMemo(() => run?.values ?? {}, [run]);
   // The run only names the pages it READ something from; «Νέο πεδίο» has to reach the others too, so
   // the sample's page count is the floor. A page beyond the document answers 422 on its image, and
@@ -96,7 +105,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
    * image out from under the pointer as it slides down the list is unusable.
    */
   const selectField = React.useCallback((key: string | null) => {
-    setFocusKey(key);
+    setSelectedKey(key);
     const p = key ? pageOf(values[key]) : null;
     if (p != null) setPage(p);
   }, [values]);
@@ -132,7 +141,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
         setSelectedId(fresh.id);
         setTemplateId(fresh.template.id);
       }
-      setFocusKey(null);
+      clearFocus();
       setPage(0);
       // A FAILED run does not always carry a reason (the database can refuse the run row itself), so
       // the status — not the presence of `error` — decides both the tone and the fallback wording.
@@ -147,7 +156,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
     } finally {
       setBusy(false);
     }
-  }, [docId, templateId, router]);
+  }, [docId, templateId, router, clearFocus]);
 
   const doEdit = React.useCallback(async (key: string, value: string) => {
     // The list hides the pencil when the run is not editable; this is the second lock, so a stale
@@ -261,11 +270,14 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
                 <RegionMarker
                   pageImageUrl={(p) => `/api/admin/ocr/${docId}/page-image?page=${p}&scale=3`}
                   pageCount={pageCount} page={page} onPageChange={setPage}
-                  savedRegions={regions} onRegionHover={addField.marking ? undefined : (i) => setFocusKey(regionKeyAt(regionKeys, i))}
+                  savedRegions={regions} onRegionHover={addField.marking ? undefined : (i) => setHoverKey(regionKeyAt(regionKeys, i))}
                   isMarking={addField.marking} onRegionComplete={addField.onRegion} showNav={false}
                   editable={editableRun}
-                  selectedIndex={regionIndexOf(regionKeys, focusKey)}
-                  onRegionSelect={(i) => setFocusKey(regionKeyAt(regionKeys, i))}
+                  // The handles follow the SELECTION, never the pointer. A click or Escape on a box
+                  // is a pick like a row click — but it does not page-follow: the box is on the page
+                  // being looked at, and a pending box moved to another page would jump away from it.
+                  selectedIndex={regionIndexOf(regionKeys, selectedKey)}
+                  onRegionSelect={(i) => setSelectedKey(regionKeyAt(regionKeys, i))}
                   onRegionChange={(i, bbox) => { const key = regionKeys[i]; if (key) regionEdit.setRegion(key, { page, bbox }); }}
                   pageLabel={`${fileName}, σελίδα ${page + 1}`} className="w-full"
                 />
@@ -281,7 +293,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
               )}
             </div>
             <RunFieldList
-              run={run} focusKey={focusKey} onFocus={setFocusKey} onSelect={selectField} editable={editableRun} onEdit={doEdit}
+              run={run} focusKey={focusKey} selectedKey={selectedKey} onFocus={setHoverKey} onSelect={selectField} editable={editableRun} onEdit={doEdit}
               pending={regionEdit.pending} rereading={regionEdit.rereading} savingRegion={regionEdit.saving}
               savedRegionKeys={regionEdit.savedKeys}
               onReread={regionEdit.reread} onSaveRegion={regionEdit.saveToTemplate} rowRefs={rowRefs}
@@ -321,7 +333,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
                 <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
                   {runs.map((r) => (
                     <li key={r.id}>
-                      <button type="button" onClick={() => { setSelectedId(r.id); setFocusKey(null); setPage(0); }}
+                      <button type="button" onClick={() => { setSelectedId(r.id); clearFocus(); setPage(0); }}
                         className={`flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-[11px] hover:bg-muted/40 ${r.id === run.id ? 'bg-muted/60' : ''}`}>
                         <RunStatusPill status={r.status} />
                         <span className="truncate">{r.template.name}</span>

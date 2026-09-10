@@ -10,10 +10,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SOURCE_LABEL } from '@/lib/templates/labels';
 import { editSeed, formatValue } from '@/lib/templates/run-view';
-import type { FieldDef, FieldValue, Region } from '@/lib/templates/schema';
+import type { Bbox, FieldDef, FieldValue, Region } from '@/lib/templates/schema';
 import type { RunDto } from '@/lib/templates/run-dto';
 
 const EMPTY = '—';
+
+/** Two boxes are the same box only if all four numbers are; a missing box is never equal to one. */
+const sameBbox = (a: Bbox | null | undefined, b: Bbox | null | undefined): boolean =>
+  !!a && !!b && a.length === b.length && a.every((n, i) => n === b[i]);
 
 /** Left border of a row, by the run's verdict on that field. Transparent keeps every row the same width. */
 const FLAG_BORDER = { blocked: '#B91C1C', review: '#B45309' } as const;
@@ -50,7 +54,14 @@ function TableRows({ field, rows }: { field: FieldDef; rows: unknown[] }) {
 
 type Props = {
   run: RunDto;
+  /** The highlighted row — hover or, with nothing hovered, the selection. */
   focusKey: string | null;
+  /**
+   * The row the user actually PICKED, which is what a click toggles off. Defaults to `focusKey`;
+   * pass it separately wherever hover and selection are different things, or merely sliding the
+   * pointer onto a row would turn the click that follows into a deselect.
+   */
+  selectedKey?: string | null;
   /** Hover: highlight this field's box, nothing more. */
   onFocus: (key: string | null) => void;
   /** A deliberate pick (click or keyboard focus): highlight AND follow the field to its page. */
@@ -77,7 +88,7 @@ type Props = {
 };
 
 export function RunFieldList({
-  run, focusKey, onFocus, onSelect, editable, onEdit,
+  run, focusKey, selectedKey, onFocus, onSelect, editable, onEdit,
   pending, rereading = null, savingRegion = null, savedRegionKeys, onReread, onSaveRegion, rowRefs,
 }: Props) {
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
@@ -102,6 +113,7 @@ export function RunFieldList({
         const rows = Array.isArray(v?.value) ? (v!.value as unknown[]) : null;
         const isOpen = !!open[f.key];
         const isFocused = focusKey === f.key;
+        const isSelected = (selectedKey === undefined ? focusKey : selectedKey) === f.key;
         const flag = run.flags.fields[f.key];
         const pendingRegion = pending?.[f.key];
         // Where a re-read would read FROM: the box drawn on the canvas, the template's own box, or —
@@ -113,8 +125,12 @@ export function RunFieldList({
         // «Δεν διαβάστηκε» is exactly the row the user came here for — give it the loud button. An
         // empty TABLE (`[]`) read nothing either, however truthy the array is.
         const failed = !v || v.source === 'none' || v.value == null || v.value === '' || (Array.isArray(v.value) && v.value.length === 0);
+        // A box that was moved and already re-read has left `pending`, but the TEMPLATE still holds
+        // the old one — the run's own box is the proof of that, and the only way to push it to the
+        // template is the loud row, so it stays out until the two agree.
+        const adjustedRegion = !!v?.bbox && !sameBbox(v.bbox, f.region?.bbox);
         // The loud row shows even with nothing to read from — disabled, saying where the box comes from.
-        const showRereadRow = editable && !!onReread && (failed || !!pendingRegion);
+        const showRereadRow = editable && !!onReread && (failed || !!pendingRegion || adjustedRegion);
         const regionSaved = !!savedRegionKeys?.has(f.key);
         return (
           <li
@@ -123,7 +139,7 @@ export function RunFieldList({
             tabIndex={0}
             onMouseEnter={() => onFocus(f.key)}
             onFocus={(e) => { if (e.target === e.currentTarget) onSelect(f.key); }}
-            onClick={() => onSelect(isFocused ? null : f.key)}
+            onClick={() => onSelect(isSelected ? null : f.key)}
             className={`cursor-pointer px-3 py-2 transition-colors ${isFocused ? 'bg-muted/60' : 'hover:bg-muted/30'}`}
             style={{ borderLeft: `3px solid ${flag ? FLAG_BORDER[flag] : 'transparent'}` }}
           >
@@ -194,7 +210,7 @@ export function RunFieldList({
                       aria-label={`Επανάγνωση «${f.label}»`}>
                       <FiRefreshCw className={busyReread ? 'animate-spin' : ''} /> {busyReread ? 'Ανάγνωση…' : 'Επανάγνωση'}
                     </Button>
-                    {pendingRegion && onSaveRegion && (
+                    {(pendingRegion || adjustedRegion) && onSaveRegion && (
                       // Spent once the box is in the template: a second write would only bump the
                       // version again for the identical region. The chip stays — the box is still
                       // unread on THIS run until «Επανάγνωση».

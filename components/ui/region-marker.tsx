@@ -32,9 +32,13 @@ type Props = {
    * drawing a new region always wins over editing an old one.
    */
   editable?: boolean;
-  /** Index of the region that shows its handles; the others reveal theirs on hover. */
+  /**
+   * Index of the region that shows its handles; the others reveal theirs on hover. This is the
+   * SELECTION, not the hover: a box the pointer merely crosses must not arm its handles, or the
+   * first press would resize a region the user never picked.
+   */
   selectedIndex?: number | null;
-  /** A click that did not drag, or `Escape` (→ `null`). */
+  /** A click that did not drag, or `Escape` (→ `null`). Hover never reports here — see `onRegionHover`. */
   onRegionSelect?: (index: number | null) => void;
   /**
    * A finished edit: fires on pointer-up and on every keyboard nudge, never mid-drag — the live
@@ -87,9 +91,14 @@ export function RegionMarker({
       try {
         const res = await fetch(url, { cache: 'no-store' });
         if (!res.ok) {
-          const body = await res.text().catch(() => '');
+          // 422 is the one non-OK the user can act on — the document simply has no such page (the
+          // marker can be paged past the end). It says so in words; every other status keeps the
+          // HTTP code and a slice of the body, which is diagnostics, not a message.
+          const msg = res.status === 422
+            ? 'Το έγγραφο δεν έχει αυτή τη σελίδα.'
+            : `HTTP ${res.status} — ${(await res.text().catch(() => '')).slice(0, 200)}`;
           if (!alive) return;
-          setErrMsg(`HTTP ${res.status} — ${body.slice(0, 200)}`);
+          setErrMsg(msg);
           setObjUrl(null);
           setLoading(false);
           onError?.();
@@ -195,6 +204,8 @@ export function RegionMarker({
       return;
     }
     const next = nudgeBbox(bbox, e.key, e.shiftKey);
+    // Same reference = nothing to commit: either not an arrow key at all, or a box already flush
+    // against the page edge that the clamp put back where it was. Either way, no `onRegionChange`.
     if (next === bbox) return;
     e.preventDefault();
     onRegionChange?.(i, next);

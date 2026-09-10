@@ -2,7 +2,7 @@
 import 'server-only';
 import type { ExtractionTemplate, TemplateCondition, TemplateField, TemplateMapping, TemplateRun } from '@prisma/client';
 import { toConditionDto, toFieldDef, toMappingDto } from './serialize';
-import type { FieldFlag } from './run-logic';
+import type { StoredFlags } from './run-flags';
 import type { FieldValue } from './schema';
 
 /**
@@ -19,7 +19,9 @@ export type RunWithTemplate = TemplateRun & {
 };
 
 export function toRunDto(r: RunWithTemplate) {
-  const flags = (r.flags as { review?: string[]; blocked?: string[]; notified?: string[]; fields?: Record<string, FieldFlag>; baseOcr?: Record<string, unknown> } | null) ?? null;
+  // Same shape the recomputation reads the column back as — one definition, so the DTO and the
+  // rewrite can never disagree about what a stored `flags` object holds.
+  const flags = (r.flags as StoredFlags | null) ?? null;
   return {
     id: r.id,
     status: r.status,

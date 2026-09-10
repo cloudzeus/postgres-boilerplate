@@ -369,8 +369,7 @@ export async function rereadField(input: { documentId: string; runId: string; fi
   const field = fields.find((f) => f.key === input.fieldKey);
   if (!field) return { ok: false, error: 'unknown_field' };
 
-  const values = { ...((run.values as unknown as Record<string, FieldValue>) ?? {}) };
-  const prev = values[field.key];
+  const prev = ((run.values as unknown as Record<string, FieldValue>) ?? {})[field.key];
   // Which box to read: the one the user just drew, else the one this run actually used (a previous
   // per-document adjustment), else the template's own region.
   const region: Region | null =
@@ -403,14 +402,20 @@ export async function rereadField(input: { documentId: string; runId: string; fi
   // The value carries the box it was read from, so the next re-read starts where this one left off
   // and the canvas keeps drawing the region the value actually came from.
   const value: FieldValue = { ...ex.values[field.key], page: region.page, bbox: region.bbox };
-  values[field.key] = value;
 
   // The vision call takes seconds, and a re-run of the template can land in the middle of it. Ask
   // again, now: `finalizeRunEdit` projects onto the document and moves its banner, so committing
   // against a run that is no longer the latest would overwrite the newer run's work with ours.
   if (!(await isLatestRun(input.documentId, input.runId))) return { ok: false, error: 'not_latest' };
 
-  const updated = await finalizeRunEdit({ run, values, extracted: (doc.extractedData ?? {}) as Record<string, unknown> });
+  // The SAME run can also have moved: a manual correction (PATCH) on another field commits while the
+  // model is reading. `values` and `flags` were snapshotted before the read, so writing them back
+  // would silently undo that correction. Re-read the row and put ONLY our field on top of it.
+  const fresh = await prisma.templateRun.findUnique({ where: { id: input.runId }, include: RUN_INCLUDE });
+  if (!fresh || fresh.documentId !== input.documentId) return { ok: false, error: 'not_found' };
+  const merged = { ...((fresh.values as unknown as Record<string, FieldValue>) ?? {}), [field.key]: value };
+
+  const updated = await finalizeRunEdit({ run: fresh, values: merged, extracted: (doc.extractedData ?? {}) as Record<string, unknown> });
   return { ok: true, run: updated, value, region, overridden: input.region != null, model: ex.model, tokensUsed: ex.tokensUsed };
 }
 

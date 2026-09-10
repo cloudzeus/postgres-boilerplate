@@ -55,6 +55,18 @@ describe('nudgeBbox', () => {
       expect(nudgeBbox(b, key, true)).toBe(b);
     }
   });
+  // The caller commits an edit only when the reference changes, so a box that cannot move must come
+  // back as the very same array — not as an equal copy.
+  it('hands the SAME array back when the clamp leaves the box exactly where it was', () => {
+    const flush: Bbox = [0, 0, 0.4, 0.4];
+    expect(nudgeBbox(flush, 'ArrowLeft', false)).toBe(flush);
+    expect(nudgeBbox(flush, 'ArrowUp', false)).toBe(flush);
+    // Already the whole page: Shift+↓ has nothing left to grow into.
+    const full: Bbox = [0, 0, 1, 1];
+    expect(nudgeBbox(full, 'ArrowDown', true)).toBe(full);
+    // A nudge that DOES move still hands back a fresh array.
+    expect(nudgeBbox(flush, 'ArrowRight', false)).not.toBe(flush);
+  });
   it('does not drift: 100 there-and-back nudges land exactly where they started', () => {
     const start: Bbox = [0.2, 0.2, 0.4, 0.4];
     let b: Bbox = start;

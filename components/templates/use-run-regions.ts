@@ -80,7 +80,11 @@ export function useRunRegions({ docId, run, onRun }: Args): RunRegions {
   }, [docId, run, pending, onRun, rereading]);
 
   const saveToTemplate = React.useCallback(async (key: string) => {
-    const region = pending[key];
+    // With no pending box, the run's own value still carries the box it was READ from: a region that
+    // was adjusted and then re-read has left `pending`, and that box — not the template's older one —
+    // is exactly what the user is asking to keep.
+    const v = run?.values[key];
+    const region: Region | null = pending[key] ?? (v?.bbox ? { page: v.page ?? 0, bbox: v.bbox } : null);
     if (!run || !region || saving) return;
     setSaving(key);
     try {

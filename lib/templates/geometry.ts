@@ -42,6 +42,10 @@ export function resizeBbox(b: Bbox, handle: Handle, dx: number, dy: number): Bbo
  * Arrow key → move by one step; with Shift → resize from the south-east corner. Unknown keys are a
  * no-op — including `toString`, `constructor` and friends: `key` is whatever the browser reports, so
  * the lookup is a `switch` rather than an object index that would inherit Object.prototype.
+ *
+ * Every no-op returns the SAME array reference — the unknown key, and equally the arrow that pushed
+ * a box already flush against the page edge. Callers use that identity to skip committing an edit
+ * that would write back the box they already have.
  */
 export function nudgeBbox(b: Bbox, key: string, shift: boolean): Bbox {
   let dx = 0;
@@ -53,5 +57,6 @@ export function nudgeBbox(b: Bbox, key: string, shift: boolean): Bbox {
     case 'ArrowDown': dy = NUDGE; break;
     default: return b;
   }
-  return shift ? resizeBbox(b, 'se', dx, dy) : moveBbox(b, dx, dy);
+  const next = shift ? resizeBbox(b, 'se', dx, dy) : moveBbox(b, dx, dy);
+  return next.every((n, i) => n === b[i]) ? b : next;
 }
