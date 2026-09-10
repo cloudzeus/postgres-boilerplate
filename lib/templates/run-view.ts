@@ -1,7 +1,7 @@
 // lib/templates/run-view.ts — ISOMORPHIC, PURE. The arithmetic and formatting the run card and the
 // OCR list do to a run before painting it. Lives here, not in the components, so it can be tested
 // without a DOM and so the picker and the card cannot disagree about what "matches this ΑΦΜ" means.
-import { normalizeVat, type FieldValue, type RunStatus, type TemplateValueType } from './schema';
+import { normalizeVat, slugKey, uniqueKey, type Bbox, type ColumnDef, type FieldValue, type Region, type RunStatus, type TemplateValueType } from './schema';
 
 const EMPTY = '—';
 
@@ -29,11 +29,68 @@ export function editSeed(v: FieldValue | undefined): string {
   return v?.raw ?? String(v?.value ?? '');
 }
 
-/** How many pages the marker may page through: one past the deepest page any value came from. */
-export function pageCountOf(values: Record<string, FieldValue>): number {
+/**
+ * How many pages the marker may page through: one past the deepest page any value came from, but
+ * never fewer than `minPages`. The floor is the template's own sample: «Νέο πεδίο» marks a box on a
+ * page the run read NOTHING from, and without it those pages are unreachable. Overshooting is safe:
+ * a page the document does not actually have answers 422 on its image, and the marker renders that
+ * one status as «Το έγγραφο δεν έχει αυτή τη σελίδα.» instead of an HTTP error.
+ */
+export function pageCountOf(values: Record<string, FieldValue>, minPages = 0): number {
   let max = 0;
   for (const v of Object.values(values)) if (v?.page != null && v.page > max) max = v.page;
-  return max + 1;
+  return Math.max(max + 1, minPages);
+}
+
+/** «Περιγραφή, Ποσότητα, Αξία» → three columns with unique slugged keys. Empty entries drop out. */
+export function parseColumns(text: string): ColumnDef[] {
+  const cols: ColumnDef[] = [];
+  for (const raw of text.split(',')) {
+    const label = raw.trim();
+    if (!label) continue;
+    cols.push({ key: uniqueKey(slugKey(label), cols.map((c) => c.key)), label, valueType: 'TEXT' });
+  }
+  return cols;
+}
+
+/** One box on the page image, without the bits that depend on what is focused or how it is labelled. */
+export type RunRegionBox = { bbox: Bbox; color?: string };
+
+/**
+ * The boxes of ONE page of a run, and the field key behind each one, in the same order — the marker
+ * addresses regions by index, the list by key, and this is the only place the two are tied together.
+ *
+ * A box the user just moved or resized (`pending`) WINS over the one the run was executed with, until
+ * «Επανάγνωση» sends it to the server and the run comes back carrying it. A pending box also carries
+ * its own page: an adjustment that moved a field to another page follows it there.
+ */
+export function buildRunRegions(
+  values: Record<string, FieldValue>,
+  pending: Record<string, Region>,
+  page: number,
+): { regions: RunRegionBox[]; keys: string[] } {
+  const regions: RunRegionBox[] = [];
+  const keys: string[] = [];
+  for (const [key, v] of Object.entries(values)) {
+    const adjusted = pending[key];
+    const bbox = adjusted?.bbox ?? v?.bbox;
+    if (!bbox || (adjusted?.page ?? v?.page ?? 0) !== page) continue;
+    keys.push(key);
+    regions.push({ bbox, color: v?.color });
+  }
+  return { regions, keys };
+}
+
+/** Field key → the index the marker knows that box by (`null` = not on this page / no box at all). */
+export function regionIndexOf(keys: string[], key: string | null): number | null {
+  if (!key) return null;
+  const i = keys.indexOf(key);
+  return i < 0 ? null : i;
+}
+
+/** The marker's index → the field key it belongs to (`null` for "nothing", and for a stale index). */
+export function regionKeyAt(keys: string[], index: number | null): string | null {
+  return index == null ? null : keys[index] ?? null;
 }
 
 /** The part of a template the ΑΦΜ match and the default selection need. */

@@ -7,19 +7,23 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FiChevronDown, FiChevronRight, FiDownload, FiFileText, FiHelpCircle, FiPlay, FiUploadCloud } from 'react-icons/fi';
+import { FiChevronDown, FiChevronRight, FiDownload, FiFileText, FiHelpCircle, FiPlay, FiPlus, FiUploadCloud } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { RegionMarker, type SavedRegion } from '@/components/ui/region-marker';
-import { defaultTemplateId, editSeed, matchesVat, pageCountOf } from '@/lib/templates/run-view';
+import { buildRunRegions, defaultTemplateId, editSeed, matchesVat, pageCountOf, regionIndexOf, regionKeyAt } from '@/lib/templates/run-view';
 import type { FlowRun } from '@/lib/templates/flow';
-import type { FieldValue } from '@/lib/templates/schema';
+import { COLOR_PALETTE, type FieldValue } from '@/lib/templates/schema';
 import { templatesApi, errorMessage, type RunDto } from './api';
 import { FlowCanvas } from './flow-canvas';
+import { NewFieldDialog } from './new-field-dialog';
 import { RunFieldList } from './run-field-list';
 import { RunHeader, runLabel, runWhen } from './run-header';
 import { RunStatusPill } from './run-status-pill';
 import { TemplatePicker, type TemplateSummary } from './template-picker';
+import { ACCENT, COLOR_CAP_MSG } from './use-detection';
+import { useRunAddField } from './use-run-add-field';
+import { useRunRegions } from './use-run-regions';
 
 type Props = {
   docId: string;
@@ -51,18 +55,49 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
   const [runs, setRuns] = React.useState<RunDto[]>(initialRuns);
   const [selectedId, setSelectedId] = React.useState<string | null>(initialRuns[0]?.id ?? null);
   const [templateId, setTemplateId] = React.useState(() => defaultTemplateId(templates, issuerVat, initialRuns[0]?.template.id));
-  const [focusKey, setFocusKey] = React.useState<string | null>(null);
+  // Two different things the card could call "the current field", kept apart on purpose: what the
+  // pointer happens to be over, and what the user PICKED. Only a pick may arm a box's resize handles
+  // — handles that followed the pointer would appear on a box merely being crossed, and the press
+  // that follows would resize a region nobody chose.
+  const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
+  const [hoverKey, setHoverKey] = React.useState<string | null>(null);
+  // Hover wins for the HIGHLIGHT alone (row tint, thicker box): under the pointer while there is
+  // one, back to the selection the moment it leaves.
+  const focusKey = hoverKey ?? selectedKey;
+  const clearFocus = React.useCallback(() => { setSelectedKey(null); setHoverKey(null); }, []);
   const [page, setPage] = React.useState(0);
   const [busy, setBusy] = React.useState(false);
   const [posting, setPosting] = React.useState(false);
   const [flowOpen, setFlowOpen] = React.useState(false);
   const [historyOpen, setHistoryOpen] = React.useState(false);
 
+  // One element per field row, so a click on a flow node can bring its row into view (spec §16.5).
+  const rowRefs = React.useRef<Record<string, HTMLLIElement | null>>({});
+
   const run = React.useMemo(() => runs.find((r) => r.id === selectedId) ?? runs[0] ?? null, [runs, selectedId]);
+  const replaceRun = React.useCallback((updated: RunDto) => setRuns((rs) => rs.map((r) => (r.id === updated.id ? updated : r))), []);
+  const regionEdit = useRunRegions({ docId, run, onRun: replaceRun });
+  // «Νέο πεδίο»: mark a box on the DOCUMENT, name it, and the template gains the field. The row and
+  // the box are both new, so the card puts the user in front of them instead of making them hunt.
+  const addField = useRunAddField({ docId, run, onRun: replaceRun, onAdded: (key, p) => { setSelectedKey(key); setPage(p); } });
   const values = React.useMemo(() => run?.values ?? {}, [run]);
-  const pageCount = React.useMemo(() => pageCountOf(values), [values]);
+  // The run only names the pages it READ something from; «Νέο πεδίο» has to reach the others too, so
+  // the sample's page count is the floor. A page beyond the document answers 422 on its image, and
+  // the marker already renders that as "no page" rather than breaking.
+  const pageCount = React.useMemo(() => pageCountOf(values, run?.template.sample?.pageCount ?? 0), [values, run]);
   const alreadyRan = templateId !== '' && runs.some((r) => r.template.id === templateId);
   const vatHint = !run && templates.some((t) => matchesVat(t, issuerVat) && t.status === 'ACTIVE');
+  /**
+   * Corrections — a moved box, a re-read, a typed value — only make sense on the run the rest of the
+   * app treats as THE result of this document: the newest one, and only while nothing has been posted
+   * from it. The server refuses the older ones anyway (`not_latest` / `posted`), so offering the
+   * controls on a history entry would only produce an error nobody can act on from here.
+   */
+  const isLatest = !!run && run.id === runs[0]?.id;
+  const editableRun = canManage && isLatest && run?.status !== 'POSTED';
+  // One palette colour per field: a full template cannot take another one. Say so on the button
+  // instead of letting the user draw a box and name a field the save would refuse.
+  const atColorCap = (run?.template.fields.length ?? 0) >= COLOR_PALETTE.length;
 
   /**
    * A deliberate pick — clicking or tabbing to a row, clicking a node in the flow — follows the field
@@ -70,23 +105,32 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
    * image out from under the pointer as it slides down the list is unusable.
    */
   const selectField = React.useCallback((key: string | null) => {
-    setFocusKey(key);
+    setSelectedKey(key);
     const p = key ? pageOf(values[key]) : null;
     if (p != null) setPage(p);
   }, [values]);
 
+  /**
+   * A node in the flow diagram is the same field as a row in the list — clicking it follows the
+   * field to its page AND scrolls its row into view, because that row is where «Επανάγνωση» lives
+   * (spec §16.5). `nearest` keeps the page still when the row is already visible.
+   */
+  const selectFieldFromFlow = React.useCallback((key: string | null) => {
+    selectField(key);
+    if (key) rowRefs.current[key]?.scrollIntoView({ block: 'nearest' });
+  }, [selectField]);
+
   // The boxes of THIS page, and the field key behind each one — `onRegionHover` reports an index into
   // this list, and the highlight only travels back to the row if we can name the field again.
-  const { regions, regionKeys } = React.useMemo(() => {
-    const rs: SavedRegion[] = [];
-    const keys: string[] = [];
-    for (const [key, v] of Object.entries(values)) {
-      if (!v?.bbox || (v.page ?? 0) !== page) continue;
-      keys.push(key);
-      rs.push({ bbox: v.bbox, color: v.color, active: key === focusKey, label: run?.template.fields.find((f) => f.key === key)?.label ?? key });
-    }
-    return { regions: rs, regionKeys: keys };
-  }, [values, page, focusKey, run]);
+  const { regions: boxes, keys: regionKeys } = React.useMemo(
+    () => buildRunRegions(values, regionEdit.pending, page),
+    [values, regionEdit.pending, page],
+  );
+  // Focus and labels are view state, not geometry — they ride on top of the pure result.
+  const regions = React.useMemo<SavedRegion[]>(
+    () => boxes.map((b, i) => ({ ...b, active: regionKeys[i] === focusKey, label: run?.template.fields.find((f) => f.key === regionKeys[i])?.label ?? regionKeys[i] })),
+    [boxes, regionKeys, focusKey, run],
+  );
 
   const doRun = React.useCallback(async () => {
     setBusy(true);
@@ -97,7 +141,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
         setSelectedId(fresh.id);
         setTemplateId(fresh.template.id);
       }
-      setFocusKey(null);
+      clearFocus();
       setPage(0);
       // A FAILED run does not always carry a reason (the database can refuse the run row itself), so
       // the status — not the presence of `error` — decides both the tone and the fallback wording.
@@ -112,10 +156,12 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
     } finally {
       setBusy(false);
     }
-  }, [docId, templateId, router]);
+  }, [docId, templateId, router, clearFocus]);
 
   const doEdit = React.useCallback(async (key: string, value: string) => {
-    if (!run) return;
+    // The list hides the pencil when the run is not editable; this is the second lock, so a stale
+    // open editor (the run switched under it) cannot still PATCH a history entry.
+    if (!run || !editableRun) return;
     // Same expression the editor seeded the box with: otherwise a value whose `raw` differs from its
     // coerced form («1.234,50» → 1234.5) looks changed the moment it is opened and saves a no-op.
     if (editSeed(run.values[key]) === value) return;
@@ -127,7 +173,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
     } catch (e) {
       toast.error(errorMessage(e));
     }
-  }, [docId, run, router]);
+  }, [docId, run, router, editableRun]);
 
   const doPost = React.useCallback(async () => {
     setPosting(true);
@@ -172,6 +218,12 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
               <FiPlay /> {busy ? 'Εκτέλεση…' : alreadyRan ? 'Επανεκτέλεση' : 'Εκτέλεση'}
             </Button>
           )}
+          {editableRun && (
+            <Button size="sm" variant="secondary" onClick={addField.startMarking} disabled={addField.marking || addField.busy || atColorCap}
+              title={atColorCap ? COLOR_CAP_MSG : 'Σημείωσε περιοχή στο έγγραφο για ένα πεδίο που λείπει από το πρότυπο'}><FiPlus /> Νέο πεδίο</Button>
+          )}
+          {editableRun && atColorCap && <span className="text-[11px] text-muted-foreground">{COLOR_CAP_MSG}</span>}
+          {addField.marking && <span role="status" className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ backgroundColor: ACCENT.bg, color: ACCENT.fg }}>Σύρε πλαίσιο για το νέο πεδίο · Esc για ακύρωση</span>}
           {run && (
             <>
               <a href={templatesApi.runs.outputUrl(docId, run.id, true)} download
@@ -212,17 +264,40 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
                     disabled={page >= pageCount - 1} onClick={() => setPage((p) => p + 1)}>→</button>
                 </div>
               )}
+              {/* `onRegionHover` makes the saved boxes swallow the pointer — while a NEW box is being
+                  drawn they go click-through, or a field could not be marked on top of an old region. */}
               <div className="overflow-hidden rounded-lg border border-border">
                 <RegionMarker
                   pageImageUrl={(p) => `/api/admin/ocr/${docId}/page-image?page=${p}&scale=3`}
                   pageCount={pageCount} page={page} onPageChange={setPage}
-                  savedRegions={regions} onRegionHover={(i) => setFocusKey(i == null ? null : regionKeys[i] ?? null)}
-                  isMarking={false} onRegionComplete={() => {}} showNav={false}
+                  savedRegions={regions} onRegionHover={addField.marking ? undefined : (i) => setHoverKey(regionKeyAt(regionKeys, i))}
+                  isMarking={addField.marking} onRegionComplete={addField.onRegion} showNav={false}
+                  editable={editableRun}
+                  // The handles follow the SELECTION, never the pointer. A click or Escape on a box
+                  // is a pick like a row click — but it does not page-follow: the box is on the page
+                  // being looked at, and a pending box moved to another page would jump away from it.
+                  selectedIndex={regionIndexOf(regionKeys, selectedKey)}
+                  onRegionSelect={(i) => setSelectedKey(regionKeyAt(regionKeys, i))}
+                  onRegionChange={(i, bbox) => { const key = regionKeys[i]; if (key) regionEdit.setRegion(key, { page, bbox }); }}
                   pageLabel={`${fileName}, σελίδα ${page + 1}`} className="w-full"
                 />
               </div>
+              {canManage && (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  {addField.marking
+                    ? 'Σύρε πλαίσιο πάνω στο έγγραφο για το νέο πεδίο — Esc για ακύρωση.'
+                    : editableRun
+                      ? 'Σύρε ή άλλαξε το μέγεθος μιας περιοχής (βέλη για μικρομετακίνηση, Shift+βέλη για μέγεθος) και μετά «Επανάγνωση» στο πεδίο. Με «Νέο πεδίο» προσθέτεις πεδίο που λείπει από το πρότυπο.'
+                      : 'Μόνο η τελευταία, μη αναρτημένη εκτέλεση μπορεί να διορθωθεί.'}
+                </p>
+              )}
             </div>
-            <RunFieldList run={run} focusKey={focusKey} onFocus={setFocusKey} onSelect={selectField} editable={canManage} onEdit={doEdit} />
+            <RunFieldList
+              run={run} focusKey={focusKey} selectedKey={selectedKey} onFocus={setHoverKey} onSelect={selectField} editable={editableRun} onEdit={doEdit}
+              pending={regionEdit.pending} rereading={regionEdit.rereading} savingRegion={regionEdit.saving}
+              savedRegionKeys={regionEdit.savedKeys}
+              onReread={regionEdit.reread} onSaveRegion={regionEdit.saveToTemplate} rowRefs={rowRefs}
+            />
           </div>
 
           <FlagList items={run.flags.blocked} color="#B91C1C" bg="#FDE8E8" title="Μπλοκάρισμα ανάρτησης" />
@@ -243,7 +318,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
             {flowOpen && (
               <div className="mt-2 rounded-lg border border-border" style={{ height: 260 }}>
                 <FlowCanvas template={run.template} run={flowRun} orientation="horizontal" focusKey={focusKey} refitOnChange
-                  onNodeClick={(n) => selectField(n.id.startsWith('field:') ? n.id.slice(6) : null)} />
+                  onNodeClick={(n) => selectFieldFromFlow(n.id.startsWith('field:') ? n.id.slice(6) : null)} />
               </div>
             )}
           </div>
@@ -258,7 +333,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
                 <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
                   {runs.map((r) => (
                     <li key={r.id}>
-                      <button type="button" onClick={() => { setSelectedId(r.id); setFocusKey(null); setPage(0); }}
+                      <button type="button" onClick={() => { setSelectedId(r.id); clearFocus(); setPage(0); }}
                         className={`flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-[11px] hover:bg-muted/40 ${r.id === run.id ? 'bg-muted/60' : ''}`}>
                         <RunStatusPill status={r.status} />
                         <span className="truncate">{r.template.name}</span>
@@ -272,6 +347,8 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
           )}
         </>
       )}
+
+      <NewFieldDialog open={addField.region != null} onOpenChange={(o) => { if (!o) addField.cancel(); }} region={addField.region} takenKeys={addField.takenKeys} busy={addField.busy} onSubmit={addField.submit} />
     </section>
   );
 }

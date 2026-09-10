@@ -5,7 +5,9 @@ import { invoiceKeyInfo, isValidBbox, slugKey } from './schema';
 const hex = z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Χρώμα hex');
 const norm = z.number().min(0).max(1);
 const Bbox = z.tuple([norm, norm, norm, norm]).refine(isValidBbox, 'Μη έγκυρη περιοχή');
-export const RegionSchema = z.object({ page: z.number().int().min(0), bbox: Bbox });
+// `page` is 0-based. The cap is a sanity bound only — the real limit is the document's own page
+// count, which nothing here can see; a region past it is refused at read time (`bad_page`).
+export const RegionSchema = z.object({ page: z.number().int().min(0).max(999, 'Μη έγκυρη σελίδα'), bbox: Bbox });
 const ValueType = z.enum(['TEXT', 'NUMBER', 'CURRENCY', 'DATE', 'LIST']);
 export const ColumnSchema = z.object({ key: z.string().trim().min(1).max(60).regex(/^[a-z0-9_]+$/, 'Κλειδί στήλης: μόνο a-z, 0-9, _'), label: z.string().trim().min(1).max(120), valueType: ValueType.default('TEXT') });
 

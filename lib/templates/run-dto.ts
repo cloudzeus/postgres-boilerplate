@@ -2,7 +2,7 @@
 import 'server-only';
 import type { ExtractionTemplate, TemplateCondition, TemplateField, TemplateMapping, TemplateRun } from '@prisma/client';
 import { toConditionDto, toFieldDef, toMappingDto } from './serialize';
-import type { FieldFlag } from './run-logic';
+import type { StoredFlags } from './run-flags';
 import type { FieldValue } from './schema';
 
 /**
@@ -19,7 +19,9 @@ export type RunWithTemplate = TemplateRun & {
 };
 
 export function toRunDto(r: RunWithTemplate) {
-  const flags = (r.flags as { review?: string[]; blocked?: string[]; notified?: string[]; fields?: Record<string, FieldFlag> } | null) ?? null;
+  // Same shape the recomputation reads the column back as — one definition, so the DTO and the
+  // rewrite can never disagree about what a stored `flags` object holds.
+  const flags = (r.flags as StoredFlags | null) ?? null;
   return {
     id: r.id,
     status: r.status,
@@ -30,12 +32,16 @@ export function toRunDto(r: RunWithTemplate) {
     values: (r.values as unknown as Record<string, FieldValue>) ?? {},
     matched: (r.matched as unknown as { id: string; name: string }[]) ?? [],
     // Non-optional: every consumer (badges, the flow panel, the review list, the row borders) can read
-    // without a guard — including runs written before `fields` existed and FAILED runs that stored none.
+    // without a guard — including runs written before `fields`/`baseOcr` existed and FAILED runs that
+    // stored none. `baseOcr` is what the base OCR read before this run projected over it. This is a
+    // VIEW: the recomputation reads the raw column, where "no snapshot at all" (an older run, which
+    // may not be re-checked) still differs from "a snapshot that happened to be empty".
     flags: {
       review: flags?.review ?? [],
       blocked: flags?.blocked ?? [],
       notified: flags?.notified ?? [],
       fields: flags?.fields ?? {},
+      baseOcr: flags?.baseOcr ?? {},
     },
     mappingName: r.mappingName,
     model: r.model,

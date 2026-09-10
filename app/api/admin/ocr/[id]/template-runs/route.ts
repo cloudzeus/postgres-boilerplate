@@ -19,7 +19,10 @@ export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
   const runs = await prisma.templateRun.findMany({
     where: { documentId: id },
-    orderBy: { createdAt: 'desc' },
+    // Same tie-break as `isLatestRun`: two runs can share a `createdAt` to the millisecond, and the
+    // card treats `runs[0]` as THE latest — the one it lets the user correct. If the two orderings
+    // disagreed, the card would offer edits the server then refuses with `not_latest`.
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: 20,
     include: RUN_INCLUDE,
   });

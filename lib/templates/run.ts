@@ -14,11 +14,13 @@ import { projectToInvoice } from './mapping';
 import { TEMPLATE_INCLUDE, toConditionDto, toFieldDef, toMappingDto } from './serialize';
 import { sendRuleNotifications } from './notify';
 import {
-  applySetFields, buildReviewFlags, canPost, crossCheckOcr, decideOutcome, extrasFrom, itemsToRows,
+  applySetFields, baseOcrSnapshot, buildReviewFlags, canPost, crossCheckOcr, decideOutcome, extrasFrom, itemsToRows,
   mappingFellBack, pickMapping, requiredMissing, setInvoicePath, tableFellThrough,
   type FieldFlag, type ItemRow, type RunFlags,
 } from './run-logic';
-import { normalizeVat, type MappingRowInvoice, type RunOutcome, type RunTrigger } from './schema';
+import { recomputeFieldFlags, type StoredFlags } from './run-flags';
+import { RUN_INCLUDE, type RunWithTemplate } from './run-dto';
+import { normalizeVat, type FieldValue, type MappingRowInvoice, type Region, type RunOutcome, type RunTrigger } from './schema';
 
 export type { RunOutcome, RunTrigger };
 
@@ -110,6 +112,10 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
   const mappings = t.mappings.map(toMappingDto);
   const base = { templateId: t.id, templateVersion: t.version, documentId: doc.id, trigger: input.trigger };
   const extracted = (doc.extractedData ?? {}) as Record<string, unknown>;
+  // What the base OCR read, captured NOW — the projection below overwrites `extractedData` with the
+  // template's own values, and every later re-check of «Ασυμφωνία …» (a correction, a re-read) needs
+  // the independent reading to compare against. Stored on the run; see `baseOcrSnapshot`.
+  const baseOcr = baseOcrSnapshot(extracted);
 
   try {
     const buffer = await bunnyDownload(doc.storageKey);
@@ -202,7 +208,7 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
         status,
         values: values as unknown as Prisma.InputJsonValue,
         matched: applied.matched as unknown as Prisma.InputJsonValue,
-        flags: { ...flags, notified: [] as string[] } as unknown as Prisma.InputJsonValue,
+        flags: { ...flags, notified: [] as string[], baseOcr } as unknown as Prisma.InputJsonValue,
         mappingName: mapping?.name ?? '',
         model: ex.model,
         tokensUsed: ex.tokensUsed,
@@ -226,7 +232,7 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
     });
     if (notified.length) {
       await prisma.templateRun
-        .update({ where: { id: run.id }, data: { flags: { ...flags, notified } as unknown as Prisma.InputJsonValue } })
+        .update({ where: { id: run.id }, data: { flags: { ...flags, notified, baseOcr } as unknown as Prisma.InputJsonValue } })
         .catch((e) => console.error('[templates] notified flags not stored', run.id, (e as Error).message));
     }
 
@@ -265,6 +271,152 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
       return { runId: '', status: 'FAILED', flags: carried, error };
     }
   }
+}
+
+// ─── Editing a run after the fact ───────────────────────────────────────────
+// A human corrects a value (PATCH) or re-reads one field with a box they just moved (reread). Both
+// end in exactly the same three writes, and they live here so the two paths can never drift apart.
+
+/**
+ * Whether `runId` is the document's LATEST run. An older run is a historical record: editing it
+ * would re-project stale values over the document and leave the banner describing a different run,
+ * so both edit paths answer 409 `not_latest` when this is false.
+ */
+export async function isLatestRun(documentId: string, runId: string): Promise<boolean> {
+  const latest = await prisma.templateRun.findFirst({
+    where: { documentId },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: { id: true },
+  });
+  return latest?.id === runId;
+}
+
+/**
+ * Persist edited values on a run: recompute the flags the values own, re-project onto the document
+ * (never in MANUAL mode, same rule as the runner) and refresh the document's banner. The caller has
+ * already refused a run that is not the document's latest, which is what makes moving the banner safe.
+ * `extracted` is the document's `extractedData` when the caller already holds it.
+ */
+export async function finalizeRunEdit(input: {
+  run: RunWithTemplate;
+  values: Record<string, FieldValue>;
+  extracted?: Record<string, unknown>;
+}): Promise<RunWithTemplate> {
+  const { run, values } = input;
+  const t = run.template;
+  const fields = [...t.fields].sort((a, b) => a.order - b.order).map(toFieldDef);
+  const mapping = t.mode === 'MANUAL' ? null : pickMapping(t.mappings.map(toMappingDto), run.mappingName || null);
+  const rows = (mapping?.rows ?? []) as MappingRowInvoice[];
+
+  let extracted = input.extracted;
+  if (!extracted) {
+    const doc = await prisma.ocrDocument.findUnique({ where: { id: run.documentId }, select: { extractedData: true } });
+    extracted = (doc?.extractedData ?? {}) as Record<string, unknown>;
+  }
+
+  // The cross-check compares against `flags.baseOcr` (the pre-projection snapshot the run stored),
+  // NOT against `extracted` — by now that is this run's own projection.
+  const flags = recomputeFieldFlags({ flags: run.flags as StoredFlags | null, fields, values, mode: t.mode, rows });
+
+  const updated = await prisma.templateRun.update({
+    where: { id: run.id },
+    data: { values: values as unknown as Prisma.InputJsonValue, flags: flags as unknown as Prisma.InputJsonValue },
+    include: RUN_INCLUDE,
+  });
+
+  // A correction is only worth anything if it reaches the document the ERP posts from — but a
+  // template with no INVOICE mapping has nothing to project.
+  if (mapping) {
+    const nextData = projectToInvoice(values, rows, extracted);
+    await applyProjectionToDocument(run.documentId, nextData, extracted.items);
+  }
+
+  await prisma.ocrDocument
+    .update({ where: { id: run.documentId }, data: { reviewFlags: buildReviewFlags(t, run.status, run.id, flags) as unknown as Prisma.InputJsonValue } })
+    .catch((e) => console.error('[templates] reviewFlags refresh failed', run.id, (e as Error).message));
+
+  return updated;
+}
+
+/** Why a re-read could not happen. The route turns each into its own status code. */
+export type RereadError = 'not_found' | 'not_latest' | 'posted' | 'unknown_field' | 'no_region' | 'bad_page' | 'read_failed';
+
+/** `renderPage` throws exactly this when the region names a page the document does not have. */
+const PAGE_OUT_OF_RANGE = 'page out of range';
+export type RereadResult =
+  | { ok: true; run: RunWithTemplate; value: FieldValue; region: Region; overridden: boolean; model: string | null; tokensUsed: number }
+  | { ok: false; error: RereadError };
+
+/**
+ * Read ONE field of a document again — the «Επανάγνωση» affordance of spec §16: rescan only the box
+ * that did not work out, optionally with a region the user just moved or resized on the canvas.
+ * The adjusted box is stored on the RUN (`values[key].page/bbox`), not on the template: it describes
+ * this one document. Saving it for future documents is a separate, explicit act on the template.
+ * Never throws for a failed read — the caller gets a code back.
+ */
+export async function rereadField(input: { documentId: string; runId: string; fieldKey: string; region?: Region }): Promise<RereadResult> {
+  const run = await prisma.templateRun.findUnique({ where: { id: input.runId }, include: RUN_INCLUDE });
+  if (!run || run.documentId !== input.documentId) return { ok: false, error: 'not_found' };
+  if (!(await isLatestRun(input.documentId, input.runId))) return { ok: false, error: 'not_latest' };
+  // A POSTED run has already reached the ERP: re-reading it would re-project over the very data
+  // SoftOne was given, and nothing here can take that back.
+  if (run.status === 'POSTED') return { ok: false, error: 'posted' };
+
+  const doc = await prisma.ocrDocument.findUnique({ where: { id: input.documentId }, select: { storageKey: true, mimeType: true, extractedData: true } });
+  if (!doc) return { ok: false, error: 'not_found' };
+
+  const fields = [...run.template.fields].sort((a, b) => a.order - b.order).map(toFieldDef);
+  const field = fields.find((f) => f.key === input.fieldKey);
+  if (!field) return { ok: false, error: 'unknown_field' };
+
+  const prev = ((run.values as unknown as Record<string, FieldValue>) ?? {})[field.key];
+  // Which box to read: the one the user just drew, else the one this run actually used (a previous
+  // per-document adjustment), else the template's own region.
+  const region: Region | null =
+    input.region ?? (prev?.bbox && prev.page != null ? { page: prev.page, bbox: prev.bbox } : null) ?? field.region;
+  if (!region) return { ok: false, error: 'no_region' };
+
+  let buffer: Buffer;
+  try {
+    buffer = await bunnyDownload(doc.storageKey);
+  } catch (e) {
+    console.error('[templates] reread: file unavailable', input.documentId, (e as Error).message);
+    return { ok: false, error: 'read_failed' };
+  }
+
+  const ex = await extractTemplateFields(buffer, doc.mimeType, [{ ...field, region }], { ref: { refType: 'OcrDocument', refId: input.documentId } })
+    .catch((e) => {
+      console.error('[templates] reread failed', input.documentId, field.key, (e as Error).message);
+      return null;
+    });
+  if (!ex) return { ok: false, error: 'read_failed' };
+  if (ex.errors.length) {
+    // The extractor's message names the model/provider — log it, hand the browser one fixed code.
+    console.error('[templates] reread errors', input.documentId, field.key, ex.errors);
+    // …except a page the document does not have: that is the CALLER's box, not a failure of the
+    // reader, and «Μη έγκυρη σελίδα» is something the user can actually act on.
+    if (ex.errors.some((e) => e.message === PAGE_OUT_OF_RANGE)) return { ok: false, error: 'bad_page' };
+    return { ok: false, error: 'read_failed' };
+  }
+
+  // The value carries the box it was read from, so the next re-read starts where this one left off
+  // and the canvas keeps drawing the region the value actually came from.
+  const value: FieldValue = { ...ex.values[field.key], page: region.page, bbox: region.bbox };
+
+  // The vision call takes seconds, and a re-run of the template can land in the middle of it. Ask
+  // again, now: `finalizeRunEdit` projects onto the document and moves its banner, so committing
+  // against a run that is no longer the latest would overwrite the newer run's work with ours.
+  if (!(await isLatestRun(input.documentId, input.runId))) return { ok: false, error: 'not_latest' };
+
+  // The SAME run can also have moved: a manual correction (PATCH) on another field commits while the
+  // model is reading. `values` and `flags` were snapshotted before the read, so writing them back
+  // would silently undo that correction. Re-read the row and put ONLY our field on top of it.
+  const fresh = await prisma.templateRun.findUnique({ where: { id: input.runId }, include: RUN_INCLUDE });
+  if (!fresh || fresh.documentId !== input.documentId) return { ok: false, error: 'not_found' };
+  const merged = { ...((fresh.values as unknown as Record<string, FieldValue>) ?? {}), [field.key]: value };
+
+  const updated = await finalizeRunEdit({ run: fresh, values: merged, extracted: (doc.extractedData ?? {}) as Record<string, unknown> });
+  return { ok: true, run: updated, value, region, overridden: input.region != null, model: ex.model, tokensUsed: ex.tokensUsed };
 }
 
 /** Convenience for the upload/reextract hooks: match by ΑΦΜ and run; never throws. */
