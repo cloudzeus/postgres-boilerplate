@@ -7,7 +7,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FiChevronDown, FiChevronRight, FiDownload, FiFileText, FiHelpCircle, FiPlay, FiUploadCloud } from 'react-icons/fi';
+import { FiChevronDown, FiChevronRight, FiDownload, FiFileText, FiHelpCircle, FiPlay, FiPlus, FiUploadCloud } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { RegionMarker, type SavedRegion } from '@/components/ui/region-marker';
@@ -16,10 +16,13 @@ import type { FlowRun } from '@/lib/templates/flow';
 import type { FieldValue } from '@/lib/templates/schema';
 import { templatesApi, errorMessage, type RunDto } from './api';
 import { FlowCanvas } from './flow-canvas';
+import { NewFieldDialog } from './new-field-dialog';
 import { RunFieldList } from './run-field-list';
 import { RunHeader, runLabel, runWhen } from './run-header';
 import { RunStatusPill } from './run-status-pill';
 import { TemplatePicker, type TemplateSummary } from './template-picker';
+import { ACCENT } from './use-detection';
+import { useRunAddField } from './use-run-add-field';
 import { useRunRegions } from './use-run-regions';
 
 type Props = {
@@ -65,6 +68,9 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
   const run = React.useMemo(() => runs.find((r) => r.id === selectedId) ?? runs[0] ?? null, [runs, selectedId]);
   const replaceRun = React.useCallback((updated: RunDto) => setRuns((rs) => rs.map((r) => (r.id === updated.id ? updated : r))), []);
   const regionEdit = useRunRegions({ docId, run, onRun: replaceRun });
+  // «Νέο πεδίο»: mark a box on the DOCUMENT, name it, and the template gains the field. The row and
+  // the box are both new, so the card puts the user in front of them instead of making them hunt.
+  const addField = useRunAddField({ docId, run, onRun: replaceRun, onAdded: (key, p) => { setFocusKey(key); setPage(p); } });
   const values = React.useMemo(() => run?.values ?? {}, [run]);
   const pageCount = React.useMemo(() => pageCountOf(values), [values]);
   const alreadyRan = templateId !== '' && runs.some((r) => r.template.id === templateId);
@@ -197,6 +203,11 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
               <FiPlay /> {busy ? 'Εκτέλεση…' : alreadyRan ? 'Επανεκτέλεση' : 'Εκτέλεση'}
             </Button>
           )}
+          {editableRun && (
+            <Button size="sm" variant="secondary" onClick={addField.startMarking} disabled={addField.marking || addField.busy}
+              title="Σημείωσε περιοχή στο έγγραφο για ένα πεδίο που λείπει από το πρότυπο"><FiPlus /> Νέο πεδίο</Button>
+          )}
+          {addField.marking && <span role="status" className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ backgroundColor: ACCENT.bg, color: ACCENT.fg }}>Σύρε πλαίσιο για το νέο πεδίο · Esc για ακύρωση</span>}
           {run && (
             <>
               <a href={templatesApi.runs.outputUrl(docId, run.id, true)} download
@@ -237,12 +248,14 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
                     disabled={page >= pageCount - 1} onClick={() => setPage((p) => p + 1)}>→</button>
                 </div>
               )}
+              {/* `onRegionHover` makes the saved boxes swallow the pointer — while a NEW box is being
+                  drawn they go click-through, or a field could not be marked on top of an old region. */}
               <div className="overflow-hidden rounded-lg border border-border">
                 <RegionMarker
                   pageImageUrl={(p) => `/api/admin/ocr/${docId}/page-image?page=${p}&scale=3`}
                   pageCount={pageCount} page={page} onPageChange={setPage}
-                  savedRegions={regions} onRegionHover={(i) => setFocusKey(regionKeyAt(regionKeys, i))}
-                  isMarking={false} onRegionComplete={() => {}} showNav={false}
+                  savedRegions={regions} onRegionHover={addField.marking ? undefined : (i) => setFocusKey(regionKeyAt(regionKeys, i))}
+                  isMarking={addField.marking} onRegionComplete={addField.onRegion} showNav={false}
                   editable={editableRun}
                   selectedIndex={regionIndexOf(regionKeys, focusKey)}
                   onRegionSelect={(i) => setFocusKey(regionKeyAt(regionKeys, i))}
@@ -252,9 +265,11 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
               </div>
               {canManage && (
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  {editableRun
-                    ? 'Σύρε ή άλλαξε το μέγεθος μιας περιοχής (βέλη για μικρομετακίνηση, Shift+βέλη για μέγεθος) και μετά «Επανάγνωση» στο πεδίο.'
-                    : 'Μόνο η τελευταία, μη αναρτημένη εκτέλεση μπορεί να διορθωθεί.'}
+                  {addField.marking
+                    ? 'Σύρε πλαίσιο πάνω στο έγγραφο για το νέο πεδίο — Esc για ακύρωση.'
+                    : editableRun
+                      ? 'Σύρε ή άλλαξε το μέγεθος μιας περιοχής (βέλη για μικρομετακίνηση, Shift+βέλη για μέγεθος) και μετά «Επανάγνωση» στο πεδίο. Με «Νέο πεδίο» προσθέτεις πεδίο που λείπει από το πρότυπο.'
+                      : 'Μόνο η τελευταία, μη αναρτημένη εκτέλεση μπορεί να διορθωθεί.'}
                 </p>
               )}
             </div>
@@ -313,6 +328,8 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
           )}
         </>
       )}
+
+      <NewFieldDialog open={addField.region != null} onOpenChange={(o) => { if (!o) addField.cancel(); }} region={addField.region} takenKeys={addField.takenKeys} busy={addField.busy} onSubmit={addField.submit} />
     </section>
   );
 }
