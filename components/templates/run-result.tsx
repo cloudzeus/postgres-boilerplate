@@ -20,6 +20,7 @@ import { RunFieldList } from './run-field-list';
 import { RunHeader, runLabel, runWhen } from './run-header';
 import { RunStatusPill } from './run-status-pill';
 import { TemplatePicker, type TemplateSummary } from './template-picker';
+import { useRunRegions } from './use-run-regions';
 
 type Props = {
   docId: string;
@@ -58,7 +59,12 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
   const [flowOpen, setFlowOpen] = React.useState(false);
   const [historyOpen, setHistoryOpen] = React.useState(false);
 
+  // One element per field row, so a click on a flow node can bring its row into view (spec §16.5).
+  const rowRefs = React.useRef<Record<string, HTMLLIElement | null>>({});
+
   const run = React.useMemo(() => runs.find((r) => r.id === selectedId) ?? runs[0] ?? null, [runs, selectedId]);
+  const replaceRun = React.useCallback((updated: RunDto) => setRuns((rs) => rs.map((r) => (r.id === updated.id ? updated : r))), []);
+  const regionEdit = useRunRegions({ docId, run, onRun: replaceRun });
   const values = React.useMemo(() => run?.values ?? {}, [run]);
   const pageCount = React.useMemo(() => pageCountOf(values), [values]);
   const alreadyRan = templateId !== '' && runs.some((r) => r.template.id === templateId);
@@ -75,18 +81,34 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
     if (p != null) setPage(p);
   }, [values]);
 
+  /**
+   * A node in the flow diagram is the same field as a row in the list — clicking it follows the
+   * field to its page AND scrolls its row into view, because that row is where «Επανάγνωση» lives
+   * (spec §16.5). `nearest` keeps the page still when the row is already visible.
+   */
+  const selectFieldFromFlow = React.useCallback((key: string | null) => {
+    selectField(key);
+    if (key) rowRefs.current[key]?.scrollIntoView({ block: 'nearest' });
+  }, [selectField]);
+
   // The boxes of THIS page, and the field key behind each one — `onRegionHover` reports an index into
   // this list, and the highlight only travels back to the row if we can name the field again.
   const { regions, regionKeys } = React.useMemo(() => {
     const rs: SavedRegion[] = [];
     const keys: string[] = [];
     for (const [key, v] of Object.entries(values)) {
-      if (!v?.bbox || (v.page ?? 0) !== page) continue;
+      // A box the user just moved or resized wins over the one the run was executed with, until
+      // «Επανάγνωση» sends it to the server and the run comes back carrying it.
+      const adjusted = regionEdit.pending[key];
+      const bbox = adjusted?.bbox ?? v?.bbox;
+      if (!bbox || (adjusted?.page ?? v?.page ?? 0) !== page) continue;
       keys.push(key);
-      rs.push({ bbox: v.bbox, color: v.color, active: key === focusKey, label: run?.template.fields.find((f) => f.key === key)?.label ?? key });
+      rs.push({ bbox, color: v?.color, active: key === focusKey, label: run?.template.fields.find((f) => f.key === key)?.label ?? key });
     }
     return { regions: rs, regionKeys: keys };
-  }, [values, page, focusKey, run]);
+  }, [values, regionEdit.pending, page, focusKey, run]);
+
+  const selectedRegion = focusKey ? regionKeys.indexOf(focusKey) : -1;
 
   const doRun = React.useCallback(async () => {
     setBusy(true);
@@ -218,11 +240,24 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
                   pageCount={pageCount} page={page} onPageChange={setPage}
                   savedRegions={regions} onRegionHover={(i) => setFocusKey(i == null ? null : regionKeys[i] ?? null)}
                   isMarking={false} onRegionComplete={() => {}} showNav={false}
+                  editable={canManage}
+                  selectedIndex={selectedRegion >= 0 ? selectedRegion : null}
+                  onRegionSelect={(i) => setFocusKey(i == null ? null : regionKeys[i] ?? null)}
+                  onRegionChange={(i, bbox) => { const key = regionKeys[i]; if (key) regionEdit.setRegion(key, { page, bbox }); }}
                   pageLabel={`${fileName}, σελίδα ${page + 1}`} className="w-full"
                 />
               </div>
+              {canManage && (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  Σύρε ή άλλαξε το μέγεθος μιας περιοχής (βέλη για μικρομετακίνηση, Shift+βέλη για μέγεθος) και μετά «Επανάγνωση» στο πεδίο.
+                </p>
+              )}
             </div>
-            <RunFieldList run={run} focusKey={focusKey} onFocus={setFocusKey} onSelect={selectField} editable={canManage} onEdit={doEdit} />
+            <RunFieldList
+              run={run} focusKey={focusKey} onFocus={setFocusKey} onSelect={selectField} editable={canManage} onEdit={doEdit}
+              pending={regionEdit.pending} rereading={regionEdit.rereading} savingRegion={regionEdit.saving}
+              onReread={regionEdit.reread} onSaveRegion={regionEdit.saveToTemplate} rowRefs={rowRefs}
+            />
           </div>
 
           <FlagList items={run.flags.blocked} color="#B91C1C" bg="#FDE8E8" title="Μπλοκάρισμα ανάρτησης" />
@@ -243,7 +278,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
             {flowOpen && (
               <div className="mt-2 rounded-lg border border-border" style={{ height: 260 }}>
                 <FlowCanvas template={run.template} run={flowRun} orientation="horizontal" focusKey={focusKey} refitOnChange
-                  onNodeClick={(n) => selectField(n.id.startsWith('field:') ? n.id.slice(6) : null)} />
+                  onNodeClick={(n) => selectFieldFromFlow(n.id.startsWith('field:') ? n.id.slice(6) : null)} />
               </div>
             )}
           </div>

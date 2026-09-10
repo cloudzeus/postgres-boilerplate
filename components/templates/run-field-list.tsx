@@ -5,11 +5,12 @@
 // same fields, keyed by `focusKey`.
 
 import * as React from 'react';
-import { FiChevronDown, FiChevronRight, FiEdit2 } from 'react-icons/fi';
+import { FiChevronDown, FiChevronRight, FiEdit2, FiRefreshCw, FiSave } from 'react-icons/fi';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SOURCE_LABEL } from '@/lib/templates/labels';
 import { editSeed, formatValue } from '@/lib/templates/run-view';
-import type { FieldDef, FieldValue } from '@/lib/templates/schema';
+import type { FieldDef, FieldValue, Region } from '@/lib/templates/schema';
 import type { RunDto } from '@/lib/templates/run-dto';
 
 const EMPTY = '—';
@@ -56,9 +57,27 @@ type Props = {
   onSelect: (key: string | null) => void;
   editable: boolean;
   onEdit: (key: string, value: string) => void;
+  /** Boxes moved or resized on the canvas but not yet re-read, by field key (spec §16.3). */
+  pending?: Record<string, Region>;
+  /** Field key whose re-read is in flight. */
+  rereading?: string | null;
+  /** Field key whose region is being written back to the template. */
+  savingRegion?: string | null;
+  /** Re-read ONLY this field from the document, with the pending box when there is one. */
+  onReread?: (key: string) => void;
+  /** Push this field's pending box back to the template, for every document after this one. */
+  onSaveRegion?: (key: string) => void;
+  /**
+   * Row elements by field key, so the card can bring a field into view when its node is clicked in
+   * the flow diagram — the list is the only place that knows which element is which field.
+   */
+  rowRefs?: React.RefObject<Record<string, HTMLLIElement | null>>;
 };
 
-export function RunFieldList({ run, focusKey, onFocus, onSelect, editable, onEdit }: Props) {
+export function RunFieldList({
+  run, focusKey, onFocus, onSelect, editable, onEdit,
+  pending, rereading = null, savingRegion = null, onReread, onSaveRegion, rowRefs,
+}: Props) {
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
   const [editing, setEditing] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState('');
@@ -82,9 +101,16 @@ export function RunFieldList({ run, focusKey, onFocus, onSelect, editable, onEdi
         const isOpen = !!open[f.key];
         const isFocused = focusKey === f.key;
         const flag = run.flags.fields[f.key];
+        const pendingRegion = pending?.[f.key];
+        // Nothing to re-read from: no box on the template and none drawn on the canvas either.
+        const canReread = editable && !!onReread && (!!f.region || !!pendingRegion);
+        const busyReread = rereading === f.key;
+        // «Δεν διαβάστηκε» is exactly the row the user came here for — give it the loud button.
+        const failed = !v || v.source === 'none' || v.value == null || v.value === '';
         return (
           <li
             key={f.key}
+            ref={(el) => { if (rowRefs) rowRefs.current[f.key] = el; }}
             tabIndex={0}
             onMouseEnter={() => onFocus(f.key)}
             onFocus={(e) => { if (e.target === e.currentTarget) onSelect(f.key); }}
@@ -100,6 +126,11 @@ export function RunFieldList({ run, focusKey, onFocus, onSelect, editable, onEdi
                   {f.required && <span className="text-[10px] text-muted-foreground">υποχρεωτικό</span>}
                   <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">{SOURCE_LABEL[v?.source ?? 'none']}</span>
                   {v?.page != null && <span className="text-[10px] text-muted-foreground">σ.{v.page + 1}</span>}
+                  {pendingRegion && (
+                    <span className="rounded-full px-1.5 text-[10px] font-medium" style={{ backgroundColor: '#FDF3E3', color: '#B45309' }}>
+                      Νέα περιοχή — Επανάγνωση;
+                    </span>
+                  )}
                 </div>
 
                 {editing === f.key ? (
@@ -127,6 +158,33 @@ export function RunFieldList({ run, focusKey, onFocus, onSelect, editable, onEdi
                       >
                         <FiEdit2 className="size-3" />
                       </button>
+                    )}
+                    {canReread && !failed && !pendingRegion && (
+                      <button
+                        type="button"
+                        aria-label={`Επανάγνωση «${f.label}»`}
+                        title="Επανάγνωση μόνο αυτού του πεδίου"
+                        disabled={!!rereading}
+                        onClick={(e) => { e.stopPropagation(); onReread!(f.key); }}
+                        className="shrink-0 cursor-pointer rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-default disabled:opacity-40"
+                      >
+                        <FiRefreshCw className={`size-3 ${busyReread ? 'animate-spin' : ''}`} />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {canReread && (failed || pendingRegion) && (
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <Button size="sm" variant="secondary" className="cursor-pointer" disabled={!!rereading} onClick={() => onReread!(f.key)}
+                      aria-label={`Επανάγνωση «${f.label}»`}>
+                      <FiRefreshCw className={busyReread ? 'animate-spin' : ''} /> {busyReread ? 'Ανάγνωση…' : 'Επανάγνωση'}
+                    </Button>
+                    {pendingRegion && onSaveRegion && (
+                      <Button size="sm" variant="outline" className="cursor-pointer" disabled={!!savingRegion} onClick={() => onSaveRegion(f.key)}
+                        aria-label={`Αποθήκευση περιοχής «${f.label}» στο πρότυπο`}>
+                        <FiSave /> {savingRegion === f.key ? 'Αποθήκευση…' : 'Αποθήκευση στο πρότυπο'}
+                      </Button>
                     )}
                   </div>
                 )}
