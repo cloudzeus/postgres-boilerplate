@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { KIND_LABEL, VALUE_TYPE_LABEL } from '@/lib/templates/labels';
+import { parseColumns } from '@/lib/templates/run-view';
 import { slugDraft, slugKey, uniqueKey, type FieldDef, type Region, type TemplateValueType } from '@/lib/templates/schema';
 import type { NewFieldDraft } from './use-run-add-field';
 
@@ -49,7 +50,8 @@ export function NewFieldDialog({ open, onOpenChange, region, takenKeys, busy, on
     return base ? uniqueKey(base, takenKeys) : '';
   }, [key, label, takenKeys]);
 
-  const hasColumns = columns.split(',').some((c) => c.trim());
+  // The same reading of the text the save will do — «, ,» is no columns, however non-empty it looks.
+  const hasColumns = parseColumns(columns).length > 0;
   const canSubmit = !!label.trim() && !busy && (kind === 'SINGLE' || hasColumns);
 
   return (

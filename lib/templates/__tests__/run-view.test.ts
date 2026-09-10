@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildRunRegions, defaultTemplateId, editSeed, formatValue, matchesVat, pageCountOf, regionIndexOf, regionKeyAt, runSeverity, type TemplateChoice } from '../run-view';
+import { buildRunRegions, defaultTemplateId, editSeed, formatValue, matchesVat, pageCountOf, parseColumns, regionIndexOf, regionKeyAt, runSeverity, type TemplateChoice } from '../run-view';
 import type { Bbox, FieldValue } from '../schema';
 
 const v = (over: Partial<FieldValue> = {}): FieldValue =>
@@ -51,6 +51,36 @@ describe('pageCountOf', () => {
   });
   it('counts up to the DEEPEST page a value came from', () => {
     expect(pageCountOf({ a: v({ page: 0 }), b: v({ page: 3 }), c: v({ page: 1 }) })).toBe(4);
+  });
+  it('never goes below the floor it is given — pages nothing was read from stay reachable', () => {
+    // The sample has five pages, the run only read page 0: a field can still be marked on page 4.
+    expect(pageCountOf({ a: v({ page: 0 }) }, 5)).toBe(5);
+    expect(pageCountOf({}, 3)).toBe(3);
+  });
+  it('keeps the deepest page when it is past the floor, and ignores a floor of zero', () => {
+    expect(pageCountOf({ a: v({ page: 7 }) }, 3)).toBe(8);
+    expect(pageCountOf({ a: v({ page: 2 }) }, 0)).toBe(3);
+  });
+});
+
+describe('parseColumns', () => {
+  it('splits on commas, trims, and slugs a key per column', () => {
+    expect(parseColumns('Περιγραφή, Ποσότητα , Αξία')).toEqual([
+      { key: 'perigrafi', label: 'Περιγραφή', valueType: 'TEXT' },
+      { key: 'posotita', label: 'Ποσότητα', valueType: 'TEXT' },
+      { key: 'axia', label: 'Αξία', valueType: 'TEXT' },
+    ]);
+  });
+  it('drops empty entries — trailing commas and whitespace are not columns', () => {
+    expect(parseColumns('')).toEqual([]);
+    expect(parseColumns('  ')).toEqual([]);
+    expect(parseColumns(', ,')).toEqual([]);
+    expect(parseColumns('Αξία, ,').map((c) => c.label)).toEqual(['Αξία']);
+  });
+  it('keeps the keys unique when two labels slug the same', () => {
+    const keys = parseColumns('Αξία, Αξία, Αξία').map((c) => c.key);
+    expect(new Set(keys).size).toBe(3);
+    expect(keys[0]).toBe('axia');
   });
 });
 

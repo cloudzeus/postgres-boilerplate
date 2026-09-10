@@ -10,8 +10,8 @@
 
 import * as React from 'react';
 import { toast } from 'sonner';
-import { formatValue } from '@/lib/templates/run-view';
-import { COLOR_PALETTE, nextColor, slugKey, uniqueKey, type ColumnDef, type FieldDef, type Region } from '@/lib/templates/schema';
+import { formatValue, parseColumns } from '@/lib/templates/run-view';
+import { COLOR_PALETTE, nextColor, slugKey, uniqueKey, type FieldDef, type Region } from '@/lib/templates/schema';
 import { templatesApi, errorMessage, type RunDto } from './api';
 import { COLOR_CAP_MSG } from './use-detection';
 
@@ -53,17 +53,6 @@ export type RunAddField = {
 
 const round = (n: number) => Math.round(n * 1000) / 1000;
 
-/** «Περιγραφή, Ποσότητα, Αξία» → three columns with unique slugged keys. Empty entries drop out. */
-export function parseColumns(text: string): ColumnDef[] {
-  const cols: ColumnDef[] = [];
-  for (const raw of text.split(',')) {
-    const label = raw.trim();
-    if (!label) continue;
-    cols.push({ key: uniqueKey(slugKey(label), cols.map((c) => c.key)), label, valueType: 'TEXT' });
-  }
-  return cols;
-}
-
 export function useRunAddField({ docId, run, onRun, onAdded }: Args): RunAddField {
   const [marking, setMarking] = React.useState(false);
   const [region, setRegion] = React.useState<Region | null>(null);
@@ -100,15 +89,20 @@ export function useRunAddField({ docId, run, onRun, onAdded }: Args): RunAddFiel
     const forRun = run.id;
     setBusy(true);
     try {
-      // `PUT fields` is a whole-list write: everything absent from the body is DELETED. The copy of
-      // the fields inside the run is a snapshot of the version it executed with, so sending that back
-      // would drop every field added to the template since — read the template as it stands NOW and
-      // append exactly one field to it.
+      // `PUT fields` is a whole-list write: everything absent from the body is DELETED. The run DTO
+      // serialises the template's LIVE fields, but the card may have been holding them since before
+      // somebody else edited the template — read it as it stands NOW and append exactly one field.
       const current = await templatesApi.get(run.template.id);
-      // One palette colour per field, and the overlay is unreadable without distinct colours.
-      if (current.fields.length >= COLOR_PALETTE.length) { toast.error(COLOR_CAP_MSG); return; }
-      // The dialog previewed a key against the run's snapshot; the template may have grown since.
-      const key = uniqueKey(draft.key.trim() || slugKey(label), current.fields.map((f) => f.key));
+      // One palette colour per field, and the overlay is unreadable without distinct colours. The
+      // button is already disabled at the cap; getting here means the template filled up meanwhile,
+      // so take the half-drawn field off the screen — there is nothing to fix in the dialog.
+      if (current.fields.length >= COLOR_PALETTE.length) { toast.error(COLOR_CAP_MSG); cancel(); return; }
+      // The dialog previewed a key against the fields it was handed; the template may have grown since.
+      const previewed = draft.key.trim() || slugKey(label);
+      const key = uniqueKey(previewed, current.fields.map((f) => f.key));
+      // A renamed key is worth saying: it is the name the value comes out under in the JSON and the
+      // mappings, and it is no longer the one the dialog showed.
+      const renamed = key === previewed ? '' : ` (κλειδί: ${key})`;
       const field: FieldDef = {
         key, label, kind: draft.kind,
         // A TABLE reads rows, and each column carries its own type — the field's own is unused.
@@ -134,18 +128,24 @@ export function useRunAddField({ docId, run, onRun, onAdded }: Args): RunAddFiel
         onRun(updated);
         onAdded(key, region.page);
         const text = formatValue(value.value ?? null, field.valueType);
-        if (value.value == null || value.value === '') toast.warning(`Προστέθηκε «${label}», αλλά δεν διαβάστηκε τιμή. ${version}`);
-        else toast.success(`Προστέθηκε «${label}» και διαβάστηκε: ${text}. ${version}`);
+        if (value.value == null || value.value === '') toast.warning(`Προστέθηκε «${label}», αλλά δεν διαβάστηκε τιμή. ${version}${renamed}`);
+        else toast.success(`Προστέθηκε «${label}» και διαβάστηκε: ${text}. ${version}${renamed}`);
       } catch (e) {
         // Half-done is worth saying out loud: the template kept the field, this run did not read it.
         toast.error(`Το πεδίο «${label}» προστέθηκε στο πρότυπο, αλλά η ανάγνωση απέτυχε: ${errorMessage(e)}`);
+        // The failed read is retryable, but only from the field's own row — and that row exists only
+        // once the card is holding a run whose template carries the new field. The run itself did not
+        // change, so re-list it: the fresh copy has the grown template, the field reads as «δεν
+        // διαβάστηκε», and its loud «Επανάγνωση» is the retry. Bring it into view like a success would.
+        const fresh = await templatesApi.runs.list(docId).then((r) => r.runs.find((x) => x.id === forRun)).catch(() => null);
+        if (fresh) { onRun(fresh); onAdded(key, region.page); }
       }
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
       setBusy(false);
     }
-  }, [docId, run, region, busy, onRun, onAdded]);
+  }, [docId, run, region, busy, onRun, onAdded, cancel]);
 
   return {
     marking, region, busy, takenKeys,

@@ -1,7 +1,7 @@
 // lib/templates/run-view.ts — ISOMORPHIC, PURE. The arithmetic and formatting the run card and the
 // OCR list do to a run before painting it. Lives here, not in the components, so it can be tested
 // without a DOM and so the picker and the card cannot disagree about what "matches this ΑΦΜ" means.
-import { normalizeVat, type Bbox, type FieldValue, type Region, type RunStatus, type TemplateValueType } from './schema';
+import { normalizeVat, slugKey, uniqueKey, type Bbox, type ColumnDef, type FieldValue, type Region, type RunStatus, type TemplateValueType } from './schema';
 
 const EMPTY = '—';
 
@@ -29,11 +29,27 @@ export function editSeed(v: FieldValue | undefined): string {
   return v?.raw ?? String(v?.value ?? '');
 }
 
-/** How many pages the marker may page through: one past the deepest page any value came from. */
-export function pageCountOf(values: Record<string, FieldValue>): number {
+/**
+ * How many pages the marker may page through: one past the deepest page any value came from, but
+ * never fewer than `minPages`. The floor is the template's own sample: «Νέο πεδίο» marks a box on a
+ * page the run read NOTHING from, and without it those pages are unreachable. A page the document
+ * does not actually have answers 422 on its image, which the marker already renders as "no page".
+ */
+export function pageCountOf(values: Record<string, FieldValue>, minPages = 0): number {
   let max = 0;
   for (const v of Object.values(values)) if (v?.page != null && v.page > max) max = v.page;
-  return max + 1;
+  return Math.max(max + 1, minPages);
+}
+
+/** «Περιγραφή, Ποσότητα, Αξία» → three columns with unique slugged keys. Empty entries drop out. */
+export function parseColumns(text: string): ColumnDef[] {
+  const cols: ColumnDef[] = [];
+  for (const raw of text.split(',')) {
+    const label = raw.trim();
+    if (!label) continue;
+    cols.push({ key: uniqueKey(slugKey(label), cols.map((c) => c.key)), label, valueType: 'TEXT' });
+  }
+  return cols;
 }
 
 /** One box on the page image, without the bits that depend on what is focused or how it is labelled. */

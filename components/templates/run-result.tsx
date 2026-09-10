@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { RegionMarker, type SavedRegion } from '@/components/ui/region-marker';
 import { buildRunRegions, defaultTemplateId, editSeed, matchesVat, pageCountOf, regionIndexOf, regionKeyAt } from '@/lib/templates/run-view';
 import type { FlowRun } from '@/lib/templates/flow';
-import type { FieldValue } from '@/lib/templates/schema';
+import { COLOR_PALETTE, type FieldValue } from '@/lib/templates/schema';
 import { templatesApi, errorMessage, type RunDto } from './api';
 import { FlowCanvas } from './flow-canvas';
 import { NewFieldDialog } from './new-field-dialog';
@@ -21,7 +21,7 @@ import { RunFieldList } from './run-field-list';
 import { RunHeader, runLabel, runWhen } from './run-header';
 import { RunStatusPill } from './run-status-pill';
 import { TemplatePicker, type TemplateSummary } from './template-picker';
-import { ACCENT } from './use-detection';
+import { ACCENT, COLOR_CAP_MSG } from './use-detection';
 import { useRunAddField } from './use-run-add-field';
 import { useRunRegions } from './use-run-regions';
 
@@ -72,7 +72,10 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
   // the box are both new, so the card puts the user in front of them instead of making them hunt.
   const addField = useRunAddField({ docId, run, onRun: replaceRun, onAdded: (key, p) => { setFocusKey(key); setPage(p); } });
   const values = React.useMemo(() => run?.values ?? {}, [run]);
-  const pageCount = React.useMemo(() => pageCountOf(values), [values]);
+  // The run only names the pages it READ something from; «Νέο πεδίο» has to reach the others too, so
+  // the sample's page count is the floor. A page beyond the document answers 422 on its image, and
+  // the marker already renders that as "no page" rather than breaking.
+  const pageCount = React.useMemo(() => pageCountOf(values, run?.template.sample?.pageCount ?? 0), [values, run]);
   const alreadyRan = templateId !== '' && runs.some((r) => r.template.id === templateId);
   const vatHint = !run && templates.some((t) => matchesVat(t, issuerVat) && t.status === 'ACTIVE');
   /**
@@ -83,6 +86,9 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
    */
   const isLatest = !!run && run.id === runs[0]?.id;
   const editableRun = canManage && isLatest && run?.status !== 'POSTED';
+  // One palette colour per field: a full template cannot take another one. Say so on the button
+  // instead of letting the user draw a box and name a field the save would refuse.
+  const atColorCap = (run?.template.fields.length ?? 0) >= COLOR_PALETTE.length;
 
   /**
    * A deliberate pick — clicking or tabbing to a row, clicking a node in the flow — follows the field
@@ -204,9 +210,10 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
             </Button>
           )}
           {editableRun && (
-            <Button size="sm" variant="secondary" onClick={addField.startMarking} disabled={addField.marking || addField.busy}
-              title="Σημείωσε περιοχή στο έγγραφο για ένα πεδίο που λείπει από το πρότυπο"><FiPlus /> Νέο πεδίο</Button>
+            <Button size="sm" variant="secondary" onClick={addField.startMarking} disabled={addField.marking || addField.busy || atColorCap}
+              title={atColorCap ? COLOR_CAP_MSG : 'Σημείωσε περιοχή στο έγγραφο για ένα πεδίο που λείπει από το πρότυπο'}><FiPlus /> Νέο πεδίο</Button>
           )}
+          {editableRun && atColorCap && <span className="text-[11px] text-muted-foreground">{COLOR_CAP_MSG}</span>}
           {addField.marking && <span role="status" className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ backgroundColor: ACCENT.bg, color: ACCENT.fg }}>Σύρε πλαίσιο για το νέο πεδίο · Esc για ακύρωση</span>}
           {run && (
             <>
