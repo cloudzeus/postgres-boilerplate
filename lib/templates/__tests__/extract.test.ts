@@ -3,13 +3,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const textItems = vi.fn();
 const readValue = vi.fn();
 const readTable = vi.fn();
+const prepare = vi.fn(async (..._a: unknown[]) => Buffer.from('crop'));
 const countPages = vi.fn(async (..._a: unknown[]) => 3);
 vi.mock('../pdf-text', () => ({ extractPdfTextItems: (...a: unknown[]) => textItems(...a) }));
 vi.mock('../vision', () => ({
-  prepareCrop: vi.fn(async () => Buffer.from('crop')),
+  prepareCrop: (...a: unknown[]) => prepare(...a),
   readCropValue: (...a: unknown[]) => readValue(...a),
   readCropTable: (...a: unknown[]) => readTable(...a),
 }));
+// The retry asks for the upgraded model by name; the real module is a heavy server import.
+vi.mock('@/lib/ocr/extract', () => ({ UPGRADED_VISION_MODEL: 'gemini-2.5-pro' }));
 vi.mock('@/lib/ocr/rasterize', () => ({
   isPdfBuffer: (b: Buffer) => b.subarray(0, 4).toString() === '%PDF',
   renderPage: vi.fn(async () => Buffer.from('page-png')),
@@ -26,7 +29,11 @@ const field = (over: Partial<FieldDef>): FieldDef => ({
 const pdf = Buffer.from('%PDF-1.4 fake');
 const png = Buffer.from('not a pdf');
 
-beforeEach(() => { textItems.mockReset(); readValue.mockReset(); readTable.mockReset(); countPages.mockReset(); countPages.mockResolvedValue(3); });
+beforeEach(() => {
+  textItems.mockReset(); readValue.mockReset(); readTable.mockReset(); countPages.mockReset(); prepare.mockReset();
+  countPages.mockResolvedValue(3);
+  prepare.mockResolvedValue(Buffer.from('crop'));
+});
 
 describe('extractTemplateFields', () => {
   it('uses the PDF text layer when it yields text (no vision call)', async () => {
@@ -138,5 +145,50 @@ describe('extractTemplateFields', () => {
     expect(out.values.a).toMatchObject({ value: null, source: 'none', bbox: null });
     expect(out.values.b).toMatchObject({ value: null });
     expect(out.errors).toEqual([{ fieldKey: 'b', message: 'boom' }]);
+  });
+});
+
+describe('typed reading and the one-shot retry', () => {
+  it('tells the model how a Greek amount is printed, and how to leave a date alone', async () => {
+    readValue.mockResolvedValue({ value: '5', model: 'm', tokensUsed: 1 });
+    await extractTemplateFields(png, 'image/png', [field({ key: 'total', valueType: 'CURRENCY' }), field({ key: 'when', valueType: 'DATE' }), field({ key: 'txt' })]);
+    expect(readValue.mock.calls[0][0].prompt).toContain('1.234,56');
+    expect(readValue.mock.calls[0][0].prompt).toContain('without a currency symbol');
+    expect(readValue.mock.calls[1][0].prompt).toContain('exactly as printed');
+    expect(readValue.mock.calls[2][0].prompt).not.toContain('1.234,56');
+  });
+
+  it('retries an empty CURRENCY read ONCE, with a wider crop and the upgraded model', async () => {
+    readValue.mockResolvedValueOnce({ value: '', model: 'gemini-2.5-flash', tokensUsed: 3 });
+    readValue.mockResolvedValueOnce({ value: '229,40', model: 'gemini-2.5-pro', tokensUsed: 9 });
+
+    const out = await extractTemplateFields(png, 'image/png', [field({ key: 'total', valueType: 'CURRENCY' })]);
+
+    expect(readValue).toHaveBeenCalledTimes(2);
+    expect(readValue.mock.calls[0][0].model).toBeUndefined();
+    expect(readValue.mock.calls[1][0].model).toBe('gemini-2.5-pro');
+    // The retry crop is cut with MORE padding than the first one.
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(prepare.mock.calls[0][2]).toBeUndefined();
+    expect((prepare.mock.calls[1][2] as { pad: number }).pad).toBeGreaterThan(0.012);
+    // The retry's reading is the one that is stored, marked down so a human still looks at it.
+    expect(out.values.total).toMatchObject({ raw: '229,40', value: 229.4, source: 'vision', confidence: 0.6 });
+    expect(out.tokensUsed).toBe(12);
+    expect(out.model).toBe('gemini-2.5-flash, gemini-2.5-pro');
+  });
+
+  it('retries a reading that will not coerce, and keeps the first one when the retry reads nothing', async () => {
+    readValue.mockResolvedValueOnce({ value: 'δεν διαβάζεται', model: 'm', tokensUsed: 1 });
+    readValue.mockResolvedValueOnce({ value: '', model: 'gemini-2.5-pro', tokensUsed: 1 });
+    const out = await extractTemplateFields(png, 'image/png', [field({ key: 'when', valueType: 'DATE' })]);
+    expect(readValue).toHaveBeenCalledTimes(2);
+    expect(out.values.when).toMatchObject({ raw: 'δεν διαβάζεται', value: null, confidence: 0.8 });
+  });
+
+  it('never retries a TEXT field, however empty it reads', async () => {
+    readValue.mockResolvedValueOnce({ value: '', model: 'm', tokensUsed: 1 });
+    const out = await extractTemplateFields(png, 'image/png', [field({ key: 'note' })]);
+    expect(readValue).toHaveBeenCalledTimes(1);
+    expect(out.values.note).toMatchObject({ raw: null, value: null, confidence: null });
   });
 });

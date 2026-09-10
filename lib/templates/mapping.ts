@@ -5,7 +5,7 @@ type Json = Record<string, unknown>;
 
 /**
  * Merge mapped values into a copy of `existing` (OcrDocument.extractedData).
- * - header keys → top-level
+ * - header keys → top-level (a null/blank template value is SKIPPED, so it cannot wipe an OCR value)
  * - customFields.<k> → extractedData.customFields[k]
  * - items.<col> mapped from a TABLE field `<tableKey>.<colKey>` → rebuilds items[] from the table rows
  *   (when at least one line mapping is present); otherwise items are left untouched.
@@ -35,7 +35,10 @@ export function projectToInvoice(
       continue;
     }
     const v = values[r.fieldKey]?.value;
-    if (v == null) continue;
+    // A template value that read as NOTHING must never overwrite a value the base OCR did read:
+    // an empty crop is not evidence that the invoice has no total, it is evidence that the region
+    // missed it. So a null/blank reading leaves whatever `existing` already holds in place.
+    if (v == null || (typeof v === 'string' && v.trim() === '')) continue;
     if (r.invoiceKey.startsWith('customFields.')) { custom[r.invoiceKey.slice('customFields.'.length)] = v; customTouched = true; }
     else out[r.invoiceKey] = v;
   }

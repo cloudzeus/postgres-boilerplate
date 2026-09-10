@@ -8,7 +8,10 @@ const tpl: FlowTemplate = {
     { key: 'lines', label: 'Γραμμές', color: '#047857', kind: 'TABLE', region: { page: 1, bbox: [0, 0.3, 1, 0.5] } },
   ],
   conditions: [{ id: 'c1', name: 'Μεγάλο ποσό', clauses: [{ fieldKey: 'no', op: 'notEmpty' }], actions: [{ type: 'FLAG_REVIEW', params: { reason: 'x' } }] }],
-  mappings: [{ name: 'default', target: 'INVOICE', rows: [{ fieldKey: 'no', invoiceKey: 'invoiceNumber' }] }, { name: 'xls', target: 'EXCEL', rows: [{ fieldKey: 'no', column: 'A', order: 1 }] }],
+  mappings: [
+    { name: 'default', target: 'INVOICE', isDefault: true, rows: [{ fieldKey: 'no', invoiceKey: 'invoiceNumber' }] },
+    { name: 'xls', target: 'EXCEL', isDefault: false, rows: [{ fieldKey: 'no', column: 'A', order: 1 }] },
+  ],
 };
 
 describe('buildFlow', () => {
@@ -52,6 +55,23 @@ describe('buildFlow', () => {
     expect(nodes.find((n) => n.id === 'output')!.data).toMatchObject({ runStatus: 'REVIEW' });
     expect(edges.find((e) => e.source === 'cond:c1' && e.target === 'map:default')!.animated).toBe(true);
   });
+  it('the «όχι» edge goes to the mapping the RUNNER would default to — the INVOICE one flagged isDefault', () => {
+    // First in the array is an EXCEL mapping and a non-default INVOICE one; `pickMapping` semantics
+    // must still land on «credit», exactly as the runner would.
+    const t: FlowTemplate = {
+      ...tpl,
+      mappings: [
+        { name: 'xls', target: 'EXCEL', isDefault: false, rows: [] },
+        { name: 'plain', target: 'INVOICE', isDefault: false, rows: [] },
+        { name: 'credit', target: 'INVOICE', isDefault: true, rows: [] },
+      ],
+      conditions: [{ id: 'c1', name: 'x', clauses: [], actions: [{ type: 'SWITCH_MAPPING', params: { mappingName: 'plain' } }] }],
+    };
+    const { edges } = buildFlow(t);
+    expect(edges.find((e) => e.label === 'ναι')!.target).toBe('map:plain');
+    expect(edges.find((e) => e.label === 'όχι')!.target).toBe('map:credit');
+  });
+
   it('does not draw edges to a mapping that does not exist', () => {
     const t: FlowTemplate = { ...tpl, conditions: [{ id: 'c9', name: 'x', clauses: [{ fieldKey: 'no', op: 'notEmpty' }], actions: [{ type: 'SWITCH_MAPPING', params: { mappingName: 'ghost' } }] }] };
     const { edges, nodes } = buildFlow(t);
@@ -73,7 +93,7 @@ describe('toFlowTemplate', () => {
       id: 't', name: 'N', subtitle: 'ΠΡΟΜ ΑΕ', mode: 'AUTO', samplePageCount: 3,
       fields: [{ key: 'a', label: 'A', color: '#000000', kind: 'SINGLE', region: null }],
       conditions: [{ id: 'c1', name: 'C', clauses: [], actions: [] }],
-      mappings: [{ name: 'default', target: 'INVOICE', rows: [{ fieldKey: 'a', invoiceKey: 'invoiceNumber' }] }],
+      mappings: [{ name: 'default', target: 'INVOICE', isDefault: true, rows: [{ fieldKey: 'a', invoiceKey: 'invoiceNumber' }] }],
     });
   });
   it('uses null page count when there is no sample and skips inactive conditions', () => {

@@ -48,6 +48,8 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
       prisma.templateRun.findMany({ where: { documentId: id }, orderBy: { createdAt: 'desc' }, take: 20, include: RUN_INCLUDE }),
       prisma.extractionTemplate.findMany({
         orderBy: { name: 'asc' },
+        // The picker is a dropdown a human reads: bound it rather than shipping every template ever made.
+        take: 200,
         select: { id: true, name: true, slug: true, status: true, mode: true, vatNumber: true, department: true },
       }),
     ])

@@ -125,7 +125,7 @@ describe('prepareCrop', () => {
     sharp({ create: { width: w, height: h, channels: 3, background: '#fff' } }).png().toBuffer();
 
   it('crops a normalized bbox and returns a PNG', async () => {
-    const out = await prepareCrop(await white(100, 100), [0.5, 0.5, 0.4, 0.4]);
+    const out = await prepareCrop(await white(100, 100), [0.5, 0.5, 0.4, 0.4], { pad: 0 });
     expect(out.subarray(0, 8).equals(PNG_SIG)).toBe(true);
     const meta = await sharp(out).metadata();
     expect(meta.format).toBe('png');
@@ -137,5 +137,34 @@ describe('prepareCrop', () => {
     const meta = await sharp(out).metadata();
     expect(meta.width!).toBeLessThanOrEqual(2000);
     expect(meta.height!).toBeLessThanOrEqual(2600);
+  });
+
+  it('pads the bbox by default, and by `opts.pad` when asked', async () => {
+    const page = await white(1000, 1000);
+    const exact = await sharp(await prepareCrop(page, [0.4, 0.4, 0.2, 0.2], { pad: 0 })).metadata();
+    const padded = await sharp(await prepareCrop(page, [0.4, 0.4, 0.2, 0.2])).metadata();
+    const wide = await sharp(await prepareCrop(page, [0.4, 0.4, 0.2, 0.2], { pad: 0.03 })).metadata();
+    // Same page, same box: more padding → more source pixels → a taller crop (the width is capped).
+    expect(padded.height!).toBeGreaterThan(exact.height!);
+    expect(wide.height!).toBeGreaterThan(padded.height!);
+  });
+});
+
+describe('model override', () => {
+  it('tries the override FIRST and still falls back down the configured chain', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'busy' });
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: 'V' } }] }) });
+    const r = await readCropValue({ crop: png, prompt: 'p', operation: 'x', model: 'gemini-3-ultra' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe('gemini-3-ultra');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).model).toBe('gemini-2.5-flash');
+    expect(r.model).toBe('gemini-2.5-flash');
+    expect(r.value).toBe('V');
+  });
+
+  it('does not ask the same model twice when the override IS the configured model', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: 'V' } }] }) });
+    await readCropValue({ crop: png, prompt: 'p', operation: 'x', model: 'gemini-2.5-flash' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe('gemini-2.5-flash');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

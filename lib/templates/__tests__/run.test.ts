@@ -5,13 +5,14 @@ const db = vi.hoisted(() => ({
   ocrDocument: { findUnique: vi.fn(), update: vi.fn() },
   extractionTemplate: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
   templateRun: { create: vi.fn(), findMany: vi.fn(), update: vi.fn() },
-  ocrInvoiceItem: { deleteMany: vi.fn(), createMany: vi.fn() },
+  ocrInvoiceItem: { deleteMany: vi.fn(), createMany: vi.fn(), findMany: vi.fn() },
   // The runner hands `$transaction` an ARRAY of promises (prisma batch form).
   $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
 }));
 const extract = vi.hoisted(() => vi.fn());
 const post = vi.hoisted(() => vi.fn());
 const notify = vi.hoisted(() => vi.fn());
+const matchItems = vi.hoisted(() => vi.fn());
 /** Stand-in for the real PostError: the runner branches on `instanceof`, so the class must be shared. */
 const PostError = vi.hoisted(
   () =>
@@ -33,6 +34,7 @@ vi.mock('@/lib/ocr/post-softone', () => ({
   POST_ERROR_TEXT: { no_category: 'Δεν έχει οριστεί κατηγορία εγγράφου', not_completed: 'Το έγγραφο δεν έχει ολοκληρωθεί', not_found: 'Το έγγραφο δεν βρέθηκε' },
 }));
 vi.mock('../notify', () => ({ sendRuleNotifications: (...a: unknown[]) => notify(...a) }));
+vi.mock('@/lib/ocr/softone-match', () => ({ matchDocItems: (...a: unknown[]) => matchItems(...a) }));
 
 import { findTemplateForVat, runMatchingTemplate, runTemplateOnDocument } from '../run';
 
@@ -81,7 +83,7 @@ const docUpdates = () => db.ocrDocument.update.mock.calls.map((c) => c[0].data a
 beforeEach(() => {
   for (const m of [db.ocrDocument.findUnique, db.ocrDocument.update, db.extractionTemplate.findUnique, db.extractionTemplate.findFirst,
     db.extractionTemplate.update, db.templateRun.create, db.templateRun.findMany, db.templateRun.update,
-    db.ocrInvoiceItem.deleteMany, db.ocrInvoiceItem.createMany, db.$transaction, extract, post, notify]) m.mockReset();
+    db.ocrInvoiceItem.deleteMany, db.ocrInvoiceItem.createMany, db.ocrInvoiceItem.findMany, db.$transaction, extract, post, notify, matchItems]) m.mockReset();
   db.$transaction.mockImplementation(async (ops: Promise<unknown>[]) => Promise.all(ops));
   db.ocrDocument.update.mockResolvedValue({});
   db.extractionTemplate.update.mockResolvedValue({});
@@ -90,6 +92,8 @@ beforeEach(() => {
   db.templateRun.update.mockResolvedValue({});
   db.ocrInvoiceItem.deleteMany.mockResolvedValue({ count: 0 });
   db.ocrInvoiceItem.createMany.mockResolvedValue({ count: 0 });
+  db.ocrInvoiceItem.findMany.mockResolvedValue([]);
+  matchItems.mockResolvedValue({ matched: 0, total: 0 });
   post.mockResolvedValue({ ref: 'OCR-1' });
   notify.mockResolvedValue([]);
 });
@@ -174,8 +178,8 @@ describe('runTemplateOnDocument', () => {
     expect(db.ocrInvoiceItem.deleteMany).toHaveBeenCalledWith({ where: { documentId: 'd1' } });
     expect(db.ocrInvoiceItem.createMany).toHaveBeenCalledWith({
       data: [
-        { rowIndex: 0, code: null, name: 'Α', quantity: null, price: null, discount: null, vatRate: null, total: null, documentId: 'd1' },
-        { rowIndex: 1, code: null, name: 'Β', quantity: null, price: null, discount: null, vatRate: null, total: null, documentId: 'd1' },
+        expect.objectContaining({ rowIndex: 0, code: null, name: 'Α', quantity: null, price: null, discount: null, vatRate: null, total: null, documentId: 'd1' }),
+        expect.objectContaining({ rowIndex: 1, code: null, name: 'Β', documentId: 'd1' }),
       ],
     });
     // The document is written before the posting call, so the poster sees the mapped data.
@@ -322,6 +326,8 @@ describe('runTemplateOnDocument', () => {
     expect(docUpdates().at(-1)!.reviewFlags).toMatchObject({
       runStatus: 'FAILED', runId: 'r1', review: ['προς έλεγχο'], blocked: ['χωρίς κατηγορία'],
     });
+    // …and on the RUN row too, so the card can explain the block from the run it is showing.
+    expect(runData().flags).toMatchObject({ review: ['προς έλεγχο'], blocked: ['χωρίς κατηγορία'], fields: {} });
   });
 
   it('a FAILED run on a document with no previous flags blocks nothing', async () => {
@@ -405,5 +411,125 @@ describe('findTemplateForVat', () => {
 
     db.extractionTemplate.findFirst.mockResolvedValue(null);
     await expect(findTemplateForVat('123456789')).resolves.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- accuracy
+
+const lineTemplate = (over: Record<string, unknown> = {}) => {
+  const lines = field({ key: 'lines', label: 'Γραμμές', kind: 'TABLE', columns: [{ key: 'code', label: 'Κωδ', valueType: 'TEXT' }, { key: 'desc', label: 'Περιγραφή', valueType: 'TEXT' }], order: 2 });
+  return template({
+    mode: 'SEMI_AUTO', conditions: [], fields: [TOTAL, NOTE, lines],
+    mappings: [{ ...MAPPING, rows: [{ fieldKey: 'lines.code', invoiceKey: 'items.code' }, { fieldKey: 'lines.desc', invoiceKey: 'items.name' }] }],
+    ...over,
+  });
+};
+
+describe('SoftOne matches survive a rebuild of the lines', () => {
+  it('carries the columns of the row with the same rowIndex forward and re-runs the matcher', async () => {
+    load(lineTemplate());
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { rowIndex: 0, code: 'A1', softoneMtrl: 111, softoneCode: 'S-1', softoneName: 'ΕΙΔΟΣ Α', softoneIsService: false, softoneMatchedBy: 'manual' },
+      { rowIndex: 1, code: 'B2', softoneMtrl: 222, softoneCode: 'S-2', softoneName: 'ΕΙΔΟΣ Β', softoneIsService: false, softoneMatchedBy: 'code2' },
+    ]);
+    extract.mockResolvedValue(extractResult({ total: value(20), note: value('x'), lines: value([{ code: 'A1', desc: 'Α' }, { code: 'B2', desc: 'Β' }]) }));
+
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+
+    const data = db.ocrInvoiceItem.createMany.mock.calls.at(-1)![0].data as Record<string, unknown>[];
+    expect(data[0]).toMatchObject({ code: 'A1', softoneMtrl: 111, softoneMatchedBy: 'manual', softoneName: 'ΕΙΔΟΣ Α' });
+    expect(data[1]).toMatchObject({ code: 'B2', softoneMtrl: 222, softoneMatchedBy: 'code2' });
+    // The counters on the document describe the rows we just deleted until this runs.
+    expect(matchItems).toHaveBeenCalledWith('d1');
+    expect(db.$transaction.mock.invocationCallOrder[0]).toBeLessThan(matchItems.mock.invocationCallOrder[0]);
+  });
+
+  it('follows a line that MOVED by its code, and never carries a match onto a different article', async () => {
+    load(lineTemplate());
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { rowIndex: 0, code: 'A1', softoneMtrl: 111, softoneCode: 'S-1', softoneName: 'ΕΙΔΟΣ Α', softoneIsService: false, softoneMatchedBy: 'manual' },
+      { rowIndex: 1, code: 'B2', softoneMtrl: 222, softoneCode: 'S-2', softoneName: 'ΕΙΔΟΣ Β', softoneIsService: false, softoneMatchedBy: 'code2' },
+    ]);
+    // The re-read put a NEW line first; A1 slid down to index 1.
+    extract.mockResolvedValue(extractResult({ total: value(20), note: value('x'), lines: value([{ code: 'C3', desc: 'Γ' }, { code: 'A1', desc: 'Α' }]) }));
+
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+
+    const data = db.ocrInvoiceItem.createMany.mock.calls.at(-1)![0].data as Record<string, unknown>[];
+    expect(data[0]).toMatchObject({ code: 'C3', softoneMtrl: null, softoneMatchedBy: null });
+    expect(data[1]).toMatchObject({ code: 'A1', softoneMtrl: 111, softoneMatchedBy: 'manual' });
+  });
+
+  it('does not touch the item rows — or the matcher — when the mapping has no line rows', async () => {
+    load(template({ mode: 'SEMI_AUTO', conditions: [] }));
+    extract.mockResolvedValue(extractResult({ total: value(20), note: value('x') }));
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+    expect(db.ocrInvoiceItem.deleteMany).not.toHaveBeenCalled();
+    expect(matchItems).not.toHaveBeenCalled();
+  });
+});
+
+describe('cross-check against the base OCR', () => {
+  it('flags a total the template and the OCR disagree on, and still projects the TEMPLATE value', async () => {
+    load(template({ mode: 'SEMI_AUTO', conditions: [] }), doc({ extractedData: { totalAmount: 22.94 } }));
+    extract.mockResolvedValue(extractResult({ total: value(229.4), note: value('x') }));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+
+    expect(out.flags.review).toContain('Ασυμφωνία «Σύνολο»: πρότυπο 229.4 · OCR 22.94');
+    expect(out.flags.blocked).toEqual([]);            // a disagreement asks for eyes, it does not block
+    expect(runData().flags.fields).toEqual({ total: 'review' });
+    expect(docUpdates().find((d) => 'extractedData' in d)!.extractedData.totalAmount).toBe(229.4);
+  });
+
+  it('says nothing when the two readings agree', async () => {
+    load(template({ mode: 'SEMI_AUTO', conditions: [] }), doc({ extractedData: { totalAmount: '229,40' } }));
+    extract.mockResolvedValue(extractResult({ total: value(229.4), note: value('x') }));
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+    expect(out.flags.review).toEqual([]);
+  });
+
+  it('keeps the OCR value when the template read nothing at all', async () => {
+    load(template({ mode: 'SEMI_AUTO', conditions: [], fields: [field({ key: 'total', label: 'Σύνολο', valueType: 'CURRENCY', order: 0 }), NOTE] }),
+      doc({ extractedData: { totalAmount: 22.94 } }));
+    extract.mockResolvedValue(extractResult({ total: value(null, 'none'), note: value('x') }));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+
+    expect(docUpdates().find((d) => 'extractedData' in d)!.extractedData.totalAmount).toBe(22.94);
+    expect(out.flags.review).toEqual([]);             // one silent reader is not a contradiction
+  });
+});
+
+describe('table fallback', () => {
+  it('keeps the OCR lines when the template table read nothing, and says so', async () => {
+    load(lineTemplate(), doc({ extractedData: { items: [{ code: 'A1', name: 'Α' }] }, _count: { items: 1 } }));
+    extract.mockResolvedValue(extractResult({ total: value(20), note: value('x'), lines: value([]) }));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+
+    expect(out.flags.review).toContain('Ο πίνακας «Γραμμές» δεν διαβάστηκε — κρατήθηκαν οι γραμμές του OCR');
+    expect(docUpdates().find((d) => 'extractedData' in d)!.extractedData.items).toEqual([{ code: 'A1', name: 'Α' }]);
+    // Same array reference → the rows are left exactly as the OCR wrote them.
+    expect(db.ocrInvoiceItem.deleteMany).not.toHaveBeenCalled();
+    expect(matchItems).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds normally when the table DID read rows', async () => {
+    load(lineTemplate(), doc({ extractedData: { items: [{ code: 'A1', name: 'Α' }] }, _count: { items: 1 } }));
+    extract.mockResolvedValue(extractResult({ total: value(20), note: value('x'), lines: value([{ code: 'B2', desc: 'Β' }]) }));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+
+    expect(out.flags.review).toEqual([]);
+    expect(db.ocrInvoiceItem.deleteMany).toHaveBeenCalled();
+    expect(docUpdates().find((d) => 'extractedData' in d)!.extractedData.items).toEqual([{ code: 'B2', name: 'Β' }]);
+  });
+
+  it('an empty table with no OCR lines to keep is just an empty table', async () => {
+    load(lineTemplate());
+    extract.mockResolvedValue(extractResult({ total: value(20), note: value('x'), lines: value([]) }));
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+    expect(out.flags.review).toEqual([]);
   });
 });

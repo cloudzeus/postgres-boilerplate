@@ -16,7 +16,8 @@ const TARGET_MIN_WIDTH = 1600;
 // vision-path response, retry the call once with an upgraded model. Avoids the
 // 8× cost of always running the pro model while still catching difficult scans.
 const RETRY_MISSING_THRESHOLD = 2;
-const UPGRADED_VISION_MODEL = 'gemini-2.5-pro';
+/** The stronger vision model a hard read is retried with (also used by the template reader). */
+export const UPGRADED_VISION_MODEL = 'gemini-2.5-pro';
 
 /**
  * Preprocess a raster image to maximize OCR signal:

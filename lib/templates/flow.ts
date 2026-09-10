@@ -1,5 +1,6 @@
 // lib/templates/flow.ts — PURE. Builds the React-Flow node/edge arrays from a template (+ optional run).
 // Kept free of React so the designer, the run-result view and tests share one source of truth.
+import { pickMapping } from './run-logic';
 import type { Action, Clause, Region, TemplateFieldKind, TemplateMode, MappingTarget } from './schema';
 
 export type FlowTemplate = {
@@ -11,7 +12,7 @@ export type FlowTemplate = {
   samplePageCount: number | null;
   fields: { key: string; label: string; color: string; kind: TemplateFieldKind; region: Region | null }[];
   conditions: { id: string; name: string; clauses: Clause[]; actions: Action[] }[];
-  mappings: { name: string; target: MappingTarget; rows: { fieldKey: string; [k: string]: unknown }[] }[];
+  mappings: { name: string; target: MappingTarget; isDefault: boolean; rows: { fieldKey: string; [k: string]: unknown }[] }[];
 };
 
 export type FlowRun = {
@@ -55,7 +56,9 @@ export function buildFlow(t: FlowTemplate, run?: FlowRun): { nodes: FlowNode[]; 
     }
   });
 
-  const defaultMapping = t.mappings[0]?.name ?? null;
+  // Exactly the mapping the RUNNER would pick when no rule switches it (INVOICE, `isDefault` first),
+  // so the «όχι» edge points at the mapping the document would really have gone through.
+  const defaultMapping = pickMapping(t.mappings, null)?.name ?? null;
   t.mappings.forEach((m, i) => {
     const active = run ? run.mappingName === m.name : undefined;
     nodes.push({ id: `map:${m.name}`, type: 'mapping', position: col(3, i), data: { label: m.target === 'EXCEL' ? `Excel: ${m.name}` : `Παραστατικό: ${m.name}`, target: m.target, rows: m.rows.length, active } });
@@ -99,7 +102,7 @@ export type FlowTemplateSource = {
   mode: TemplateMode;
   sample: { pageCount: number } | null;
   fields: { key: string; label: string; color: string; kind: TemplateFieldKind; region: Region | null }[];
-  mappings: { name: string; target: MappingTarget; rows: { fieldKey: string; [k: string]: unknown }[] }[];
+  mappings: { name: string; target: MappingTarget; isDefault: boolean; rows: { fieldKey: string; [k: string]: unknown }[] }[];
   conditions: { id: string; name: string; isActive: boolean; clauses: Clause[]; actions: Action[]; [k: string]: unknown }[];
 };
 
@@ -113,7 +116,7 @@ export function toFlowTemplate(dto: FlowTemplateSource): FlowTemplate {
     samplePageCount: dto.sample?.pageCount ?? null,
     fields: dto.fields.map((f) => ({ key: f.key, label: f.label, color: f.color, kind: f.kind, region: f.region })),
     conditions: dto.conditions.filter((c) => c.isActive).map((c) => ({ id: c.id, name: c.name, clauses: c.clauses, actions: c.actions })),
-    mappings: dto.mappings.map((m) => ({ name: m.name, target: m.target, rows: m.rows })),
+    mappings: dto.mappings.map((m) => ({ name: m.name, target: m.target, isDefault: m.isDefault, rows: m.rows })),
   };
 }
 

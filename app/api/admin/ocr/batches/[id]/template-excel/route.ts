@@ -21,6 +21,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     // runs of the same document share a createdAt.
     distinct: ['documentId'],
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    // A folder is built entirely in memory: an unbounded read of a pathological batch would take the
+    // process down instead of producing a file. 2000 documents is far past any real folder.
+    take: 2000,
     include: EXPORT_INCLUDE,
   });
   const latest = latestPerDocument(runs);

@@ -1715,7 +1715,7 @@ model TemplateRun {
   error           String?            @db.Text
   values          Json                              // { key: FieldValue }
   matched         Json                              // [{ id, name, actions }]
-  flags           Json?                             // { review?: string[], blocked?: string[] }
+  flags           Json?                             // { review: string[], blocked: string[], fields: Record<string, 'review'|'blocked'>, notified: string[] }
   mappingName     String
   model           String?
   tokensUsed      Int?

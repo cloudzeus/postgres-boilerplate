@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  COLOR_PALETTE, nextColor, slugKey, isValidBbox, INVOICE_SCHEMA, invoiceKeyInfo, uniqueKey, templateSlug, slugDraft, SLUG_RE, normalizeVat,
+  COLOR_PALETTE, nextColor, slugKey, isValidBbox, INVOICE_SCHEMA, invoiceKeyInfo, uniqueKey, templateSlug, slugDraft, SLUG_RE, normalizeVat, padBbox,
 } from '../schema';
 
 describe('COLOR_PALETTE / nextColor', () => {
@@ -126,5 +126,38 @@ describe('normalizeVat', () => {
   });
   it('keeps a leading zero — an ΑΦΜ is a string, not a number', () => {
     expect(normalizeVat('012345678')).toBe('012345678');
+  });
+});
+
+describe('padBbox', () => {
+  it('grows the box by `pad` on every side', () => {
+    const [x, y, w, h] = padBbox([0.4, 0.4, 0.2, 0.1], 0.01);
+    expect(x).toBeCloseTo(0.39, 10);
+    expect(y).toBeCloseTo(0.39, 10);
+    expect(w).toBeCloseTo(0.22, 10);
+    expect(h).toBeCloseTo(0.12, 10);
+  });
+
+  it('clamps at the page edges instead of running off them', () => {
+    const [x, y, w, h] = padBbox([0, 0, 0.5, 0.5], 0.02);
+    expect([x, y]).toEqual([0, 0]);
+    expect(w).toBeCloseTo(0.52, 10);
+    expect(h).toBeCloseTo(0.52, 10);
+
+    const full = padBbox([0, 0, 1, 1], 0.05);
+    expect(full).toEqual([0, 0, 1, 1]);
+
+    const corner = padBbox([0.9, 0.95, 0.1, 0.05], 0.03);
+    expect(corner[0]).toBeCloseTo(0.87, 10);
+    expect(corner[1]).toBeCloseTo(0.92, 10);
+    expect(corner[0] + corner[2]).toBeCloseTo(1, 10);
+    expect(corner[1] + corner[3]).toBeCloseTo(1, 10);
+  });
+
+  it('returns the box untouched for a zero, negative or non-finite pad', () => {
+    const b: [number, number, number, number] = [0.2, 0.2, 0.1, 0.1];
+    expect(padBbox(b, 0)).toBe(b);
+    expect(padBbox(b, -0.1)).toBe(b);
+    expect(padBbox(b, Number.NaN)).toBe(b);
   });
 });

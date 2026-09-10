@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applySetFields, buildReviewFlags, canPost, decideOutcome, extrasFrom, itemsToRows, mappingFellBack, pickMapping, requiredMissing, setInvoicePath } from '../run-logic';
+import { applySetFields, buildReviewFlags, canPost, crossCheckOcr, decideOutcome, extrasFrom, itemsToRows, mappingFellBack, pickMapping, requiredMissing, setInvoicePath, tableFellThrough } from '../run-logic';
 import type { FieldDef, FieldValue } from '../schema';
 
 const f = (key: string, over: Partial<FieldDef> = {}): FieldDef => ({ key, label: key, kind: 'SINGLE', valueType: 'TEXT', color: '#0078D4', region: { page: 0, bbox: [0, 0, 0.1, 0.1] }, columns: null, aiHint: null, required: false, order: 0, ...over });
@@ -139,5 +139,58 @@ describe('itemsToRows', () => {
 describe('buildReviewFlags', () => {
   it('summarises a run for the document list', () => {
     expect(buildReviewFlags({ slug: 's', name: 'N' }, 'REVIEW', 'r1', { review: ['a'], blocked: [] })).toEqual({ review: ['a'], blocked: [], templateSlug: 's', templateName: 'N', runStatus: 'REVIEW', runId: 'r1' });
+  });
+});
+
+describe('crossCheckOcr', () => {
+  const label = (k: string) => ({ total: 'Σύνολο', no: 'Αριθμός', when: 'Ημερομηνία' } as Record<string, string>)[k] ?? k;
+  const rows = [
+    { fieldKey: 'total', invoiceKey: 'totalAmount' },
+    { fieldKey: 'no', invoiceKey: 'invoiceNumber' },
+    { fieldKey: 'when', invoiceKey: 'date' },
+    { fieldKey: 'note', invoiceKey: 'customFields.note' },
+  ];
+
+  it('names the fields where the template and the base OCR disagree', () => {
+    const out = crossCheckOcr(rows, { total: v(229.4), no: v('ΤΙΜ-451'), when: v('2026-03-05'), note: v('x') },
+      { totalAmount: 22.94, invoiceNumber: 'ΤΙΜ-451', date: '2026-03-05', note: 'y' }, label);
+    expect(out).toEqual([{ fieldKey: 'total', reason: 'Ασυμφωνία «Σύνολο»: πρότυπο 229.4 · OCR 22.94' }]);
+  });
+
+  it('lets amounts agree within half a cent, and reads Greek amounts on the OCR side', () => {
+    expect(crossCheckOcr(rows, { total: v(1234.5) }, { totalAmount: 1234.502 }, label)).toEqual([]);
+    expect(crossCheckOcr(rows, { total: v(1234.5) }, { totalAmount: '1.234,50' }, label)).toEqual([]);
+    expect(crossCheckOcr(rows, { total: v(1234.5) }, { totalAmount: '1.234,56' }, label)).toHaveLength(1);
+  });
+
+  it('compares dates by calendar day, not by the string they were printed as', () => {
+    expect(crossCheckOcr(rows, { when: v('2026-03-05') }, { date: '05/03/2026' }, label)).toEqual([]);
+    expect(crossCheckOcr(rows, { when: v('2026-03-05') }, { date: '06/03/2026' }, label)).toHaveLength(1);
+  });
+
+  it('normalises whitespace and case before calling a text value a mismatch', () => {
+    expect(crossCheckOcr(rows, { no: v(' ΤΙΜ  451 ') }, { invoiceNumber: 'ΤΙΜ 451' }, label)).toEqual([]);
+  });
+
+  it('says nothing when either side is blank, or the key is not worth checking', () => {
+    expect(crossCheckOcr(rows, { total: v(null) }, { totalAmount: 10 }, label)).toEqual([]);
+    expect(crossCheckOcr(rows, { total: v(10) }, {}, label)).toEqual([]);
+    expect(crossCheckOcr(rows, { note: v('a') }, { note: 'b' }, label)).toEqual([]);
+  });
+});
+
+describe('tableFellThrough', () => {
+  const rows = [{ fieldKey: 'lines.desc', invoiceKey: 'items.name' }, { fieldKey: 'total', invoiceKey: 'totalAmount' }];
+
+  it('names the table when it read nothing and the OCR did read lines', () => {
+    expect(tableFellThrough(rows, { lines: v([]) }, { items: [{ name: 'Α' }] })).toBe('lines');
+    expect(tableFellThrough(rows, {}, { items: [{ name: 'Α' }] })).toBe('lines');
+  });
+
+  it('is null when the table read rows, when the OCR has none either, or with no line mapping', () => {
+    expect(tableFellThrough(rows, { lines: v([{ name: 'Β' }]) }, { items: [{ name: 'Α' }] })).toBeNull();
+    expect(tableFellThrough(rows, { lines: v([]) }, { items: [] })).toBeNull();
+    expect(tableFellThrough(rows, { lines: v([]) }, {})).toBeNull();
+    expect(tableFellThrough([{ fieldKey: 'total', invoiceKey: 'totalAmount' }], {}, { items: [{ name: 'Α' }] })).toBeNull();
   });
 });

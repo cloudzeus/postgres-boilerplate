@@ -26,6 +26,17 @@ describe('projectToInvoice', () => {
     expect(out.customFields).toEqual({ keep: 'me', order_no: 'PO-77' });
     expect(out.items).toEqual([{ code: 'A1', quantity: 2, price: 10 }, { code: 'B2', quantity: 1, price: 5.5 }]);
   });
+  it('a blank template value never overwrites a value the base OCR already read', () => {
+    // The region missed the total on THIS document — that is not evidence the invoice has none.
+    const out = projectToInvoice(
+      { t: fv(null), n: fv('   ') },
+      [{ fieldKey: 't', invoiceKey: 'totalAmount' }, { fieldKey: 'n', invoiceKey: 'invoiceNumber' }],
+      { totalAmount: 229.4, invoiceNumber: 'ΤΙΜ-451' },
+    );
+    expect(out.totalAmount).toBe(229.4);
+    expect(out.invoiceNumber).toBe('ΤΙΜ-451');
+  });
+
   it('skips null values and unknown invoice keys, keeps existing items when no line mapping', () => {
     const out = projectToInvoice({ x: fv(null), y: fv('v') }, [{ fieldKey: 'x', invoiceKey: 'invoiceNumber' }, { fieldKey: 'y', invoiceKey: 'nope' }], { items: [{ name: 'old' }] });
     expect(out).toEqual({ items: [{ name: 'old' }] });

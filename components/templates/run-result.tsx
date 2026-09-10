@@ -184,7 +184,9 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
               </a>
             </>
           )}
-          {run?.status === 'REVIEW' && canPost && postStatus !== 'POSTED' && (
+          {/* A BLOCK_POSTING reason stops the button too: the server refuses the post anyway, so offering it
+              would only produce an error the user cannot act on from here. */}
+          {run?.status === 'REVIEW' && run.flags.blocked.length === 0 && canPost && postStatus !== 'POSTED' && (
             <Button size="sm" variant="secondary" onClick={doPost} disabled={posting}>
               <FiUploadCloud /> {posting ? 'Ανάρτηση…' : 'Έγκριση → ανάρτηση'}
             </Button>

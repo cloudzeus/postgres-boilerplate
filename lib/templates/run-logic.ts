@@ -106,6 +106,86 @@ export function setInvoicePath(data: Record<string, unknown>, invoiceKey: string
   return true;
 }
 
+// ─── Cross-checking the template against the base OCR ──────────────────────
+// The template wins the projection — it was drawn by a human on this exact form. But the base OCR
+// read the same document independently, and where the two disagree on an amount, a number or the
+// date, one of them is wrong and nobody can tell which from the outside. So: keep the template's
+// value, and say out loud that they disagree.
+
+/** Header keys worth cross-checking — the ones a wrong reading actually costs money on. */
+const CROSS_CHECK_KEYS = new Set(['totalAmount', 'subtotal', 'vatAmount', 'invoiceNumber', 'date']);
+/** Keys compared as numbers; the rest are compared as normalised text. */
+const CROSS_CHECK_NUMERIC = new Set(['totalAmount', 'subtotal', 'vatAmount']);
+/** Two amounts within half a cent of each other are the same amount. */
+const AMOUNT_TOLERANCE = 0.005;
+
+const normText = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+const asAmount = (v: unknown): number | null => {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const c = coerceValue(v, 'CURRENCY');
+  return typeof c === 'number' ? c : null;
+};
+
+/** True when the two readings genuinely disagree about `invoiceKey`. */
+function disagrees(invoiceKey: string, mine: unknown, theirs: unknown): boolean {
+  if (CROSS_CHECK_NUMERIC.has(invoiceKey)) {
+    const a = asAmount(mine); const b = asAmount(theirs);
+    // A side that will not parse as a number cannot be compared numerically — fall back to text
+    // rather than declaring a mismatch nobody can act on.
+    if (a != null && b != null) return Math.abs(a - b) > AMOUNT_TOLERANCE;
+  }
+  if (invoiceKey === 'date') {
+    const a = coerceValue(mine, 'DATE'); const b = coerceValue(theirs, 'DATE');
+    if (a != null && b != null) return a !== b;
+  }
+  return normText(mine) !== normText(theirs);
+}
+
+export type CrossCheck = { fieldKey: string; reason: string };
+
+/**
+ * Every INVOICE mapping row whose target is one of `CROSS_CHECK_KEYS` and whose template value
+ * contradicts what the base OCR read. Blank on either side is not a contradiction — a value only
+ * one of the two readers found is not evidence that either is wrong.
+ */
+export function crossCheckOcr(
+  rows: { fieldKey: string; invoiceKey: string }[],
+  values: Record<string, FieldValue>,
+  extracted: Record<string, unknown>,
+  labelOf: (fieldKey: string) => string,
+): CrossCheck[] {
+  const out: CrossCheck[] = [];
+  for (const r of rows) {
+    if (!CROSS_CHECK_KEYS.has(r.invoiceKey)) continue;
+    const mine = values[r.fieldKey]?.value ?? null;
+    const theirs = (extracted[r.invoiceKey] ?? null) as FieldValue['value'];
+    if (isBlank(mine) || isBlank(theirs)) continue;
+    if (!disagrees(r.invoiceKey, mine, theirs)) continue;
+    out.push({ fieldKey: r.fieldKey, reason: `Ασυμφωνία «${labelOf(r.fieldKey)}»: πρότυπο ${String(mine)} · OCR ${String(theirs)}` });
+  }
+  return out;
+}
+
+/**
+ * The TABLE field key whose read produced NO rows while the base OCR did read lines — i.e. the case
+ * where projecting the mapping would replace real invoice lines with an empty list. Null when the
+ * table read fine, when the mapping has no line rows, or when there is nothing to fall back to.
+ */
+export function tableFellThrough(
+  rows: { fieldKey: string; invoiceKey: string }[],
+  values: Record<string, FieldValue>,
+  extracted: Record<string, unknown>,
+): string | null {
+  const line = rows.find((r) => r.invoiceKey.startsWith('items.') && r.fieldKey.indexOf('.') > 0);
+  if (!line) return null;
+  const tableKey = line.fieldKey.slice(0, line.fieldKey.indexOf('.'));
+  const read = values[tableKey]?.value;
+  if (Array.isArray(read) && read.length > 0) return null;
+  const ocr = extracted.items;
+  return Array.isArray(ocr) && ocr.length > 0 ? tableKey : null;
+}
+
 export type ItemRow = { rowIndex: number; code: string | null; name: string; quantity: number | null; price: number | null; discount: number | null; vatRate: number | null; total: number | null };
 
 /** Numeric cell of an extracted item row: numbers pass through, strings go through the Greek-aware coercion. */

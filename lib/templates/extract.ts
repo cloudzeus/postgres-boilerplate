@@ -2,11 +2,12 @@
 // Digital PDFs: text layer first (free). Otherwise: crop the region → vision model.
 import 'server-only';
 import { countPdfPages, isPdfBuffer, renderPage } from '@/lib/ocr/rasterize';
+import { UPGRADED_VISION_MODEL } from '@/lib/ocr/extract';
 import { textInBox } from '@/lib/ocr/region-text';
 import { extractPdfTextItems } from './pdf-text';
 import { prepareCrop, readCropTable, readCropValue, type UsageRef } from './vision';
 import { coerceValue } from './coerce';
-import type { FieldDef, FieldValue } from './schema';
+import type { FieldDef, FieldValue, TemplateValueType } from './schema';
 
 export type ExtractResult = {
   values: Record<string, FieldValue>;
@@ -19,6 +20,24 @@ export type ExtractResult = {
 const MIN_TEXT_CHARS = 2;
 const TEXT_CONFIDENCE = 1;      // text layer is deterministic
 const VISION_CONFIDENCE = 0.8;  // model read; plan 2 shows a chip for < 1
+const RETRY_CONFIDENCE = 0.6;   // second, wider read with the stronger model — worth a human's eyes
+/** Padding of the RETRY crop: ~2.5× the default, to catch a value the tight box cut in half. */
+const RETRY_CROP_PAD = 0.03;
+/** Types where a blank or uncoercible read is worth a second, more expensive attempt. */
+const RETRYABLE_TYPES = new Set<TemplateValueType>(['NUMBER', 'CURRENCY', 'DATE']);
+
+/**
+ * Type-specific reading instructions. Amounts are the field users complain about most: without this
+ * the model happily answers «229» for «229,40» or drops a thousands separator, and the coercion has
+ * no way to tell a truncated amount from a correct one.
+ */
+function typeInstruction(valueType: TemplateValueType): string {
+  if (valueType === 'CURRENCY' || valueType === 'NUMBER') {
+    return ' The value is a number in Greek format (e.g. 1.234,56 — dot groups thousands, comma is the decimal separator). Return the complete number with all its digits and decimals exactly as printed, without a currency symbol.';
+  }
+  if (valueType === 'DATE') return ' Return the date exactly as printed, without reformatting it.';
+  return '';
+}
 
 export async function extractTemplateFields(
   buffer: Buffer,
@@ -102,10 +121,27 @@ export async function extractTemplateFields(
       }
 
       const crop = await prepareCrop(await bitmap(page), bbox);
-      const prompt = `Read the value of the field "${f.label}"${f.aiHint ? ` (${f.aiHint})` : ''}. Expected type: ${f.valueType.toLowerCase()}.`;
-      const r = await readCropValue({ crop, prompt, operation: 'template.field', ref });
+      const prompt = `Read the value of the field "${f.label}"${f.aiHint ? ` (${f.aiHint})` : ''}. Expected type: ${f.valueType.toLowerCase()}.${typeInstruction(f.valueType)}`;
+      let r = await readCropValue({ crop, prompt, operation: 'template.field', ref });
       models.add(r.model); out.tokensUsed += r.tokensUsed ?? 0;
-      out.values[f.key] = { ...base, raw: r.value || null, value: coerceValue(r.value, f.valueType), source: 'vision', confidence: r.value ? VISION_CONFIDENCE : null };
+      let coerced = coerceValue(r.value, f.valueType);
+      let confidence = r.value ? VISION_CONFIDENCE : null;
+
+      // A typed field that read as nothing — or as something that will not coerce — is where the
+      // wrong amounts come from. Retry it ONCE with more air around the region and the stronger
+      // model before storing a null; a value that only the retry could read is marked down to
+      // RETRY_CONFIDENCE so the UI still asks a human to glance at it.
+      if (RETRYABLE_TYPES.has(f.valueType) && (!r.value || coerced == null)) {
+        const wide = await prepareCrop(await bitmap(page), bbox, { pad: RETRY_CROP_PAD });
+        const retry = await readCropValue({ crop: wide, prompt, operation: 'template.field', ref, model: UPGRADED_VISION_MODEL });
+        models.add(retry.model); out.tokensUsed += retry.tokensUsed ?? 0;
+        if (retry.value) {
+          r = retry;
+          coerced = coerceValue(retry.value, f.valueType);
+          confidence = RETRY_CONFIDENCE;
+        }
+      }
+      out.values[f.key] = { ...base, raw: r.value || null, value: coerced, source: 'vision', confidence };
     } catch (e) {
       out.values[f.key] = base;
       out.errors.push({ fieldKey: f.key, message: (e as Error).message });

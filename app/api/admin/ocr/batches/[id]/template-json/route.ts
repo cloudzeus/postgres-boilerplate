@@ -23,6 +23,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     // runs of the same document share a createdAt.
     distinct: ['documentId'],
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    // A folder is built entirely in memory: an unbounded read of a pathological batch would take the
+    // process down instead of producing a file. 2000 documents is far past any real folder.
+    take: 2000,
     include: {
       template: { select: { slug: true } },
       document: { select: { id: true, fileName: true, extractedData: true } },

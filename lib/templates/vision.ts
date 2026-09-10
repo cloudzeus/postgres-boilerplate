@@ -6,7 +6,7 @@ import { getSetting } from '@/lib/settings';
 import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
 import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
 import { buildModelChain, tryModels } from '@/lib/ocr/model-fallback';
-import type { Bbox } from './schema';
+import { padBbox, type Bbox } from './schema';
 
 const DEFAULT_VISION_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 
@@ -36,12 +36,24 @@ async function visionConfig(): Promise<VisionConfig> {
   return cfg;
 }
 
-/** Crop a normalized bbox from a page bitmap and enhance it for reading (upscale ×2, min 400px / max 2000×2600, grayscale, normalize). */
-export async function prepareCrop(pageBuf: Buffer, bbox: Bbox): Promise<Buffer> {
+/**
+ * How much air to leave around a marked region, as a fraction of the page on EACH side. Regions are
+ * drawn once, on one sample; the next document from the same issuer prints a hair to the side and a
+ * pixel-tight box then clips a digit off an amount. ~1.2% of an A4 width is ≈2.5mm — enough to save
+ * the clipped glyph, small enough not to drag the neighbouring column into the crop.
+ */
+export const DEFAULT_CROP_PAD = 0.012;
+
+/**
+ * Crop a normalized bbox from a page bitmap and enhance it for reading (upscale ×2, min 400px /
+ * max 2000×2600, grayscale, normalize). The bbox is padded by `opts.pad` (default `DEFAULT_CROP_PAD`)
+ * before it is extracted; pass `{ pad: 0 }` for an exact crop.
+ */
+export async function prepareCrop(pageBuf: Buffer, bbox: Bbox, opts?: { pad?: number }): Promise<Buffer> {
   const meta = await sharp(pageBuf).metadata();
   const W = meta.width ?? 0; const H = meta.height ?? 0;
   if (W < 2 || H < 2) throw new Error('unreadable page');
-  const [nx, ny, nw, nh] = bbox;
+  const [nx, ny, nw, nh] = padBbox(bbox, opts?.pad ?? DEFAULT_CROP_PAD);
   const left = Math.min(W - 1, Math.max(0, Math.round(nx * W)));
   const top = Math.min(H - 1, Math.max(0, Math.round(ny * H)));
   const width = Math.min(W - left, Math.max(1, Math.round(nw * W)));
@@ -59,10 +71,15 @@ type CallResult = { content: string; model: string; tokensUsed: number | null };
 /** Optional attribution for the AiUsage row, so spend can be traced back to a document/template. */
 export type UsageRef = { refType: string; refId: string };
 
-/** `mime` is the media type of `crop` — whole-page payloads ship as JPEG, crops as PNG. */
-export async function callVision(crop: Buffer, system: string, operation: string, ref?: UsageRef, mime = 'image/png'): Promise<CallResult> {
+/**
+ * `mime` is the media type of `crop` — whole-page payloads ship as JPEG, crops as PNG.
+ * `modelOverride` is tried FIRST and the configured chain follows it, so a retry can ask a stronger
+ * model for one hard crop without losing the fallbacks that keep the call alive under load.
+ */
+export async function callVision(crop: Buffer, system: string, operation: string, ref?: UsageRef, mime = 'image/png', modelOverride?: string): Promise<CallResult> {
   const cfg = await visionConfig();
-  return tryModels(cfg.models, async (model) => {
+  const models = modelOverride ? buildModelChain(modelOverride, cfg.models) : cfg.models;
+  return tryModels(models, async (model) => {
     // NOTE: every failure path in here must RETURN `{ ok: false }` rather than
     // throw — a throw escapes tryModels and skips the remaining fallback models.
     // fetchWithRetry re-throws the transport error after its last attempt
@@ -121,9 +138,9 @@ export async function callVision(crop: Buffer, system: string, operation: string
 const NULLISH = new Set(['', 'null', 'none', '—', '-', 'n/a', 'κενό']);
 
 /** Read one field's value from a crop. `prompt` describes the field (label + hint). */
-export async function readCropValue(input: { crop: Buffer; prompt: string; operation: string; ref?: UsageRef }): Promise<{ value: string; model: string; tokensUsed: number | null }> {
+export async function readCropValue(input: { crop: Buffer; prompt: string; operation: string; ref?: UsageRef; model?: string }): Promise<{ value: string; model: string; tokensUsed: number | null }> {
   const system = `${input.prompt}\nThe image is a cropped area of a scanned business document (Greek or English). Respond with ONLY the raw value text as printed, no labels, no quotes, no explanation. If the area is empty respond with an empty string.`;
-  const r = await callVision(input.crop, system, input.operation, input.ref);
+  const r = await callVision(input.crop, system, input.operation, input.ref, 'image/png', input.model);
   const v = r.content.trim();
   return { value: NULLISH.has(v.toLowerCase()) ? '' : v, model: r.model, tokensUsed: r.tokensUsed };
 }

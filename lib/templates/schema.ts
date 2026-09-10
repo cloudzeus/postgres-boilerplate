@@ -137,6 +137,22 @@ export function normalizeVat(v: unknown): string | null {
   return /^\d{9}$/.test(digits) ? digits : null;
 }
 
+/**
+ * Grow a normalized bbox by `pad` on every side, clamped to the page. A box drawn tight around the
+ * value on the designer's sample clips the first or last glyph on the next document whose print sits
+ * a millimetre to the side — and a half-read amount is worse than no amount at all. Pure so the
+ * clamping at the page edges can be tested without a bitmap.
+ */
+export function padBbox(bbox: Bbox, pad: number): Bbox {
+  if (!Number.isFinite(pad) || pad <= 0) return bbox;
+  const [x, y, w, h] = bbox;
+  const x0 = Math.max(0, x - pad);
+  const y0 = Math.max(0, y - pad);
+  const x1 = Math.min(1, x + w + pad);
+  const y1 = Math.min(1, y + h + pad);
+  return [x0, y0, Math.max(0, x1 - x0), Math.max(0, y1 - y0)];
+}
+
 export function isValidBbox(b: unknown): b is Bbox {
   if (!Array.isArray(b) || b.length !== 4) return false;
   const [x, y, w, h] = b;
