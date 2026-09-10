@@ -145,6 +145,14 @@ function disagrees(invoiceKey: string, mine: unknown, theirs: unknown): boolean 
 export type CrossCheck = { fieldKey: string; reason: string };
 
 /**
+ * The field keys `crossCheckOcr` is able to have an opinion about — i.e. whose per-field verdict it
+ * OWNS, and which a recomputation may therefore drop before asking it again (`run-flags.ts`).
+ */
+export function crossCheckKeys(rows: { fieldKey: string; invoiceKey: string }[]): string[] {
+  return rows.filter((r) => CROSS_CHECK_KEYS.has(r.invoiceKey)).map((r) => r.fieldKey);
+}
+
+/**
  * Every INVOICE mapping row whose target is one of `CROSS_CHECK_KEYS` and whose template value
  * contradicts what the base OCR read. Blank on either side is not a contradiction — a value only
  * one of the two readers found is not evidence that either is wrong.

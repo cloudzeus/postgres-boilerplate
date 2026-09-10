@@ -86,6 +86,10 @@ export const templatesApi = {
     // Without a templateId the server matches the issuer ΑΦΜ; `no_template` when nothing matches.
     run: (docId: string, templateId?: string) => fetch(runsBase(docId), json(templateId ? { templateId } : {})).then((r) => handle<{ run: RunDto | null; outcome: RunOutcome }>(r)),
     patch: (docId: string, runId: string, values: Record<string, unknown>) => fetch(`${runsBase(docId)}/${runId}`, json({ values }, 'PATCH')).then((r) => handle<{ run: RunDto }>(r)),
+    // Re-read ONE field of the document (spec §16). `region` = a box the user just moved or resized
+    // on the canvas; without it the field is read again from the region the run already used.
+    reread: (docId: string, runId: string, fieldKey: string, region?: Region) =>
+      fetch(`${runsBase(docId)}/${runId}/reread`, json({ fieldKey, region })).then((r) => handle<{ run: RunDto; value: FieldValue }>(r)),
     outputUrl: (docId: string, runId: string, download = false) => `${runsBase(docId)}/${runId}${download ? '?download=1' : ''}`,
   },
 };

@@ -1,18 +1,15 @@
 // GET → the run's output JSON (spec §14.8, `?download=1` for a file). PATCH { values } → manual corrections on the run.
 import { NextResponse } from 'next/server';
-import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { coerceValue } from '@/lib/templates/coerce';
-import { projectToInvoice } from '@/lib/templates/mapping';
 import { toRunOutput } from '@/lib/templates/output';
-import { applyProjectionToDocument } from '@/lib/templates/run';
-import { buildReviewFlags, pickMapping, requiredMissing, type FieldFlag } from '@/lib/templates/run-logic';
+import { finalizeRunEdit, isLatestRun } from '@/lib/templates/run';
 import { RUN_INCLUDE, toRunDto } from '@/lib/templates/run-dto';
-import { toFieldDef, toMappingDto } from '@/lib/templates/serialize';
-import type { FieldValue, MappingRowInvoice } from '@/lib/templates/schema';
+import { toFieldDef } from '@/lib/templates/serialize';
+import type { FieldValue } from '@/lib/templates/schema';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -48,9 +45,6 @@ export async function GET(req: Request, { params }: Ctx) {
 
 const Body = z.object({ values: z.record(z.string(), z.unknown()) });
 
-/** Prefix of the review/blocked entry the runner writes for an empty required field. */
-const MISSING_PREFIX = 'Λείπει υποχρεωτικό πεδίο «';
-
 export async function PATCH(req: Request, { params }: Ctx) {
   const u = await requirePermission('ocr.categorize');
   const { id, runId } = await params;
@@ -60,10 +54,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const run = await prisma.templateRun.findUnique({ where: { id: runId }, include: RUN_INCLUDE });
   if (!run || run.documentId !== id) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
-  // Only the LATEST run may be corrected. An older one is a historical record: editing it would
-  // re-project stale values over the document and leave the banner describing a different run.
-  const latest = await prisma.templateRun.findFirst({ where: { documentId: id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true } });
-  if (latest?.id !== runId) {
+  // Only the LATEST run may be corrected — see `isLatestRun`.
+  if (!(await isLatestRun(id, runId))) {
     return NextResponse.json({ error: 'not_latest', message: 'Μόνο η τελευταία εκτέλεση μπορεί να διορθωθεί' }, { status: 409 });
   }
 
@@ -93,47 +85,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
     };
   }
 
-  // Rebuild the "missing required field" flags from the corrected values: entries for fields the
-  // human just filled in are dropped, and a field they emptied gains one. Rule-authored reasons
-  // (FLAG_REVIEW / BLOCK_POSTING) and read errors are left exactly as the run recorded them.
-  const prevFlags = (run.flags as { review?: string[]; blocked?: string[]; notified?: string[]; fields?: Record<string, FieldFlag> } | null) ?? {};
-  const notMissing = (s: string) => !s.startsWith(MISSING_PREFIX);
-  const missing = requiredMissing(fields, values);
-  const missingLabels = missing.map((f) => `${MISSING_PREFIX}${f.label}»`);
-  // Same rule as the runner: only AUTO lets a missing required field block the posting.
-  const blocked = [...new Set([...(prevFlags.blocked ?? []).filter(notMissing), ...(run.template.mode === 'AUTO' ? missingLabels : [])])];
-  const review = [...new Set([...(prevFlags.review ?? []).filter(notMissing), ...missingLabels])];
-  // The per-field verdict is rebuilt the same way: entries the missing-required rule owns (any entry
-  // on a REQUIRED field) are recomputed, and everything else — a read error on an optional field —
-  // stands, because a correction says nothing about a field the human did not touch.
-  const fieldFlags: Record<string, FieldFlag> = {};
-  for (const [key, flag] of Object.entries(prevFlags.fields ?? {})) {
-    if (!fields.some((f) => f.key === key && f.required)) fieldFlags[key] = flag;
-  }
-  for (const f of missing) fieldFlags[f.key] = run.template.mode === 'AUTO' ? 'blocked' : 'review';
-  const flags = { ...prevFlags, review, blocked, fields: fieldFlags };
-
-  const updated = await prisma.templateRun.update({
-    where: { id: runId },
-    data: { values: values as unknown as Prisma.InputJsonValue, flags: flags as unknown as Prisma.InputJsonValue },
-    include: RUN_INCLUDE,
-  });
-
-  // Re-project — a correction is only worth anything if it reaches the document the ERP posts from.
-  // MANUAL templates never rewrite the document (same rule as the runner), and a template with no
-  // INVOICE mapping has nothing to project.
-  const mapping = run.template.mode === 'MANUAL' ? null : pickMapping(run.template.mappings.map(toMappingDto), run.mappingName || null);
-  if (mapping) {
-    const doc = await prisma.ocrDocument.findUnique({ where: { id }, select: { extractedData: true } });
-    const extracted = ((doc?.extractedData ?? {}) as Record<string, unknown>);
-    const nextData = projectToInvoice(values, mapping.rows as MappingRowInvoice[], extracted);
-    await applyProjectionToDocument(id, nextData, extracted.items);
-  }
-
-  // The document's banner mirrors its latest run, which — see the 409 above — is the one just edited.
-  await prisma.ocrDocument
-    .update({ where: { id }, data: { reviewFlags: buildReviewFlags(run.template, run.status, runId, { review, blocked }) as unknown as Prisma.InputJsonValue } })
-    .catch((e) => console.error('[templates] reviewFlags refresh failed', runId, (e as Error).message));
+  // Flags, projection and the document's banner are the shared finalisation — the same three writes
+  // a per-field re-read ends in.
+  const updated = await finalizeRunEdit({ run, values });
 
   await logAudit({
     userId: u.id, userEmail: u.email, action: 'template.run.edit', resource: 'templateRun', resourceId: runId,

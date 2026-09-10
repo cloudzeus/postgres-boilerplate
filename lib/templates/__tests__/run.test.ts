@@ -4,7 +4,7 @@ import type { FieldValue, TemplateValueType } from '../schema';
 const db = vi.hoisted(() => ({
   ocrDocument: { findUnique: vi.fn(), update: vi.fn() },
   extractionTemplate: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
-  templateRun: { create: vi.fn(), findMany: vi.fn(), update: vi.fn() },
+  templateRun: { create: vi.fn(), findMany: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
   ocrInvoiceItem: { deleteMany: vi.fn(), createMany: vi.fn(), findMany: vi.fn() },
   // The runner hands `$transaction` an ARRAY of promises (prisma batch form).
   $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
@@ -36,7 +36,7 @@ vi.mock('@/lib/ocr/post-softone', () => ({
 vi.mock('../notify', () => ({ sendRuleNotifications: (...a: unknown[]) => notify(...a) }));
 vi.mock('@/lib/ocr/softone-match', () => ({ matchDocItems: (...a: unknown[]) => matchItems(...a) }));
 
-import { findTemplateForVat, runMatchingTemplate, runTemplateOnDocument } from '../run';
+import { findTemplateForVat, finalizeRunEdit, rereadField, runMatchingTemplate, runTemplateOnDocument } from '../run';
 
 // ---------------------------------------------------------------- fixtures
 
@@ -83,6 +83,7 @@ const docUpdates = () => db.ocrDocument.update.mock.calls.map((c) => c[0].data a
 beforeEach(() => {
   for (const m of [db.ocrDocument.findUnique, db.ocrDocument.update, db.extractionTemplate.findUnique, db.extractionTemplate.findFirst,
     db.extractionTemplate.update, db.templateRun.create, db.templateRun.findMany, db.templateRun.update,
+    db.templateRun.findUnique, db.templateRun.findFirst,
     db.ocrInvoiceItem.deleteMany, db.ocrInvoiceItem.createMany, db.ocrInvoiceItem.findMany, db.$transaction, extract, post, notify, matchItems]) m.mockReset();
   db.$transaction.mockImplementation(async (ops: Promise<unknown>[]) => Promise.all(ops));
   db.ocrDocument.update.mockResolvedValue({});
@@ -90,6 +91,7 @@ beforeEach(() => {
   db.templateRun.create.mockResolvedValue({ id: 'r1' });
   db.templateRun.findMany.mockResolvedValue([]);
   db.templateRun.update.mockResolvedValue({});
+  db.templateRun.findFirst.mockResolvedValue({ id: 'r1' });
   db.ocrInvoiceItem.deleteMany.mockResolvedValue({ count: 0 });
   db.ocrInvoiceItem.createMany.mockResolvedValue({ count: 0 });
   db.ocrInvoiceItem.findMany.mockResolvedValue([]);
@@ -531,5 +533,153 @@ describe('table fallback', () => {
     extract.mockResolvedValue(extractResult({ total: value(20), note: value('x'), lines: value([]) }));
     const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
     expect(out.flags.review).toEqual([]);
+  });
+});
+
+// ------------------------------------------------- editing a run after the fact
+
+/** A TemplateRun row as `RUN_INCLUDE` returns it. */
+const runRow = (over: Record<string, unknown> = {}) => ({
+  id: 'r1', documentId: 'd1', status: 'REVIEW', mappingName: 'default', templateVersion: 2,
+  values: { total: value(20), note: value('x') },
+  flags: { review: [], blocked: [], notified: [], fields: {} },
+  template: template({ mode: 'SEMI_AUTO', conditions: [] }),
+  ...over,
+});
+
+/** The document row `rereadField`/`finalizeRunEdit` select. */
+const docRow = (over: Record<string, unknown> = {}) => ({ storageKey: 'ocr/a.pdf', mimeType: 'application/pdf', extractedData: {}, ...over });
+
+const loadRun = (run: Record<string, unknown> = runRow(), d: Record<string, unknown> = docRow()) => {
+  db.templateRun.findUnique.mockResolvedValue(run);
+  db.templateRun.findFirst.mockResolvedValue({ id: run.id });
+  db.ocrDocument.findUnique.mockResolvedValue(d);
+  db.templateRun.update.mockResolvedValue({ ...run, id: run.id });
+  return run;
+};
+
+/** Payload of the last `templateRun.update`. */
+const runUpdate = () => db.templateRun.update.mock.calls.at(-1)![0].data as Record<string, any>;
+/** The field list `extractTemplateFields` was asked to read. */
+const readFields = () => extract.mock.calls.at(-1)![2] as Record<string, any>[];
+
+describe('rereadField', () => {
+  it('reads only that field, with the region the user drew, and leaves the other values alone', async () => {
+    loadRun();
+    extract.mockResolvedValue(extractResult({ total: { ...value(229.4), page: 1, bbox: [0.3, 0.4, 0.2, 0.05] } }));
+
+    const out = await rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total', region: { page: 1, bbox: [0.3, 0.4, 0.2, 0.05] } });
+
+    expect(out.ok).toBe(true);
+    expect(readFields()).toHaveLength(1);
+    expect(readFields()[0]).toMatchObject({ key: 'total', region: { page: 1, bbox: [0.3, 0.4, 0.2, 0.05] } });
+    // The cost lands on the DOCUMENT, not the template.
+    expect(extract.mock.calls.at(-1)![3]).toMatchObject({ ref: { refType: 'OcrDocument', refId: 'd1' } });
+    // Only that key moved; the box it was read from is stored with it.
+    expect(runUpdate().values.total).toMatchObject({ value: 229.4, page: 1, bbox: [0.3, 0.4, 0.2, 0.05] });
+    expect(runUpdate().values.note).toMatchObject({ value: 'x' });
+    expect(out.ok && out.overridden).toBe(true);
+  });
+
+  it('without an override, re-reads the box THIS RUN used — not the template\'s', async () => {
+    loadRun(runRow({ values: { total: { ...value(20), page: 2, bbox: [0.1, 0.9, 0.2, 0.05] }, note: value('x') } }));
+    extract.mockResolvedValue(extractResult({ total: value(20) }));
+
+    const out = await rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total' });
+
+    expect(readFields()[0].region).toEqual({ page: 2, bbox: [0.1, 0.9, 0.2, 0.05] });
+    expect(out.ok && out.overridden).toBe(false);
+  });
+
+  it('falls back to the template region when the run has no box for the field', async () => {
+    loadRun(runRow({ values: { note: value('x') } }));
+    extract.mockResolvedValue(extractResult({ total: value(20) }));
+    await rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total' });
+    expect(readFields()[0].region).toEqual({ page: 0, bbox: [0, 0, 0.1, 0.1] });
+  });
+
+  it('recomputes the flags of the re-read field and re-projects onto the document', async () => {
+    loadRun(
+      runRow({
+        template: template({ mode: 'SEMI_AUTO', conditions: [] }),
+        values: { total: value(null, 'none'), note: value('x') },
+        flags: { review: ['Λείπει υποχρεωτικό πεδίο «Σύνολο»', 'μεγάλο ποσό'], blocked: [], notified: ['c1'], fields: { total: 'review' } },
+      }),
+      docRow({ extractedData: { invoiceNumber: '7' } }),
+    );
+    extract.mockResolvedValue(extractResult({ total: value(150) }));
+
+    await rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total' });
+
+    // The value arrived → the missing-required flag goes, the rule's prose and the notified ids stay.
+    expect(runUpdate().flags).toMatchObject({ review: ['μεγάλο ποσό'], blocked: [], notified: ['c1'], fields: {} });
+    const projected = docUpdates().find((d) => 'extractedData' in d)!.extractedData;
+    expect(projected.totalAmount).toBe(150);
+    expect(projected.invoiceNumber).toBe('7');
+    expect(docUpdates().at(-1)!.reviewFlags).toMatchObject({ runId: 'r1', runStatus: 'REVIEW', review: ['μεγάλο ποσό'] });
+  });
+
+  it('flags a re-read value that now contradicts the base OCR', async () => {
+    loadRun(runRow(), docRow({ extractedData: { totalAmount: 22.94 } }));
+    extract.mockResolvedValue(extractResult({ total: value(229.4) }));
+
+    await rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total' });
+
+    expect(runUpdate().flags.review).toContain('Ασυμφωνία «Σύνολο»: πρότυπο 229.4 · OCR 22.94');
+    expect(runUpdate().flags.fields).toEqual({ total: 'review' });
+  });
+
+  it('refuses a run that is not the document\'s latest, an unknown field, and a field with no region', async () => {
+    loadRun();
+    db.templateRun.findFirst.mockResolvedValue({ id: 'r2' });
+    await expect(rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total' })).resolves.toEqual({ ok: false, error: 'not_latest' });
+    expect(extract).not.toHaveBeenCalled();
+
+    loadRun();
+    await expect(rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'φάντασμα' })).resolves.toEqual({ ok: false, error: 'unknown_field' });
+
+    loadRun(runRow({ template: template({ mode: 'SEMI_AUTO', conditions: [], fields: [field({ key: 'total', label: 'Σύνολο', required: true, region: null })] }), values: {} }));
+    await expect(rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total' })).resolves.toEqual({ ok: false, error: 'no_region' });
+
+    db.templateRun.findUnique.mockResolvedValue(null);
+    await expect(rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total' })).resolves.toEqual({ ok: false, error: 'not_found' });
+
+    loadRun(runRow({ documentId: 'other' }));
+    await expect(rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total' })).resolves.toEqual({ ok: false, error: 'not_found' });
+    expect(db.templateRun.update).not.toHaveBeenCalled();
+  });
+
+  it('a failed read changes nothing — the previous value stands', async () => {
+    loadRun();
+    extract.mockResolvedValue(extractResult({ total: value(null, 'none') }, { errors: [{ fieldKey: 'total', message: 'κενή περιοχή' }] }));
+
+    await expect(rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total' })).resolves.toEqual({ ok: false, error: 'read_failed' });
+    expect(db.templateRun.update).not.toHaveBeenCalled();
+    expect(docUpdates()).toEqual([]);
+  });
+});
+
+describe('finalizeRunEdit', () => {
+  it('MANUAL never rewrites the document, but still stores the values and moves the banner', async () => {
+    const run = runRow({ template: template({ mode: 'MANUAL', conditions: [] }), status: 'EXTRACTED' });
+    db.templateRun.update.mockResolvedValue(run);
+    db.ocrDocument.findUnique.mockResolvedValue({ extractedData: { totalAmount: 1 } });
+
+    await finalizeRunEdit({ run: run as never, values: { total: value(99), note: value('x') } });
+
+    expect(runUpdate().values.total).toMatchObject({ value: 99 });
+    expect(docUpdates().some((d) => 'extractedData' in d)).toBe(false);
+    expect(docUpdates().at(-1)!.reviewFlags).toMatchObject({ runStatus: 'EXTRACTED', runId: 'r1', templateSlug: 'promitheftis' });
+  });
+
+  it('reads the document\'s extractedData itself when the caller did not hand it over', async () => {
+    const run = runRow();
+    db.templateRun.update.mockResolvedValue(run);
+    db.ocrDocument.findUnique.mockResolvedValue({ extractedData: { invoiceNumber: '7' } });
+
+    await finalizeRunEdit({ run: run as never, values: { total: value(50), note: value('x') } });
+
+    expect(db.ocrDocument.findUnique).toHaveBeenCalledWith({ where: { id: 'd1' }, select: { extractedData: true } });
+    expect(docUpdates().find((d) => 'extractedData' in d)!.extractedData).toMatchObject({ totalAmount: 50, invoiceNumber: '7' });
   });
 });
