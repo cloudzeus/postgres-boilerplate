@@ -53,6 +53,8 @@ export function useRunRegions({ docId, run, onRun }: Args): RunRegions {
 
   const setRegion = React.useCallback((key: string, region: Region) => {
     setPending((p) => ({ ...p, [key]: region }));
+    // A box moved again after it reached the template is a NEW box — the save button is no longer spent.
+    setSavedKeys((s) => { if (!s.has(key)) return s; const n = new Set(s); n.delete(key); return n; });
   }, []);
 
   const reread = React.useCallback(async (key: string) => {
