@@ -84,7 +84,12 @@ export function RegionsStep() {
       const free = uniqueKey(f.key, fields.filter((x) => x.key !== key).map((x) => x.key));
       if (free !== f.key) next = { ...f, key: free };
     }
+    const movedRegion = !sameRegion(fields.find((x) => x.key === key)?.region ?? null, next.region);
     setFields((fs) => fs.map((x) => (x.key === key ? next : x)));
+    // The «Δοκιμή ανάγνωσης» chip is a value read from the OLD box. Moving or redrawing the region
+    // makes it a lie about the new one, so it goes — before the rename block below, which would
+    // otherwise carry it over to the new key.
+    if (movedRegion) setTests((t) => { if (!(key in t)) return t; const { [key]: _stale, ...rest } = t; return rest; });
     if (next.key !== key) {
       const from = originalKey(key);
       origin.current.map.delete(key);
@@ -260,3 +265,7 @@ export function RegionsStep() {
 }
 
 const round = (n: number) => Math.round(n * 1000) / 1000;
+
+/** Same page, same four numbers — a field edit that never touched the box must not clear its test. */
+const sameRegion = (a: Region | null, b: Region | null): boolean =>
+  a === b || (!!a && !!b && a.page === b.page && a.bbox.every((n, i) => n === b.bbox[i]));

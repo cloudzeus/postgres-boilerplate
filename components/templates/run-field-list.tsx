@@ -63,6 +63,8 @@ type Props = {
   rereading?: string | null;
   /** Field key whose region is being written back to the template. */
   savingRegion?: string | null;
+  /** Keys whose pending box already reached the template — the box stays, the button is spent. */
+  savedRegionKeys?: ReadonlySet<string>;
   /** Re-read ONLY this field from the document, with the pending box when there is one. */
   onReread?: (key: string) => void;
   /** Push this field's pending box back to the template, for every document after this one. */
@@ -76,7 +78,7 @@ type Props = {
 
 export function RunFieldList({
   run, focusKey, onFocus, onSelect, editable, onEdit,
-  pending, rereading = null, savingRegion = null, onReread, onSaveRegion, rowRefs,
+  pending, rereading = null, savingRegion = null, savedRegionKeys, onReread, onSaveRegion, rowRefs,
 }: Props) {
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
   const [editing, setEditing] = React.useState<string | null>(null);
@@ -102,11 +104,18 @@ export function RunFieldList({
         const isFocused = focusKey === f.key;
         const flag = run.flags.fields[f.key];
         const pendingRegion = pending?.[f.key];
-        // Nothing to re-read from: no box on the template and none drawn on the canvas either.
-        const canReread = editable && !!onReread && (!!f.region || !!pendingRegion);
+        // Where a re-read would read FROM: the box drawn on the canvas, the template's own box, or —
+        // for a field the run found without one (a detected box, or a region saved after this run) —
+        // the box the value itself came from. Only "none of the three" is unreadable.
+        const hasRegion = !!f.region || !!pendingRegion || !!v?.bbox;
+        const canReread = editable && !!onReread && hasRegion;
         const busyReread = rereading === f.key;
-        // «Δεν διαβάστηκε» is exactly the row the user came here for — give it the loud button.
-        const failed = !v || v.source === 'none' || v.value == null || v.value === '';
+        // «Δεν διαβάστηκε» is exactly the row the user came here for — give it the loud button. An
+        // empty TABLE (`[]`) read nothing either, however truthy the array is.
+        const failed = !v || v.source === 'none' || v.value == null || v.value === '' || (Array.isArray(v.value) && v.value.length === 0);
+        // The loud row shows even with nothing to read from — disabled, saying where the box comes from.
+        const showRereadRow = editable && !!onReread && (failed || !!pendingRegion);
+        const regionSaved = !!savedRegionKeys?.has(f.key);
         return (
           <li
             key={f.key}
@@ -148,7 +157,9 @@ export function RunFieldList({
                   />
                 ) : (
                   <div className="mt-0.5 flex items-start gap-1.5">
-                    <span className="min-w-0 flex-1 break-words text-[12px]">{formatValue(v?.value ?? null, f.valueType)}</span>
+                    {/* A re-read rewrites this in place — announce it, or a screen reader user only
+                        hears the spinner stop. */}
+                    <span aria-live="polite" className="min-w-0 flex-1 break-words text-[12px]">{formatValue(v?.value ?? null, f.valueType)}</span>
                     {editable && f.kind === 'SINGLE' && (
                       <button
                         type="button"
@@ -164,6 +175,7 @@ export function RunFieldList({
                         type="button"
                         aria-label={`Επανάγνωση «${f.label}»`}
                         title="Επανάγνωση μόνο αυτού του πεδίου"
+                        aria-busy={busyReread}
                         disabled={!!rereading}
                         onClick={(e) => { e.stopPropagation(); onReread!(f.key); }}
                         className="shrink-0 cursor-pointer rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-default disabled:opacity-40"
@@ -174,16 +186,22 @@ export function RunFieldList({
                   </div>
                 )}
 
-                {canReread && (failed || pendingRegion) && (
+                {showRereadRow && (
                   <div className="mt-1 flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                    <Button size="sm" variant="secondary" className="cursor-pointer" disabled={!!rereading} onClick={() => onReread!(f.key)}
+                    <Button size="sm" variant="secondary" className="cursor-pointer" disabled={!!rereading || !hasRegion}
+                      title={hasRegion ? undefined : 'Το πεδίο δεν έχει περιοχή — όρισέ την στο πρότυπο'}
+                      aria-busy={busyReread} onClick={() => onReread!(f.key)}
                       aria-label={`Επανάγνωση «${f.label}»`}>
                       <FiRefreshCw className={busyReread ? 'animate-spin' : ''} /> {busyReread ? 'Ανάγνωση…' : 'Επανάγνωση'}
                     </Button>
                     {pendingRegion && onSaveRegion && (
-                      <Button size="sm" variant="outline" className="cursor-pointer" disabled={!!savingRegion} onClick={() => onSaveRegion(f.key)}
+                      // Spent once the box is in the template: a second write would only bump the
+                      // version again for the identical region. The chip stays — the box is still
+                      // unread on THIS run until «Επανάγνωση».
+                      <Button size="sm" variant="outline" className="cursor-pointer" disabled={!!savingRegion || regionSaved}
+                        aria-busy={savingRegion === f.key} onClick={() => onSaveRegion(f.key)}
                         aria-label={`Αποθήκευση περιοχής «${f.label}» στο πρότυπο`}>
-                        <FiSave /> {savingRegion === f.key ? 'Αποθήκευση…' : 'Αποθήκευση στο πρότυπο'}
+                        <FiSave /> {savingRegion === f.key ? 'Αποθήκευση…' : regionSaved ? 'Αποθηκεύτηκε στο πρότυπο' : 'Αποθήκευση στο πρότυπο'}
                       </Button>
                     )}
                   </div>

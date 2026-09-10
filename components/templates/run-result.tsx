@@ -11,7 +11,7 @@ import { FiChevronDown, FiChevronRight, FiDownload, FiFileText, FiHelpCircle, Fi
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { RegionMarker, type SavedRegion } from '@/components/ui/region-marker';
-import { defaultTemplateId, editSeed, matchesVat, pageCountOf } from '@/lib/templates/run-view';
+import { buildRunRegions, defaultTemplateId, editSeed, matchesVat, pageCountOf, regionIndexOf, regionKeyAt } from '@/lib/templates/run-view';
 import type { FlowRun } from '@/lib/templates/flow';
 import type { FieldValue } from '@/lib/templates/schema';
 import { templatesApi, errorMessage, type RunDto } from './api';
@@ -69,6 +69,14 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
   const pageCount = React.useMemo(() => pageCountOf(values), [values]);
   const alreadyRan = templateId !== '' && runs.some((r) => r.template.id === templateId);
   const vatHint = !run && templates.some((t) => matchesVat(t, issuerVat) && t.status === 'ACTIVE');
+  /**
+   * Corrections — a moved box, a re-read, a typed value — only make sense on the run the rest of the
+   * app treats as THE result of this document: the newest one, and only while nothing has been posted
+   * from it. The server refuses the older ones anyway (`not_latest` / `posted`), so offering the
+   * controls on a history entry would only produce an error nobody can act on from here.
+   */
+  const isLatest = !!run && run.id === runs[0]?.id;
+  const editableRun = canManage && isLatest && run?.status !== 'POSTED';
 
   /**
    * A deliberate pick — clicking or tabbing to a row, clicking a node in the flow — follows the field
@@ -93,22 +101,15 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
 
   // The boxes of THIS page, and the field key behind each one — `onRegionHover` reports an index into
   // this list, and the highlight only travels back to the row if we can name the field again.
-  const { regions, regionKeys } = React.useMemo(() => {
-    const rs: SavedRegion[] = [];
-    const keys: string[] = [];
-    for (const [key, v] of Object.entries(values)) {
-      // A box the user just moved or resized wins over the one the run was executed with, until
-      // «Επανάγνωση» sends it to the server and the run comes back carrying it.
-      const adjusted = regionEdit.pending[key];
-      const bbox = adjusted?.bbox ?? v?.bbox;
-      if (!bbox || (adjusted?.page ?? v?.page ?? 0) !== page) continue;
-      keys.push(key);
-      rs.push({ bbox, color: v?.color, active: key === focusKey, label: run?.template.fields.find((f) => f.key === key)?.label ?? key });
-    }
-    return { regions: rs, regionKeys: keys };
-  }, [values, regionEdit.pending, page, focusKey, run]);
-
-  const selectedRegion = focusKey ? regionKeys.indexOf(focusKey) : -1;
+  const { regions: boxes, keys: regionKeys } = React.useMemo(
+    () => buildRunRegions(values, regionEdit.pending, page),
+    [values, regionEdit.pending, page],
+  );
+  // Focus and labels are view state, not geometry — they ride on top of the pure result.
+  const regions = React.useMemo<SavedRegion[]>(
+    () => boxes.map((b, i) => ({ ...b, active: regionKeys[i] === focusKey, label: run?.template.fields.find((f) => f.key === regionKeys[i])?.label ?? regionKeys[i] })),
+    [boxes, regionKeys, focusKey, run],
+  );
 
   const doRun = React.useCallback(async () => {
     setBusy(true);
@@ -137,7 +138,9 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
   }, [docId, templateId, router]);
 
   const doEdit = React.useCallback(async (key: string, value: string) => {
-    if (!run) return;
+    // The list hides the pencil when the run is not editable; this is the second lock, so a stale
+    // open editor (the run switched under it) cannot still PATCH a history entry.
+    if (!run || !editableRun) return;
     // Same expression the editor seeded the box with: otherwise a value whose `raw` differs from its
     // coerced form («1.234,50» → 1234.5) looks changed the moment it is opened and saves a no-op.
     if (editSeed(run.values[key]) === value) return;
@@ -149,7 +152,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
     } catch (e) {
       toast.error(errorMessage(e));
     }
-  }, [docId, run, router]);
+  }, [docId, run, router, editableRun]);
 
   const doPost = React.useCallback(async () => {
     setPosting(true);
@@ -238,24 +241,27 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
                 <RegionMarker
                   pageImageUrl={(p) => `/api/admin/ocr/${docId}/page-image?page=${p}&scale=3`}
                   pageCount={pageCount} page={page} onPageChange={setPage}
-                  savedRegions={regions} onRegionHover={(i) => setFocusKey(i == null ? null : regionKeys[i] ?? null)}
+                  savedRegions={regions} onRegionHover={(i) => setFocusKey(regionKeyAt(regionKeys, i))}
                   isMarking={false} onRegionComplete={() => {}} showNav={false}
-                  editable={canManage}
-                  selectedIndex={selectedRegion >= 0 ? selectedRegion : null}
-                  onRegionSelect={(i) => setFocusKey(i == null ? null : regionKeys[i] ?? null)}
+                  editable={editableRun}
+                  selectedIndex={regionIndexOf(regionKeys, focusKey)}
+                  onRegionSelect={(i) => setFocusKey(regionKeyAt(regionKeys, i))}
                   onRegionChange={(i, bbox) => { const key = regionKeys[i]; if (key) regionEdit.setRegion(key, { page, bbox }); }}
                   pageLabel={`${fileName}, σελίδα ${page + 1}`} className="w-full"
                 />
               </div>
               {canManage && (
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  Σύρε ή άλλαξε το μέγεθος μιας περιοχής (βέλη για μικρομετακίνηση, Shift+βέλη για μέγεθος) και μετά «Επανάγνωση» στο πεδίο.
+                  {editableRun
+                    ? 'Σύρε ή άλλαξε το μέγεθος μιας περιοχής (βέλη για μικρομετακίνηση, Shift+βέλη για μέγεθος) και μετά «Επανάγνωση» στο πεδίο.'
+                    : 'Μόνο η τελευταία, μη αναρτημένη εκτέλεση μπορεί να διορθωθεί.'}
                 </p>
               )}
             </div>
             <RunFieldList
-              run={run} focusKey={focusKey} onFocus={setFocusKey} onSelect={selectField} editable={canManage} onEdit={doEdit}
+              run={run} focusKey={focusKey} onFocus={setFocusKey} onSelect={selectField} editable={editableRun} onEdit={doEdit}
               pending={regionEdit.pending} rereading={regionEdit.rereading} savingRegion={regionEdit.saving}
+              savedRegionKeys={regionEdit.savedKeys}
               onReread={regionEdit.reread} onSaveRegion={regionEdit.saveToTemplate} rowRefs={rowRefs}
             />
           </div>

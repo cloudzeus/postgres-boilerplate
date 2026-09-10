@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { defaultTemplateId, editSeed, formatValue, matchesVat, pageCountOf, runSeverity, type TemplateChoice } from '../run-view';
-import type { FieldValue } from '../schema';
+import { buildRunRegions, defaultTemplateId, editSeed, formatValue, matchesVat, pageCountOf, regionIndexOf, regionKeyAt, runSeverity, type TemplateChoice } from '../run-view';
+import type { Bbox, FieldValue } from '../schema';
 
 const v = (over: Partial<FieldValue> = {}): FieldValue =>
   ({ raw: null, value: null, confidence: 1, source: 'vision', page: null, bbox: null, color: '#0078D4', ...over });
@@ -51,6 +51,65 @@ describe('pageCountOf', () => {
   });
   it('counts up to the DEEPEST page a value came from', () => {
     expect(pageCountOf({ a: v({ page: 0 }), b: v({ page: 3 }), c: v({ page: 1 }) })).toBe(4);
+  });
+});
+
+describe('buildRunRegions', () => {
+  const box = (n: number): Bbox => [n, n, 0.1, 0.1];
+
+  it('keeps only the boxes of the page it is asked for, and pairs each with its field key', () => {
+    const values = { a: v({ bbox: box(0.1), page: 0 }), b: v({ bbox: box(0.2), page: 1 }), c: v({ bbox: box(0.3), page: 0 }) };
+    const { regions, keys } = buildRunRegions(values, {}, 0);
+    expect(keys).toEqual(['a', 'c']);
+    expect(regions.map((r) => r.bbox)).toEqual([box(0.1), box(0.3)]);
+  });
+
+  it('treats a value with no page as page 0, and skips one with no box at all', () => {
+    const values = { a: v({ bbox: box(0.1), page: null }), b: v({ bbox: null, page: 0 }) };
+    expect(buildRunRegions(values, {}, 0).keys).toEqual(['a']);
+    expect(buildRunRegions(values, {}, 1).keys).toEqual([]);
+  });
+
+  it('lets a pending box win over the one the run was executed with', () => {
+    const values = { a: v({ bbox: box(0.1), page: 0, color: '#111111' }) };
+    const { regions, keys } = buildRunRegions(values, { a: { page: 0, bbox: box(0.5) } }, 0);
+    expect(keys).toEqual(['a']);
+    // The geometry is the user's; the colour still belongs to the field.
+    expect(regions[0]).toEqual({ bbox: box(0.5), color: '#111111' });
+  });
+
+  it('follows a pending box to ANOTHER page — it leaves the old page and appears on the new one', () => {
+    const values = { a: v({ bbox: box(0.1), page: 0 }) };
+    const pending = { a: { page: 2, bbox: box(0.5) } };
+    expect(buildRunRegions(values, pending, 0).keys).toEqual([]);
+    expect(buildRunRegions(values, pending, 2).keys).toEqual(['a']);
+  });
+
+  it('shows a box drawn for a field the run never read', () => {
+    const values = { a: v({ bbox: null, page: null, source: 'none' }) };
+    expect(buildRunRegions(values, { a: { page: 0, bbox: box(0.4) } }, 0).keys).toEqual(['a']);
+  });
+
+  it('returns nothing for a run with no values', () => {
+    expect(buildRunRegions({}, {}, 0)).toEqual({ regions: [], keys: [] });
+  });
+});
+
+describe('regionIndexOf / regionKeyAt', () => {
+  const keys = ['a', 'b', 'c'];
+  it('translates a field key to the index the marker knows it by, and back', () => {
+    expect(regionIndexOf(keys, 'b')).toBe(1);
+    expect(regionKeyAt(keys, 1)).toBe('b');
+  });
+  it('answers null for nothing focused, for a field that has no box on this page, and for a stale index', () => {
+    expect(regionIndexOf(keys, null)).toBeNull();
+    expect(regionIndexOf(keys, 'zz')).toBeNull();
+    expect(regionKeyAt(keys, null)).toBeNull();
+    expect(regionKeyAt(keys, 7)).toBeNull();
+  });
+  it('round-trips every key of a built page', () => {
+    const { keys: built } = buildRunRegions({ a: v({ bbox: [0, 0, 1, 1], page: 0 }), b: v({ bbox: [0, 0, 1, 1], page: 0 }) }, {}, 0);
+    for (const k of built) expect(regionKeyAt(built, regionIndexOf(built, k))).toBe(k);
   });
 });
 
