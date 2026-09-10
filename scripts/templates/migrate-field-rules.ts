@@ -17,6 +17,10 @@ import { COLOR_PALETTE, isValidBbox, templateSlug, uniqueKey, type Bbox } from '
 
 const MIGRATED_PREFIX = 'Μεταφερμένο: ';
 
+// The `SupplierFieldRule` / `SupplierTemplate` tables (and Prisma models) are dropped by migration
+// 20260910130000_drop_supplier_field_rules. This script now reads them through $queryRawUnsafe with
+// locally-declared types, so it keeps compiling after the models are gone — and fails with a clear
+// Greek message instead of a Prisma "Unknown model" error once the tables themselves are dropped.
 type Rule = {
   id: string;
   vatNumber: string;
@@ -30,6 +34,37 @@ type Rule = {
   isActive: boolean;
   supplierName: string | null;
 };
+
+type LegacyTemplate = {
+  id: string;
+  vatNumber: string;
+  docType: string;
+  supplierName: string | null;
+  example: unknown;
+  fieldHints: unknown;
+  sampleDocId: string | null;
+  thumbUrl: string | null;
+  timesUsed: number;
+  createdById: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+const TABLE_MISSING = '42P01'; // Postgres: "relation does not exist"
+
+/** True when the error is Postgres' "relation does not exist" (the legacy tables were dropped). */
+function isMissingTableError(e: unknown): boolean {
+  const err = e as { code?: unknown; message?: unknown; meta?: unknown } | null;
+  if (err?.code !== 'P2010') return false;
+  // Prisma's driver-adapter raw-query errors nest the original Postgres error code under
+  // meta.driverAdapterError.cause.originalCode; fall back to scanning the message for the
+  // Postgres SQLSTATE / "does not exist" in case that shape changes across Prisma versions.
+  const cause = (err.meta as { driverAdapterError?: { cause?: { originalCode?: unknown } } } | undefined)
+    ?.driverAdapterError?.cause;
+  if (cause?.originalCode === TABLE_MISSING) return true;
+  const message = String(err.message ?? '');
+  return message.includes(TABLE_MISSING) || message.includes('does not exist');
+}
 
 /** `{ page, bbox }` from a legacy 🎯 marker, or null when the hint is missing/malformed. */
 function regionOf(regionHint: unknown): { page: number; bbox: Bbox } | null {
@@ -49,12 +84,24 @@ type Plan = {
 async function main() {
   const dry = process.argv.slice(2).includes('--dry');
 
-  const [rules, legacyTemplates] = await Promise.all([
-    prisma.supplierFieldRule.findMany({ orderBy: [{ vatNumber: 'asc' }, { createdAt: 'asc' }] }),
-    prisma.supplierTemplate.findMany({ orderBy: { vatNumber: 'asc' } }),
-  ]);
+  let rules: Rule[];
+  let legacyTemplates: LegacyTemplate[];
+  try {
+    [rules, legacyTemplates] = await Promise.all([
+      prisma.$queryRawUnsafe<Rule[]>('SELECT * FROM "SupplierFieldRule" WHERE "isActive" = true'),
+      prisma.$queryRawUnsafe<LegacyTemplate[]>('SELECT * FROM "SupplierTemplate"'),
+    ]);
+  } catch (e) {
+    if (isMissingTableError(e)) {
+      console.log('Οι παλιοί πίνακες δεν υπάρχουν πια — δεν υπάρχει τίποτα να μεταφερθεί.');
+      return;
+    }
+    throw e;
+  }
 
-  // Backup FIRST — everything, active or not, so nothing is lost when the tables are dropped.
+  // Backup FIRST, before anything is written, so nothing is lost when the tables are dropped.
+  // (Only active SupplierFieldRule rows are fetched — see the query above; inactive ones were
+  // never migrated and are expected to already be captured in an earlier backup run.)
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const backupDir = path.join(process.cwd(), '.local', 'backup');
   const backupPath = path.join(backupDir, `legacy-field-rules-${stamp}.json`);
