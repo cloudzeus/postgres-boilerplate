@@ -399,3 +399,16 @@ Bunny key δείγματος: `templates/<id>/sample-<nanoid>.<ext>` (χωρίς
 6. **Excel/JSON:** ανά έγγραφο `GET …/template-excel` (στήλες από EXCEL mapping, αλλιώς μία ανά πεδίο· TABLE → sheet «Γραμμές»)· ανά φάκελο `GET /api/admin/ocr/batches/[id]/template-excel` (ένα sheet ανά πρότυπο, μία γραμμή ανά έγγραφο με run) και `…/template-json` (array από OutputJson, §14.8).
 7. **Λίστα OCR:** στήλη «Πρότυπο» (όνομα + status τελευταίου run, χρωματιστό pill) από `reviewFlags`.
 8. **Καθαρισμός (§7):** script `scripts/templates/migrate-field-rules.ts` μεταφέρει τα `SupplierFieldRule` σε DRAFT/MANUAL πρότυπα (ένα ανά ΑΦΜ, «Μεταφερμένο: <επωνυμία>», πεδία χωρίς περιοχή με `aiHint` = description, `regionHint` → region) και γράφει backup JSON στο `.local/`. Μετά: αφαίρεση των legacy passes από το `extractDocument`, των σελίδων/API «Ειδικά πεδία», του «Αποθήκευση ως πρότυπο», των `lib/ocr/{field-rules,field-rules-db,templates-store}.ts` (ο slugifier μεταφέρεται στο `lib/templates/slug.ts`), και migration που διαγράφει τους πίνακες `SupplierFieldRule`/`SupplierTemplate`.
+
+---
+
+## 16. Plan 3b — διαδραστικές περιοχές και επανάγνωση πεδίου (αίτημα 2026-09-10)
+
+«Σε κάθε πεδίο που δημιουργείς, edit → rescan μόνο το σημείο που δεν τα κατάφερε, και δυνατότητα resize και μετατόπισης στον καμβά.» Επίσης: ακρίβεια σε ποσά και γραμμές.
+
+1. **Μετακίνηση / αλλαγή μεγέθους περιοχών στον καμβά.** Το `RegionMarker` αποκτά `editable` λειτουργία: κάθε περιοχή σέρνεται (μετατόπιση) και έχει 8 λαβές (αλλαγή μεγέθους), με ελάχιστο μέγεθος, περιορισμό μέσα στη σελίδα και μικρομετακίνηση με βέλη. `onRegionChange(index, bbox)`. Η γεωμετρία είναι καθαρή συνάρτηση (`lib/templates/geometry.ts`, tests).
+2. **Στον designer** (βήμα «Περιοχές & πεδία»): οι περιοχές του draft μετακινούνται/μεγαλώνουν επί τόπου, το draft γίνεται dirty, «Δοκιμή» διαβάζει μόνο το ένα πεδίο (υπάρχει).
+3. **Στην κάρτα του εγγράφου**: κάθε πεδίο έχει «Επανάγνωση» που ξαναδιαβάζει **μόνο αυτό** από το έγγραφο (crop με περιθώριο, typed retry). Αν ο χρήστης μετακινήσει/αλλάξει την περιοχή στον καμβά, η επανάγνωση γίνεται με τη νέα περιοχή και η τιμή αποθηκεύεται στο run με `page/bbox` = η περιοχή που χρησιμοποιήθηκε (η προσαρμογή ανά έγγραφο μένει στο run, όχι στο πρότυπο). Προαιρετικά «Αποθήκευση περιοχής στο πρότυπο» (δικαίωμα `ocr.categorize`) ενημερώνει το `TemplateField.region` (version++), ώστε το επόμενο έγγραφο να διαβαστεί σωστά.
+4. **Endpoint** `POST /api/admin/ocr/[id]/template-runs/[runId]/reread { fieldKey, region? }` — μόνο στο τελευταίο run· ξαναδιαβάζει το πεδίο (SINGLE ή TABLE), ενημερώνει `values[key]`, ξαναϋπολογίζει τα flags του πεδίου (required, διασταύρωση OCR), ξανακάνει projection όταν mode ≠ MANUAL (ίδια λογική με το PATCH), επιστρέφει `{ run }`. Καταγράφεται σε audit και κόστος (`logAiUsage` refType OcrDocument).
+5. **Κόμβοι ροής**: κλικ σε κόμβο πεδίου στην κάρτα εστιάζει τη γραμμή του πεδίου (και την περιοχή), όπου υπάρχει το «Επανάγνωση».
+6. Δεν χρειάζεται migration: το `TemplateRun.values[key].bbox/page` ήδη κρατά την περιοχή που χρησιμοποιήθηκε.
