@@ -16,17 +16,19 @@ type Row = {
   duplicate: boolean; duplicateRef: string | null;
   totalLines: number; matchedLines: number;
   /** Latest template run, cached on OcrDocument.reviewFlags by the runner (spec §15.7). */
-  templateName: string | null; templateRunStatus: string | null;
+  templateName: string | null; templateRunStatus: RunStatus | null;
 };
 
-/** The folder exports 404 when no document of the folder has a template run — say so up front. */
+/** The folder exports 404 when no document of the folder has a usable run — say so up front. */
 const NO_RUNS_HINT = 'Δεν έχει τρέξει πρότυπο σε κανένα παραστατικό του φακέλου';
 
 export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Row[] }) {
   const router = useRouter();
   const [running, setRunning] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
-  const hasRuns = rows.some((r) => r.templateRunStatus != null);
+  // FAILED runs stored no values and the export routes skip them, so a folder whose only runs failed
+  // has nothing to export — offering the buttons would just hand the user a 404.
+  const hasRuns = rows.some((r) => r.templateRunStatus != null && r.templateRunStatus !== 'FAILED');
 
   const kpi = {
     total: rows.length,
@@ -94,10 +96,12 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
           </>
         ) : (
           <>
-            <Button size="sm" variant="outline" disabled title={NO_RUNS_HINT}>
+            {/* A disabled button never fires the pointer events a tooltip needs, so the reason is written out. */}
+            <span className="text-[11px] text-muted-foreground">{NO_RUNS_HINT}</span>
+            <Button size="sm" variant="outline" disabled>
               <FiDownload className="mr-1.5 h-3.5 w-3.5" /> Excel προτύπων
             </Button>
-            <Button size="sm" variant="outline" disabled title={NO_RUNS_HINT}>
+            <Button size="sm" variant="outline" disabled>
               <FiCode className="mr-1.5 h-3.5 w-3.5" /> JSON
             </Button>
           </>
@@ -189,7 +193,7 @@ function templateCell(r: Row) {
       <span className="max-w-[160px] truncate text-[12px] font-medium" title={r.templateName ?? undefined}>
         {r.templateName ?? '—'}
       </span>
-      <RunStatusPill status={r.templateRunStatus as RunStatus} />
+      <RunStatusPill status={r.templateRunStatus} />
     </div>
   );
 }

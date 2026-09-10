@@ -60,26 +60,26 @@ describe('mappingFellBack', () => {
 
 describe('decideOutcome', () => {
   it('follows the mode and the blocked flags', () => {
-    expect(decideOutcome('MANUAL', { review: [], blocked: [] })).toBe('EXTRACTED');
-    expect(decideOutcome('SEMI_AUTO', { review: ['x'], blocked: [] })).toBe('REVIEW');
-    expect(decideOutcome('AUTO', { review: [], blocked: ['x'] })).toBe('BLOCKED');
-    expect(decideOutcome('AUTO', { review: [], blocked: [] })).toBe('POST');
+    expect(decideOutcome('MANUAL', { blocked: [] })).toBe('EXTRACTED');
+    expect(decideOutcome('SEMI_AUTO', { blocked: [] })).toBe('REVIEW');
+    expect(decideOutcome('AUTO', { blocked: ['x'] })).toBe('BLOCKED');
+    expect(decideOutcome('AUTO', { blocked: [] })).toBe('POST');
   });
   it('SEMI_AUTO stays REVIEW even when blocked', () => {
     // The outcome is the mode's; the block is enforced by `canPost` at posting time, so a
     // SEMI_AUTO run with a BLOCK_POSTING reason still cannot be posted from the document page.
-    expect(decideOutcome('SEMI_AUTO', { review: [], blocked: ['x'] })).toBe('REVIEW');
+    expect(decideOutcome('SEMI_AUTO', { blocked: ['x'] })).toBe('REVIEW');
   });
 });
 
 describe('canPost', () => {
   it('is false whenever something is blocked, in EVERY mode', () => {
-    expect(canPost('AUTO', { review: [], blocked: [] })).toBe(true);
-    expect(canPost('SEMI_AUTO', { review: ['x'], blocked: [] })).toBe(true);
-    expect(canPost('MANUAL', { review: [], blocked: [] })).toBe(true);
-    expect(canPost('AUTO', { review: [], blocked: ['x'] })).toBe(false);
-    expect(canPost('SEMI_AUTO', { review: [], blocked: ['x'] })).toBe(false);
-    expect(canPost('MANUAL', { review: [], blocked: ['x'] })).toBe(false);
+    expect(canPost('AUTO', { blocked: [] })).toBe(true);
+    expect(canPost('SEMI_AUTO', { blocked: [] })).toBe(true);
+    expect(canPost('MANUAL', { blocked: [] })).toBe(true);
+    expect(canPost('AUTO', { blocked: ['x'] })).toBe(false);
+    expect(canPost('SEMI_AUTO', { blocked: ['x'] })).toBe(false);
+    expect(canPost('MANUAL', { blocked: ['x'] })).toBe(false);
   });
 });
 

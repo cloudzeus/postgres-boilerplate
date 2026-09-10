@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { RunStatusPill } from '@/components/templates/run-status-pill';
 import { reconMeta } from '@/lib/ocr/recon-status';
+import { runSeverity } from '@/lib/templates/run-view';
 import type { RunStatus } from '@/lib/templates/schema';
 import { OcrRowDetail } from './row-detail';
 
@@ -51,7 +52,7 @@ export interface OcrRow {
   softoneSeries: string | null;
   /** Latest template run, cached on OcrDocument.reviewFlags by the runner (spec §15.7). */
   templateName: string | null;
-  templateRunStatus: string | null;
+  templateRunStatus: RunStatus | null;
   reviewCount: number;
   blockedCount: number;
 }
@@ -409,9 +410,12 @@ export function OcrTable({
     {
       accessorKey: 'templateRunStatus',
       header: 'Πρότυπο',
+      // Alphabetical order over five Greek words tells nobody what to open first — sort by how loudly
+      // the run is asking for attention instead (μπλοκαρισμένο → απέτυχε → …  → κενό).
+      sortingFn: (a, b) => runSeverity(a.original.templateRunStatus) - runSeverity(b.original.templateRunStatus),
       cell: ({ row }) => {
         const r = row.original;
-        const st = r.templateRunStatus as RunStatus | null;
+        const st = r.templateRunStatus;
         if (!st) return <span className="text-xs text-muted-foreground">—</span>;
         return (
           <div className="flex flex-col items-start gap-0.5 min-w-[120px]">
@@ -616,7 +620,7 @@ export function OcrTable({
         data={rows}
         searchKey="fileName"
         searchPlaceholder="Αναζήτηση εγγράφου…"
-        persistKey="admin.ocr.table.v1"
+        persistKey="admin.ocr.table.v2"
         enableSelection
         groupBy={{
           getKey: (r) => localDayKey(r.createdAt),

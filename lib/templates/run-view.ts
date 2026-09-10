@@ -1,0 +1,65 @@
+// lib/templates/run-view.ts — ISOMORPHIC, PURE. The arithmetic and formatting the run card and the
+// OCR list do to a run before painting it. Lives here, not in the components, so it can be tested
+// without a DOM and so the picker and the card cannot disagree about what "matches this ΑΦΜ" means.
+import { normalizeVat, type FieldValue, type RunStatus, type TemplateValueType } from './schema';
+
+const EMPTY = '—';
+
+/**
+ * Greek-formatted display of a coerced value, by the FIELD's declared type: money always shows its
+ * two decimals (`12` → «12,00»), a plain number keeps up to four and no trailing zeros. Arrays report
+ * their size — the rows themselves expand below the row.
+ */
+export function formatValue(v: FieldValue['value'], valueType: TemplateValueType): string {
+  if (v == null || v === '') return EMPTY;
+  if (typeof v === 'number') {
+    return valueType === 'CURRENCY'
+      ? v.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : v.toLocaleString('el-GR', { maximumFractionDigits: 4 });
+  }
+  if (Array.isArray(v)) return `${v.length} γραμμ${v.length === 1 ? 'ή' : 'ές'}`;
+  return String(v);
+}
+
+/**
+ * What the inline editor starts on, and therefore what "unchanged" means when it commits. One
+ * expression for both, so a value whose `raw` differs from its coerced form cannot save a no-op.
+ */
+export function editSeed(v: FieldValue | undefined): string {
+  return v?.raw ?? String(v?.value ?? '');
+}
+
+/** How many pages the marker may page through: one past the deepest page any value came from. */
+export function pageCountOf(values: Record<string, FieldValue>): number {
+  let max = 0;
+  for (const v of Object.values(values)) if (v?.page != null && v.page > max) max = v.page;
+  return max + 1;
+}
+
+/** The part of a template the ΑΦΜ match and the default selection need. */
+export type TemplateChoice = { id: string; status: 'DRAFT' | 'ACTIVE'; vatNumber: string | null };
+
+/** Is this the template the runner would have picked for that issuer by itself? */
+export function matchesVat(t: TemplateChoice, issuerVat: string | null): boolean {
+  const vat = normalizeVat(issuerVat);
+  return vat != null && normalizeVat(t.vatNumber) === vat;
+}
+
+/**
+ * What the picker should start on: the template of the newest run, else the first ACTIVE template
+ * for the issuer ΑΦΜ, else the first ΑΦΜ match of any status, else ''.
+ */
+export function defaultTemplateId(templates: TemplateChoice[], issuerVat: string | null, lastRunTemplateId?: string | null): string {
+  if (lastRunTemplateId && templates.some((t) => t.id === lastRunTemplateId)) return lastRunTemplateId;
+  const mine = templates.filter((t) => matchesVat(t, issuerVat));
+  return mine.find((t) => t.status === 'ACTIVE')?.id ?? mine[0]?.id ?? '';
+}
+
+/**
+ * How loudly a run status asks for attention. Sorting the OCR list's «Πρότυπο» column by it puts the
+ * documents somebody has to deal with on top, instead of ordering five Greek words alphabetically.
+ */
+const SEVERITY: Record<RunStatus, number> = { BLOCKED: 5, FAILED: 4, REVIEW: 3, EXTRACTED: 2, POSTED: 1 };
+export function runSeverity(status: RunStatus | null | undefined): number {
+  return status ? SEVERITY[status] ?? 0 : 0;
+}

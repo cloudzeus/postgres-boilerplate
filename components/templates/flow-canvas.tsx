@@ -92,10 +92,16 @@ export type FlowCanvasProps = {
   onNodeClick?: (node: { id: string; type: string; data: Record<string, unknown> }) => void;
   /** Field key to highlight (designer list ⇄ canvas ⇄ flow). */
   focusKey?: string | null;
+  /**
+   * Re-fit the viewport whenever the diagram changes shape, not just on mount. On for the run card,
+   * where a new run adds values and badges that resize the nodes; off for the designer panel, where
+   * every keystroke would otherwise yank back a viewport the user just panned.
+   */
+  refitOnChange?: boolean;
   className?: string;
 };
 
-export function FlowCanvas({ template, run, orientation, onNodeClick, focusKey, className }: FlowCanvasProps) {
+export function FlowCanvas({ template, run, orientation, onNodeClick, focusKey, refitOnChange = false, className }: FlowCanvasProps) {
   const { nodes, edges } = React.useMemo(() => buildFlow(toFlowTemplate(template), run), [template, run]);
   const rfNodes = React.useMemo<Node<D>[]>(
     () => layoutFlow(nodes, orientation).map((n) => ({
@@ -121,7 +127,7 @@ export function FlowCanvas({ template, run, orientation, onNodeClick, focusKey, 
         <ReactFlow nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes} onNodeClick={onNodeClick ? handleNodeClick : undefined} fitView fitViewOptions={{ padding: 0.15 }} nodesConnectable={false} elementsSelectable={false} minZoom={0.2}>
           <Background gap={16} color="#EDEBE9" />
           <Controls showInteractive={false} />
-          <FitOnChange token={fitToken} />
+          {refitOnChange && <FitOnChange token={fitToken} />}
         </ReactFlow>
       </div>
     </OrientationContext.Provider>

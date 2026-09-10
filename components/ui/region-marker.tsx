@@ -10,6 +10,13 @@ type Props = {
   page?: number;
   onPageChange?: (page: number) => void;
   savedRegions?: SavedRegion[];
+  /**
+   * Hovering a saved box reports its index in `savedRegions` (and `null` on leave), so a caller can
+   * light up the matching row in its own list. Saved boxes stay click-through until this is given —
+   * without it they must never swallow the pointer, or marking a new region on top of an old one
+   * would be impossible.
+   */
+  onRegionHover?: (index: number | null) => void;
   isMarking: boolean;
   onRegionComplete: (box: NormBox, page: number) => void;
   onError?: () => void;
@@ -21,7 +28,7 @@ type Props = {
 };
 
 export function RegionMarker({
-  pageImageUrl, pageCount = 1, page = 0, onPageChange, savedRegions = [], isMarking, onRegionComplete, onError, showNav = true, className, pageLabel,
+  pageImageUrl, pageCount = 1, page = 0, onPageChange, savedRegions = [], onRegionHover, isMarking, onRegionComplete, onError, showNav = true, className, pageLabel,
 }: Props) {
   const url = pageImageUrl(page);
   const [objUrl, setObjUrl] = React.useState<string | null>(null);
@@ -98,8 +105,13 @@ export function RegionMarker({
           )}
           {!active && savedRegions.map((r, i) => {
             const c = r.color ?? '#10b981';
+            // A box at the very top of the page has no room above it for its label — hang it under
+            // the box instead, where it is still readable rather than clipped off the image.
+            const labelBelow = r.bbox[1] < 0.04;
             return (
-              <div key={i} className="pointer-events-none absolute overflow-visible"
+              <div key={i} className={`absolute overflow-visible ${onRegionHover ? '' : 'pointer-events-none'}`}
+                onMouseEnter={onRegionHover ? () => onRegionHover(i) : undefined}
+                onMouseLeave={onRegionHover ? () => onRegionHover(null) : undefined}
                 style={{
                   left: `${r.bbox[0] * 100}%`, top: `${r.bbox[1] * 100}%`, width: `${r.bbox[2] * 100}%`, height: `${r.bbox[3] * 100}%`,
                   border: `${r.active ? 3 : 2}px solid ${c}`,
@@ -107,7 +119,8 @@ export function RegionMarker({
                   boxShadow: r.active ? `0 0 0 2px #fff, 0 0 0 4px ${c}` : undefined,
                 }}>
                 {r.label && (
-                  <span className="absolute -top-4 left-0 rounded-sm px-1 text-[10px] font-medium text-white" style={{ background: c }}>{r.label}</span>
+                  <span className={`pointer-events-none absolute left-0 rounded-sm px-1 text-[10px] font-medium text-white ${labelBelow ? 'top-full' : '-top-4'}`}
+                    style={{ background: c }}>{r.label}</span>
                 )}
               </div>
             );

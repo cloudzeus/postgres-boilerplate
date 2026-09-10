@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  COLOR_PALETTE, nextColor, slugKey, isValidBbox, INVOICE_SCHEMA, invoiceKeyInfo, uniqueKey, templateSlug, slugDraft, SLUG_RE,
+  COLOR_PALETTE, nextColor, slugKey, isValidBbox, INVOICE_SCHEMA, invoiceKeyInfo, uniqueKey, templateSlug, slugDraft, SLUG_RE, normalizeVat,
 } from '../schema';
 
 describe('COLOR_PALETTE / nextColor', () => {
@@ -105,4 +105,26 @@ describe('slugDraft', () => {
 describe('templateSlug', () => {
   it('slugs Greek names like a field key', () => { expect(templateSlug('ΗΡΩΝ — Εκκαθαριστικός')).toBe('iron_ekkatharistikos'); });
   it('never returns empty', () => { expect(templateSlug('!!!')).toMatch(/^field_/); });
+});
+
+describe('normalizeVat', () => {
+  it('keeps the nine digits of an ΑΦΜ however it was written', () => {
+    expect(normalizeVat('123456789')).toBe('123456789');
+    expect(normalizeVat('EL123456789')).toBe('123456789');
+    expect(normalizeVat(' 123 456 789 ')).toBe('123456789');
+    expect(normalizeVat('123.456.789')).toBe('123456789');
+    expect(normalizeVat(123456789)).toBe('123456789');
+  });
+  it('rejects anything that is not exactly nine digits', () => {
+    expect(normalizeVat('12345678')).toBeNull();       // eight
+    expect(normalizeVat('1234567890')).toBeNull();     // ten
+    expect(normalizeVat('')).toBeNull();
+    expect(normalizeVat('ΑΦΜ')).toBeNull();
+    expect(normalizeVat(null)).toBeNull();
+    expect(normalizeVat(undefined)).toBeNull();
+    expect(normalizeVat({})).toBeNull();
+  });
+  it('keeps a leading zero — an ΑΦΜ is a string, not a number', () => {
+    expect(normalizeVat('012345678')).toBe('012345678');
+  });
 });

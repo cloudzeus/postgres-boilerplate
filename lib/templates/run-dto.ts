@@ -2,6 +2,7 @@
 import 'server-only';
 import type { ExtractionTemplate, TemplateCondition, TemplateField, TemplateMapping, TemplateRun } from '@prisma/client';
 import { toConditionDto, toFieldDef, toMappingDto } from './serialize';
+import type { FieldFlag } from './run-logic';
 import type { FieldValue } from './schema';
 
 /**
@@ -18,7 +19,7 @@ export type RunWithTemplate = TemplateRun & {
 };
 
 export function toRunDto(r: RunWithTemplate) {
-  const flags = (r.flags as { review?: string[]; blocked?: string[]; notified?: string[] } | null) ?? null;
+  const flags = (r.flags as { review?: string[]; blocked?: string[]; notified?: string[]; fields?: Record<string, FieldFlag> } | null) ?? null;
   return {
     id: r.id,
     status: r.status,
@@ -28,8 +29,14 @@ export function toRunDto(r: RunWithTemplate) {
     templateVersion: r.templateVersion,
     values: (r.values as unknown as Record<string, FieldValue>) ?? {},
     matched: (r.matched as unknown as { id: string; name: string }[]) ?? [],
-    // Non-optional arrays: every consumer (badges, the flow panel, the review list) can map without a guard.
-    flags: { review: [] as string[], blocked: [] as string[], notified: [] as string[], ...(flags ?? {}) },
+    // Non-optional: every consumer (badges, the flow panel, the review list, the row borders) can read
+    // without a guard — including runs written before `fields` existed and FAILED runs that stored none.
+    flags: {
+      review: flags?.review ?? [],
+      blocked: flags?.blocked ?? [],
+      notified: flags?.notified ?? [],
+      fields: flags?.fields ?? {},
+    },
     mappingName: r.mappingName,
     model: r.model,
     tokensUsed: r.tokensUsed,

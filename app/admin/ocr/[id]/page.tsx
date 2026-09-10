@@ -8,13 +8,25 @@ import { OcrResultView } from './result-view';
 import { DeleteButton } from './delete-button';
 import { SoftoneChecksStrip } from '@/components/admin/softone-checks-strip';
 import { RunResult } from '@/components/templates/run-result';
+import type { RunDto } from '@/components/templates/api';
 import type { TemplateSummary } from '@/components/templates/template-picker';
 import { RUN_INCLUDE, toRunDto } from '@/lib/templates/run-dto';
+import { findHelpAnchor } from '@/lib/wiki/loader';
+import { canAccessWikiPage } from '@/lib/wiki/access';
+import type { WikiRoleKey } from '@/lib/wiki/types';
 
 export const dynamic = 'force-dynamic';
 
+/** Same resolution `<PageHeader helpAnchor>` does (findHelpAnchor → /wiki/<module>/<slug>), minus the
+ *  server component: the run card is a client component, so it takes the finished href as a prop. */
+function helpHrefFor(anchor: string, role: WikiRoleKey | null): string | null {
+  const page = findHelpAnchor(anchor);
+  if (!page || !canAccessWikiPage(role, page.frontmatter.roles)) return null;
+  return `/wiki/${page.frontmatter.module}/${page.frontmatter.slug}`;
+}
+
 export default async function OcrDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requirePermission('ocr.read');
+  const user = await requirePermission('ocr.read');
   const { id } = await params;
   const doc = await prisma.ocrDocument.findUnique({
     where: { id },
@@ -22,19 +34,28 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
   });
   if (!doc) notFound();
 
-  const [canDelete, canManage, canPost, runRows, templateRows] = await Promise.all([
+  const [canDelete, canManage, canPost] = await Promise.all([
     hasPermission('ocr.delete'),
     hasPermission('ocr.categorize'),
     hasPermission('ocr.post'),
-    prisma.templateRun.findMany({ where: { documentId: id }, orderBy: { createdAt: 'desc' }, take: 20, include: RUN_INCLUDE }),
-    prisma.extractionTemplate.findMany({
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true, slug: true, status: true, mode: true, vatNumber: true, department: true },
-    }),
   ]);
-  const runs = runRows.map(toRunDto);
+
+  // Only a COMPLETED document shows the run card, so only a COMPLETED document pays for its data —
+  // a failed or still-processing upload would fetch runs and every template for nothing.
+  const completed = doc.status === 'COMPLETED';
+  const [runRows, templateRows] = completed
+    ? await Promise.all([
+      prisma.templateRun.findMany({ where: { documentId: id }, orderBy: { createdAt: 'desc' }, take: 20, include: RUN_INCLUDE }),
+      prisma.extractionTemplate.findMany({
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true, slug: true, status: true, mode: true, vatNumber: true, department: true },
+      }),
+    ])
+    : [[], []];
+  const runs: RunDto[] = runRows.map(toRunDto);
   const templates: TemplateSummary[] = templateRows;
   const issuerVat = ((doc.extractedData ?? {}) as { vatNumber?: unknown }).vatNumber;
+  const helpHref = completed ? helpHrefFor('template-runs', (user.role.key as WikiRoleKey | undefined) ?? null) : null;
 
   return (
     <div className="p-6 space-y-5">
@@ -75,9 +96,9 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
         )}
       </header>
 
-      {doc.status === 'COMPLETED' && <SoftoneChecksStrip docId={doc.id} />}
+      {completed && <SoftoneChecksStrip docId={doc.id} />}
 
-      {doc.status === 'COMPLETED' && (
+      {completed && (
         <RunResult
           docId={doc.id}
           fileName={doc.fileName}
@@ -87,6 +108,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
           canManage={canManage}
           canPost={canPost}
           postStatus={doc.postStatus}
+          helpHref={helpHref}
         />
       )}
 

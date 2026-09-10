@@ -2,7 +2,14 @@
 import { coerceValue } from './coerce';
 import { invoiceKeyInfo, type FieldDef, type FieldValue, type MappingTarget, type RunStatus, type TemplateMode, type TemplateValueType } from './schema';
 
-export type RunFlags = { review: string[]; blocked: string[] };
+/** How badly one field is flagged. `blocked` implies `review` — a blocked field always wants eyes too. */
+export type FieldFlag = 'review' | 'blocked';
+/**
+ * What a run has to say about itself. `review`/`blocked` are the human-readable reasons (the card
+ * lists them); `fields` is the same verdict keyed by FIELD KEY, so the UI can colour a row without
+ * fishing the label back out of the Greek prose.
+ */
+export type RunFlags = { review: string[]; blocked: string[]; fields: Record<string, FieldFlag> };
 export type MappingLike = { name: string; target: MappingTarget; isDefault: boolean };
 export type RunDecision = 'EXTRACTED' | 'REVIEW' | 'BLOCKED' | 'POST';
 
@@ -49,14 +56,19 @@ export function mappingFellBack(mappings: MappingLike[], switched: string | null
 }
 
 /** Mode → what the run becomes. `blocked` only decides here for AUTO; posting itself is gated by `canPost`. */
-export function decideOutcome(mode: TemplateMode, flags: RunFlags): RunDecision {
+export function decideOutcome(mode: TemplateMode, flags: Pick<RunFlags, 'blocked'>): RunDecision {
   if (mode === 'MANUAL') return 'EXTRACTED';
   if (mode === 'SEMI_AUTO') return 'REVIEW';
   return flags.blocked.length ? 'BLOCKED' : 'POST';
 }
 
-/** A BLOCK_POSTING reason blocks the posting in EVERY mode — including a later manual post from the document page. */
-export function canPost(mode: TemplateMode, flags: RunFlags): boolean {
+/**
+ * Whether these flags allow a posting, in any mode. The runner asks before posting itself, and the
+ * manual post route asks with the flags the last run left on the document — so a BLOCK_POSTING reason
+ * also stops a human pressing «Έγκριση → ανάρτηση». It is only ever as current as those flags: a
+ * document whose template was never re-run carries whatever the last run concluded.
+ */
+export function canPost(mode: TemplateMode, flags: Pick<RunFlags, 'blocked'>): boolean {
   void mode; // deliberately mode-independent; the parameter keeps the call site readable as a policy check
   return flags.blocked.length === 0;
 }
@@ -123,7 +135,11 @@ export function itemsToRows(items: unknown[]): ItemRow[] {
   return rows;
 }
 
-export type ReviewFlags = RunFlags & { templateSlug: string; templateName: string; runStatus: RunStatus; runId: string };
-export function buildReviewFlags(t: { slug: string; name: string }, status: RunStatus, runId: string, flags: RunFlags): ReviewFlags {
+/**
+ * The document's cached summary of its LATEST run (`OcrDocument.reviewFlags`). Deliberately only the
+ * two reason lists: the per-field verdict lives on the run itself, where the card that renders it is.
+ */
+export type ReviewFlags = { review: string[]; blocked: string[]; templateSlug: string; templateName: string; runStatus: RunStatus; runId: string };
+export function buildReviewFlags(t: { slug: string; name: string }, status: RunStatus, runId: string, flags: Pick<RunFlags, 'review' | 'blocked'>): ReviewFlags {
   return { review: flags.review, blocked: flags.blocked, templateSlug: t.slug, templateName: t.name, runStatus: status, runId };
 }

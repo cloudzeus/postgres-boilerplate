@@ -126,6 +126,17 @@ export function templateSlug(name: string): string {
   return slugKey(name);
 }
 
+/**
+ * The app's single ΑΦΜ predicate: digits only, and exactly nine of them, else `null` = "not an ΑΦΜ
+ * we can match a template on". The OCR value arrives with spaces, dots or an `EL` prefix, so the
+ * comparison has to normalise both sides — and it must normalise them the SAME way everywhere, or
+ * the picker would offer a template the runner would never pick by itself.
+ */
+export function normalizeVat(v: unknown): string | null {
+  const digits = String(v ?? '').replace(/\D/g, '');
+  return /^\d{9}$/.test(digits) ? digits : null;
+}
+
 export function isValidBbox(b: unknown): b is Bbox {
   if (!Array.isArray(b) || b.length !== 4) return false;
   const [x, y, w, h] = b;

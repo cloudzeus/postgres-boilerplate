@@ -5,19 +5,21 @@
 // ανάρτηση). Everything here is about ONE run — the history list swaps which one.
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FiChevronDown, FiChevronRight, FiDownload, FiFileText, FiPlay, FiUploadCloud } from 'react-icons/fi';
+import { FiChevronDown, FiChevronRight, FiDownload, FiFileText, FiHelpCircle, FiPlay, FiUploadCloud } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { RegionMarker, type SavedRegion } from '@/components/ui/region-marker';
-import type { FlowRun, FlowTemplateSource } from '@/lib/templates/flow';
+import { defaultTemplateId, editSeed, matchesVat, pageCountOf } from '@/lib/templates/run-view';
+import type { FlowRun } from '@/lib/templates/flow';
 import type { FieldValue } from '@/lib/templates/schema';
 import { templatesApi, errorMessage, type RunDto } from './api';
 import { FlowCanvas } from './flow-canvas';
 import { RunFieldList } from './run-field-list';
 import { RunHeader, runLabel, runWhen } from './run-header';
 import { RunStatusPill } from './run-status-pill';
-import { TemplatePicker, defaultTemplateId, matchesVat, type TemplateSummary } from './template-picker';
+import { TemplatePicker, type TemplateSummary } from './template-picker';
 
 type Props = {
   docId: string;
@@ -28,16 +30,11 @@ type Props = {
   canManage: boolean;
   canPost: boolean;
   postStatus: string;
+  /** Wiki page for the `template-runs` help anchor, resolved on the server (null = no access). */
+  helpHref?: string | null;
 };
 
 const pageOf = (v: FieldValue | undefined): number | null => (v?.bbox ? v.page ?? 0 : null);
-
-/** How many pages the marker may page through: the deepest page any value came from. */
-function pageCountOf(values: Record<string, FieldValue>): number {
-  let max = 0;
-  for (const v of Object.values(values)) if (v?.page != null && v.page > max) max = v.page;
-  return max + 1;
-}
 
 function FlagList({ items, color, bg, title }: { items: string[]; color: string; bg: string; title: string }) {
   if (items.length === 0) return null;
@@ -49,7 +46,7 @@ function FlagList({ items, color, bg, title }: { items: string[]; color: string;
   );
 }
 
-export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, canManage, canPost, postStatus }: Props) {
+export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, canManage, canPost, postStatus, helpHref }: Props) {
   const router = useRouter();
   const [runs, setRuns] = React.useState<RunDto[]>(initialRuns);
   const [selectedId, setSelectedId] = React.useState<string | null>(initialRuns[0]?.id ?? null);
@@ -67,23 +64,29 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
   const alreadyRan = templateId !== '' && runs.some((r) => r.template.id === templateId);
   const vatHint = !run && templates.some((t) => matchesVat(t, issuerVat) && t.status === 'ACTIVE');
 
-  // Focusing a field follows it to its page, so the coloured box is actually on screen.
-  React.useEffect(() => {
-    const p = focusKey ? pageOf(values[focusKey]) : null;
+  /**
+   * A deliberate pick — clicking or tabbing to a row, clicking a node in the flow — follows the field
+   * to its page, so the coloured box is actually on screen. A HOVER deliberately does not: paging the
+   * image out from under the pointer as it slides down the list is unusable.
+   */
+  const selectField = React.useCallback((key: string | null) => {
+    setFocusKey(key);
+    const p = key ? pageOf(values[key]) : null;
     if (p != null) setPage(p);
-  }, [focusKey, values]);
+  }, [values]);
 
-  const regions = React.useMemo<SavedRegion[]>(
-    () => Object.entries(values)
-      .filter(([, v]) => v?.bbox && (v.page ?? 0) === page)
-      .map(([key, v]) => ({
-        bbox: v.bbox!,
-        color: v.color,
-        active: key === focusKey,
-        label: run?.template.fields.find((f) => f.key === key)?.label ?? key,
-      })),
-    [values, page, focusKey, run],
-  );
+  // The boxes of THIS page, and the field key behind each one — `onRegionHover` reports an index into
+  // this list, and the highlight only travels back to the row if we can name the field again.
+  const { regions, regionKeys } = React.useMemo(() => {
+    const rs: SavedRegion[] = [];
+    const keys: string[] = [];
+    for (const [key, v] of Object.entries(values)) {
+      if (!v?.bbox || (v.page ?? 0) !== page) continue;
+      keys.push(key);
+      rs.push({ bbox: v.bbox, color: v.color, active: key === focusKey, label: run?.template.fields.find((f) => f.key === key)?.label ?? key });
+    }
+    return { regions: rs, regionKeys: keys };
+  }, [values, page, focusKey, run]);
 
   const doRun = React.useCallback(async () => {
     setBusy(true);
@@ -96,9 +99,13 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
       }
       setFocusKey(null);
       setPage(0);
-      toast[outcome.status === 'FAILED' ? 'error' : 'success'](
-        outcome.error ?? `Το πρότυπο έτρεξε — ${runLabel(fresh ?? { status: outcome.status, trigger: 'manual', createdAt: new Date() })}`,
-      );
+      // A FAILED run does not always carry a reason (the database can refuse the run row itself), so
+      // the status — not the presence of `error` — decides both the tone and the fallback wording.
+      if (outcome.status === 'FAILED') {
+        toast.error(outcome.error ?? 'Η εκτέλεση απέτυχε');
+      } else {
+        toast.success(`Το πρότυπο έτρεξε — ${runLabel(fresh ?? { status: outcome.status, trigger: 'manual', createdAt: new Date() })}`);
+      }
       router.refresh();
     } catch (e) {
       toast.error(errorMessage(e));
@@ -109,8 +116,9 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
 
   const doEdit = React.useCallback(async (key: string, value: string) => {
     if (!run) return;
-    const prev = run.values[key];
-    if ((prev?.raw ?? '') === value) return;
+    // Same expression the editor seeded the box with: otherwise a value whose `raw` differs from its
+    // coerced form («1.234,50» → 1234.5) looks changed the moment it is opened and saves a no-op.
+    if (editSeed(run.values[key]) === value) return;
     try {
       const { run: updated } = await templatesApi.runs.patch(docId, run.id, { [key]: value });
       setRuns((rs) => rs.map((r) => (r.id === updated.id ? updated : r)));
@@ -128,6 +136,10 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
       const body = (await res.json().catch(() => ({}))) as { ok?: boolean; ref?: string; error?: string; message?: string };
       if (!res.ok || !body.ok) throw new Error(body.message ?? body.error ?? `Σφάλμα (${res.status})`);
       toast.success(`Αναρτήθηκε στο SoftOne${body.ref ? ` — ${body.ref}` : ''}.`);
+      // The post moves the run to POSTED server-side; re-read the list so the card stops offering the
+      // button it just used instead of waiting for a navigation.
+      const fresh = await templatesApi.runs.list(docId).then((r) => r.runs).catch(() => null);
+      if (fresh) setRuns(fresh);
       router.refresh();
     } catch (e) {
       toast.error(errorMessage(e));
@@ -144,7 +156,15 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
   return (
     <section className="space-y-3 rounded-xl border border-border bg-card p-4" data-testid="run-result">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        {run ? <RunHeader run={run} /> : <h2 className="text-sm font-semibold">Πρότυπο</h2>}
+        <div className="flex min-w-0 items-start gap-1.5">
+          {run ? <RunHeader run={run} /> : <h2 className="text-sm font-semibold">Πρότυπο</h2>}
+          {helpHref && (
+            <Link href={helpHref} target="_blank" aria-label="Βοήθεια" title="Βοήθεια: Εκτέλεση προτύπων"
+              className="mt-px inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted hover:text-foreground">
+              <FiHelpCircle className="size-3.5" />
+            </Link>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {canManage && <TemplatePicker templates={templates} issuerVat={issuerVat} value={templateId} onChange={setTemplateId} disabled={busy} />}
           {canManage && (
@@ -183,10 +203,10 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
             <div>
               {pageCount > 1 && (
                 <div className="mb-2 flex items-center gap-2 text-[12px]">
-                  <button type="button" className="cursor-pointer rounded border px-2 py-0.5 disabled:cursor-default disabled:opacity-40"
+                  <button type="button" aria-label="Προηγούμενη σελίδα" className="cursor-pointer rounded border px-2 py-0.5 disabled:cursor-default disabled:opacity-40"
                     disabled={page <= 0} onClick={() => setPage((p) => p - 1)}>←</button>
                   <span>Σελίδα {page + 1} / {pageCount}</span>
-                  <button type="button" className="cursor-pointer rounded border px-2 py-0.5 disabled:cursor-default disabled:opacity-40"
+                  <button type="button" aria-label="Επόμενη σελίδα" className="cursor-pointer rounded border px-2 py-0.5 disabled:cursor-default disabled:opacity-40"
                     disabled={page >= pageCount - 1} onClick={() => setPage((p) => p + 1)}>→</button>
                 </div>
               )}
@@ -194,12 +214,13 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
                 <RegionMarker
                   pageImageUrl={(p) => `/api/admin/ocr/${docId}/page-image?page=${p}&scale=3`}
                   pageCount={pageCount} page={page} onPageChange={setPage}
-                  savedRegions={regions} isMarking={false} onRegionComplete={() => {}} showNav={false}
+                  savedRegions={regions} onRegionHover={(i) => setFocusKey(i == null ? null : regionKeys[i] ?? null)}
+                  isMarking={false} onRegionComplete={() => {}} showNav={false}
                   pageLabel={`${fileName}, σελίδα ${page + 1}`} className="w-full"
                 />
               </div>
             </div>
-            <RunFieldList run={run} focusKey={focusKey} onFocus={setFocusKey} editable={canManage} onEdit={doEdit} />
+            <RunFieldList run={run} focusKey={focusKey} onFocus={setFocusKey} onSelect={selectField} editable={canManage} onEdit={doEdit} />
           </div>
 
           <FlagList items={run.flags.blocked} color="#B91C1C" bg="#FDE8E8" title="Μπλοκάρισμα ανάρτησης" />
@@ -219,8 +240,8 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
             </button>
             {flowOpen && (
               <div className="mt-2 rounded-lg border border-border" style={{ height: 260 }}>
-                <FlowCanvas template={run.template as FlowTemplateSource} run={flowRun} orientation="horizontal" focusKey={focusKey}
-                  onNodeClick={(n) => setFocusKey(n.id.startsWith('field:') ? n.id.slice(6) : null)} />
+                <FlowCanvas template={run.template} run={flowRun} orientation="horizontal" focusKey={focusKey} refitOnChange
+                  onNodeClick={(n) => selectField(n.id.startsWith('field:') ? n.id.slice(6) : null)} />
               </div>
             )}
           </div>

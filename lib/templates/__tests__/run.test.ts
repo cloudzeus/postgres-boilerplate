@@ -26,7 +26,12 @@ const PostError = vi.hoisted(
 vi.mock('@/lib/db', () => ({ prisma: db }));
 vi.mock('@/lib/bunny', () => ({ bunnyDownload: vi.fn(async () => Buffer.from('x')) }));
 vi.mock('../extract', () => ({ extractTemplateFields: (...a: unknown[]) => extract(...a) }));
-vi.mock('@/lib/ocr/post-softone', () => ({ PostError, postDocumentToSoftone: (...a: unknown[]) => post(...a) }));
+vi.mock('@/lib/ocr/post-softone', () => ({
+  PostError,
+  postDocumentToSoftone: (...a: unknown[]) => post(...a),
+  // The runner turns a PostError code into this Greek text; the real module owns the wording.
+  POST_ERROR_TEXT: { no_category: 'Δεν έχει οριστεί κατηγορία εγγράφου', not_completed: 'Το έγγραφο δεν έχει ολοκληρωθεί', not_found: 'Το έγγραφο δεν βρέθηκε' },
+}));
 vi.mock('../notify', () => ({ sendRuleNotifications: (...a: unknown[]) => notify(...a) }));
 
 import { findTemplateForVat, runMatchingTemplate, runTemplateOnDocument } from '../run';
@@ -303,6 +308,68 @@ describe('runTemplateOnDocument', () => {
     expect(runData()).toMatchObject({ status: 'FAILED', trigger: 'reextract', error: 'vision exploded', mappingName: '' });
     expect(docUpdates().at(-1)!.reviewFlags).toMatchObject({ runStatus: 'FAILED', runId: 'r1' });
     expect(post).not.toHaveBeenCalled();
+  });
+
+  it('a FAILED run carries the document\'s previous flags forward — a crash never un-blocks a posting', async () => {
+    load(template({ mode: 'AUTO' }), doc({ reviewFlags: { review: ['προς έλεγχο'], blocked: ['χωρίς κατηγορία'], runStatus: 'BLOCKED', runId: 'r0' } }));
+    extract.mockRejectedValue(new Error('vision exploded'));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'reextract' });
+
+    expect(out.status).toBe('FAILED');
+    expect(out.flags).toMatchObject({ review: ['προς έλεγχο'], blocked: ['χωρίς κατηγορία'] });
+    // The banner now says FAILED, but the reasons that blocked the posting are still on the document.
+    expect(docUpdates().at(-1)!.reviewFlags).toMatchObject({
+      runStatus: 'FAILED', runId: 'r1', review: ['προς έλεγχο'], blocked: ['χωρίς κατηγορία'],
+    });
+  });
+
+  it('a FAILED run on a document with no previous flags blocks nothing', async () => {
+    load(template({ mode: 'AUTO' }));   // doc() has no reviewFlags at all
+    extract.mockRejectedValue(new Error('vision exploded'));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'upload' });
+
+    expect(out.flags).toMatchObject({ review: [], blocked: [] });
+    expect(docUpdates().at(-1)!.reviewFlags).toMatchObject({ review: [], blocked: [] });
+  });
+});
+
+describe('flags.fields', () => {
+  it('names the field behind a missing required value — review in SEMI_AUTO, blocked in AUTO', async () => {
+    load(template({ mode: 'SEMI_AUTO', conditions: [] }));
+    extract.mockResolvedValue(extractResult({ total: value(null), note: value('x') }));
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+    expect(runData().flags.fields).toEqual({ total: 'review' });
+
+    db.templateRun.create.mockClear();
+    load(template({ mode: 'AUTO', conditions: [] }));
+    extract.mockResolvedValue(extractResult({ total: value(null), note: value('x') }));
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+    expect(runData().flags.fields).toEqual({ total: 'blocked' });
+  });
+
+  it('flags a field whose READ failed for review, and lets a block win over it', async () => {
+    load(template({ mode: 'AUTO', conditions: [] }));
+    extract.mockResolvedValue(extractResult(
+      { total: value(null), note: value(null) },
+      { errors: [{ fieldKey: 'note', message: 'κενή περιοχή' }, { fieldKey: 'total', message: 'κενή περιοχή' }] },
+    ));
+
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+
+    // `note` is optional → only the read error; `total` is required AND unread → the harsher verdict.
+    expect(runData().flags.fields).toEqual({ note: 'review', total: 'blocked' });
+  });
+
+  it('is empty when every field was read and a rule flagged the DOCUMENT rather than a field', async () => {
+    load(template({ mode: 'SEMI_AUTO' }));
+    extract.mockResolvedValue(extractResult({ total: value(150), note: value('x') }));
+
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
+
+    expect(runData().flags.review).toContain('μεγάλο ποσό');   // the rule still spoke
+    expect(runData().flags.fields).toEqual({});                 // but named no field
   });
 });
 

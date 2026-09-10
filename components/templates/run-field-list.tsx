@@ -8,28 +8,14 @@ import * as React from 'react';
 import { FiChevronDown, FiChevronRight, FiEdit2 } from 'react-icons/fi';
 import { Input } from '@/components/ui/input';
 import { SOURCE_LABEL } from '@/lib/templates/labels';
+import { editSeed, formatValue } from '@/lib/templates/run-view';
 import type { FieldDef, FieldValue } from '@/lib/templates/schema';
 import type { RunDto } from '@/lib/templates/run-dto';
 
 const EMPTY = '—';
 
-/** Greek-formatted display of a coerced value. Arrays report their size; the rows expand below. */
-export function formatValue(v: FieldValue['value']): string {
-  if (v == null || v === '') return EMPTY;
-  if (typeof v === 'number') return v.toLocaleString('el-GR', { maximumFractionDigits: 4 });
-  if (Array.isArray(v)) return `${v.length} γραμμ${v.length === 1 ? 'ή' : 'ές'}`;
-  return String(v);
-}
-
-/**
- * Which fields a review message is about. The runner writes reasons as human text with the field's
- * LABEL in guillemets («…»), so that is what we match on — there is no key in the message.
- */
-export function flaggedLabels(messages: string[]): Set<string> {
-  const out = new Set<string>();
-  for (const m of messages) for (const hit of m.matchAll(/«([^»]+)»/g)) out.add(hit[1]);
-  return out;
-}
+/** Left border of a row, by the run's verdict on that field. Transparent keeps every row the same width. */
+const FLAG_BORDER = { blocked: '#B91C1C', review: '#B45309' } as const;
 
 function TableRows({ field, rows }: { field: FieldDef; rows: unknown[] }) {
   const cols = field.columns?.length ? field.columns : null;
@@ -64,16 +50,18 @@ function TableRows({ field, rows }: { field: FieldDef; rows: unknown[] }) {
 type Props = {
   run: RunDto;
   focusKey: string | null;
+  /** Hover: highlight this field's box, nothing more. */
   onFocus: (key: string | null) => void;
+  /** A deliberate pick (click or keyboard focus): highlight AND follow the field to its page. */
+  onSelect: (key: string | null) => void;
   editable: boolean;
   onEdit: (key: string, value: string) => void;
 };
 
-export function RunFieldList({ run, focusKey, onFocus, editable, onEdit }: Props) {
+export function RunFieldList({ run, focusKey, onFocus, onSelect, editable, onEdit }: Props) {
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
   const [editing, setEditing] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState('');
-  const flagged = React.useMemo(() => flaggedLabels(run.flags.review), [run.flags.review]);
 
   const commit = React.useCallback((key: string) => {
     setEditing(null);
@@ -85,20 +73,24 @@ export function RunFieldList({ run, focusKey, onFocus, editable, onEdit }: Props
   }
 
   return (
-    <ul className="divide-y divide-border rounded-lg border border-border bg-card">
+    // Leaving the LIST clears the highlight — doing it per row would blink the boxes off and on
+    // again every time the pointer crosses a row boundary on its way down the list.
+    <ul className="divide-y divide-border rounded-lg border border-border bg-card" onMouseLeave={() => onFocus(null)}>
       {run.template.fields.map((f) => {
         const v: FieldValue | undefined = run.values[f.key];
         const rows = Array.isArray(v?.value) ? (v!.value as unknown[]) : null;
         const isOpen = !!open[f.key];
         const isFocused = focusKey === f.key;
-        const isFlagged = flagged.has(f.label);
+        const flag = run.flags.fields[f.key];
         return (
           <li
             key={f.key}
+            tabIndex={0}
             onMouseEnter={() => onFocus(f.key)}
-            onClick={() => onFocus(isFocused ? null : f.key)}
+            onFocus={(e) => { if (e.target === e.currentTarget) onSelect(f.key); }}
+            onClick={() => onSelect(isFocused ? null : f.key)}
             className={`cursor-pointer px-3 py-2 transition-colors ${isFocused ? 'bg-muted/60' : 'hover:bg-muted/30'}`}
-            style={isFlagged ? { borderLeft: '3px solid #B45309' } : { borderLeft: '3px solid transparent' }}
+            style={{ borderLeft: `3px solid ${flag ? FLAG_BORDER[flag] : 'transparent'}` }}
           >
             <div className="flex items-start gap-2">
               <span aria-hidden className="mt-1 size-2.5 shrink-0 rounded-full" style={{ backgroundColor: v?.color ?? f.color }} />
@@ -125,13 +117,13 @@ export function RunFieldList({ run, focusKey, onFocus, editable, onEdit }: Props
                   />
                 ) : (
                   <div className="mt-0.5 flex items-start gap-1.5">
-                    <span className="min-w-0 flex-1 break-words text-[12px]">{formatValue(v?.value ?? null)}</span>
+                    <span className="min-w-0 flex-1 break-words text-[12px]">{formatValue(v?.value ?? null, f.valueType)}</span>
                     {editable && f.kind === 'SINGLE' && (
                       <button
                         type="button"
                         aria-label={`Διόρθωση «${f.label}»`}
-                        onClick={(e) => { e.stopPropagation(); setDraft(v?.raw ?? (v?.value == null ? '' : String(v.value))); setEditing(f.key); }}
-                        className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        onClick={(e) => { e.stopPropagation(); setDraft(editSeed(v)); setEditing(f.key); }}
+                        className="shrink-0 cursor-pointer rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                       >
                         <FiEdit2 className="size-3" />
                       </button>

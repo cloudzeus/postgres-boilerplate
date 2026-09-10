@@ -6,7 +6,7 @@ import 'server-only';
 import type { Prisma, TemplateRunStatus } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { bunnyDownload } from '@/lib/bunny';
-import { PostError, postDocumentToSoftone } from '@/lib/ocr/post-softone';
+import { POST_ERROR_TEXT, PostError, postDocumentToSoftone } from '@/lib/ocr/post-softone';
 import { extractTemplateFields } from './extract';
 import { applyRules, type RuleDef } from './conditions';
 import { projectToInvoice } from './mapping';
@@ -15,21 +15,14 @@ import { sendRuleNotifications } from './notify';
 import {
   applySetFields, buildReviewFlags, canPost, decideOutcome, extrasFrom, itemsToRows, mappingFellBack,
   pickMapping, requiredMissing, setInvoicePath,
-  type RunFlags,
+  type FieldFlag, type RunFlags,
 } from './run-logic';
-import type { MappingRowInvoice, RunOutcome, RunTrigger } from './schema';
+import { normalizeVat, type MappingRowInvoice, type RunOutcome, type RunTrigger } from './schema';
 
 export type { RunOutcome, RunTrigger };
 
 /** Public base URL for the links inside notification emails ('' → the email names the file instead of linking). */
 const APP_URL = () => process.env.APP_URL ?? '';
-
-/** A precondition the poster refuses on is a BLOCK, not a crash — say why in Greek. */
-const POST_BLOCK_REASON: Record<PostError['code'], string> = {
-  no_category: 'Δεν έχει οριστεί κατηγορία εγγράφου',
-  not_completed: 'Το έγγραφο δεν έχει ολοκληρωθεί',
-  not_found: 'Το έγγραφο δεν βρέθηκε',
-};
 
 /**
  * Persist a projection onto the document: the mapped `extractedData` and, when the mapping rebuilt
@@ -54,8 +47,8 @@ export async function applyProjectionToDocument(documentId: string, nextData: Re
 
 /** The ACTIVE template linked to this issuer ΑΦΜ (most recently updated wins). */
 export async function findTemplateForVat(vat: unknown): Promise<string | null> {
-  const afm = String(vat ?? '').replace(/\D/g, '');
-  if (!/^\d{9}$/.test(afm)) return null;
+  const afm = normalizeVat(vat);
+  if (!afm) return null;
   const t = await prisma.extractionTemplate.findFirst({
     where: { vatNumber: afm, status: 'ACTIVE' },
     orderBy: { updatedAt: 'desc' },
@@ -88,14 +81,21 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
       extras: extrasFrom(extracted, doc._count.items, ex.pageCount),
     });
     const values = applySetFields(ex.values, fields, applied.setFields);
-    const missingLabels = requiredMissing(fields, values).map((f) => `Λείπει υποχρεωτικό πεδίο «${f.label}»`);
+    const missing = requiredMissing(fields, values);
+    const missingLabels = missing.map((f) => `Λείπει υποχρεωτικό πεδίο «${f.label}»`);
     const labelOf = (key: string) => fields.find((f) => f.key === key)?.label ?? key;
     const readErrors = ex.errors.map((e) => `Σφάλμα ανάγνωσης «${labelOf(e.fieldKey)}»: ${e.message}`);
+
+    // The same two verdicts, keyed by field, for the UI. A rule's FLAG_REVIEW/BLOCK_POSTING reason is
+    // free prose about the document as a whole, so it names no field and adds nothing here.
+    const fieldFlags: Record<string, FieldFlag> = {};
+    for (const f of missing) fieldFlags[f.key] = t.mode === 'AUTO' ? 'blocked' : 'review';
+    for (const e of ex.errors) if (!fieldFlags[e.fieldKey]) fieldFlags[e.fieldKey] = 'review';
 
     const blocked = [...applied.flags.blocked, ...(t.mode === 'AUTO' ? missingLabels : [])];
     // Everything that blocks is also worth a human's eyes, so the blocked reasons are mirrored into
     // `review` (deduped — a missing required field would otherwise land in both lists twice).
-    const flags: RunFlags = { review: [...new Set([...applied.flags.review, ...missingLabels, ...readErrors, ...blocked])], blocked };
+    const flags: RunFlags = { review: [...new Set([...applied.flags.review, ...missingLabels, ...readErrors, ...blocked])], blocked, fields: fieldFlags };
     if (mappingFellBack(mappings, applied.mappingName)) {
       flags.review.push(`Ο κανόνας ζήτησε mapping «${applied.mappingName}» που δεν υπάρχει`);
     }
@@ -123,7 +123,7 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
           if (e instanceof PostError) {
             // A precondition the document does not meet yet: blocked, not failed — a human fixes it and reposts.
             status = 'BLOCKED';
-            const reason = POST_BLOCK_REASON[e.code] ?? e.message;
+            const reason = POST_ERROR_TEXT[e.code] ?? e.message;
             flags.blocked.push(reason);
             if (!flags.review.includes(reason)) flags.review.push(reason);
           } else {
@@ -186,19 +186,24 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
   } catch (e) {
     const error = String((e as Error)?.message ?? e).slice(0, 2000);
     console.error('[templates] run failed', t.slug, doc.id, error);
+    // A crash learned NOTHING about the document, so it must not un-block it: the reasons the last
+    // successful run left on `reviewFlags` are carried forward, or a re-run that happens to blow up
+    // would hand a human the «Έγκριση → ανάρτηση» button on a document a rule had blocked.
+    const prev = (doc.reviewFlags ?? null) as { review?: string[]; blocked?: string[] } | null;
+    const carried = { review: prev?.review ?? [], blocked: prev?.blocked ?? [], fields: {} };
     try {
       const run = await prisma.templateRun.create({
         data: { ...base, status: 'FAILED', values: {}, matched: [], flags: undefined, mappingName: '', durationMs: Date.now() - started, error },
       });
       await prisma.ocrDocument
-        .update({ where: { id: doc.id }, data: { reviewFlags: buildReviewFlags(t, 'FAILED', run.id, { review: [], blocked: [] }) as unknown as Prisma.InputJsonValue } })
+        .update({ where: { id: doc.id }, data: { reviewFlags: buildReviewFlags(t, 'FAILED', run.id, carried) as unknown as Prisma.InputJsonValue } })
         .catch(() => null);
-      return { runId: run.id, status: 'FAILED', flags: { review: [], blocked: [] }, error };
+      return { runId: run.id, status: 'FAILED', flags: carried, error };
     } catch (e2) {
       // The database itself is unavailable: report the failure to the caller rather than throwing
       // out of a function whose whole contract is "never throws for a failed run".
       console.error('[templates] failed run could not be recorded', doc.id, (e2 as Error).message);
-      return { runId: '', status: 'FAILED', flags: { review: [], blocked: [] }, error };
+      return { runId: '', status: 'FAILED', flags: carried, error };
     }
   }
 }

@@ -5,6 +5,7 @@
 
 import * as React from 'react';
 import { STATUS_LABEL } from '@/lib/templates/labels';
+import { matchesVat } from '@/lib/templates/run-view';
 
 export type TemplateSummary = {
   id: string;
@@ -15,24 +16,6 @@ export type TemplateSummary = {
   vatNumber: string | null;
   department: string | null;
 };
-
-/** Normalised ΑΦΜ compare — the OCR value can arrive with spaces or a "EL" prefix. */
-export const normVat = (v: string | null | undefined): string => (v ?? '').replace(/\D/g, '');
-
-export function matchesVat(t: TemplateSummary, issuerVat: string | null): boolean {
-  const vat = normVat(issuerVat);
-  return vat.length > 0 && normVat(t.vatNumber) === vat;
-}
-
-/**
- * What the picker should start on: the template of the newest run, else the first ACTIVE template
- * for the issuer ΑΦΜ, else the first ΑΦΜ match of any status, else ''.
- */
-export function defaultTemplateId(templates: TemplateSummary[], issuerVat: string | null, lastRunTemplateId?: string | null): string {
-  if (lastRunTemplateId && templates.some((t) => t.id === lastRunTemplateId)) return lastRunTemplateId;
-  const mine = templates.filter((t) => matchesVat(t, issuerVat));
-  return mine.find((t) => t.status === 'ACTIVE')?.id ?? mine[0]?.id ?? '';
-}
 
 type Props = {
   templates: TemplateSummary[];

@@ -9,7 +9,7 @@ import { coerceValue } from '@/lib/templates/coerce';
 import { projectToInvoice } from '@/lib/templates/mapping';
 import { toRunOutput } from '@/lib/templates/output';
 import { applyProjectionToDocument } from '@/lib/templates/run';
-import { buildReviewFlags, pickMapping, requiredMissing } from '@/lib/templates/run-logic';
+import { buildReviewFlags, pickMapping, requiredMissing, type FieldFlag } from '@/lib/templates/run-logic';
 import { RUN_INCLUDE, toRunDto } from '@/lib/templates/run-dto';
 import { toFieldDef, toMappingDto } from '@/lib/templates/serialize';
 import type { FieldValue, MappingRowInvoice } from '@/lib/templates/schema';
@@ -60,6 +60,13 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const run = await prisma.templateRun.findUnique({ where: { id: runId }, include: RUN_INCLUDE });
   if (!run || run.documentId !== id) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
+  // Only the LATEST run may be corrected. An older one is a historical record: editing it would
+  // re-project stale values over the document and leave the banner describing a different run.
+  const latest = await prisma.templateRun.findFirst({ where: { documentId: id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true } });
+  if (latest?.id !== runId) {
+    return NextResponse.json({ error: 'not_latest', message: 'Μόνο η τελευταία εκτέλεση μπορεί να διορθωθεί' }, { status: 409 });
+  }
+
   const fields = [...run.template.fields].sort((a, b) => a.order - b.order).map(toFieldDef);
   const values = { ...((run.values as unknown as Record<string, FieldValue>) ?? {}) };
 
@@ -69,9 +76,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
     // A key the run never produced and the template does not define cannot be corrected.
     if (!prev && !field) return NextResponse.json({ error: 'unknown_field', message: `Άγνωστο πεδίο «${key}»` }, { status: 400 });
     // A TABLE value is an array of rows; a single text box cannot express one, so refuse rather than
-    // silently flattening the rows into a string.
-    if (field?.kind === 'TABLE') {
-      return NextResponse.json({ error: 'table_not_editable', message: `Το πεδίο «${field.label}» είναι πίνακας` }, { status: 400 });
+    // silently flattening the rows into a string. The stored value is checked as well as the field
+    // kind: a run made before the field was changed to SINGLE still holds rows under that key.
+    if (field?.kind === 'TABLE' || Array.isArray(prev?.value)) {
+      return NextResponse.json({ error: 'table_not_editable', message: `Το πεδίο «${field?.label ?? key}» είναι πίνακας` }, { status: 400 });
     }
     const text = String(raw ?? '');
     values[key] = {
@@ -88,13 +96,22 @@ export async function PATCH(req: Request, { params }: Ctx) {
   // Rebuild the "missing required field" flags from the corrected values: entries for fields the
   // human just filled in are dropped, and a field they emptied gains one. Rule-authored reasons
   // (FLAG_REVIEW / BLOCK_POSTING) and read errors are left exactly as the run recorded them.
-  const prevFlags = (run.flags as { review?: string[]; blocked?: string[]; notified?: string[] } | null) ?? {};
+  const prevFlags = (run.flags as { review?: string[]; blocked?: string[]; notified?: string[]; fields?: Record<string, FieldFlag> } | null) ?? {};
   const notMissing = (s: string) => !s.startsWith(MISSING_PREFIX);
-  const missingLabels = requiredMissing(fields, values).map((f) => `${MISSING_PREFIX}${f.label}»`);
+  const missing = requiredMissing(fields, values);
+  const missingLabels = missing.map((f) => `${MISSING_PREFIX}${f.label}»`);
   // Same rule as the runner: only AUTO lets a missing required field block the posting.
   const blocked = [...new Set([...(prevFlags.blocked ?? []).filter(notMissing), ...(run.template.mode === 'AUTO' ? missingLabels : [])])];
   const review = [...new Set([...(prevFlags.review ?? []).filter(notMissing), ...missingLabels])];
-  const flags = { ...prevFlags, review, blocked };
+  // The per-field verdict is rebuilt the same way: entries the missing-required rule owns (any entry
+  // on a REQUIRED field) are recomputed, and everything else — a read error on an optional field —
+  // stands, because a correction says nothing about a field the human did not touch.
+  const fieldFlags: Record<string, FieldFlag> = {};
+  for (const [key, flag] of Object.entries(prevFlags.fields ?? {})) {
+    if (!fields.some((f) => f.key === key && f.required)) fieldFlags[key] = flag;
+  }
+  for (const f of missing) fieldFlags[f.key] = run.template.mode === 'AUTO' ? 'blocked' : 'review';
+  const flags = { ...prevFlags, review, blocked, fields: fieldFlags };
 
   const updated = await prisma.templateRun.update({
     where: { id: runId },
@@ -113,13 +130,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
     await applyProjectionToDocument(id, nextData, extracted.items);
   }
 
-  // The document's banner mirrors its LATEST run only — correcting an older run must not overwrite it.
-  const latest = await prisma.templateRun.findFirst({ where: { documentId: id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true } });
-  if (latest?.id === runId) {
-    await prisma.ocrDocument
-      .update({ where: { id }, data: { reviewFlags: buildReviewFlags(run.template, run.status, runId, { review, blocked }) as unknown as Prisma.InputJsonValue } })
-      .catch((e) => console.error('[templates] reviewFlags refresh failed', runId, (e as Error).message));
-  }
+  // The document's banner mirrors its latest run, which — see the 409 above — is the one just edited.
+  await prisma.ocrDocument
+    .update({ where: { id }, data: { reviewFlags: buildReviewFlags(run.template, run.status, runId, { review, blocked }) as unknown as Prisma.InputJsonValue } })
+    .catch((e) => console.error('[templates] reviewFlags refresh failed', runId, (e as Error).message));
 
   await logAudit({
     userId: u.id, userEmail: u.email, action: 'template.run.edit', resource: 'templateRun', resourceId: runId,
