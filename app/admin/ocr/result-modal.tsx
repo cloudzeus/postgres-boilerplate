@@ -9,6 +9,8 @@ import {
 } from 'react-icons/fi';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { ReextractDialog } from './reextract-dialog';
+import type { ExtractDocType } from '@/lib/ocr/templates';
 
 interface ResultModalProps {
   open: boolean;
@@ -110,6 +112,7 @@ export function OcrResultModal({ open, documentId, onClose }: ResultModalProps) 
   const [posting, setPosting] = React.useState(false);
   const [supplying, setSupplying] = React.useState(false);
   const [reextracting, setReextracting] = React.useState(false);
+  const [reextractDialog, setReextractDialog] = React.useState(false);
 
   React.useEffect(() => {
     if (!open || !documentId) { setDoc(null); return; }
@@ -186,12 +189,16 @@ export function OcrResultModal({ open, documentId, onClose }: ResultModalProps) 
     } finally { setPosting(false); }
   }
 
-  async function reextract() {
+  async function reextract(docType: ExtractDocType) {
     if (!doc) return;
-    if (!confirm('Επανεκτέλεση με ισχυρότερο μοντέλο (gemini-2.5-pro);\nΑυτό είναι λίγο πιο αργό και ακριβό αλλά αποδίδει καλύτερα σε θολά scans.')) return;
+    setReextractDialog(false);
     setReextracting(true);
     try {
-      const res = await fetch(`/api/admin/ocr/${doc.id}/reextract`, { method: 'POST' });
+      const res = await fetch(`/api/admin/ocr/${doc.id}/reextract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ docType }),
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
       toast.success(`Επιτυχής ανακατασκευή (${json.model})`);
@@ -490,7 +497,7 @@ export function OcrResultModal({ open, documentId, onClose }: ResultModalProps) 
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={reextract}
+              onClick={() => setReextractDialog(true)}
               disabled={!doc || reextracting}
               className="inline-flex h-9 items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 text-[13px] font-medium text-amber-900 dark:text-amber-200 transition hover:bg-amber-500/20 disabled:opacity-50"
               title="Επανεκτέλεση με ισχυρότερο μοντέλο (gemini-2.5-pro) για θολά/δύσκολα scans"
@@ -541,6 +548,14 @@ export function OcrResultModal({ open, documentId, onClose }: ResultModalProps) 
           </div>
         </footer>
       </div>
+
+      <ReextractDialog
+        open={reextractDialog}
+        fileName={doc?.fileName ?? null}
+        busy={reextracting}
+        onCancel={() => setReextractDialog(false)}
+        onConfirm={(t) => { void reextract(t); }}
+      />
     </div>
   );
 }

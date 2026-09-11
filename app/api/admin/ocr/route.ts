@@ -6,9 +6,9 @@ import { bunnyUploadPrivate } from '@/lib/bunny';
 import { extractDocument } from '@/lib/ocr/extract';
 import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
 import { ensureOcrThumbnail } from '@/lib/ocr/thumbnail';
-import { inferDocKind } from '@/lib/ocr/validate';
 import { saveDocumentJson } from '@/lib/ocr/document';
-import { type DocType, type SupportedLang } from '@/lib/ocr/templates';
+import { isExtractDocType, type ExtractDocType, type SupportedLang } from '@/lib/ocr/templates';
+import { docTypeFromKind } from '@/lib/ocr/canonical';
 import { runMatchingTemplate } from '@/lib/templates/run';
 import { classifyDocument } from '@/lib/ocr/doc-type';
 
@@ -25,7 +25,6 @@ const ALLOWED_MIMES = new Set([
   'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/tiff', 'image/bmp',
 ]);
 
-const DOC_TYPES: DocType[] = ['invoice', 'receipt', 'general_text'];
 const LANGS: SupportedLang[] = ['el', 'en', 'de'];
 
 function sanitizeFileName(name: string) {
@@ -62,7 +61,9 @@ export async function POST(req: Request) {
 
   const form = await req.formData();
   const file = form.get('file');
-  const docType = String(form.get('docType') ?? 'invoice') as DocType;
+  // Προεπιλογή «auto»: ο χρήστης δεν χρειάζεται να ξέρει αν αυτό που ανεβάζει είναι τιμολόγιο,
+  // απόδειξη ή ελεύθερο κείμενο — το αποφασίζει η ίδια η ανάγνωση.
+  const docType = String(form.get('docType') ?? 'auto') as ExtractDocType;
   const language = String(form.get('language') ?? 'el') as SupportedLang;
   const pdfSource = String(form.get('pdfSource') ?? 'auto') as 'auto' | 'digital' | 'scanned';
   const batchId = form.get('batchId') ? String(form.get('batchId')) : null;
@@ -70,7 +71,7 @@ export async function POST(req: Request) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: 'file is required (multipart/form-data)' }, { status: 400 });
   }
-  if (!DOC_TYPES.includes(docType)) {
+  if (!isExtractDocType(docType)) {
     return NextResponse.json({ error: `Invalid docType: ${docType}` }, { status: 400 });
   }
   if (!LANGS.includes(language)) {
@@ -102,7 +103,9 @@ export async function POST(req: Request) {
       publicUrl,
       mimeType: file.type,
       size: file.size,
-      docType: docType === 'invoice' ? 'INVOICE' : docType === 'receipt' ? 'RECEIPT' : 'GENERAL_TEXT',
+      // Προσωρινό είδος όσο τρέχει η ανάγνωση· αντικαθίσταται από το `resolvedDocType` παρακάτω.
+      // Στο «auto» δεν ξέρουμε ακόμη τίποτα — κρατάμε INVOICE, το συνηθέστερο.
+      docType: docType === 'receipt' ? 'RECEIPT' : docType === 'general_text' ? 'GENERAL_TEXT' : 'INVOICE',
       // We store the *resolved* mode after extraction; placeholder for now.
       pdfSource: file.type === 'application/pdf'
         ? (pdfSource === 'scanned' ? 'SCANNED' : pdfSource === 'digital' ? 'DIGITAL' : null)
@@ -121,14 +124,9 @@ export async function POST(req: Request) {
       pdfSource: file.type === 'application/pdf' ? pdfSource : undefined,
     });
 
-    // Auto-classify: a financial doc with no recipient block is a receipt (ΑΠΟΔΕΙΞΗ),
-    // otherwise an invoice (τιμολόγιο / δελτίο αποστολής). general_text is left as-is.
-    const resolvedDocType =
-      docType === 'general_text'
-        ? 'GENERAL_TEXT'
-        : inferDocKind(result.data) === 'receipt'
-          ? 'RECEIPT'
-          : 'INVOICE';
+    // Το είδος το λέει ΤΟ ΙΔΙΟ ΤΟ ΕΓΓΡΑΦΟ (`document.kind`): στο «auto» είναι η απάντηση του
+    // μοντέλου, στις ρητές επιλογές το ίδιο `kind` που έχει ήδη επιβληθεί από το `coerceDocument`.
+    const resolvedDocType = docTypeFromKind(result.document.kind);
 
     // Tag with the SoftOne supplier (issuer ΑΦΜ → TRDR SODTYPE=12). Best-effort.
     const softone = await buildSoftoneMatch(result.document.issuer.vat);

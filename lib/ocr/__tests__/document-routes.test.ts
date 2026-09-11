@@ -131,9 +131,78 @@ describe('POST /api/admin/ocr — upload', () => {
     expect(body.data.vatNumber).toBe('999863881');
     expect(body.id).toBe('doc1');
   });
+
+  // «Αυτόματα»: το αποθηκευμένο είδος το λέει το `document.kind` της ανάγνωσης, όχι η φόρμα.
+  const autoReq = () => {
+    const form = new FormData();
+    form.set('file', new File([new Uint8Array([1, 2, 3])], 'έγγραφο.pdf', { type: 'application/pdf' }));
+    form.set('docType', 'auto');
+    form.set('language', 'el');
+    return new Request('http://localhost/api/admin/ocr', { method: 'POST', body: form });
+  };
+  const savedDocType = () =>
+    db.ocrDocument.update.mock.calls.find((c) => c[0].data?.status === 'COMPLETED')?.[0].data.docType;
+
+  it('auto + παραστατικό με παραλήπτη → INVOICE', async () => {
+    const invoice = { ...DOC, kind: 'invoice' as const };
+    ocr.extractDocument.mockResolvedValue({
+      document: invoice, data: LEGACY, rawText: null, model: 'm', tokensUsed: 1, durationMs: 1,
+    });
+    await upload(autoReq());
+    expect(ocr.extractDocument).toHaveBeenCalledWith(expect.objectContaining({ docType: 'auto' }));
+    expect(savedDocType()).toBe('INVOICE');
+  });
+
+  it('auto + απόδειξη → RECEIPT', async () => {
+    await upload(autoReq());                       // το DOC είναι απόδειξη (χωρίς παραλήπτη)
+    expect(savedDocType()).toBe('RECEIPT');
+  });
+
+  it('auto + ελεύθερο κείμενο → GENERAL_TEXT', async () => {
+    const general = fromLegacy({ title: 'Επιστολή', fullText: 'κείμενο' }, [], 'general_text');
+    ocr.extractDocument.mockResolvedValue({
+      document: general, data: { title: 'Επιστολή', fullText: 'κείμενο' },
+      rawText: null, model: 'm', tokensUsed: 1, durationMs: 1,
+    });
+    await upload(autoReq());
+    expect(savedDocType()).toBe('GENERAL_TEXT');
+  });
+
+  it('απορρίπτει άγνωστο docType με 400', async () => {
+    const form = new FormData();
+    form.set('file', new File([new Uint8Array([1])], 'x.pdf', { type: 'application/pdf' }));
+    form.set('docType', 'μαγικό');
+    const res = await upload(new Request('http://localhost/api/admin/ocr', { method: 'POST', body: form }));
+    expect(res.status).toBe(400);
+    expect(ocr.extractDocument).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /api/admin/ocr/[id]/reextract', () => {
+  it('χωρίς σώμα, η επανεκτέλεση ζητάει «auto» και ξαναγράφει το είδος', async () => {
+    await reextract(new Request('http://localhost/x', { method: 'POST' }), ctx());
+    expect(ocr.extractDocument).toHaveBeenCalledWith(expect.objectContaining({ docType: 'auto' }));
+    const completed = db.ocrDocument.update.mock.calls.find((c) => c[0].data?.status === 'COMPLETED');
+    expect(completed?.[0].data.docType).toBe('RECEIPT');   // το DOC είναι απόδειξη
+  });
+
+  it('σέβεται ρητή επιλογή τύπου από τον διάλογο', async () => {
+    await reextract(
+      new Request('http://localhost/x', { method: 'POST', body: JSON.stringify({ docType: 'invoice' }) }),
+      ctx(),
+    );
+    expect(ocr.extractDocument).toHaveBeenCalledWith(expect.objectContaining({ docType: 'invoice' }));
+  });
+
+  it('400 σε άγνωστο τύπο — τίποτα δεν διαβάζεται ξανά', async () => {
+    const res = await reextract(
+      new Request('http://localhost/x', { method: 'POST', body: JSON.stringify({ docType: 'ό,τι νά ναι' }) }),
+      ctx(),
+    );
+    expect(res.status).toBe(400);
+    expect(ocr.extractDocument).not.toHaveBeenCalled();
+  });
+
   it('ξαναγράφει το έγγραφο μέσω saveDocumentJson, χωρίς χειροκίνητο delete/create γραμμών', async () => {
     const res = await reextract(new Request('http://localhost/x', { method: 'POST' }), ctx());
     expect(res.status).toBe(200);

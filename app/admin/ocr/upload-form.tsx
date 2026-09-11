@@ -3,21 +3,19 @@
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { FiUploadCloud, FiLoader, FiZap, FiImage, FiFileText } from 'react-icons/fi';
+import { FiUploadCloud, FiLoader, FiZap } from 'react-icons/fi';
 import { cn } from '@/lib/utils';
-import { SUPPORTED_LANGUAGES, DOC_TYPE_LABELS, type DocType, type SupportedLang } from '@/lib/ocr/templates';
+import {
+  SUPPORTED_LANGUAGES, UPLOAD_DOC_TYPES, UPLOAD_DOC_TYPE_LABELS, AUTO_DOC_TYPE_HINT,
+  type ExtractDocType, type SupportedLang,
+} from '@/lib/ocr/templates';
 import { OcrResultModal } from './result-modal';
-
-const DOC_TYPE_ICONS: Record<DocType, React.ReactNode> = {
-  invoice: <FiFileText className="size-4" />,
-  receipt: <FiFileText className="size-4" />,
-  general_text: <FiImage className="size-4" />,
-};
 
 export function OcrUploadForm() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [docType, setDocType] = useState<DocType>('invoice');
+  // «Αυτόματα» είναι η προεπιλογή: ο χρήστης δεν χρειάζεται να ξέρει τι κρατάει στο χέρι.
+  const [docType, setDocType] = useState<ExtractDocType>('auto');
   const [language, setLanguage] = useState<SupportedLang>('el');
   const [pdfSource, setPdfSource] = useState<'auto' | 'digital' | 'scanned'>('auto');
   const [busy, setBusy] = useState(false);
@@ -78,14 +76,14 @@ export function OcrUploadForm() {
 
         <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-[1fr_1fr_auto]">
           {/* Doc type */}
-          <Field label="Τύπος εγγράφου">
+          <Field label="Τύπος εγγράφου" hint={docType === 'auto' ? AUTO_DOC_TYPE_HINT : undefined}>
             <select
               value={docType}
-              onChange={(e) => setDocType(e.target.value as DocType)}
+              onChange={(e) => setDocType(e.target.value as ExtractDocType)}
               className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm transition focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/20"
             >
-              {(Object.entries(DOC_TYPE_LABELS) as [DocType, string][]).map(([key, label]) => (
-                <option key={key} value={key}>{label}</option>
+              {UPLOAD_DOC_TYPES.map((key) => (
+                <option key={key} value={key}>{UPLOAD_DOC_TYPE_LABELS[key]}</option>
               ))}
             </select>
           </Field>
@@ -183,11 +181,12 @@ export function OcrUploadForm() {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</span>
       {children}
+      {hint ? <span className="text-[11px] leading-snug text-muted-foreground">{hint}</span> : null}
     </label>
   );
 }

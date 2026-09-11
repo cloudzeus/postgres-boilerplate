@@ -1159,7 +1159,12 @@ export const openapiSpec = {
                 required: ['file'],
                 properties: {
                   file: { type: 'string', format: 'binary' },
-                  docType: { type: 'string', enum: ['invoice', 'receipt', 'general_text'], default: 'invoice' },
+                  docType: {
+                    type: 'string',
+                    enum: ['auto', 'invoice', 'receipt', 'general_text'],
+                    default: 'auto',
+                    description: '`auto` = το μοντέλο αποφασίζει (μία κλήση) — το αποθηκευμένο είδος βγαίνει από το `document.kind`.',
+                  },
                   language: { type: 'string', enum: ['el', 'en', 'de'], default: 'el' },
                   pdfSource: { type: 'string', enum: ['auto', 'digital', 'scanned'], default: 'auto' },
                 },
@@ -1280,7 +1285,21 @@ export const openapiSpec = {
         summary: 'Επανεξαγωγή με higher-tier vision model',
         description:
           '**Απαιτεί `ocr.create`**. Χρήσιμο για θολά/χαμηλής αντίθεσης scans. Αναβαθμίζει προσωρινά το ' +
-          '`ai.visionModel` setting σε `gemini-2.5-pro`, ξανατρέχει extraction, αντικαθιστά τα invoice items.',
+          '`ai.visionModel` setting σε `gemini-2.5-pro`, ξανατρέχει extraction, αντικαθιστά τα invoice items. ' +
+          'Χωρίς σώμα, ο τύπος είναι `auto` (το μοντέλο ξανα-αποφασίζει το είδος).',
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  docType: { type: 'string', enum: ['auto', 'invoice', 'receipt', 'general_text'], default: 'auto' },
+                },
+              },
+            },
+          },
+        },
         responses: {
           200: {
             description: 'Re-extracted',

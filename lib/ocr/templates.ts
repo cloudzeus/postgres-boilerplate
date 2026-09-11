@@ -9,13 +9,46 @@ export const SUPPORTED_LANGUAGES = {
 
 export type SupportedLang = keyof typeof SUPPORTED_LANGUAGES;
 
+/** Ο τύπος όπως ΑΠΟΘΗΚΕΥΕΤΑΙ (Prisma `OcrDocType`). Δεν αλλάζει ποτέ από το «Αυτόματα». */
 export type DocType = 'invoice' | 'receipt' | 'general_text';
+
+/**
+ * Ο τύπος όπως τον ΖΗΤΑΕΙ ο χρήστης. Το `auto` δεν είναι τιμή της βάσης: είναι η εντολή
+ * «αποφάσισε εσύ» προς το μοντέλο — μία κλήση, το ίδιο κόστος, και το είδος βγαίνει από το
+ * `document.kind` που γυρίζει (spec §17.1).
+ */
+export type ExtractDocType = DocType | 'auto';
 
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
   invoice: 'Τιμολόγιο (Invoice)',
   receipt: 'Απόδειξη (Receipt)',
   general_text: 'Ελεύθερο κείμενο (General text)',
 };
+
+/** Οι επιλογές που βλέπει ο χρήστης στη φόρμα — με το «Αυτόματα» πρώτο και προεπιλεγμένο. */
+export const UPLOAD_DOC_TYPES: ExtractDocType[] = ['auto', 'invoice', 'receipt', 'general_text'];
+
+export const UPLOAD_DOC_TYPE_LABELS: Record<ExtractDocType, string> = {
+  auto: 'Αυτόματα (προτείνεται)',
+  ...DOC_TYPE_LABELS,
+};
+
+/** Η βοηθητική γραμμή κάτω από τον επιλογέα — ίδια σε φόρτωση και επανεκτέλεση. */
+export const AUTO_DOC_TYPE_HINT = 'Το μοντέλο αποφασίζει αν είναι παραστατικό ή ελεύθερο κείμενο.';
+
+export const isExtractDocType = (v: unknown): v is ExtractDocType =>
+  typeof v === 'string' && (UPLOAD_DOC_TYPES as string[]).includes(v);
+
+/**
+ * Ο τύπος με τον οποίο ΚΡΙΝΕΤΑΙ το αποτέλεσμα μιας ανάγνωσης. Για ρητή επιλογή είναι η ίδια η
+ * επιλογή· για «Αυτόματα» τον δίνει το `kind` που απάντησε το μοντέλο. Υπάρχει γιατί ένα
+ * ελεύθερο κείμενο ΔΕΝ επιτρέπεται να μετρηθεί με τα υποχρεωτικά ενός τιμολογίου: θα φαινόταν
+ * να του λείπουν 7 πεδία και θα πυροδοτούσε — σε κάθε επιστολή — το ακριβό δεύτερο πέρασμα.
+ */
+export function resolveDocType(docType: ExtractDocType, kind: 'invoice' | 'receipt' | 'general'): DocType {
+  if (docType !== 'auto') return docType;
+  return kind === 'general' ? 'general_text' : kind === 'receipt' ? 'receipt' : 'invoice';
+}
 
 interface TemplateSchema {
   systemInstructions: string;
@@ -143,10 +176,14 @@ export const TEMPLATE_SCHEMAS: Record<DocType, TemplateSchema> = {
  * σε απόδειξη λιανικής δεν υπάρχει καθόλου. Η απουσία του είναι σήμα ταξινόμησης (→ απόδειξη), όχι
  * πεδίο που λείπει — δεν επιτρέπεται να πυροδοτεί επανεκτέλεση.
  */
-export const REQUIRED_PATHS: Record<DocType, string[]> = {
+export const REQUIRED_PATHS: Record<ExtractDocType, string[]> = {
   invoice: ['issuer.name', 'issuer.vat', 'type.number', 'date', 'totals.net', 'totals.vatAmount', 'totals.total'],
   receipt: ['issuer.name', 'issuer.vat', 'type.number', 'date', 'totals.total'],
   general_text: ['custom.title', 'custom.fullText'],
+  // «Αυτόματα» ξεκινάει από τα υποχρεωτικά του τιμολογίου, ώστε μια δύσκολη σάρωση παραστατικού
+  // να πυροδοτεί κανονικά το δεύτερο πέρασμα. ΜΟΛΙΣ όμως το μοντέλο απαντήσει `kind: "general"`,
+  // το `resolveDocType` γυρίζει τη μέτρηση στα υποχρεωτικά του ελεύθερου κειμένου.
+  auto: ['issuer.name', 'issuer.vat', 'type.number', 'date', 'totals.net', 'totals.vatAmount', 'totals.total'],
 };
 
 /**
@@ -154,7 +191,7 @@ export const REQUIRED_PATHS: Record<DocType, string[]> = {
  * το `qualityScore` (`lib/ocr/validate.ts`), που κρίνει τα δύο περάσματα πάνω στην προβολή
  * `toLegacy(document)` μαζί με τους ελέγχους ΑΦΜ/αριθμητικής που ζουν κι αυτοί στα flat κλειδιά.
  */
-export const REQUIRED_FIELDS: Record<DocType, string[]> = {
+export const REQUIRED_FIELDS: Record<ExtractDocType, string[]> = {
   // The recipient/customer is intentionally NOT required: on purchase documents the
   // recipient is always us (the company running the app), and on retail receipts
   // there is no recipient at all. Absence of a customer is a classification signal
@@ -168,10 +205,16 @@ export const REQUIRED_FIELDS: Record<DocType, string[]> = {
   // `companyName` (the store), not `storeName`.
   receipt: ['companyName', 'invoiceNumber', 'vatNumber', 'date', 'totalAmount'],
   general_text: ['title', 'fullText'],
+  // Βλ. `REQUIRED_PATHS.auto`: μέχρι να απαντήσει το μοντέλο, «Αυτόματα» = τιμολόγιο.
+  auto: [
+    'companyName', 'vatNumber',
+    'invoiceNumber', 'date',
+    'subtotal', 'vatAmount', 'totalAmount',
+  ],
 };
 
 /** Count missing required fields in an extracted payload. */
-export function countMissingRequired(data: any, docType: DocType): number {
+export function countMissingRequired(data: any, docType: ExtractDocType): number {
   if (!data || typeof data !== 'object') return REQUIRED_FIELDS[docType].length;
   let n = 0;
   for (const key of REQUIRED_FIELDS[docType]) {
@@ -182,19 +225,42 @@ export function countMissingRequired(data: any, docType: DocType): number {
   return n;
 }
 
+/**
+ * Η παράγραφος που κάνει το «Αυτόματα» να δουλεύει με ΜΙΑ κλήση: το ίδιο (υπερσύνολο) σχήμα του
+ * τιμολογίου, συν ρητή άδεια να πει «αυτό δεν είναι παραστατικό». Χωρίς αυτήν, ένα συμβόλαιο ή μια
+ * επιστολή θα γινόταν τιμολόγιο με εφευρεμένα σύνολα.
+ */
+export const AUTO_CLASSIFY_INSTRUCTIONS = [
+  'DOCUMENT CLASSIFICATION — decide FIRST what this document is, then extract.',
+  'If it is NOT a financial document — no issuer/document number/totals: a letter, a contract, a',
+  'certificate, a form, a page of notes, a photo of text — then you MUST set `kind` to "general",',
+  'leave `type`, `issuer`, `recipient`, `totals`, `vatBreakdown`, `digital`, `payment`, `references`',
+  'and `handwritten` null / empty, leave `lines` as [], put a one-line description in `notes`, and',
+  'fill ONLY these four keys inside `custom`:',
+  '  "custom": { "title": "string (short title of the document)",',
+  '              "fullText": "string (the COMPLETE text, transcribed verbatim)",',
+  '              "summary": "string (3-sentence executive summary)",',
+  '              "keywords": ["string"] }',
+  'NEVER invent an issuer, a document number or totals for such a document.',
+  'Otherwise it IS a financial document: set `kind` to "invoice" or "receipt" and follow the',
+  'blueprint below exactly.',
+].join('\n');
+
 export function buildSystemPrompt(
-  docType: DocType,
+  docType: ExtractDocType,
   lang: SupportedLang,
   example?: unknown,
   fieldHints?: unknown,
 ): string {
   // Always extract the full (invoice) field set for financial documents — same
   // OCR cost, and the user reduces what is shown per chosen type afterwards.
-  const tpl = TEMPLATE_SCHEMAS[docType === 'receipt' ? 'invoice' : docType];
+  // «Αυτόματα» διαβάζεται με το ίδιο σχήμα, συν την παράγραφο ταξινόμησης.
+  const tpl = TEMPLATE_SCHEMAS[docType === 'receipt' || docType === 'auto' ? 'invoice' : docType];
   const ln = SUPPORTED_LANGUAGES[lang];
   const lines = [
     'You are a highly resilient JSON document extraction node.',
     tpl.systemInstructions,
+    ...(docType === 'auto' ? ['', AUTO_CLASSIFY_INSTRUCTIONS, ''] : []),
     ln.instruction,
     '',
     'You MUST respond EXCLUSIVELY with a raw valid JSON object matching this blueprint.',
