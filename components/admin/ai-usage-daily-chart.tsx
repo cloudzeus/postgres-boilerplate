@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useChartWidth } from '@/components/admin/use-chart-width';
 
 export type DailyPoint = { label: string; costEur: number; docs: number; rate: number };
 
@@ -41,13 +42,16 @@ function smoothPath(pts: Array<[number, number]>): string {
  * gradient area, documents/day and the daily USD→EUR rate as thin smooth lines.
  * Each series is scaled to its own range; exact values appear on hover.
  */
-export function AiUsageDailyChart({ data }: { data: DailyPoint[] }) {
+export function AiUsageDailyChart({ data, labelEvery }: { data: DailyPoint[]; labelEvery?: number }) {
   const [hover, setHover] = React.useState<number | null>(null);
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const gid = React.useId().replace(/:/g, '');
 
+  // Το viewBox ακολουθεί το πραγματικό πλάτος: με σταθερό 920 οι ετικέτες των 9 px
+  // έπεφταν στα ~3 px σε οθόνη κινητού (βλ. `useChartWidth`).
+  const W = useChartWidth(wrapRef);
   const n = data.length;
-  const W = 920, H = 200;
+  const H = 200;
   const padL = 6, padR = 6, padT = 12, padB = 22;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
@@ -93,6 +97,9 @@ export function AiUsageDailyChart({ data }: { data: DailyPoint[] }) {
   }
 
   const gridY = [0.25, 0.5, 0.75].map((f) => padT + innerH * f);
+  // Πυκνότητα ετικετών x: 5 για τις 30 ημέρες (η αρχική συμπεριφορά), αλλιώς
+  // αναλογικά ώστε 7 ή 90 ημέρες να μη στριμώχνονται.
+  const step = Math.max(1, labelEvery ?? Math.ceil(n / Math.max(2, Math.floor(W / 56))));
 
   return (
     <div>
@@ -113,7 +120,7 @@ export function AiUsageDailyChart({ data }: { data: DailyPoint[] }) {
       </div>
 
       <div ref={wrapRef} className="relative text-muted-foreground" onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Ημερήσιο κόστος, έγγραφα και ισοτιμία">
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} className="block" role="img" aria-label="Ημερήσιο κόστος, έγγραφα και ισοτιμία">
           <defs>
             <linearGradient id={`cost-${gid}`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={COST} stopOpacity={0.22} />
@@ -150,8 +157,8 @@ export function AiUsageDailyChart({ data }: { data: DailyPoint[] }) {
             </>
           )}
 
-          {/* x labels (every 5th + last) */}
-          {data.map((d, i) => (i % 5 === 0 || i === n - 1) ? (
+          {/* x labels (κάθε `step` + η τελευταία, αν δεν κολλάει στην προηγούμενη) */}
+          {data.map((d, i) => (i % step === 0 || (i === n - 1 && (n - 1) % step >= step / 2)) ? (
             <text key={`x${i}`} x={x(i)} y={H - 6} textAnchor="middle" fontSize={9} fill="currentColor" opacity={0.55}>{d.label}</text>
           ) : null)}
         </svg>
