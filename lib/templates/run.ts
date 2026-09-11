@@ -19,8 +19,8 @@ import { TEMPLATE_INCLUDE, toConditionDto, toFieldDef, toMappingDto } from './se
 import { sendRuleNotifications } from './notify';
 import {
   applySetFields, baseOcrSnapshot, buildReviewFlags, canPost, crossCheckOcr, decideOutcome, extrasFrom,
-  mappingFellBack, pickMapping, requiredMissing, setDocumentPath, tableFellThrough,
-  type FieldFlag, type RunFlags,
+  mappingFellBack, pickMapping, readFlags, setDocumentPath, tableFellThrough,
+  type RunFlags,
 } from './run-logic';
 import { ADAPTIVE_PREFIX, recomputeFieldFlags, type StoredFlags } from './run-flags';
 import { toLastGood, updateLastGood } from './adaptive';
@@ -132,33 +132,17 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
       extras: extrasFrom(document, doc._count.items, ex.pageCount),
     });
     const values = applySetFields(ex.values, fields, applied.setFields);
-    const missing = requiredMissing(fields, values);
-    const missingLabels = missing.map((f) => `Λείπει υποχρεωτικό πεδίο «${f.label}»`);
     const labelOf = (key: string) => fields.find((f) => f.key === key)?.label ?? key;
-    const readErrors = ex.errors.map((e) => `Σφάλμα ανάγνωσης «${labelOf(e.fieldKey)}»: ${e.message}`);
-
-    // The same two verdicts, keyed by field, for the UI. A rule's FLAG_REVIEW/BLOCK_POSTING reason is
-    // free prose about the document as a whole, so it names no field and adds nothing here.
-    const fieldFlags: Record<string, FieldFlag> = {};
-    for (const f of missing) fieldFlags[f.key] = t.mode === 'AUTO' ? 'blocked' : 'review';
-    for (const e of ex.errors) if (!fieldFlags[e.fieldKey]) fieldFlags[e.fieldKey] = 'review';
-
-    // A value only the widened box could find was NOT read where the designer drew the region — say
-    // so, so a human glances at it (and so an AUTO template's own «Ασυμφωνία» list is not the only
-    // thing that ever mentions a field the template is slowly drifting away from).
-    //
-    // In AUTO mode «glance at it» is not enough: the value carries ADAPTIVE_CONFIDENCE (0.5) and came
-    // out of a box nobody drew, so posting it to the ERP unseen is exactly the mistake the widened
-    // read exists to survive, not to commit. AUTO therefore BLOCKS on it and waits for a human;
-    // SEMI_AUTO stops for review anyway, and MANUAL posts nothing.
     const adaptiveKeys = ex.adaptive ?? [];
-    const adaptiveLabels = adaptiveKeys.map((k) => `${ADAPTIVE_PREFIX}${labelOf(k)}»`);
 
-    const blocked = [...applied.flags.blocked, ...(t.mode === 'AUTO' ? [...missingLabels, ...adaptiveLabels] : [])];
-    // Everything that blocks is also worth a human's eyes, so the blocked reasons are mirrored into
-    // `review` (deduped — a missing required field would otherwise land in both lists twice).
-    const flags: RunFlags = { review: [...new Set([...applied.flags.review, ...missingLabels, ...readErrors, ...adaptiveLabels, ...blocked])], blocked, fields: fieldFlags };
-    for (const k of adaptiveKeys) if (!fieldFlags[k] || fieldFlags[k] === 'review') fieldFlags[k] = t.mode === 'AUTO' ? 'blocked' : 'review';
+    // What the READ has to say about itself — missing required fields, read errors, widened reads,
+    // and whatever the rules concluded — keyed by field as well as in prose. Shared with the batch
+    // scanner (`jobs.ts`), which owes the user exactly the same verdicts about a file.
+    const flags: RunFlags = readFlags({
+      fields, values, mode: t.mode, errors: ex.errors, adaptive: adaptiveKeys, rules: applied.flags,
+    });
+    // Everything below appends to the same object the UI reads its per-field colours from.
+    const fieldFlags = flags.fields;
     if (mappingFellBack(mappings, applied.mappingName)) {
       flags.review.push(`Ο κανόνας ζήτησε mapping «${applied.mappingName}» που δεν υπάρχει`);
     }

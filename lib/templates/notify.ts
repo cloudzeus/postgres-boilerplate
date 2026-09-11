@@ -9,7 +9,7 @@ const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;'
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ESCAPES[c]);
 
 /** `a@x.gr; b@x.gr` → ['a@x.gr', 'b@x.gr'] (semicolon, comma or whitespace separated). */
-const recipients = (s: string | null | undefined) =>
+export const recipients = (s: string | null | undefined) =>
   String(s ?? '')
     .split(/[;,\s]+/)
     .map((x) => x.trim())

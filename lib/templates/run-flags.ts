@@ -7,18 +7,14 @@
 // «Ασυμφωνία …» and «Διαβάστηκε σε διευρυμένη περιοχή …». Everything else on the run — a rule's
 // FLAG_REVIEW/BLOCK_POSTING prose, a read error, the ids already notified — is left exactly as the
 // run recorded it: a correction of one field says nothing about a verdict nobody re-examined.
-import { crossCheckKeys, crossCheckOcr, requiredMissing, type FieldFlag } from './run-logic';
+import {
+  ADAPTIVE_PREFIX, crossCheckKeys, crossCheckOcr, MISMATCH_PREFIX, MISSING_PREFIX, requiredMissing, type FieldFlag,
+} from './run-logic';
 import type { FieldDef, FieldValue, TemplateMode } from './schema';
 
-/** Prefix of the review/blocked entry the runner writes for an empty required field. */
-export const MISSING_PREFIX = 'Λείπει υποχρεωτικό πεδίο «';
-/** Prefix of the review entry the runner writes when the template and the base OCR disagree. */
-export const MISMATCH_PREFIX = 'Ασυμφωνία «';
-/**
- * Prefix of the entry a field read in the WIDENED box gets (spec §17.2) — review always, and in AUTO
- * mode also `blocked`. Lives here, not in the (server-only) runner, because this recomputation OWNS it.
- */
-export const ADAPTIVE_PREFIX = 'Διαβάστηκε σε διευρυμένη περιοχή «';
+// The prefixes live one module down, where the runner writes them; re-exported here because this is
+// where they are RECOGNISED, and every existing caller asks this module for them.
+export { ADAPTIVE_PREFIX, MISMATCH_PREFIX, MISSING_PREFIX };
 
 /**
  * `TemplateRun.flags` as it comes out of the database — every list optional, older runs have none.

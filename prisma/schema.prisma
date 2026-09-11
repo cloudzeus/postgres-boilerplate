@@ -1790,6 +1790,11 @@ model TemplateJob {
   template        ExtractionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   templateVersion Int
   status          TemplateJobStatus @default(QUEUED)
+  title           String?                                // τίτλος της παρτίδας, όπως τον έγραψε ο χρήστης
+  reference       String?                                // ελεύθερη σήμανση/κωδικός του χρήστη
+  docDate         DateTime?                              // ημερομηνία αναφοράς που δίνει ο χρήστης (≠ createdAt)
+  description     String?
+  notifyEmails    String?                                // comma-separated· κενό → τα emails του προτύπου
   total           Int               @default(0)
   done            Int               @default(0)
   failed          Int               @default(0)

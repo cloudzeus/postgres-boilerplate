@@ -12,6 +12,20 @@ export type FieldFlag = 'review' | 'blocked';
  */
 export type RunFlags = { review: string[]; blocked: string[]; fields: Record<string, FieldFlag> };
 export type MappingLike = { name: string; target: MappingTarget; isDefault: boolean };
+
+// ─── The prose a read produces about itself ────────────────────────────────
+// Four fixed prefixes, because two other modules have to RECOGNISE these reasons rather than merely
+// write them: `run-flags.ts` drops and rebuilds the ones it owns on every correction.
+
+/** Prefix of the review/blocked entry for an empty required field. */
+export const MISSING_PREFIX = 'Λείπει υποχρεωτικό πεδίο «';
+/** Prefix of the review entry written when the template and the base OCR disagree. */
+export const MISMATCH_PREFIX = 'Ασυμφωνία «';
+/** Prefix of the entry a field read in the WIDENED box gets (spec §17.2) — blocked as well, in AUTO. */
+export const ADAPTIVE_PREFIX = 'Διαβάστηκε σε διευρυμένη περιοχή «';
+/** Prefix of the review entry for a field the reader could not read at all. */
+export const READ_ERROR_PREFIX = 'Σφάλμα ανάγνωσης «';
+
 export type RunDecision = 'EXTRACTED' | 'REVIEW' | 'BLOCKED' | 'POST';
 
 /**
@@ -51,6 +65,55 @@ export function pickMapping<M extends MappingLike>(mappings: M[], switched: stri
 export function mappingFellBack(mappings: MappingLike[], switched: string | null): boolean {
   if (!switched) return false;
   return !mappings.some((m) => m.target === 'INVOICE' && m.name === switched);
+}
+
+/**
+ * Everything a READ has to say about itself, before anything is projected, posted or compared: the
+ * required fields that came back empty, the fields that could not be read, the fields only the
+ * widened box could find, plus whatever the rules already flagged.
+ *
+ * Shared by the document runner (`run.ts`) and the batch scanner (`jobs.ts`) — both read a file with
+ * a template and both owe the user the same verdicts about it. What is NOT here is everything that
+ * needs a document: the cross-check against the base OCR, the mapping fallback, the table fallback.
+ * A job has no `OcrDocument`, so it has none of those.
+ *
+ * `blocked` is mirrored into `review` (deduped): everything that stops a posting is also worth eyes.
+ */
+export function readFlags(input: {
+  fields: FieldDef[];
+  values: Record<string, FieldValue>;
+  mode: TemplateMode;
+  /** Fields the reader failed on (`ExtractResult.errors`). */
+  errors: { fieldKey: string; message: string }[];
+  /** Field keys only the widened second look could read (`ExtractResult.adaptive`). */
+  adaptive: string[];
+  /** What the condition rules already concluded (`applyRules(...).flags`). */
+  rules?: { review: string[]; blocked: string[] };
+}): RunFlags {
+  const { fields, values, mode } = input;
+  const rules = input.rules ?? { review: [], blocked: [] };
+  const labelOf = (key: string) => fields.find((f) => f.key === key)?.label ?? key;
+
+  const missing = requiredMissing(fields, values);
+  const missingLabels = missing.map((f) => `${MISSING_PREFIX}${f.label}»`);
+  const readErrors = input.errors.map((e) => `${READ_ERROR_PREFIX}${labelOf(e.fieldKey)}»: ${e.message}`);
+  // A value only the widened box could find was NOT read where the designer drew the region — say so,
+  // so a human glances at it. In AUTO «glance at it» is not enough: the value carries
+  // ADAPTIVE_CONFIDENCE and came out of a box nobody drew, so posting it unseen is exactly the
+  // mistake the widened read exists to survive, not to commit.
+  const adaptiveLabels = input.adaptive.map((k) => `${ADAPTIVE_PREFIX}${labelOf(k)}»`);
+
+  const blocked = [...rules.blocked, ...(mode === 'AUTO' ? [...missingLabels, ...adaptiveLabels] : [])];
+  const fieldFlags: Record<string, FieldFlag> = {};
+  for (const f of missing) fieldFlags[f.key] = mode === 'AUTO' ? 'blocked' : 'review';
+  for (const e of input.errors) if (!fieldFlags[e.fieldKey]) fieldFlags[e.fieldKey] = 'review';
+  for (const k of input.adaptive) if (!fieldFlags[k] || fieldFlags[k] === 'review') fieldFlags[k] = mode === 'AUTO' ? 'blocked' : 'review';
+
+  return {
+    review: [...new Set([...rules.review, ...missingLabels, ...readErrors, ...adaptiveLabels, ...blocked])],
+    blocked,
+    fields: fieldFlags,
+  };
 }
 
 /** Mode → what the run becomes. `blocked` only decides here for AUTO; posting itself is gated by `canPost`. */
