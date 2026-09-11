@@ -185,6 +185,33 @@ describe('PATCH template — training gate', () => {
     expect(db.extractionTemplate.update.mock.calls[0][0].data).toMatchObject({ status: 'ACTIVE', minTrainingSamples: 0 });
   });
 
+  // Η παλινδρόμηση που κόστισε: κάθε υπάρχουσα γραμμή βγήκε από το migration με
+  // `minTrainingSamples = 3, verifiedSamples = 0`, και ο σχεδιαστής σώζει τη λειτουργία στέλνοντας
+  // `{mode, notifyEmails}` ΧΩΡΙΣ `status`. Με την πύλη να κρίνει κάθε αποθήκευση ενεργού προτύπου,
+  // κάθε ενεργό πρότυπο του συστήματος γύριζε 422 σε ένα απλό «άλλαξε λειτουργία».
+  it('lets an ACTIVE template save its mode with zero confirmed samples — the gate is for activation', async () => {
+    db.extractionTemplate.findUnique.mockResolvedValue({ ...TEMPLATE, status: 'ACTIVE', verifiedSamples: 0, trainingScore: null });
+    const res = await patchTemplate(json({ mode: 'SEMI_AUTO', notifyEmails: 'a@b.gr' }), ctx());
+    expect(res.status).toBe(200);
+    expect(db.extractionTemplate.update).toHaveBeenCalled();
+  });
+
+  it('…but a DRAFT → ACTIVE transition still pays the threshold', async () => {
+    db.extractionTemplate.findUnique.mockResolvedValue({ ...TEMPLATE, status: 'DRAFT', verifiedSamples: 0, trainingScore: null });
+    const res = await patchTemplate(json({ status: 'ACTIVE' }), ctx());
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({ error: 'training_gate', reason: 'need_samples' });
+    expect(db.extractionTemplate.update).not.toHaveBeenCalled();
+  });
+
+  it('re-checks readiness — but not training — when an ACTIVE template changes mode', async () => {
+    // MANUAL → SEMI_AUTO χωρίς mapping: αυτό ΕΙΝΑΙ λόγος άρνησης, και δεν έχει σχέση με τον βαθμό.
+    db.extractionTemplate.findUnique.mockResolvedValue({ ...TEMPLATE, status: 'ACTIVE', mode: 'MANUAL', mappings: [], verifiedSamples: 0 });
+    const res = await patchTemplate(json({ mode: 'SEMI_AUTO' }), ctx());
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toBe('not_ready');
+  });
+
   it('still refuses a template that is not ready at all, before it ever looks at training', async () => {
     db.extractionTemplate.findUnique.mockResolvedValue({ ...TEMPLATE, sampleStorageKey: null, minTrainingSamples: 0 });
     const res = await patchTemplate(json({ status: 'ACTIVE' }), ctx());

@@ -6,7 +6,8 @@ import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { bunnyDelete } from '@/lib/bunny';
 import { TEMPLATE_INCLUDE, toTemplateDto } from '@/lib/templates/serialize';
-import { activationMessage, canActivate } from '@/lib/templates/readiness';
+import { activationMessage, isReady } from '@/lib/templates/readiness';
+import { trainingGate } from '@/lib/templates/training';
 import { SLUG_RE } from '@/lib/templates/schema';
 
 export const runtime = 'nodejs';
@@ -57,26 +58,34 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (mode === 'AUTO' && u.role.key !== 'SUPER_ADMIN' && !u.permissionKeys.has('ocr.post')) {
     return NextResponse.json({ error: 'forbidden', message: 'Η αυτόματη λειτουργία απαιτεί δικαίωμα ανάρτησης (ocr.post)' }, { status: 403 });
   }
-  // ACTIVE needs a sample and a field with a region; a mapping only when the mode posts to SoftOne (spec §14.1-4).
-  // Only on an actual transition: a plain {name}/{notifyEmails} PATCH must not be blocked because an
-  // already-ACTIVE template drifted out of readiness (e.g. its only mapping was deleted elsewhere).
-  // …and the template must have been trained enough to be trusted (spec §11). The thresholds are
-  // taken from THIS request when it changes them, so raising the bar and activating in one PATCH is
-  // judged by the new bar rather than the old one.
+  // ACTIVE needs a sample and a field with a region; a mapping only when the mode posts to SoftOne
+  // (spec §14.1-4). Re-checked whenever the status or the MODE moves, because a mode change can
+  // itself invalidate readiness (MANUAL → SEMI_AUTO with no mapping).
   const status = b.status ?? t.status;
-  if (status === 'ACTIVE' && (b.status !== undefined || b.mode !== undefined)) {
-    const gateInput = {
-      minTrainingScore: b.minTrainingScore ?? t.minTrainingScore,
-      minTrainingSamples: b.minTrainingSamples ?? t.minTrainingSamples,
-      trainingScore: t.trainingScore,
-      verifiedSamples: t.verifiedSamples,
-    };
-    const check = canActivate({ ...t, ...gateInput, mode });
-    if (!check.ok) {
-      return NextResponse.json(
-        { error: check.error, message: activationMessage(check, gateInput), ...(check.error === 'training_gate' && { reason: check.reason }) },
-        { status: 422 },
-      );
+  const gateInput = {
+    // Τα κατώφλια τα παίρνουμε από ΑΥΤΟ το αίτημα όταν τα αλλάζει: «ανέβασε τον πήχη και ενεργοποίησε»
+    // σε μία κίνηση κρίνεται με τον νέο πήχη, όχι με τον παλιό.
+    minTrainingScore: b.minTrainingScore ?? t.minTrainingScore,
+    minTrainingSamples: b.minTrainingSamples ?? t.minTrainingSamples,
+    trainingScore: t.trainingScore,
+    verifiedSamples: t.verifiedSamples,
+  };
+  if (status === 'ACTIVE' && (b.status !== undefined || b.mode !== undefined) && !isReady({ ...t, mode })) {
+    const check = { ok: false, error: 'not_ready' } as const;
+    return NextResponse.json({ error: check.error, message: activationMessage(check, gateInput) }, { status: 422 });
+  }
+  // Η ΠΥΛΗ ΕΚΠΑΙΔΕΥΣΗΣ (spec §11) κρίνει ΜΟΝΟ μια πραγματική ενεργοποίηση — DRAFT → ACTIVE.
+  //
+  // Όχι κάθε αποθήκευση ενός ήδη ενεργού προτύπου: το migration έδωσε σε ΚΑΘΕ υπάρχουσα γραμμή
+  // `minTrainingSamples = 3` και `verifiedSamples = 0`, και ο σχεδιαστής στέλνει `{mode, notifyEmails}`
+  // χωρίς `status` — άρα ένα «άλλαξε τη λειτουργία» σε ενεργό πρότυπο θα γύριζε 422 `need_samples`
+  // για κάτι που δεν ζήτησε κανείς. Ο βαθμός είναι μέτρηση, όχι λόγος να κλειδώσει ένα πρότυπο που
+  // ήδη δουλεύει· μόνο η ρητή ενεργοποίηση πληρώνει το κατώφλι.
+  if (b.status === 'ACTIVE' && t.status !== 'ACTIVE') {
+    const gate = trainingGate(gateInput);
+    if (!gate.ok) {
+      const check = { ok: false, error: 'training_gate', reason: gate.reason } as const;
+      return NextResponse.json({ error: check.error, message: activationMessage(check, gateInput), reason: gate.reason }, { status: 422 });
     }
   }
 
