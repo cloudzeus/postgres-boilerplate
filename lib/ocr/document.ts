@@ -11,7 +11,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { normalizeAfm } from '@/lib/ocr/validate';
 import {
-  fromLegacy, legacyKeyToPath, normalizeDocument, setPath, toLegacy,
+  fromLegacy, legacyKeyToPath, normalizeDocument, setPath, toLegacy, UNSAFE_SEGMENTS,
   type CanonicalDocType, type DocumentJson, type DocumentLine,
 } from '@/lib/ocr/canonical';
 
@@ -167,7 +167,13 @@ export async function saveDocumentJson(
 // Legacy patch → κανονικό έγγραφο
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Επιτρεπτό κλειδί `custom.<key>`. Το `UNSAFE_SEGMENTS` κόβει τα `__proto__` / `constructor` /
+ * `prototype`: το `JSON.parse` τα φτιάχνει ως ΚΑΝΟΝΙΚΑ κλειδιά, περνούν το regex, και το `setPath`
+ * τα απορρίπτει πετώντας — δηλαδή ένα σώμα PATCH θα γινόταν 500 αντί για «αγνοήθηκε».
+ */
 const SAFE_CUSTOM_KEY = /^[A-Za-z0-9_]{1,60}$/;
+const isSafeCustomKey = (key: string) => SAFE_CUSTOM_KEY.test(key) && !UNSAFE_SEGMENTS.has(key);
 
 /**
  * Ένας παλιός client που στέλνει `{ extractedData, items }` ξέρει μόνο τα flat κλειδιά. Αν γράφαμε
@@ -193,13 +199,13 @@ export function mergeLegacyPatch(
       let value: unknown = patch;
       for (const s of segs) value = isObj(value) ? value[s] : undefined;
       out = setPath(out, path, value ?? null);
-    } else if (SAFE_CUSTOM_KEY.test(key)) {
+    } else if (isSafeCustomKey(key)) {
       out = setPath(out, `custom.${key}`, flat[key]);
     }
   }
   if (isObj(flat.customFields)) {
     const extra: Record<string, unknown> = {};
-    for (const k of Object.keys(flat.customFields)) if (SAFE_CUSTOM_KEY.test(k)) extra[k] = patch.custom[k];
+    for (const k of Object.keys(flat.customFields)) if (isSafeCustomKey(k)) extra[k] = patch.custom[k];
     out = { ...out, custom: { ...out.custom, ...extra } };
   }
   if (Array.isArray(flat.bankAccounts)) out = setPath(out, 'payment.ibans', patch.payment.ibans);

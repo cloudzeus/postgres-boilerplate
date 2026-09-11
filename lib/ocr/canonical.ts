@@ -9,6 +9,7 @@
 // `toLegacy` ώστε λίστα / row-detail / ουρές / doc-type / softone-match να συνεχίσουν να δουλεύουν
 // αμετάβλητα, και διαβάζονται πίσω με `fromLegacy` για τα έγγραφα που γράφτηκαν πριν από το plan 5.
 import { z } from 'zod';
+import { parseGreekNumber } from '@/lib/greek-format';
 import { normalizeAfm } from '@/lib/ocr/validate';
 import { reconcileInvoice } from '@/lib/ocr/invoice-math';
 
@@ -23,34 +24,35 @@ const isObj = (v: unknown): v is Record<string, unknown> => v != null && typeof 
 const round2 = (x: number) => Math.round((x + Number.EPSILON) * 100) / 100;
 
 /**
- * Αριθμός από ό,τι τύπωσε το παραστατικό: «1.234,56», «1,234.56», «24%», «1.234,56 €», «(500)».
+ * Αριθμός από ό,τι κουβαλάει το πεδίο, με ΔΥΟ συμβάσεις — γιατί δύο είναι και οι πηγές:
+ *
+ *   • κείμενο (OCR, prompt, πληκτρολόγηση) → ελληνική σύμβαση μέσω `parseGreekNumber`:
+ *     η τελεία ΠΑΝΤΑ χωρίζει χιλιάδες, το κόμμα είναι το δεκαδικό («1.234,56» → 1234.56,
+ *     «1.234» → 1234). Είναι ο ίδιος parser με τις τιμές των προτύπων (`coerceFinancialValue`)·
+ *     αν οι δύο διαφωνούσαν, το ίδιο τυπωμένο ποσό θα αποθηκευόταν αλλιώς ανά διαδρομή.
+ *   • αντικείμενο με `toNumber()` / αριθμητικό `toString()` (Prisma `Decimal` από τις γραμμές
+ *     `OcrInvoiceItem`) → ΜΗΧΑΝΙΚΗ μορφή: εκεί η τελεία είναι το δεκαδικό, όπως τη γράφει η βάση.
+ *
  * Επιστρέφει null όταν δεν υπάρχει αριθμός — ΠΟΤΕ NaN.
  */
 export function parseNumber(v: unknown): number | null {
   if (v == null) return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-  if (typeof v !== 'string') return null;
-  let s = v.trim();
-  if (!s) return null;
-  s = s.replace(/[\s ]/g, '').replace(/[€$£%]/g, '').replace(/^\+/, '');
-  let neg = false;
-  if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
-  if (s.startsWith('-')) { neg = true; s = s.slice(1); }
-  if (!/^[\d.,]+$/.test(s)) return null;
-  const lastComma = s.lastIndexOf(',');
-  const lastDot = s.lastIndexOf('.');
-  if (lastComma >= 0 && lastDot >= 0) {
-    // Ο τελευταίος διαχωριστής είναι το δεκαδικό κόμμα/τελεία· ο άλλος είναι χιλιάδες.
-    s = lastComma > lastDot ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
-  } else if (lastComma >= 0) {
-    const parts = s.split(',');
-    s = parts.length > 2 || (parts[1] ?? '').length === 3 ? s.replace(/,/g, '') : s.replace(',', '.');
-  } else if (s.split('.').length > 2) {
-    s = s.replace(/\./g, '');              // 1.234.567 → χιλιάδες· ένα μόνο «.» μένει δεκαδικό
+  if (typeof v === 'boolean') return null;
+  if (typeof v === 'object') {
+    if (Array.isArray(v) || v instanceof Date) return null;
+    const dec = v as { toNumber?: unknown };
+    if (typeof dec.toNumber === 'function') {
+      const n = (dec.toNumber as () => unknown)();
+      return typeof n === 'number' && Number.isFinite(n) ? n : null;
+    }
+    const s = String(v).trim();
+    if (!s || s === '[object Object]') return null;
+    const n = Number(s.replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
   }
-  const n = Number(s);
-  if (!Number.isFinite(n)) return null;
-  return neg ? -n : n;
+  if (typeof v !== 'string') return null;
+  return parseGreekNumber(v);
 }
 
 const prepStr = (v: unknown): string | null => {
@@ -208,7 +210,13 @@ export const DOCUMENT_PATHS: DocumentPathInfo[] = [
 const PATH_SET = new Set(DOCUMENT_PATHS.map((p) => p.path));
 
 /** Τα παλιά flat κλειδιά του `extractedData` / του INVOICE mapping → διαδρομή του κανονικού εγγράφου. */
-export const LEGACY_KEY_TO_PATH: Record<string, string> = {
+/**
+ * ΧΩΡΙΣ prototype: το κλειδί έρχεται από JSON τρίτου (σώμα PATCH, αποθηκευμένο `extractedData`),
+ * και το `JSON.parse('{\"__proto__\":…}')` φτιάχνει ΚΑΝΟΝΙΚΟ δικό του κλειδί. Σε απλό object
+ * literal το `map['__proto__']` / `map['toString']` θα γύριζε συνάρτηση ή αντικείμενο αντί για
+ * διαδρομή, και ο καλών θα έσκαγε πάνω σε ένα `path.startsWith`.
+ */
+export const LEGACY_KEY_TO_PATH: Record<string, string> = Object.assign(Object.create(null), {
   companyName: 'issuer.name',
   storeName: 'issuer.name',
   vatNumber: 'issuer.vat',
@@ -240,12 +248,16 @@ export const LEGACY_KEY_TO_PATH: Record<string, string> = {
   'items.discount': 'lines.discount',
   'items.vatRate': 'lines.vatRate',
   'items.total': 'lines.net',
-};
+} as Record<string, string>);
+
+/** Τμήματα διαδρομής που θα μόλυναν το prototype — απορρίπτονται όπου κι αν εμφανιστούν. */
+export const UNSAFE_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
 /** `customFields.<slug>` → `custom.<slug>`· κανονική διαδρομή → η ίδια· άγνωστο → null. */
 export function legacyKeyToPath(key: string): string | null {
-  const mapped = LEGACY_KEY_TO_PATH[key];
-  if (mapped) return mapped;
+  if (typeof key !== 'string' || UNSAFE_SEGMENTS.has(key)) return null;
+  const mapped = Object.hasOwn(LEGACY_KEY_TO_PATH, key) ? LEGACY_KEY_TO_PATH[key] : undefined;
+  if (typeof mapped === 'string') return mapped;
   const m = /^customFields\.([a-z0-9_]+)$/.exec(key);
   if (m) return `custom.${m[1]}`;
   if (PATH_SET.has(key) || /^custom\.[a-z0-9_]+$/.test(key)) return key;
@@ -255,8 +267,6 @@ export function legacyKeyToPath(key: string): string | null {
 // ─────────────────────────────────────────────────────────────────────────────
 // Βοηθοί διαδρομών
 // ─────────────────────────────────────────────────────────────────────────────
-
-const UNSAFE_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function walk(root: unknown, segs: string[]): unknown {
   let cur: unknown = root;
@@ -352,8 +362,13 @@ export function coerceDocument(raw: unknown, docType?: CanonicalDocType): Docume
 // Γέφυρες legacy ↔ κανονικό
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Κλειδιά του `custom` που έχουν δικό τους legacy όνομα στο `extractedData`. */
-const PROMOTED_CUSTOM = ['time', 'itemsCount', 'title', 'fullText', 'summary', 'keywords'] as const;
+/**
+ * Κλειδιά του `custom` που έχουν δικό τους legacy όνομα στο `extractedData`. Τα τέσσερα του
+ * ελεύθερου κειμένου βγαίνουν ΜΟΝΟ σε γενικό έγγραφο: σε τιμολόγιο δεν έχουν legacy θέση, οπότε
+ * αν τα αφαιρούσαμε από το `custom` χωρίς να τα εκπέμψουμε πουθενά, θα εξαφανίζονταν.
+ */
+const PROMOTED_ALWAYS = ['time', 'itemsCount'] as const;
+const PROMOTED_GENERAL = ['title', 'fullText', 'summary', 'keywords'] as const;
 const LEGACY_ITEM_KEYS = new Set(['code', 'name', 'quantity', 'price', 'discount', 'vatRate', 'total', 'unit']);
 const HANDLED_LEGACY_KEYS = new Set([
   ...Object.keys(LEGACY_KEY_TO_PATH).filter((k) => !k.startsWith('items.')),
@@ -406,7 +421,10 @@ export function fromLegacy(
   if (f.time != null) custom.time = f.time;
   if (f.itemsCount != null) custom.itemsCount = f.itemsCount;
 
-  const rawItems = Array.isArray(items) ? items : Array.isArray(f.items) ? (f.items as unknown[]) : [];
+  // Οι γραμμές της βάσης προηγούνται — αλλά ένας ΑΔΕΙΟΣ πίνακας δεν είναι απάντηση: ένα έγγραφο
+  // που γράφτηκε πριν από το plan 5 μπορεί να κρατάει τις γραμμές μόνο μέσα στο `extractedData`.
+  const passed = Array.isArray(items) ? items : [];
+  const rawItems = passed.length ? passed : Array.isArray(f.items) ? (f.items as unknown[]) : [];
   const lines = rawItems.map(lineFromLegacyItem).filter((x): x is Record<string, unknown> => x != null);
   const total = parseNumber(f.totalAmount);
 
@@ -443,8 +461,11 @@ export function fromLegacy(
 export function toLegacy(document: DocumentJson): Record<string, unknown> {
   const custom = { ...document.custom };
   const promoted: Record<string, unknown> = {};
-  for (const k of PROMOTED_CUSTOM) {
-    if (k in custom) { promoted[k] = custom[k]; delete custom[k]; }
+  const promotedKeys: readonly string[] = document.kind === 'general'
+    ? [...PROMOTED_ALWAYS, ...PROMOTED_GENERAL]
+    : PROMOTED_ALWAYS;
+  for (const k of promotedKeys) {
+    if (Object.hasOwn(custom, k)) { promoted[k] = custom[k]; delete custom[k]; }
   }
   const out: Record<string, unknown> = {};
 
@@ -480,6 +501,9 @@ export function toLegacy(document: DocumentJson): Record<string, unknown> {
       ...line.custom,
       code: line.code,
       name: line.name ?? '',
+      // Μόνο όταν υπάρχει: η στήλη `unit` δεν έχει legacy αντίστοιχο, και ένα `unit: null` θα
+      // πρόσθετε θόρυβο σε κάθε γραμμή κάθε παλιού εγγράφου.
+      ...(line.unit != null ? { unit: line.unit } : {}),
       quantity: line.quantity,
       price: line.unitPrice,
       discount: line.discount,

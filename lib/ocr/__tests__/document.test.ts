@@ -13,8 +13,10 @@ const { db } = vi.hoisted(() => ({
 
 vi.mock('@/lib/db', () => ({ prisma: db }));
 
+import { Prisma } from '@prisma/client';
+
 import { carryForward, linesToRows, loadDocumentJson, mergeLegacyPatch, saveDocumentJson } from '../document';
-import { emptyDocument, fromLegacy, normalizeDocument, setPath, type DocumentJson } from '../canonical';
+import { emptyDocument, fromLegacy, normalizeDocument, reconcileDocument, setPath, type DocumentJson } from '../canonical';
 
 const LEGACY = {
   companyName: 'ΚΑΠΑΛΙΝΕ ΑΕ',
@@ -225,5 +227,41 @@ describe('mergeLegacyPatch', () => {
     expect(merged.totals.total).toBe(124);
     expect(merged.digital.mark).toBe('400014123456789');
     expect(merged.issuer.vat).toBe('999863881');                   // normalizeDocument τρέχει πάντα
+  });
+});
+
+describe('γραμμές της βάσης (Prisma Decimal)', () => {
+  it('loadDocumentJson διαβάζει τα Decimal των γραμμών ως αριθμούς, όχι null', async () => {
+    const dec = (v: string) => new Prisma.Decimal(v);
+    db.ocrDocument.findUnique.mockResolvedValue({ document: null, extractedData: LEGACY, docType: 'INVOICE' });
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { code: 'A1', name: 'Είδος Α', quantity: dec('2'), price: dec('25.5'), discount: dec('0'), vatRate: dec('24'), total: dec('51') },
+    ]);
+    const doc = await loadDocumentJson('d1');
+    expect(doc.lines[0]).toMatchObject({ quantity: 2, unitPrice: 25.5, vatRate: 24, net: 51 });
+    // Και άρα τα σύνολα δεν «συμφωνούν» με ένα φανταστικό μηδέν.
+    expect(reconcileDocument({ ...doc, totals: { ...doc.totals, net: null } }).document.totals.net).toBe(51);
+  });
+
+  it('πέφτει πίσω στα items[] του extractedData όταν δεν υπάρχουν γραμμές στη βάση', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({
+      document: null,
+      extractedData: { ...LEGACY, items: [{ code: 'Z9', name: 'Παλιό', quantity: 1, price: 10, total: 10, vatRate: 24 }] },
+      docType: 'INVOICE',
+    });
+    db.ocrInvoiceItem.findMany.mockResolvedValue([]);
+    const doc = await loadDocumentJson('d1');
+    expect(doc.lines.map((l) => l.code)).toEqual(['Z9']);
+  });
+});
+
+describe('mergeLegacyPatch — κλειδιά που μολύνουν prototype', () => {
+  it('αγνοεί __proto__ / constructor / prototype αντί να σκάσει', () => {
+    const base = fromLegacy(LEGACY, [], 'invoice');
+    const hostile = JSON.parse('{"__proto__":{"admin":true},"constructor":1,"prototype":2,"toString":"x","totalAmount":9}');
+    const merged = mergeLegacyPatch(base, hostile);
+    expect(merged.totals.total).toBe(9);
+    expect(merged.custom).not.toHaveProperty('constructor');
+    expect(({} as Record<string, unknown>).admin).toBeUndefined();
   });
 });

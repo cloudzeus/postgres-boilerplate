@@ -14,11 +14,13 @@ import {
   isCanonical,
   legacyKeyToPath,
   normalizeDocument,
+  parseNumber,
   reconcileDocument,
   setPath,
   toLegacy,
 } from '../canonical';
 import { INVOICE_SCHEMA } from '@/lib/templates/schema';
+import { parseGreekNumber } from '@/lib/greek-format';
 
 const LEGACY = {
   companyName: 'ΚΑΠΑΛΙΝΕ ΑΕ',
@@ -391,5 +393,58 @@ describe('DOCUMENT_PATHS / LEGACY_KEY_TO_PATH', () => {
     expect(legacyKeyToPath('totals.payable')).toBe('totals.payable');
     expect(legacyKeyToPath('companyName')).toBe('issuer.name');
     expect(legacyKeyToPath('τίποτα')).toBeNull();
+  });
+});
+
+describe('parseNumber — δύο πηγές, δύο συμβάσεις', () => {
+  it('κείμενο: ελληνική σύμβαση — τελεία = χιλιάδες, κόμμα = δεκαδικό', () => {
+    expect(parseNumber('1.234,56')).toBe(1234.56);
+    expect(parseNumber('1.556.540,27')).toBe(1556540.27);
+    // Η τελεία ΠΟΤΕ δεν είναι δεκαδικό σε τυπωμένο ελληνικό ποσό — ίδιος κανόνας με το
+    // `parseGreekNumber` που διαβάζει τις τιμές των προτύπων.
+    expect(parseNumber('1.234')).toBe(1234);
+    expect(parseNumber('1.234')).toBe(parseGreekNumber('1.234'));
+    expect(parseNumber('12,34')).toBe(parseGreekNumber('12,34'));
+    expect(parseNumber('24%')).toBe(24);
+    expect(parseNumber('1.234,56 €')).toBe(1234.56);
+    expect(parseNumber('-45,5')).toBe(-45.5);
+  });
+
+  it('αντικείμενο Decimal: μηχανική μορφή, όχι ελληνική', () => {
+    expect(parseNumber({ toNumber: () => 25 })).toBe(25);
+    expect(parseNumber({ toNumber: () => 1234.56 })).toBe(1234.56);
+    expect(parseNumber({ toString: () => '25' })).toBe(25);
+    expect(parseNumber({ toString: () => '1234.56' })).toBe(1234.56);
+  });
+
+  it('επιστρέφει null για ό,τι δεν είναι αριθμός — ποτέ NaN', () => {
+    expect(parseNumber('')).toBeNull();
+    expect(parseNumber(null)).toBeNull();
+    expect(parseNumber('άκυρο')).toBeNull();
+    expect(parseNumber(true)).toBeNull();
+    expect(parseNumber([1, 2])).toBeNull();
+    expect(parseNumber({})).toBeNull();
+    expect(parseNumber(Number.NaN)).toBeNull();
+  });
+
+  it('μια γραμμή με Decimal τιμές δεν μηδενίζει τα σύνολα', () => {
+    const dec = (v: string) => ({ toNumber: () => Number(v) });
+    const doc = fromLegacy({}, [{ name: 'Α', quantity: dec('2'), price: dec('25'), total: dec('50'), vatRate: dec('24') }], 'invoice');
+    expect(doc.lines[0].net).toBe(50);
+    expect(doc.lines[0].unitPrice).toBe(25);
+    expect(reconcileDocument(doc).document.totals.net).toBe(50);
+  });
+});
+
+describe('legacyKeyToPath — κλειδιά που μολύνουν prototype', () => {
+  it('απορρίπτει __proto__ / constructor / prototype / toString αντί να γυρίσει συνάρτηση', () => {
+    for (const key of ['__proto__', 'constructor', 'prototype', 'toString', 'valueOf', 'hasOwnProperty']) {
+      expect(legacyKeyToPath(key), `key ${key}`).toBeNull();
+    }
+  });
+
+  it('ο χάρτης δεν κληρονομεί τίποτα από το Object.prototype', () => {
+    expect((LEGACY_KEY_TO_PATH as Record<string, unknown>).toString).toBeUndefined();
+    expect((LEGACY_KEY_TO_PATH as Record<string, unknown>).__proto__).toBeUndefined();
   });
 });
