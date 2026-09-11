@@ -10,7 +10,7 @@ import { POST_ERROR_TEXT, PostError, postDocumentToSoftone } from '@/lib/ocr/pos
 import { matchDocItems } from '@/lib/ocr/softone-match';
 // Το κανονικό έγγραφο και ο ΕΝΑΣ γραφέας του (μαζί με τα παράγωγα: extractedData, γραμμές, issuerAfm).
 import { loadDocumentJson, saveDocumentJson } from '@/lib/ocr/document';
-import type { DocumentJson } from '@/lib/ocr/canonical';
+import { normalizeDocument, type DocumentJson } from '@/lib/ocr/canonical';
 import { extractTemplateFields } from './extract';
 import { applyRules, type RuleDef } from './conditions';
 import { projectToDocument } from './mapping';
@@ -182,7 +182,9 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
         flags: { ...flags, notified: [] as string[], baseOcr } as unknown as Prisma.InputJsonValue,
         // The canonical document this run produced (spec §17.1) — the whole output of the run, frozen
         // at the moment it ran. A later re-run of the same template writes its own row.
-        output: toRunOutput({ slug: t.slug, file: doc.fileName, documentId: doc.id, createdAt, document: projected }) as unknown as Prisma.InputJsonValue,
+        // `normalizeDocument` because that is what `saveDocumentJson` stored: the downloaded envelope
+        // must not disagree with the document the ERP posts from over a date format or a numeric string.
+        output: toRunOutput({ slug: t.slug, file: doc.fileName, documentId: doc.id, createdAt, document: normalizeDocument(projected) }) as unknown as Prisma.InputJsonValue,
         mappingName: mapping?.name ?? '',
         model: ex.model,
         tokensUsed: ex.tokensUsed,
@@ -303,7 +305,7 @@ export async function finalizeRunEdit(input: {
       // the pre-correction value would be the very thing the correction was made to fix.
       output: toRunOutput({
         slug: t.slug, file: docRow?.fileName ?? '', documentId: run.documentId,
-        createdAt: run.createdAt, document: projected,
+        createdAt: run.createdAt, document: normalizeDocument(projected),
       }) as unknown as Prisma.InputJsonValue,
     },
     include: RUN_INCLUDE,

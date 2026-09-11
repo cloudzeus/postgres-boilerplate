@@ -3,8 +3,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { asEnvelope, toRunOutput } from '@/lib/templates/output';
-import { latestPerDocument } from '@/lib/templates/excel-server';
-import { loadDocumentJson } from '@/lib/ocr/document';
+import { DOCUMENT_EXPORT_SELECT, documentOf, latestPerDocument, type DocumentForExport } from '@/lib/templates/excel-server';
+import { emptyDocument } from '@/lib/ocr/canonical';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,18 +34,28 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const latest = latestPerDocument(runs);
   if (latest.length === 0) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
-  // Runs made before the canonical envelope existed stored no `output`: only those pay for a
-  // document read, so a folder of new runs is still one query.
-  const out = await Promise.all(
-    latest.map(async (r) =>
-      asEnvelope(r.output) ?? toRunOutput({
-        slug: r.template.slug,
-        file: r.document.fileName,
-        documentId: r.document.id,
-        createdAt: r.createdAt,
-        document: await loadDocumentJson(r.document.id),
-      }),
-    ),
+  // Runs made before the canonical envelope existed stored no `output`. Those documents are read
+  // ΜΑΖΙ, με ένα ερώτημα: ένα `loadDocumentJson` ανά run θα ήταν έως 2×2000 round trips μέσα σε ένα
+  // `Promise.all` — αρκετά για να γονατίσει το connection pool πάνω σε έναν φάκελο παλιών runs.
+  const missing = latest.filter((r) => asEnvelope(r.output) == null).map((r) => r.document.id);
+  const legacyDocs = missing.length
+    ? ((await prisma.ocrDocument.findMany({
+      where: { id: { in: [...new Set(missing)] } },
+      select: DOCUMENT_EXPORT_SELECT,
+    })) as DocumentForExport[])
+    : [];
+  const byId = new Map(legacyDocs.map((d) => [d.id, documentOf(d)]));
+
+  const out = latest.map((r) =>
+    asEnvelope(r.output) ?? toRunOutput({
+      slug: r.template.slug,
+      file: r.document.fileName,
+      documentId: r.document.id,
+      createdAt: r.createdAt,
+      // Το fallback είναι αδύνατο στην πράξη (το run κρατάει FK στο έγγραφο) — υπάρχει για να μη
+      // ρίχνει ολόκληρη την εξαγωγή ένα έγγραφο που διαγράφηκε ανάμεσα στα δύο ερωτήματα.
+      document: byId.get(r.document.id) ?? emptyDocument('invoice'),
+    }),
   );
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };

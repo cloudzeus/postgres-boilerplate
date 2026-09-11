@@ -124,7 +124,12 @@ export function buildSheets(inputs: SheetInput[]): Sheet[] {
     const templateColumns = excelRows
       ? [...excelRows].sort((a, b) => a.order - b.order).map((r) => r.column)
       : singles.map((f) => f.label);
-    const extras = customKeys(group.map((i) => i.document.custom));
+    // Χωρίς EXCEL mapping οι στήλες ΕΙΝΑΙ τα SINGLE πεδία — και κάθε αντιστοιχισμένο πεδίο ζει
+    // παράλληλα στο `custom[fieldKey]`. Χωρίς αυτή την αφαίρεση το ίδιο πεδίο θα έβγαινε δύο φορές:
+    // μία με την ετικέτα του και μία με το κλειδί του.
+    const singleKeys = new Set(singles.map((f) => f.key));
+    const extras = customKeys(group.map((i) => i.document.custom))
+      .filter((k) => excelRows != null || !singleKeys.has(k));
 
     const rows = group.map((i) => [
       i.file,

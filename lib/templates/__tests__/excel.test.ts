@@ -54,6 +54,23 @@ describe('buildSheets — the main sheet', () => {
     expect(main.rows[1].slice(-2)).toEqual([90, 'M-9']);
   });
 
+  it('χωρίς EXCEL mapping, ένα SINGLE πεδίο ΔΕΝ βγαίνει και δεύτερη φορά ως custom στήλη', () => {
+    // Το `projectToDocument` γράφει κάθε μη αντιστοιχισμένο SINGLE πεδίο στο `custom[fieldKey]`·
+    // η στήλη «Αριθμός» και το κλειδί `num` είναι το ΙΔΙΟ πεδίο.
+    const [main] = buildSheets([input({ values: { num: fv(9) }, document: { ...blank(), custom: { num: 9, kwh: 120 } } })]);
+    expect(main.columns).toEqual(['Αρχείο', ...DOC_COLS, 'Αριθμός', 'kwh']);
+    expect(main.rows).toEqual([['f1.pdf', ...EMPTY_DOC_CELLS, 9, 120]]);
+  });
+
+  it('με EXCEL mapping το custom κλειδί κρατιέται — οι στήλες εκεί ορίζονται από το mapping', () => {
+    const [main] = buildSheets([input({
+      excelRows: [{ fieldKey: 'num', column: 'No', order: 0 }],
+      values: { num: fv(9) },
+      document: { ...blank(), custom: { num: 9 } },
+    })]);
+    expect(main.columns).toEqual(['Αρχείο', ...DOC_COLS, 'No', 'num']);
+  });
+
   it('groups documents of the same template and keeps the order', () => {
     const one = (file: string) => input({ file, fields: [fields[0]], values: { num: fv(file) } });
     expect(buildSheets([one('1'), { ...one('2'), templateSlug: 'b', templateName: 'B' }, one('3')]).map((s) => [s.name, s.rows.length]))

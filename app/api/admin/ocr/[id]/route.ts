@@ -5,6 +5,7 @@ import { requirePermission } from '@/lib/rbac';
 import { bunnyDelete } from '@/lib/bunny';
 import { DocumentSchema, normalizeDocument, type DocumentJson } from '@/lib/ocr/canonical';
 import { docTypeOf, loadDocumentJson, mergeLegacyPatch, saveDocumentJson } from '@/lib/ocr/document';
+import { matchDocItems } from '@/lib/ocr/softone-match';
 
 const ItemSchema = z.object({
   code: z.string().nullable().optional(), name: z.string(),
@@ -115,7 +116,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // έγινε «γενικό κείμενο» θα κρατούσε `kind: 'invoice'` μέχρι την επόμενη εξαγωγή.
     const next = nextDocument
       ?? mergeLegacyPatch(await loadDocumentJson(id), extractedData ?? {}, items, scalar.docType ? docTypeOf(scalar.docType) : null);
-    await saveDocumentJson(id, next, { replaceItems: true });
+    // Οι γραμμές ξαναγράφονται ΜΟΝΟ όταν το αίτημα τις αφορά. Ένα PATCH με σκέτο `extractedData`
+    // (π.χ. διόρθωση ΑΦΜ από την καρτέλα) δεν έχει λόγο να σβήσει και να ξαναφτιάξει τις γραμμές —
+    // θα πετούσε κάθε χειροκίνητη αντιστοίχιση που δεν προλαβαίνει να μεταφερθεί.
+    const replaceItems = items !== undefined || documentPatch != null;
+    await saveDocumentJson(id, next, { replaceItems });
+    // Ίδια συμπεριφορά με το `persistProjection` του runner: όταν οι γραμμές αλλάζουν, ξανατρέχει
+    // η αυτόματη αντιστοίχιση ώστε τα `itemsTotal`/`itemsMatched` να μη μιλούν για γραμμές που
+    // μόλις διαγράφηκαν. Λογιστική δουλειά — ποτέ μοιραία.
+    if (replaceItems) await matchDocItems(id).catch(() => null);
   }
   const fresh = await prisma.ocrDocument.findUnique({ where: { id }, include: { items: { orderBy: { rowIndex: 'asc' } } } });
   return NextResponse.json(fresh ?? doc);

@@ -177,6 +177,25 @@ describe('PATCH /api/admin/ocr/[id]', () => {
     expect(db.ocrInvoiceItem.createMany).not.toHaveBeenCalled();
   });
 
+  it('σκέτο {extractedData} ΔΕΝ ξαναγράφει τις γραμμές ούτε ξανατρέχει αντιστοίχιση', async () => {
+    await patchDoc(patch({ extractedData: { ...LEGACY, totalAmount: 200 } }), ctx());
+    const [, , opts] = writer.saveDocumentJson.mock.calls[0];
+    expect(opts).toEqual({ replaceItems: false });
+    expect(sm.matchDocItems).not.toHaveBeenCalled();
+  });
+
+  it('όταν οι γραμμές ΟΝΤΩΣ αλλάζουν, ξανατρέχει η αντιστοίχιση ειδών', async () => {
+    await patchDoc(patch({ items: [{ code: 'X', name: 'Νέο', quantity: 1, price: 10, total: 10, vatRate: 24 }] }), ctx());
+    expect(sm.matchDocItems).toHaveBeenCalledWith('doc1');
+  });
+
+  it('ένα κανονικό {document} ξαναγράφει τις γραμμές και αντιστοιχίζει', async () => {
+    await patchDoc(patch({ document: setPath(DOC, 'totals.total', 200) }), ctx());
+    const [, , opts] = writer.saveDocumentJson.mock.calls[0];
+    expect(opts).toEqual({ replaceItems: true });
+    expect(sm.matchDocItems).toHaveBeenCalledWith('doc1');
+  });
+
   it('μια αποθήκευση μόνο κατηγορίας δεν αγγίζει καθόλου το έγγραφο', async () => {
     await patchDoc(patch({ category: 'EXPENSE' }), ctx());
     expect(writer.saveDocumentJson).not.toHaveBeenCalled();

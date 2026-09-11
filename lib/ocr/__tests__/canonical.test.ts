@@ -2,6 +2,7 @@
 // Το κανονικό JSON εγγράφου (spec §17.1): σχήμα, γέφυρες προς/από τα legacy flat κλειδιά,
 // βοηθοί διαδρομών, κανονικοποίηση και αριθμητική συμφωνία.
 import { describe, it, expect } from 'vitest';
+import { coerceValue } from '@/lib/templates/coerce';
 import {
   DOCUMENT_PATHS,
   DOCUMENT_VERSION,
@@ -431,9 +432,46 @@ describe('parseNumber — δύο πηγές, δύο συμβάσεις', () => {
   it('αγγλική σύμβαση: το ΤΕΛΕΥΤΑΙΟ διαχωριστικό είναι το δεκαδικό', () => {
     expect(parseNumber('1,234.56')).toBe(1234.56);
     expect(parseNumber('1,234,567.89')).toBe(1234567.89);
-    // Καθαρή ομαδοποίηση με κόμμα, χωρίς δεκαδικά.
-    expect(parseNumber('1,234')).toBe(1234);
+    // Ομαδοποίηση με κόμμα ΜΟΝΟ από δύο ομάδες και πάνω — εκεί δεν υπάρχει άλλη ανάγνωση.
     expect(parseNumber('12,345,678')).toBe(12345678);
+  });
+
+  it('ΜΙΑ ομάδα τριών ψηφίων ΔΕΝ είναι χιλιάδες — ποσότητες και τιμές €/kWh', () => {
+    // Τα τέσσερα που έσπαγαν: ένα «0,125» που γινόταν 125 είναι σφάλμα 1000× σε ποσότητα.
+    expect(parseNumber('0,125')).toBe(0.125);
+    expect(parseNumber('0.750')).toBe(0.75);
+    expect(parseNumber('1,234')).toBe(1.234);
+    expect(parseNumber('0.125')).toBe(0.125);
+    // Το «1,234» διαβάζεται ΑΚΡΙΒΩΣ όπως στο master (`parseGreekNumber`) και όπως στο `coerceValue`.
+    expect(parseNumber('1,234')).toBe(parseGreekNumber('1,234'));
+  });
+
+  /**
+   * Ο ίδιος αριθμός δεν επιτρέπεται να διαβάζεται αλλιώς από το OCR (`parseNumber`) και αλλιώς από
+   * τα πρότυπα (`coerceValue`): το ένα γεμίζει το κανονικό έγγραφο, το άλλο τις τιμές του run, και
+   * μια διαφορά ανάμεσά τους εμφανίζεται ως ψεύτικη «διαφωνία» στο cross-check.
+   */
+  it('συμφωνεί με το coerceValue σε ΟΛΟΚΛΗΡΟ τον πίνακα κανόνων', () => {
+    const table: [string, number][] = [
+      ['0,125', 0.125], ['0.750', 0.75], ['1,234', 1.234], ['0.125', 0.125],
+      ['1.234', 1234], ['1.234.567', 1234567], ['100.000', 100000],
+      ['1.234,56', 1234.56], ['1.556.540,27', 1556540.27],
+      ['500.50', 500.5], ['12.5', 12.5], ['0.24', 0.24], ['1234.56', 1234.56],
+      ['1,5', 1.5], ['12,34', 12.34], ['1234', 1234], ['24%', 24],
+    ];
+    for (const [input, expected] of table) {
+      expect(parseNumber(input), `parseNumber(${input})`).toBe(expected);
+      expect(coerceValue(input, 'CURRENCY'), `coerceValue(${input})`).toBe(expected);
+    }
+  });
+
+  it('τα δύο σημεία όπου το parseNumber είναι ΣΚΟΠΙΜΑ πιο ανεκτικό από το coerceValue', () => {
+    // Αγγλική μεικτή μορφή και λογιστική παρένθεση: το `coerceValue` περνάει από το
+    // `parseGreekNumber`, που δεν τις ξέρει. Το κανονικό έγγραφο δέχεται ό,τι γράφει το μοντέλο.
+    expect(parseNumber('1,234.56')).toBe(1234.56);
+    expect(coerceValue('1,234.56', 'CURRENCY')).not.toBe(1234.56);
+    expect(parseNumber('(500,00)')).toBe(-500);
+    expect(coerceValue('(500,00)', 'CURRENCY')).toBe(500);
   });
 
   it('λογιστική παρένθεση = αρνητικό ποσό', () => {
