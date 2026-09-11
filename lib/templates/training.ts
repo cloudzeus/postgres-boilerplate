@@ -71,6 +71,14 @@ function readValue(lastResult: unknown, key: string): unknown {
   return cell ?? null;
 }
 
+/**
+ * «Το δείγμα δηλώνει τιμή για αυτό το κλειδί;» — με `hasOwnProperty`, όχι με `in`: ένα πεδίο με
+ * κλειδί `constructor`/`toString` θα μετρούσε ΠΑΝΤΑ ως δηλωμένο (κληρονομείται από το prototype) και
+ * θα σκόραρε πάντα λάθος, βυθίζοντας τον βαθμό του προτύπου χωρίς να φταίει τίποτα.
+ */
+const declares = (expected: Record<string, unknown>, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(expected, key);
+
 const expectedOf = (s: TrainingSample): Record<string, unknown> | null =>
   s.expected && typeof s.expected === 'object' && !Array.isArray(s.expected) ? (s.expected as Record<string, unknown>) : null;
 
@@ -84,7 +92,7 @@ export function sampleScore(fields: TrainingField[], sample: TrainingSample): nu
   let ok = 0;
   let total = 0;
   for (const f of fields) {
-    if (!(f.key in expected)) continue;
+    if (!declares(expected, f.key)) continue;
     total += 1;
     if (normalizeForCompare(expected[f.key], f.valueType) === normalizeForCompare(readValue(sample.lastResult, f.key), f.valueType)) ok += 1;
   }
@@ -106,7 +114,7 @@ export function scoreSamples(fields: TrainingField[], samples: TrainingSample[])
     let total = 0;
     for (const s of verifiedSamples) {
       const expected = expectedOf(s);
-      if (!expected || !(f.key in expected)) continue;
+      if (!expected || !declares(expected, f.key)) continue;
       total += 1;
       if (normalizeForCompare(expected[f.key], f.valueType) === normalizeForCompare(readValue(s.lastResult, f.key), f.valueType)) ok += 1;
     }

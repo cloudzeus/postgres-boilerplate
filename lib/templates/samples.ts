@@ -25,6 +25,20 @@ import type { FieldValue } from './schema';
 /** Πόσα δείγματα δέχεται ένα αίτημα — ο uploader σπάει τα πολλά σε παρτίδες. */
 export const SAMPLES_PER_REQUEST = 20;
 
+/**
+ * Πόσα δείγματα κρατά συνολικά ένα πρότυπο. Η εκπαίδευση θέλει δεκάδες, όχι χιλιάδες: κάθε δείγμα
+ * είναι ένα αρχείο στο Bunny και μία κλήση όρασης ανά πεδίο κάθε φορά που πατιέται «Ανάγνωση όλων».
+ */
+export const MAX_SAMPLES_PER_TEMPLATE = 100;
+
+/**
+ * Πόσα δείγματα διαβάζει ΜΙΑ κλήση «Ανάγνωση όλων». Το route έχει 300 s και κάθε δείγμα είναι ~μία
+ * κλήση όρασης ανά πεδίο με περιοχή — χωρίς όριο, ένα πρότυπο με 100 δείγματα × 20 πεδία θα ζητούσε
+ * 2000 κλήσεις μέσα σε ένα αίτημα, που θα έκοβε στη μέση και θα άφηνε μισοδιαβασμένα δείγματα.
+ * Ο χρήστης ξαναπατά το κουμπί: η συνάρτηση ξεκινά από όσα ΔΕΝ έχουν διαβαστεί ακόμη.
+ */
+export const READ_ALL_LIMIT = 50;
+
 /** Η γραμμή όπως τη βλέπει το UI. Το fingerprint ΔΕΝ ταξιδεύει: είναι εσωτερικό του αναγνωριστή. */
 export type SampleDto = {
   id: string;
@@ -101,6 +115,7 @@ export async function listSamples(templateId: string): Promise<SampleDto[]> {
 /**
  * Ανεβάζει ΕΝΑ αρχείο ως δείγμα. Ο τύπος κρίνεται από τα bytes, όχι από ό,τι δηλώνει ο browser, και
  * το αποτύπωμα διάταξης χτίζεται εδώ — μία φορά, όσο το αρχείο είναι ακόμη στη μνήμη.
+ * Πάνω από `MAX_SAMPLES_PER_TEMPLATE` δείγματα το πρότυπο λέει όχι: `SampleError('too_many')`.
  */
 export async function addSample(
   templateId: string,
@@ -108,6 +123,8 @@ export async function addSample(
 ): Promise<SampleDto> {
   const t = await loadTemplate(templateId);
   if (input.buffer.length > SAMPLE_MAX_BYTES) throw new SampleError('too_large');
+  const count = await prisma.templateSample.count({ where: { templateId } });
+  if (count >= MAX_SAMPLES_PER_TEMPLATE) throw new SampleError('too_many');
   const mimeType = sniffSampleType(input.buffer);
   return storeSampleRow(t, input.buffer, mimeType, input.fileName, input.userId ?? null);
 }
@@ -216,8 +233,14 @@ export async function readSample(sampleId: string): Promise<ReadSampleResult> {
  * κλήσεις όρασης και μια παράλληλη ριπή είναι ο πιο σίγουρος τρόπος να φάμε rate limit.
  * Μια αποτυχία δεν σταματά τα υπόλοιπα — ο χρήστης θέλει τα 9 από τα 10.
  */
-export async function readAllSamples(templateId: string): Promise<{ read: number; failed: number }> {
-  const rows = await prisma.templateSample.findMany({ where: { templateId }, orderBy: { createdAt: 'asc' }, select: { id: true } });
+export async function readAllSamples(templateId: string): Promise<{ read: number; failed: number; remaining: number }> {
+  // Τα αδιάβαστα πρώτα: αν τα δείγματα δεν χωρούν σε μία κλήση, η επόμενη πρέπει να προχωρά τη
+  // δουλειά, όχι να ξαναδιαβάζει τα ίδια πρώτα 50.
+  const all = await prisma.templateSample.findMany({
+    where: { templateId }, orderBy: { createdAt: 'asc' }, select: { id: true, status: true },
+  });
+  const ordered = [...all.filter((r) => r.status === 'PENDING'), ...all.filter((r) => r.status !== 'PENDING')];
+  const rows = ordered.slice(0, READ_ALL_LIMIT);
   let read = 0;
   let failed = 0;
   for (const r of rows) {
@@ -229,7 +252,7 @@ export async function readAllSamples(templateId: string): Promise<{ read: number
       console.error('[templates] sample read failed', r.id, (e as Error).message);
     }
   }
-  return { read, failed };
+  return { read, failed, remaining: Math.max(0, ordered.length - rows.length) };
 }
 
 // ─────────────────────────────────────────────────────────────── επιβεβαίωση + βαθμός

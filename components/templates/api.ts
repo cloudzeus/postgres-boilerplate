@@ -96,7 +96,7 @@ export const templatesApi = {
         .then((r) => handle<{ samples: SampleDto[]; failed: { fileName: string; error: string }[]; training: TrainingSummary }>(r));
     },
     read: (id: string, sampleId: string) => fetch(`${base(id)}/samples/${sampleId}/read`, json({})).then((r) => handle<{ sample: SampleDto; model: string | null; tokensUsed: number; errors: { fieldKey: string; message: string }[] }>(r)),
-    readAll: (id: string) => fetch(`${base(id)}/samples/read-all`, json({})).then((r) => handle<{ read: number; failed: number; training: TrainingSummary }>(r)),
+    readAll: (id: string) => fetch(`${base(id)}/samples/read-all`, json({})).then((r) => handle<{ read: number; failed: number; remaining: number; training: TrainingSummary }>(r)),
     verify: (id: string, sampleId: string, expected: Record<string, unknown>) => fetch(`${base(id)}/samples/${sampleId}`, json({ expected }, 'PATCH')).then((r) => handle<{ sample: SampleDto; training: TrainingSummary }>(r)),
     remove: (id: string, sampleId: string) => fetch(`${base(id)}/samples/${sampleId}`, { method: 'DELETE' }).then((r) => handle<{ ok: true; training: TrainingSummary }>(r)),
     /** Κάνει ένα ήδη σαρωμένο έγγραφο δείγμα αυτού του προτύπου (§14.7 — «Άγνωστο έντυπο»). */

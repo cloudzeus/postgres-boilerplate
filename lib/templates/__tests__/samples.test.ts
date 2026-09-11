@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const db = vi.hoisted(() => ({
   extractionTemplate: { findUnique: vi.fn(), update: vi.fn() },
-  templateSample: { findUnique: vi.fn(), findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
+  templateSample: { findUnique: vi.fn(), findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), count: vi.fn() },
   ocrDocument: { findUnique: vi.fn() },
 }));
 const bunny = vi.hoisted(() => ({ bunnyUploadPrivate: vi.fn(), bunnyDownload: vi.fn(), bunnyDelete: vi.fn() }));
@@ -24,6 +24,7 @@ vi.mock('../extract', () => ({ extractTemplateFields: (...a: unknown[]) => extra
 import {
   addSample, deleteSample, listSamples, primaryFingerprint, readAllSamples, readSample,
   refreshTrainingScore, sampleFromDocument, verifySample,
+  MAX_SAMPLES_PER_TEMPLATE, READ_ALL_LIMIT,
 } from '../samples';
 import { SampleError } from '../sample';
 
@@ -58,6 +59,7 @@ beforeEach(() => {
   db.templateSample.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => sample(data));
   db.templateSample.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => sample(data));
   db.templateSample.findMany.mockResolvedValue([]);
+  db.templateSample.count.mockResolvedValue(0);
   db.templateSample.findUnique.mockResolvedValue(sample());
   bunny.bunnyUploadPrivate.mockResolvedValue({ key: 'k' });
   bunny.bunnyDownload.mockResolvedValue(PDF);
@@ -120,11 +122,31 @@ describe('readSample', () => {
   });
 
   it('reads every sample of a template in turn and reports the failures', async () => {
-    db.templateSample.findMany.mockResolvedValue([{ id: 's1' }, { id: 's2' }]);
+    db.templateSample.findMany.mockResolvedValue([{ id: 's1', status: 'PENDING' }, { id: 's2', status: 'PENDING' }]);
     db.templateSample.findUnique.mockResolvedValueOnce(sample({ id: 's1' })).mockResolvedValueOnce(sample({ id: 's2' }));
     extract.mockRejectedValueOnce(new Error('vision down'));
     const r = await readAllSamples('t1');
-    expect(r).toEqual({ read: 1, failed: 1 });
+    expect(r).toEqual({ read: 1, failed: 1, remaining: 0 });
+  });
+
+  it('reads at most READ_ALL_LIMIT samples per call, unread ones first, and says how many are left', async () => {
+    // 60 δείγματα, τα 5 τελευταία αδιάβαστα: μία κλήση δεν φτάνει, και η επόμενη πρέπει να προχωρά.
+    const rows = [
+      ...Array.from({ length: 55 }, (_, i) => ({ id: `r${i}`, status: 'READ' })),
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `p${i}`, status: 'PENDING' })),
+    ];
+    db.templateSample.findMany.mockResolvedValue(rows);
+    const r = await readAllSamples('t1');
+    expect(r).toEqual({ read: READ_ALL_LIMIT, failed: 0, remaining: rows.length - READ_ALL_LIMIT });
+    // Τα PENDING πήγαν πρώτα — κανένα δεν έμεινε πίσω από 55 ήδη διαβασμένα.
+    const asked = db.templateSample.findUnique.mock.calls.map((c) => c[0].where.id);
+    expect(asked.slice(0, 5)).toEqual(['p0', 'p1', 'p2', 'p3', 'p4']);
+  });
+
+  it('refuses a new sample once the template is full', async () => {
+    db.templateSample.count.mockResolvedValue(MAX_SAMPLES_PER_TEMPLATE);
+    await expect(addSample('t1', { buffer: PDF, fileName: 'a.pdf' })).rejects.toMatchObject({ code: 'too_many' });
+    expect(bunny.bunnyUploadPrivate).not.toHaveBeenCalled();
   });
 });
 

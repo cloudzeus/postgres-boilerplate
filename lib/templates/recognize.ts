@@ -23,6 +23,12 @@ export type Recognition = { templateId: string; by: RecognizedBy; score: number 
 
 /** Πόσες λέξεις του αποτυπώματος δείχνουμε στο μοντέλο ανά υποψήφιο — αρκετές για να διαλέξει, όχι τόσες που να κοστίζουν. */
 const TIE_WORDS = 30;
+/**
+ * Πόσοι χαρακτήρες ονόματος εκδότη μπαίνουν στο prompt. Το όνομα έρχεται από το OCR ενός αρχείου που
+ * ανέβασε κάποιος — δηλαδή είναι κείμενο τρίτου μέσα σε οδηγία προς μοντέλο. Κόβεται, ώστε μια
+ * «επωνυμία» δύο σελίδων να μην μπορεί να πνίξει τη λίστα των υποψηφίων που ακολουθεί.
+ */
+const ISSUER_CHARS = 120;
 
 type DocRow = { issuerAfm: string | null; rawText: string | null; document: Prisma.JsonValue | null };
 
@@ -112,12 +118,12 @@ async function modelTieBreak(
   const cfg = await resolveCfg();
   const list = options.map((o) => {
     const words = [...new Set(o.fingerprints.flatMap((f) => f?.words ?? []))].slice(0, TIE_WORDS);
-    const issuer = o.fingerprints.find((f) => f?.issuer)?.issuer ?? '';
+    const issuer = (o.fingerprints.find((f) => f?.issuer)?.issuer ?? '').slice(0, ISSUER_CHARS);
     return `${o.templateId} — «${o.name}» · εκδότης: ${issuer} · λέξεις: ${words.join(', ')}`;
   }).join('\n');
   const system = 'You match a Greek business document to ONE document template by its printed layout. '
     + 'Answer with JSON only: {"templateId":"<id exactly as listed>"}.';
-  const user = `Document issuer: «${fp.issuer ?? ''}»\nDocument words: ${fp.words.slice(0, TIE_WORDS).join(', ')}\n\n`
+  const user = `Document issuer: «${(fp.issuer ?? '').slice(0, ISSUER_CHARS)}»\nDocument words: ${fp.words.slice(0, TIE_WORDS).join(', ')}\n\n`
     + `Templates:\n${list}\n\nReply {"templateId":"<id>"}.`;
   const usage = { operation: 'template.recognize', refType: 'OcrDocument', refId: documentId };
 

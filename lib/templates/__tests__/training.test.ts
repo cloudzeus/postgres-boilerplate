@@ -55,6 +55,12 @@ describe('sampleScore', () => {
   it('an expected EMPTY value matches a field the reader left empty', () => {
     expect(sampleScore([f('a')], sample({ expected: { a: '' }, lastResult: read({ a: null }) }))).toBe(1);
   });
+  it('a field keyed like an Object prototype member is not «expected» just because JS says so', () => {
+    // `'constructor' in expected` is TRUE for every object alive — the field would count as declared
+    // (and, having no real value, as always wrong) and would drag the template's score down for ever.
+    const s = sample({ expected: { a: 'X' }, lastResult: read({ a: 'X' }) });
+    expect(sampleScore([f('a'), f('constructor'), f('toString')], s)).toBe(1);
+  });
 });
 
 describe('scoreSamples', () => {

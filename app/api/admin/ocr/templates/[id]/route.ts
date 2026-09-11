@@ -128,8 +128,14 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   if (t._count.runs > 0 || t._count.jobs > 0) {
     return NextResponse.json({ error: 'has_history', message: 'Το πρότυπο έχει ιστορικό εκτελέσεων. Απενεργοποίησέ το (DRAFT) αντί να το διαγράψεις.' }, { status: 409 });
   }
+  // Τα αρχεία των δειγμάτων ΠΡΙΝ τη διαγραφή: οι γραμμές `TemplateSample` φεύγουν με cascade, και
+  // μετά δεν υπάρχει τρόπος να μάθει κανείς ποια κλειδιά του Bunny έμειναν ορφανά.
+  const sampleKeys = (await prisma.templateSample.findMany({ where: { templateId: id }, select: { storageKey: true } }))
+    .map((s) => s.storageKey);
   await prisma.extractionTemplate.delete({ where: { id } });
-  if (t.sampleStorageKey) await bunnyDelete([t.sampleStorageKey]).catch(() => null);
+  // Το κύριο δείγμα έχει και δική του γραμμή (isPrimary) — `new Set` ώστε να μη ζητηθεί δύο φορές.
+  const keys = [...new Set([...(t.sampleStorageKey ? [t.sampleStorageKey] : []), ...sampleKeys])];
+  if (keys.length) await bunnyDelete(keys).catch((e) => console.warn('[templates] sample files not deleted', id, (e as Error).message));
   await logAudit({ userId: u.id, userEmail: u.email, action: 'template.delete', resource: 'extractionTemplate', resourceId: id, metadata: { name: t.name } });
   return NextResponse.json({ ok: true });
 }
