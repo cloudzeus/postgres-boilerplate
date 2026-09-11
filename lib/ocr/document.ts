@@ -11,7 +11,8 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { normalizeAfm } from '@/lib/ocr/validate';
 import {
-  docTypeOf, fromLegacy, legacyKeyToPath, normalizeDocument, setPath, toLegacy, UNSAFE_SEGMENTS,
+  docTypeOf, fromLegacy, legacyKeyToPath, normalizeDocument, reconcileDocument, setPath, toLegacy,
+  UNSAFE_SEGMENTS,
   type CanonicalDocType, type DocumentJson, type DocumentLine,
 } from '@/lib/ocr/canonical';
 
@@ -99,6 +100,11 @@ export function carryForward(rows: ItemRow[], old: SoftoneColumns[]): SoftoneCar
 /**
  * Το κανονικό έγγραφο. Για εγγραφές που γράφτηκαν πριν από το plan 5 (`document IS NULL`) χτίζεται
  * επιτόπου από το `extractedData` + τις γραμμές — ίδιο αποτέλεσμα με το backfill, χωρίς να γράφει.
+ *
+ * Το legacy μονοπάτι περνάει από `normalizeDocument` + `reconcileDocument`, ακριβώς όπως το backfill:
+ * αλλιώς ένα παλιό έγγραφο θα γύριζε με ελληνική ημερομηνία και ΧΩΡΙΣ `vatBreakdown`/`payable`, και
+ * η προεπισκόπηση καταχώρισης θα έδειχνε άλλα πράγματα από ένα πανομοιότυπο νέο έγγραφο. Και τα δύο
+ * είναι καθαρά (δεν γράφουν) και ΔΕΝ πατούν πάνω σε τυπωμένο σύνολο — μόνο συμπληρώνουν ό,τι λείπει.
  */
 export async function loadDocumentJson(documentId: string): Promise<DocumentJson> {
   const doc = await prisma.ocrDocument.findUnique({
@@ -113,12 +119,20 @@ export async function loadDocumentJson(documentId: string): Promise<DocumentJson
     orderBy: { rowIndex: 'asc' },
     select: { code: true, name: true, quantity: true, price: true, discount: true, vatRate: true, total: true },
   });
-  return fromLegacy(isObj(doc.extractedData) ? doc.extractedData : {}, items, docType);
+  return reconcileDocument(
+    normalizeDocument(fromLegacy(isObj(doc.extractedData) ? doc.extractedData : {}, items, docType)),
+  ).document;
 }
 
 export type SaveDocumentOptions = {
   /** Ξαναχτίζει τις γραμμές `OcrInvoiceItem` από το `document.lines`. Χωρίς αυτό οι γραμμές μένουν ως έχουν. */
   replaceItems?: boolean;
+  /**
+   * Στήλες του `OcrDocument` που γράφονται ΜΑΖΙ με το έγγραφο, στο ΙΔΙΟ transaction (π.χ. ο
+   * συναλλασσόμενος που μόλις συνδέθηκε). Τα παράγωγα του εγγράφου κερδίζουν πάντα: το
+   * `document` / `extractedData` / `issuerAfm` δεν επιτρέπεται να τα πατήσει ο καλών.
+   */
+  also?: Prisma.OcrDocumentUpdateInput;
 };
 
 /**
@@ -139,6 +153,7 @@ export async function saveDocumentJson(
   const document = normalizeDocument(input);
   const ops: Prisma.PrismaPromise<unknown>[] = [];
   const data: Prisma.OcrDocumentUpdateInput = {
+    ...(opts.also ?? {}),
     document: document as unknown as Prisma.InputJsonValue,
     extractedData: toLegacy(document) as Prisma.InputJsonValue,
     issuerAfm: normalizeAfm(document.issuer.vat),

@@ -176,7 +176,9 @@ export function OcrResultModal({ open, documentId, onClose }: ResultModalProps) 
       });
       const res = await fetch(`/api/admin/ocr/${doc.id}/post-softone`, { method: 'POST' });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      // Το `message` είναι η ελληνική πρόταση που έγραψε ο poster («Δεν έχει οριστεί σειρά…»)·
+      // το `error` είναι ο κωδικός. Ο χρήστης θέλει την πρόταση, όχι το `no_series`.
+      if (!res.ok) throw new Error(json?.message ?? json?.error ?? `HTTP ${res.status}`);
       toast.success(`Αναρτήθηκε στο SoftOne · ${json.ref}`);
       router.refresh();
     } catch (err: any) {

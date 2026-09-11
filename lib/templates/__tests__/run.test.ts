@@ -31,7 +31,7 @@ vi.mock('@/lib/ocr/post-softone', () => ({
   PostError,
   postDocumentToSoftone: (...a: unknown[]) => post(...a),
   // The runner turns a PostError code into this Greek text; the real module owns the wording.
-  POST_ERROR_TEXT: { no_category: 'Δεν έχει οριστεί κατηγορία εγγράφου', not_completed: 'Το έγγραφο δεν έχει ολοκληρωθεί', not_found: 'Το έγγραφο δεν βρέθηκε' },
+  POST_ERROR_TEXT: { no_category: 'Δεν έχει οριστεί κατηγορία εγγράφου', not_completed: 'Το έγγραφο δεν έχει ολοκληρωθεί', not_found: 'Το έγγραφο δεν βρέθηκε', already_posted: 'Έχει ήδη καταχωριστεί στο SoftOne' },
 }));
 vi.mock('../notify', () => ({ sendRuleNotifications: (...a: unknown[]) => notify(...a) }));
 vi.mock('@/lib/ocr/softone-match', () => ({ matchDocItems: (...a: unknown[]) => matchItems(...a) }));
@@ -239,6 +239,20 @@ describe('runTemplateOnDocument', () => {
     expect(out.flags.blocked).toEqual(['Δεν έχει οριστεί κατηγορία εγγράφου']);
     expect(out.flags.review).toContain('Δεν έχει οριστεί κατηγορία εγγράφου');
     expect(runData().status).toBe('BLOCKED');
+  });
+
+  it('AUTO: an already posted document is POSTED, not BLOCKED — and is never sent twice', async () => {
+    load(template({ mode: 'AUTO', conditions: [] }));
+    extract.mockResolvedValue(extractResult({ total: value(20), note: value('x') }));
+    post.mockRejectedValue(new PostError('already_posted', 'Έχει ήδη καταχωριστεί στο SoftOne (90210)'));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'upload' });
+
+    expect(out.status).toBe('POSTED');
+    expect(out.error).toBeNull();
+    expect(out.flags.blocked).toEqual([]);
+    expect(out.flags.review).toContain('Έχει ήδη καταχωριστεί στο SoftOne (90210)');
+    expect(runData().status).toBe('POSTED');
   });
 
   it('SET_FIELD writes the template value as `rule` and the document path into the document', async () => {

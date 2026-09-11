@@ -37,6 +37,7 @@ const document = (over: Partial<DocumentJson> = {}): DocumentJson => ({
 const READY_DOC = {
   id: 'd1', status: 'COMPLETED', category: 'EXPENSE',
   softoneTrdr: 12345, softoneSeries: '7001', seriesSource: 1251,
+  postStatus: 'NONE', postedRef: null,
 };
 
 beforeEach(() => {
@@ -69,6 +70,21 @@ describe('postingPreview (dry-run)', () => {
     expect(preview.blockers.map((b) => b.code)).toEqual(['no_trader', 'no_series']);
     expect(preview.blockers[0].message).toMatch(/προμηθευτ/i);
     expect(softone.softoneCall).not.toHaveBeenCalled();
+  });
+
+  it('δείχνει την κατάσταση καταχώρισης, ώστε η κάρτα να κλειδώσει το κουμπί', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ ...READY_DOC, postStatus: 'POSTED', postedRef: '90210' });
+    const preview = await postingPreview('d1');
+    expect(preview.postStatus).toBe('POSTED');
+    expect(preview.postedRef).toBe('90210');
+    expect(softone.softoneCall).not.toHaveBeenCalled();
+  });
+
+  it('ζητά τις κατηγορίες ΦΠΑ ταξινομημένες, ώστε ίδιοι συντελεστές να λύνονται σταθερά', async () => {
+    await postingPreview('d1');
+    expect(db.vatCategory.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: [{ order: 'asc' }, { code: 'asc' }] }),
+    );
   });
 
   it('άγνωστο έγγραφο → PostError not_found', async () => {
@@ -106,7 +122,7 @@ describe('postDocumentToSoftone', () => {
     expect(last.data).toMatchObject({ postStatus: 'POSTED', postedRef: '90210', postError: null });
   });
 
-  it('setData success αλλά read-back δεν ταιριάζει → FAILED με ελληνικό μήνυμα', async () => {
+  it('setData success αλλά read-back δεν ταιριάζει → FAILED, ΜΕ το postedRef φυλαγμένο', async () => {
     settings.getSetting.mockResolvedValue(true);
     softone.softoneCall.mockResolvedValue({ success: true, id: 90210 });
     softone.softoneGetData.mockResolvedValue({ PURDOC: [{ FINDOC: '90210', FINCODE: '999', TRDR: '777' }] });
@@ -115,6 +131,27 @@ describe('postDocumentToSoftone', () => {
     const last = db.ocrDocument.update.mock.calls.at(-1)?.[0];
     expect(last.data.postStatus).toBe('FAILED');
     expect(String(last.data.postError)).toMatch(/δεν επιβεβαιώθηκε/);
+    // Το παραστατικό ΥΠΑΡΧΕΙ στο SoftOne: ο αριθμός του γράφτηκε ΠΡΙΝ την επαλήθευση, και η
+    // αποτυχία της επαλήθευσης δεν τον σβήνει — αλλιώς κανείς δεν θα ήξερε τι να διορθώσει.
+    const refWrite = db.ocrDocument.update.mock.calls.find((c) => c[0].data.postedRef === '90210');
+    expect(refWrite).toBeTruthy();
+    expect(last.data).not.toHaveProperty('postedRef');
+  });
+
+  it('ήδη καταχωρισμένο → PostError already_posted, ΚΑΜΙΑ κλήση και καμία εγγραφή', async () => {
+    settings.getSetting.mockResolvedValue(true);
+    db.ocrDocument.findUnique.mockResolvedValue({ ...READY_DOC, postStatus: 'POSTED', postedRef: '90210' });
+
+    await expect(postDocumentToSoftone('d1')).rejects.toMatchObject({ code: 'already_posted' });
+    await expect(postDocumentToSoftone('d1')).rejects.toThrow(/90210/);
+    expect(softone.softoneCall).not.toHaveBeenCalled();
+    expect(softone.softoneGetData).not.toHaveBeenCalled();
+    expect(db.ocrDocument.update).not.toHaveBeenCalled();
+  });
+
+  it('ήδη καταχωρισμένο ΚΑΙ με εμπόδια → μιλάει για την καταχώριση, όχι για τα εμπόδια', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ ...READY_DOC, category: null, postStatus: 'POSTED', postedRef: '7' });
+    await expect(postDocumentToSoftone('d1')).rejects.toMatchObject({ code: 'already_posted' });
   });
 
   it('setData αποτυγχάνει → FAILED και το σφάλμα ανεβαίνει', async () => {

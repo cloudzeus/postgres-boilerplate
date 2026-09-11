@@ -179,10 +179,13 @@ describe('ξένος εκδότης', () => {
 
   it('χώρα από τη διεύθυνση: το γυμνό ΑΦΜ παίρνει πρόθεμα σε SoftOne ΚΑΙ στα έγγραφα', async () => {
     s1.softoneCreateSupplier.mockResolvedValue({ trdr: 7001, code: 'Π.0007' });
-    db.ocrDocument.findMany.mockResolvedValue([
-      { id: 'd1', extractedData: { vatNumber: '144960040', companyName: 'MUSTER GMBH' } },
-      { id: 'd2', extractedData: null },
-    ]);
+    db.ocrDocument.findMany.mockResolvedValue([{ id: 'd1' }, { id: 'd2' }]);
+    // Το ΑΦΜ γράφεται μέσα από το ΚΑΝΟΝΙΚΟ έγγραφο, οπότε κάθε έγγραφο διαβάζεται πρώτα.
+    db.ocrDocument.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) => (
+      where.id === 'd1'
+        ? { document: null, extractedData: { vatNumber: '144960040', companyName: 'MUSTER GMBH' }, docType: 'INVOICE' }
+        : { document: null, extractedData: null, docType: 'INVOICE' }
+    ));
     db.softoneTrader.upsert.mockResolvedValue({});
 
     const res = await createTrader(
@@ -195,20 +198,19 @@ describe('ξένος εκδότης', () => {
     expect(body).toMatchObject({ ok: true, afm: 'DE144960040', docsUpdated: 2 });
     // SoftOne παίρνει το προθεματισμένο ΑΦΜ…
     expect(s1.softoneCreateSupplier.mock.calls[0][0]).toMatchObject({ afm: 'DE144960040' });
-    // …και τα έγγραφα ξαναγράφονται, ώστε το κλειδί της ουράς να μείνει συνεπές.
-    expect(db.$transaction).toHaveBeenCalledTimes(1);
-    expect(db.ocrDocument.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'd1' },
-      data: expect.objectContaining({
-        issuerAfm: 'DE144960040',
-        extractedData: { vatNumber: 'DE144960040', companyName: 'MUSTER GMBH' },
-      }),
-    }));
-    // Έγγραφο χωρίς extractedData δεν σκάει — παίρνει μόνο το vatNumber.
-    expect(db.ocrDocument.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'd2' },
-      data: expect.objectContaining({ extractedData: { vatNumber: 'DE144960040' } }),
-    }));
+    // …και τα έγγραφα ξαναγράφονται — ένα transaction ανά έγγραφο, με το έγγραφο και τα
+    // παράγωγά του (`extractedData`, `issuerAfm`) να γράφονται μαζί.
+    expect(db.$transaction).toHaveBeenCalledTimes(2);
+    const d1 = db.ocrDocument.update.mock.calls.find((c) => c[0].where.id === 'd1')?.[0];
+    expect(d1.data.issuerAfm).toBe('DE144960040');
+    expect((d1.data.document as { issuer: { vat: string; name: string } }).issuer)
+      .toMatchObject({ vat: 'DE144960040', name: 'MUSTER GMBH' });
+    expect(d1.data.extractedData).toMatchObject({ vatNumber: 'DE144960040', companyName: 'MUSTER GMBH' });
+    expect(d1.data).toMatchObject({ softoneTrdr: 7001, softoneCode: 'Π.0007' });
+    // Έγγραφο χωρίς extractedData δεν σκάει — παίρνει το ΑΦΜ και τίποτα άλλο.
+    const d2 = db.ocrDocument.update.mock.calls.find((c) => c[0].where.id === 'd2')?.[0];
+    expect(d2.data.issuerAfm).toBe('DE144960040');
+    expect(d2.data.extractedData).toMatchObject({ vatNumber: 'DE144960040' });
     expect(db.ocrDocument.updateMany).not.toHaveBeenCalled();
   });
 
@@ -229,14 +231,17 @@ describe('ξένος εκδότης', () => {
     db.softoneTrader.findUnique.mockResolvedValue({
       trdr: 8001, code: 'Π.1', name: 'MUSTER GMBH', kind: 'Προμηθευτής', sodtype: 12,
     });
-    db.ocrDocument.findMany.mockResolvedValue([{ id: 'd9', extractedData: { vatNumber: '144960040' } }]);
+    db.ocrDocument.findMany.mockResolvedValue([{ id: 'd9' }]);
+    db.ocrDocument.findUnique.mockResolvedValue({
+      document: null, extractedData: { vatNumber: '144960040' }, docType: 'INVOICE',
+    });
 
     const res = await linkTrader(post({ trdr: 8001, country: 'DE' }), ctx('144960040'));
 
     expect(await res.json()).toMatchObject({ ok: true, afm: 'DE144960040', docsUpdated: 1 });
-    expect(db.ocrDocument.update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ issuerAfm: 'DE144960040' }),
-    }));
+    const write = db.ocrDocument.update.mock.calls.at(-1)?.[0];
+    expect(write.data.issuerAfm).toBe('DE144960040');
+    expect((write.data.document as { issuer: { vat: string } }).issuer.vat).toBe('DE144960040');
   });
 
   it.each(['ZZ12345678', 'EL094073495', 'C1234567890'])('άγνωστο πρόθεμα %j → 400', async (afm) => {

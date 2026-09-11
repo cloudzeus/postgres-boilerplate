@@ -429,7 +429,8 @@ model Prefecture {
 // ΦΠΑ καθεστώτα/κατηγορίες — manual seed (όχι από ΓΕΜΗ).
 model VatCategory {
   id          Int       @id @default(autoincrement())
-  code        String    @unique          // π.χ. "NORMAL", "REDUCED", "EXEMPT", "ZERO"
+  code        String    @unique          // ο κωδικός ΦΠΑ του SoftOne (VAT.VAT), αριθμητικός ως κείμενο: "1", "4", "13"…
+                                         // — αυτός φεύγει στο PURDOC ως `VAT` της γραμμής, όχι λεκτικό.
   descr       String                     // "Κανονικό", "Μειωμένο", "Απαλλασσόμενο"…
   rate        Float?                     // π.χ. 24, 13, 6, 0 (nullable: για καθεστώτα χωρίς ποσοστό)
   isActive    Boolean   @default(true)

@@ -4,12 +4,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const { db } = vi.hoisted(() => ({
   db: {
-    ocrDocument: { findMany: vi.fn(), updateMany: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
+    ocrDocument: { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
     ocrInvoiceItem: { findMany: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     ignoredIssuer: { findMany: vi.fn() },
     softoneItem: { findMany: vi.fn(), findUnique: vi.fn() },
     softoneExpense: { findMany: vi.fn(), findUnique: vi.fn() },
     lineMatchRule: { findMany: vi.fn(), upsert: vi.fn() },
+    $transaction: vi.fn(),
   },
 }));
 
@@ -57,6 +58,8 @@ beforeEach(() => {
   db.softoneExpense.findUnique.mockResolvedValue(null);
   db.lineMatchRule.findMany.mockResolvedValue([]);
   db.lineMatchRule.upsert.mockResolvedValue({});
+  db.ocrDocument.findUnique.mockResolvedValue(null);
+  db.$transaction.mockResolvedValue([]);
 });
 
 describe('loadTraderQueue', () => {
@@ -150,6 +153,50 @@ describe('applyTraderToDocs', () => {
   it('χωρίς έγκυρο ΑΦΜ δεν γράφει τίποτα', async () => {
     expect(await applyTraderToDocs('  ', { trdr: 1, code: null, name: 'X', kind: 'Πιστωτής' })).toBe(0);
     expect(db.ocrDocument.updateMany).not.toHaveBeenCalled();
+  });
+
+  // Το ΑΦΜ με πρόθεμα χώρας γράφεται στο ΚΑΝΟΝΙΚΟ έγγραφο, όχι στα παράγωγα: αν γραφόταν κατευθείαν
+  // στο `extractedData`/`issuerAfm`, η πρώτη αποθήκευση μετά θα τα ξανάφτιαχνε από το `document` και
+  // το πρόθεμα θα εξαφανιζόταν — το έγγραφο θα ξαναέμπαινε στην ουρά με το γυμνό ΑΦΜ.
+  describe('με πρόθεμα χώρας (opts.vatId)', () => {
+    const LEGACY = { vatNumber: '144960040', companyName: 'MÜLLER GMBH', totalAmount: 124 };
+
+    beforeEach(() => {
+      db.ocrDocument.findMany.mockResolvedValue([{ id: 'd1' }]);
+      db.ocrDocument.findUnique.mockResolvedValue({ document: null, extractedData: LEGACY, docType: 'INVOICE' });
+      db.ocrInvoiceItem.findMany.mockResolvedValue([]);
+    });
+
+    it('το προθεματισμένο id φτάνει σε document.issuer.vat, extractedData.vatNumber και issuerAfm', async () => {
+      const n = await applyTraderToDocs(
+        '144960040',
+        { trdr: 5001, code: 'Π.0009', name: 'MÜLLER GMBH', kind: 'Προμηθευτής' },
+        { vatId: 'DE144960040' },
+      );
+
+      expect(n).toBe(1);
+      expect(db.ocrDocument.updateMany).not.toHaveBeenCalled();
+      const arg = db.ocrDocument.update.mock.calls.at(-1)?.[0];
+      expect(arg.where).toEqual({ id: 'd1' });
+      expect((arg.data.document as { issuer: { vat: string } }).issuer.vat).toBe('DE144960040');
+      expect((arg.data.extractedData as { vatNumber: string }).vatNumber).toBe('DE144960040');
+      expect(arg.data.issuerAfm).toBe('DE144960040');
+      // …και ο συναλλασσόμενος ταξιδεύει στο ΙΔΙΟ update, δηλαδή στο ίδιο transaction.
+      expect(arg.data).toMatchObject({ softoneTrdr: 5001, softoneCode: 'Π.0009', softoneName: 'MÜLLER GMBH' });
+      expect(db.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('ίδιο ΑΦΜ μετά την κανονικοποίηση → απλό updateMany, χωρίς ανάγνωση εγγράφου', async () => {
+      db.ocrDocument.updateMany.mockResolvedValue({ count: 3 });
+      const n = await applyTraderToDocs(
+        '144960040',
+        { trdr: 5001, code: null, name: 'X', kind: 'Προμηθευτής' },
+        { vatId: 'EL 144960040' },
+      );
+      expect(n).toBe(3);
+      expect(db.ocrDocument.updateMany).toHaveBeenCalledTimes(1);
+      expect(db.ocrDocument.findUnique).not.toHaveBeenCalled();
+    });
   });
 });
 

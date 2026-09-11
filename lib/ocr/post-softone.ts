@@ -15,7 +15,7 @@ import {
 /** Ο διακόπτης ασφαλείας. Κλειστός = καμία εγγραφή δεν φεύγει προς το SoftOne (μόνο dry-run). */
 export const POSTING_ENABLED_KEY = 'softone.postingEnabled';
 
-export type PostErrorCode = 'not_found' | 'posting_disabled' | BlockerCode;
+export type PostErrorCode = 'not_found' | 'posting_disabled' | 'already_posted' | BlockerCode;
 
 export class PostError extends Error {
   constructor(public code: PostErrorCode, message: string) {
@@ -42,7 +42,12 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   no_vat_category: 'Συντελεστής ΦΠΑ γραμμής χωρίς κωδικό στο μητρώο ΦΠΑ',
   totals_mismatch: 'Το άθροισμα των γραμμών δεν συμφωνεί με την καθαρή αξία',
   posting_disabled: 'Η καταχώριση είναι απενεργοποιημένη (Ρυθμίσεις → Διασυνδέσεις)',
+  already_posted: 'Έχει ήδη καταχωριστεί στο SoftOne',
 };
+
+/** Το ίδιο μήνυμα, με τον αριθμό του παραστατικού που ΥΠΑΡΧΕΙ ήδη στο SoftOne. */
+const alreadyPostedText = (ref: string | null): string =>
+  ref ? `${POST_ERROR_TEXT.already_posted} (${ref})` : POST_ERROR_TEXT.already_posted;
 
 export const blockerText = (code: BlockerCode): string => POST_ERROR_TEXT[code] ?? code;
 
@@ -77,6 +82,8 @@ type DocRow = {
   softoneSeries: string | null;
   softoneName: string | null;
   seriesSource: number | null;
+  postStatus: string;
+  postedRef: string | null;
 };
 
 type Gathered = {
@@ -95,7 +102,10 @@ type Gathered = {
 async function gather(id: string): Promise<Gathered> {
   const doc = await prisma.ocrDocument.findUnique({
     where: { id },
-    select: { id: true, status: true, category: true, softoneTrdr: true, softoneSeries: true, softoneName: true, seriesSource: true },
+    select: {
+      id: true, status: true, category: true, softoneTrdr: true, softoneSeries: true,
+      softoneName: true, seriesSource: true, postStatus: true, postedRef: true,
+    },
   });
   if (!doc) throw new PostError('not_found', POST_ERROR_TEXT.not_found);
 
@@ -106,7 +116,14 @@ async function gather(id: string): Promise<Gathered> {
       orderBy: { rowIndex: 'asc' },
       select: { rowIndex: true, softoneMtrl: true, softoneExpn: true, softoneIsService: true },
     }),
-    prisma.vatCategory.findMany({ where: { isActive: true }, select: { code: true, rate: true } }),
+    // Η σειρά ΔΕΝ είναι διακοσμητική: δύο ενεργές εγγραφές με τον ίδιο συντελεστή (π.χ. κανονικό /
+    // κανονικό νησιών) λύνονται από την πρώτη — άρα η ταξινόμηση πρέπει να είναι ρητή και σταθερή,
+    // αλλιώς ο κωδικός ΦΠΑ που φεύγει προς το SoftOne αλλάζει με τη διάθεση του planner.
+    prisma.vatCategory.findMany({
+      where: { isActive: true },
+      orderBy: [{ order: 'asc' }, { code: 'asc' }],
+      select: { code: true, rate: true },
+    }),
   ]);
 
   const vatIdByRate: Record<number, number> = {};
@@ -147,6 +164,9 @@ export type PostingPreview = {
   payload: PurdocPayload;
   /** Σύνοψη για την κάρτα: ό,τι δεν διαβάζεται εύκολα από το raw payload. */
   summary: { series: string | null; trader: string | null; trdr: number | null; date: string | null; number: string | null; lines: number };
+  /** Τι λέει ήδη η βάση: ένα POSTED έγγραφο δεν ξανα-στέλνεται (το κουμπί κλειδώνει). */
+  postStatus: string;
+  postedRef: string | null;
 };
 
 /**
@@ -168,6 +188,8 @@ export async function postingPreview(id: string): Promise<PostingPreview> {
       number: document.type.number,
       lines: ctx.lines.length,
     },
+    postStatus: doc.postStatus,
+    postedRef: doc.postedRef,
   };
 }
 
@@ -182,6 +204,12 @@ const sameRef = (a: unknown, b: unknown): boolean =>
  */
 export async function postDocumentToSoftone(id: string, opts: { syncTemplateRun?: boolean } = {}): Promise<{ ref: string }> {
   const { doc, document, ctx, blockers, payload } = await gather(id);
+  // ΙΔΕΜΠΟΤΗΤΑ, πρώτο απ' όλα: ένα δεύτερο κλικ (ή μια δεύτερη εκτέλεση προτύπου) δεν δημιουργεί
+  // δεύτερο παραστατικό στο SoftOne. Πριν από κάθε έλεγχο εμποδίων — ένα ήδη καταχωρισμένο
+  // παραστατικό δεν είναι «μπλοκαρισμένο», είναι τελειωμένο.
+  if (doc.postStatus === 'POSTED') {
+    throw new PostError('already_posted', alreadyPostedText(doc.postedRef));
+  }
   if (blockers.length) {
     throw new PostError(blockers[0], blockers.map(blockerText).join(' · '));
   }
@@ -197,6 +225,10 @@ export async function postDocumentToSoftone(id: string, opts: { syncTemplateRun?
       throw new Error(res.error ?? `setData PURDOC απέτυχε (code ${res.errorcode ?? '?'})`);
     }
     const ref = String(res.id);
+    // Το παραστατικό ΥΠΑΡΧΕΙ πλέον στο SoftOne. Το `postedRef` αποθηκεύεται ΑΜΕΣΩΣ, πριν από την
+    // επαλήθευση: αν το read-back σκάσει (δίκτυο, δικαιώματα, αργό ERP) η εγγραφή θα γίνει FAILED
+    // — αλλά με τον αριθμό της στο χέρι, ώστε ένας άνθρωπος να τη βρει αντί να την ξαναστείλει.
+    await prisma.ocrDocument.update({ where: { id }, data: { postedRef: ref } });
 
     const tables = await softoneGetData('PURDOC', ref);
     const row = tables.PURDOC?.[0] ?? tables.FINDOC?.[0] ?? Object.values(tables).find((t) => t.length)?.[0];

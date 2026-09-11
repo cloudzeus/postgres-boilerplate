@@ -5,7 +5,8 @@
 // σταλεί και τι το εμποδίζει. Η προεπισκόπηση δεν αγγίζει ποτέ το SoftOne (dry-run στον server).
 
 import * as React from 'react';
-import { FiAlertTriangle, FiCheckCircle, FiChevronDown, FiChevronRight, FiCode, FiCopy, FiDownload, FiRefreshCw, FiUploadCloud } from 'react-icons/fi';
+import Link from 'next/link';
+import { FiAlertTriangle, FiCheckCircle, FiChevronDown, FiChevronRight, FiCode, FiCopy, FiDownload, FiHelpCircle, FiRefreshCw, FiUploadCloud } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import type { DocumentEnvelope } from '@/lib/ocr/canonical';
@@ -17,7 +18,12 @@ type Preview = {
   blockers: { code: string; message: string }[];
   payload: { OBJECT: string; KEY: string; DATA: { PURDOC: PurdocHeader[]; ITELINES?: PurdocLine[]; SRVLINES?: PurdocLine[]; EXPANAL?: PurdocLine[] } };
   summary: { series: string | null; trader: string | null; trdr: number | null; date: string | null; number: string | null; lines: number };
+  postStatus: string;
+  postedRef: string | null;
 };
+
+/** Η wiki σελίδα της κάρτας — σταθερή διαδρομή, όπως το `helpAnchors: [document-json]` του MDX. */
+const HELP_HREF = '/wiki/ocr/document-json';
 
 const KIND_LABEL: Record<string, string> = { invoice: 'Τιμολόγιο', receipt: 'Απόδειξη', general: 'Κείμενο' };
 
@@ -120,12 +126,19 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
     ...(lines?.EXPANAL ?? []).map((row) => ({ kind: 'Έξοδο', row })),
   ], [lines]);
   const blocked = (preview?.blockers.length ?? 0) > 0;
+  // Ήδη καταχωρισμένο: το κουμπί κλειδώνει. Ο server το απορρίπτει ούτως ή άλλως (`already_posted`),
+  // αλλά ένα ενεργό «Καταχώριση» πάνω σε καταχωρισμένο παραστατικό είναι από μόνο του λάθος μήνυμα.
+  const posted = preview?.postStatus === 'POSTED';
 
   return (
     <section className="space-y-3 rounded-xl border border-border bg-card p-4" data-testid="document-json">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold">
           <FiCode className="size-4 text-muted-foreground" aria-hidden /> JSON εγγράφου
+          <Link href={HELP_HREF} target="_blank" aria-label="Βοήθεια: JSON εγγράφου" title="Βοήθεια: JSON εγγράφου"
+            className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted hover:text-foreground">
+            <FiHelpCircle className="size-3.5" />
+          </Link>
         </h2>
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="outline" onClick={copy} disabled={!envelope}>
@@ -171,20 +184,27 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
         <div className="space-y-2 rounded-lg border border-border p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-[13px] font-semibold">Καταχώριση στο SoftOne</h3>
-            <Button size="sm" variant="secondary" onClick={doPost} disabled={posting || blocked || !preview.enabled}
-              title={!preview.enabled ? 'Απενεργοποιημένη στις Ρυθμίσεις' : blocked ? 'Υπάρχουν εκκρεμότητες' : 'Αποστολή στο SoftOne'}>
-              <FiUploadCloud /> {posting ? 'Καταχώριση…' : 'Καταχώριση'}
-            </Button>
+            {posted ? (
+              <span className="inline-flex items-center gap-1.5 text-[12px] font-medium" style={{ color: '#047857' }}>
+                <FiCheckCircle className="size-3.5" aria-hidden />
+                Καταχωρίστηκε{preview.postedRef ? ` · ${preview.postedRef}` : ''}
+              </span>
+            ) : (
+              <Button size="sm" variant="secondary" onClick={doPost} disabled={posting || blocked || !preview.enabled}
+                title={!preview.enabled ? 'Απενεργοποιημένη στις Ρυθμίσεις' : blocked ? 'Υπάρχουν εκκρεμότητες' : 'Αποστολή στο SoftOne'}>
+                <FiUploadCloud /> {posting ? 'Καταχώριση…' : 'Καταχώριση'}
+              </Button>
+            )}
           </div>
 
-          {!preview.enabled && (
+          {!preview.enabled && !posted && (
             <p className="text-[12px] text-muted-foreground">
               Η καταχώριση είναι απενεργοποιημένη — αυτό που βλέπετε είναι μόνο προεπισκόπηση
               (Ρυθμίσεις → Διασυνδέσεις → «Καταχώριση παραστατικών στο SoftOne»).
             </p>
           )}
 
-          {blocked ? (
+          {posted ? null : blocked ? (
             <div className="rounded-lg border p-2.5 text-[12px]" style={{ borderColor: '#B4530940', backgroundColor: '#FDF3E3', color: '#B45309' }}>
               <p className="font-semibold">Εκκρεμότητες πριν την καταχώριση</p>
               <ul className="mt-1 space-y-0.5">

@@ -4,6 +4,8 @@ import { prisma } from '@/lib/db';
 import { normalizeAfm, vatCountry } from '@/lib/ocr/validate';
 import { splitGluedAddress } from '@/lib/ocr/address';
 import { refreshDocTallies } from '@/lib/ocr/softone-match';
+import { loadDocumentJson, saveDocumentJson } from '@/lib/ocr/document';
+import { setPath } from '@/lib/ocr/canonical';
 import { SODTYPE_LABEL, TRADER_KIND_SODTYPE } from '@/lib/softone';
 import {
   groupLines,
@@ -260,9 +262,11 @@ export interface TraderLink {
  *
  * `opts.vatId`: το ΤΕΛΙΚΟ ΑΦΜ του εκδότη όταν ο χρήστης του πρόσθεσε πρόθεμα
  * χώρας (π.χ. ο geocoder βρήκε Γερμανία ⇒ «144960040» → «DE144960040»). Τότε τα
- * έγγραφα ΞΑΝΑΓΡΑΦΟΝΤΑΙ με τη νέα τιμή — και στη στήλη `issuerAfm` και στο
- * `extractedData.vatNumber` — ώστε το κλειδί της ουράς να μείνει συνεπές. Χωρίς
- * αυτό, το ίδιο τιμολόγιο θα ξαναεμφανιζόταν στην ουρά με το παλιό, γυμνό ΑΦΜ.
+ * έγγραφα ΞΑΝΑΓΡΑΦΟΝΤΑΙ με τη νέα τιμή — μέσα από το ΚΑΝΟΝΙΚΟ έγγραφο
+ * (`document.issuer.vat`), που είναι η πηγή αλήθειας: το `saveDocumentJson`
+ * παράγει από εκεί και το `extractedData.vatNumber` και το `issuerAfm`, οπότε
+ * το κλειδί της ουράς μένει συνεπές και η επόμενη αποθήκευση δεν το γυρίζει πίσω.
+ * Χωρίς αυτό, το ίδιο τιμολόγιο θα ξαναεμφανιζόταν στην ουρά με το παλιό, γυμνό ΑΦΜ.
  */
 export async function applyTraderToDocs(
   afm: string,
@@ -290,27 +294,17 @@ export async function applyTraderToDocs(
     return res.count;
   }
 
-  // Αλλαγή ΑΦΜ: το `extractedData` είναι JSON, οπότε χρειάζεται read-modify-write
-  // ανά έγγραφο. Όλα μαζί σε μία συναλλαγή — είτε αλλάζει το κλειδί παντού είτε πουθενά.
-  const docs = await prisma.ocrDocument.findMany({ where, select: { id: true, extractedData: true } });
+  // Αλλαγή ΑΦΜ: το κανονικό έγγραφο είναι JSON, οπότε χρειάζεται read-modify-write ανά έγγραφο.
+  // ΔΕΝ γράφουμε `issuerAfm`/`extractedData` με το χέρι — θα τα ξαναέφτιαχνε από το `document` η
+  // επόμενη αποθήκευση και το πρόθεμα θα χανόταν. Ο συναλλασσόμενος ταξιδεύει ως `also`, δηλαδή
+  // στο ΙΔΙΟ transaction με το έγγραφο: ένα έγγραφο δεν μένει ποτέ μισο-ενημερωμένο.
+  const docs = await prisma.ocrDocument.findMany({ where, select: { id: true } });
   if (docs.length === 0) return 0;
-  await prisma.$transaction(
-    docs.map((d) => prisma.ocrDocument.update({
-      where: { id: d.id },
-      data: {
-        ...stamp,
-        issuerAfm: next,
-        extractedData: withVatNumber(d.extractedData, next),
-      },
-    })),
-  );
+  for (const d of docs) {
+    const document = setPath(await loadDocumentJson(d.id), 'issuer.vat', next);
+    await saveDocumentJson(d.id, document, { also: stamp });
+  }
   return docs.length;
-}
-
-/** Αντικαθιστά ΜΟΝΟ το `vatNumber` του payload, αφήνοντας ό,τι άλλο διάβασε το OCR. */
-function withVatNumber(data: unknown, vatNumber: string): Prisma.InputJsonValue {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return { vatNumber };
-  return { ...(data as Record<string, unknown>), vatNumber } as Prisma.InputJsonValue;
 }
 
 // ============================================================

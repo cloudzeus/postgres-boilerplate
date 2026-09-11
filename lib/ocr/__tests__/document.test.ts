@@ -67,6 +67,33 @@ describe('loadDocumentJson', () => {
     );
   });
 
+  it('reconciles the legacy fallback: vatBreakdown and payable come from the lines', async () => {
+    // Ένα έγγραφο του παλιού κόσμου δεν έχει ούτε `vatBreakdown` ούτε `payable` — τα flat κλειδιά
+    // δεν είχαν θέση για αυτά. Αν το fallback τα άφηνε άδεια, ο poster θα έβλεπε άλλο έγγραφο από
+    // ένα πανομοιότυπο νέο. Η ημερομηνία επίσης κανονικοποιείται, όπως στο backfill.
+    db.ocrDocument.findUnique.mockResolvedValue({
+      document: null,
+      extractedData: { ...LEGACY, date: '22/06/2026', subtotal: null, vatAmount: null, totalAmount: null },
+      docType: 'INVOICE',
+    });
+    db.ocrInvoiceItem.findMany.mockResolvedValue(ITEMS);
+
+    const doc = await loadDocumentJson('d1');
+
+    expect(doc.date).toBe('2026-06-22');
+    expect(doc.vatBreakdown).toEqual([{ rate: 24, net: 100, vat: 24 }]);
+    expect(doc.totals).toMatchObject({ net: 100, vatAmount: 24, total: 124, payable: 124 });
+  });
+
+  it('does not overwrite a printed total in the legacy fallback', async () => {
+    // Τυπωμένο σύνολο που ΔΕΝ συμφωνεί με τις γραμμές: ο reconcile το αναφέρει, δεν το «διορθώνει».
+    db.ocrDocument.findUnique.mockResolvedValue({
+      document: null, extractedData: { ...LEGACY, subtotal: 111 }, docType: 'INVOICE',
+    });
+    db.ocrInvoiceItem.findMany.mockResolvedValue(ITEMS);
+    expect((await loadDocumentJson('d1')).totals.net).toBe(111);
+  });
+
   it('maps GENERAL_TEXT onto a general document', async () => {
     db.ocrDocument.findUnique.mockResolvedValue({
       document: null, extractedData: { title: 'Τ', fullText: 'Κ', summary: 'Π' }, docType: 'GENERAL_TEXT',

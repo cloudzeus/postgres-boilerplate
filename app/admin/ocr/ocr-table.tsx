@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { RunStatusPill } from '@/components/templates/run-status-pill';
 import { reconMeta } from '@/lib/ocr/recon-status';
+import { normalizeDate } from '@/lib/ocr/canonical';
 import { runSeverity } from '@/lib/templates/run-view';
 import type { RunStatus } from '@/lib/templates/schema';
 import { OcrRowDetail } from './row-detail';
@@ -141,12 +142,17 @@ function greekDayLabel(key: string) {
 /* both Αρ. Τιμολογίου and Ημερομηνία match.                           */
 /* ------------------------------------------------------------------ */
 
-/** Stable invoice fingerprint, or null when the row lacks enough data to dedupe. */
+/**
+ * Stable invoice fingerprint, or null when the row lacks enough data to dedupe.
+ * The date is normalised first (`normalizeDate`): the same invoice may reach the table as
+ * «22/06/2026» from one scan and «2026-06-22» from another, and a raw string compare would call
+ * those two different invoices.
+ */
 function invoiceFingerprint(r: OcrRow): string | null {
   const mark = String(r.extractedData?.aadeMark ?? '').trim();
   if (mark) return `mark:${mark.toUpperCase()}`;
   const num = String(r.docNumber ?? '').trim().toUpperCase();
-  const date = String(r.docDate ?? '').trim();
+  const date = normalizeDate(r.docDate)?.trim() ?? '';
   if (num && date) return `num:${num}|${date}`;
   return null;
 }
@@ -292,15 +298,25 @@ export function OcrTable({
     if (!confirm(`Ανάρτηση ${ready.length} παραστατικών στο SoftOne;`)) return;
     const t = toast.loading(`Ανάρτηση 0/${ready.length}…`);
     let ok = 0, fail = 0;
+    // Ο λόγος της ΠΡΩΤΗΣ αποτυχίας: ένα «3 αποτυχία» χωρίς αιτία στέλνει τον χρήστη να ανοίγει
+    // παραστατικά ένα-ένα. Το `message` του API είναι ήδη ελληνική πρόταση.
+    let firstError: string | null = null;
     for (const r of ready) {
       try {
         const res = await fetch(`/api/admin/ocr/${r.id}/post-softone`, { method: 'POST' });
-        if (!res.ok) throw new Error();
+        if (!res.ok) {
+          const json = await res.json().catch(() => null);
+          throw new Error(json?.message ?? json?.error ?? `HTTP ${res.status}`);
+        }
         ok++;
-      } catch { fail++; }
+      } catch (err: any) {
+        fail++;
+        firstError ??= String(err?.message ?? err);
+      }
       toast.loading(`Ανάρτηση ${ok + fail}/${ready.length}…`, { id: t });
     }
-    toast.success(`Ολοκληρώθηκε: ${ok} επιτυχία${fail ? `, ${fail} αποτυχία` : ''}`, { id: t });
+    const failNote = fail ? `, ${fail} αποτυχία${firstError ? ` — ${firstError}` : ''}` : '';
+    toast.success(`Ολοκληρώθηκε: ${ok} επιτυχία${failNote}`, { id: t });
     router.refresh();
   }
 

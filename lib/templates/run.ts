@@ -149,7 +149,12 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
         try {
           await postDocumentToSoftone(doc.id);
         } catch (e) {
-          if (e instanceof PostError) {
+          if (e instanceof PostError && e.code === 'already_posted') {
+            // Already in the ERP — a re-run of the same template must not queue the document for a
+            // second posting. That is the outcome the run wanted, so the run is POSTED, not BLOCKED.
+            const reason = e.message || POST_ERROR_TEXT.already_posted;
+            if (!flags.review.includes(reason)) flags.review.push(reason);
+          } else if (e instanceof PostError) {
             // A precondition the document does not meet yet: blocked, not failed — a human fixes it and reposts.
             status = 'BLOCKED';
             const reason = POST_ERROR_TEXT[e.code] ?? e.message;

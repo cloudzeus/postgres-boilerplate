@@ -3,7 +3,11 @@
 // Δύο δουλειές, καμία καταστροφική:
 //   1. Κάθε `OcrDocument` που γράφτηκε πριν το κανονικό JSON (`document IS NULL` και υπάρχει
 //      `extractedData`) αποκτά το `document` του, φτιαγμένο από τα flat κλειδιά + τις γραμμές του
-//      (`fromLegacy`). Το `extractedData`, οι γραμμές και το `issuerAfm` ΔΕΝ αγγίζονται.
+//      (`fromLegacy` → `normalizeDocument` → `reconcileDocument`): η ημερομηνία γίνεται `YYYY-MM-DD`
+//      και τα `vatBreakdown`/`payable` συμπληρώνονται από τις γραμμές. Και τα δύο βήματα είναι
+//      καθαρά και ΔΕΝ πατούν πάνω σε τυπωμένο σύνολο — μόνο γεμίζουν ό,τι λείπει.
+//      Το `extractedData`, οι γραμμές και το `issuerAfm` ΔΕΝ αγγίζονται: ο παλιός legacy κόσμος
+//      μένει ακριβώς όπως τον έγραψε η εξαγωγή, και ο μόνος που αλλάζει είναι η νέα στήλη.
 //   2. Κάθε `TemplateMapping` με `target = 'INVOICE'` αλλάζει τα `invoiceKey` του σε διαδρομές του
 //      κανονικού εγγράφου (`companyName` → `issuer.name`, `customFields.x` → `custom.x`, …).
 //      Κλειδιά που είναι ήδη διαδρομές μένουν ως έχουν, άρα η επανεκτέλεση δεν αλλάζει τίποτα.
@@ -14,7 +18,7 @@
 import 'dotenv/config';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/db';
-import { fromLegacy, legacyKeyToPath, type CanonicalDocType } from '../lib/ocr/canonical';
+import { fromLegacy, legacyKeyToPath, normalizeDocument, reconcileDocument, type CanonicalDocType } from '../lib/ocr/canonical';
 
 const DRY = process.argv.includes('--dry-run') || process.argv.includes('--dry');
 const BATCH = 200;
@@ -57,11 +61,11 @@ async function backfillDocuments(): Promise<{ scanned: number; filled: number }>
     }
 
     for (const row of batch) {
-      const document = fromLegacy(
+      const document = reconcileDocument(normalizeDocument(fromLegacy(
         isObj(row.extractedData) ? row.extractedData : {},
         byDoc.get(row.id) ?? [],
         docTypeOf(row.docType),
-      );
+      ))).document;
       if (DRY) {
         console.log(`  [dry] ${row.id} → kind=${document.kind} lines=${document.lines.length} total=${document.totals.total ?? '—'}`);
       } else {

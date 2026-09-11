@@ -280,8 +280,13 @@ export function OcrRowDetail({
     }
     if (isInvoice) {
       out.items = items.map((it, i) => {
-        const prevCf = (data.items?.[i] as any)?.customFields;
+        // Η φόρμα δείχνει 7 στήλες — η γραμμή όμως μπορεί να κουβαλάει περισσότερα (`unit`, ανά
+        // γραμμή `customFields`, ό,τι διάβασε ένα πρότυπο). Ξεκινάμε από την ΥΠΑΡΧΟΥΣΑ γραμμή ώστε
+        // μια χειροκίνητη διόρθωση συνόλου να μη σβήνει τη μονάδα μέτρησης του τιμολογίου.
+        const prev = (data.items?.[i] as any) ?? {};
+        const prevCf = prev.customFields;
         return {
+          ...prev,
           code: it.code.trim() || null, name: it.name.trim(),
           quantity: toNum(it.quantity), price: toNum(it.price), discount: toNum(it.discount),
           vatRate: toNum(it.vatRate), total: toNum(it.total),
