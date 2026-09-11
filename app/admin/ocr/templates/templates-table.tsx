@@ -3,13 +3,14 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
-import { FiEdit3, FiTrash2 } from 'react-icons/fi';
+import { FiEdit3, FiPlayCircle, FiTrash2 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { DataTable, RowActionsTrigger } from '@/components/ui/data-table';
 import { MODE_LABEL, STATUS_LABEL } from '@/lib/templates/labels';
 import type { TemplateListRow } from '@/lib/templates/list';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { templatesApi, errorMessage } from '@/components/templates/api';
+import { JobUploadDialog } from '@/components/templates/job-upload-dialog';
 
 // One source of truth for the row shape: whatever the server list builder returns.
 export type TemplateRow = TemplateListRow;
@@ -26,6 +27,8 @@ const Pill = ({ text, bg, fg }: { text: string; bg: string; fg: string }) => (
 
 export function TemplatesTable({ rows, canManage }: { rows: TemplateRow[]; canManage: boolean }) {
   const router = useRouter();
+  // Το πρότυπο που ζητήθηκε για σάρωση. Ένας διάλογος για όλο τον πίνακα: ό,τι χρειάζεται είναι η γραμμή.
+  const [scanning, setScanning] = React.useState<TemplateRow | null>(null);
   const remove = async (r: TemplateRow) => {
     if (!confirm(`Διαγραφή του προτύπου «${r.name}»;`)) return;
     try { await templatesApi.remove(r.id); toast.success('Διαγράφηκε'); router.refresh(); }
@@ -59,20 +62,36 @@ export function TemplatesTable({ rows, canManage }: { rows: TemplateRow[]; canMa
         <DropdownMenuTrigger asChild><RowActionsTrigger /></DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => router.push(`/admin/ocr/templates/${row.original.id}`)}><FiEdit3 /> Άνοιγμα</DropdownMenuItem>
+          {/* Ίδιο κατώφλι με τον σχεδιαστή ΚΑΙ με τον `createJob`: χωρίς πεδίο με περιοχή η σάρωση
+              θα απαντούσε 422 αφού είχε ανέβει ολόκληρος ο φάκελος. */}
+          {canManage && row.original.regionFieldsCount > 0 && (
+            <DropdownMenuItem onClick={() => setScanning(row.original)}><FiPlayCircle /> Σάρωση αρχείων</DropdownMenuItem>
+          )}
           {canManage && <DropdownMenuItem onClick={() => remove(row.original)} className="text-dg-red-600"><FiTrash2 /> Διαγραφή</DropdownMenuItem>}
         </DropdownMenuContent>
       </DropdownMenu>) },
   ], [canManage, router]);
 
   return (
-    <DataTable
-      columns={columns}
-      data={rows}
-      filterAllColumns
-      searchPlaceholder="Αναζήτηση (πρότυπο, slug, τμήμα, προμηθευτής…)"
-      persistKey="admin.templates.table.v2"
-      initialColumnVisibility={{ slug: false, vatNumber: false }}
-      emptyState="Δεν υπάρχουν πρότυπα. Πάτησε «Νέο πρότυπο»."
-    />
+    <>
+      <DataTable
+        columns={columns}
+        data={rows}
+        filterAllColumns
+        searchPlaceholder="Αναζήτηση (πρότυπο, slug, τμήμα, προμηθευτής…)"
+        persistKey="admin.templates.table.v2"
+        initialColumnVisibility={{ slug: false, vatNumber: false }}
+        emptyState="Δεν υπάρχουν πρότυπα. Πάτησε «Νέο πρότυπο»."
+      />
+      {scanning && (
+        <JobUploadDialog
+          templateId={scanning.id}
+          templateName={scanning.name}
+          defaultEmails={scanning.notifyEmails}
+          open
+          onOpenChange={(v) => { if (!v) setScanning(null); }}
+        />
+      )}
+    </>
   );
 }

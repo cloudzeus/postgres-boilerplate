@@ -11,6 +11,14 @@ export type MappingTarget = 'INVOICE' | 'EXCEL';
 
 export type ColumnDef = { key: string; label: string; valueType: TemplateValueType };
 
+/**
+ * Where a field was last read successfully (`TemplateField.lastGood`, spec §17.2) — a MOVING AVERAGE
+ * of the positions it was actually found at, not the last one: `n` is how many readings it carries
+ * (capped, see `./adaptive`). The extractor widens its second look around this box, not around the
+ * region the designer drew months ago.
+ */
+export type LastGood = { page: number; bbox: Bbox; at: string; n: number };
+
 export type FieldDef = {
   key: string;
   label: string;
@@ -22,6 +30,8 @@ export type FieldDef = {
   aiHint: string | null;
   required: boolean;
   order: number;
+  /** Learned, never edited by hand. Absent on every client payload — only the server fills it in. */
+  lastGood?: LastGood | null;
 };
 
 /** Value of one extracted field, as stored in TemplateRun.values[key]. */
@@ -33,6 +43,8 @@ export type FieldValue = {
   page: number | null;
   bbox: Bbox | null;
   color: string;
+  /** Read in the WIDENED box (§17.2) rather than in the field's own region — always worth a glance. */
+  adaptive?: boolean;
 };
 
 /** Outcome of one template run, as stored in TemplateRun.status (mirrors prisma enum TemplateRunStatus). */

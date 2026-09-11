@@ -60,3 +60,18 @@ export function nudgeBbox(b: Bbox, key: string, shift: boolean): Bbox {
   const next = shift ? resizeBbox(b, 'se', dx, dy) : moveBbox(b, dx, dy);
   return next.every((n, i) => n === b[i]) ? b : next;
 }
+
+/**
+ * A box the model drew INSIDE a crop, expressed back in page coordinates. `cropBbox` must be the
+ * box that was actually extracted (i.e. already padded, if `prepareCrop` was given a pad) — the
+ * crop's own 0–1 space starts at its top-left corner and spans its width and height.
+ *
+ * `prepareCrop` resizes with `fit: 'inside'`, which keeps the aspect ratio, so the mapping stays a
+ * plain linear one whatever the model's image was scaled to.
+ */
+export function cropBoxToPage(cropBbox: Bbox, boxInCrop: Bbox | null): Bbox | null {
+  if (!boxInCrop) return null;
+  const [cx, cy, cw, ch] = cropBbox;
+  const [x, y, w, h] = boxInCrop;
+  return clampBbox([cx + x * cw, cy + y * ch, w * cw, h * ch]);
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { recomputeFieldFlags, type StoredFlags } from '../run-flags';
+import { ADAPTIVE_PREFIX, recomputeFieldFlags, type StoredFlags } from '../run-flags';
 import type { FieldDef, FieldValue, TemplateValueType } from '../schema';
 
 const field = (over: Partial<FieldDef>): FieldDef => ({
@@ -129,5 +129,78 @@ describe('recomputeFieldFlags — cross-check against the base OCR', () => {
     });
     expect(out.review).toEqual(['μεγάλο ποσό']);
     expect(out.fields).toEqual({ note: 'review' });
+  });
+});
+
+// ─── Η διευρυμένη ανάγνωση (§17.2) ────────────────────────────────────────────
+// Ο λόγος «Διαβάστηκε σε διευρυμένη περιοχή «X»» είναι δήλωση για την ΤΙΜΗ, όχι για την εκτέλεση:
+// μιλά για το ότι το `values[X]` βγήκε από κουτί που δεν σχεδίασε κανείς. Άρα ανήκει σε αυτόν τον
+// επανυπολογισμό — αλλιώς ένα AUTO πρότυπο θα έμενε BLOCKED για πάντα, αφού το κουμπί «Έγκριση →
+// ανάρτηση» κρύβεται όσο υπάρχει έστω ένας λόγος στο `blocked`.
+
+const adaptive = (v: FieldValue['value']): FieldValue => ({ ...value(v), source: 'vision', confidence: 0.5, adaptive: true });
+const ADAPTIVE_TOTAL = `${ADAPTIVE_PREFIX}Σύνολο»`;
+
+describe('recomputeFieldFlags — adaptive reads', () => {
+  it('lifts the AUTO block when the human corrects the adaptively-read field', () => {
+    const before = run({
+      mode: 'AUTO',
+      values: { total: adaptive(150), net: value(120), note: value('x') },
+      flags: { review: [ADAPTIVE_TOTAL], blocked: [ADAPTIVE_TOTAL], fields: { total: 'blocked' } },
+    });
+    // Όσο η τιμή είναι ακόμη η διευρυμένη, ο λόγος στέκει.
+    expect(before.blocked).toEqual([ADAPTIVE_TOTAL]);
+    expect(before.fields).toEqual({ total: 'blocked' });
+
+    // Ο χρήστης τη διόρθωσε με το χέρι (`source: 'manual'`, χωρίς `adaptive`) — ο λόγος φεύγει.
+    const after = run({
+      mode: 'AUTO',
+      values: { total: value(151), net: value(120), note: value('x') },
+      flags: { review: [ADAPTIVE_TOTAL], blocked: [ADAPTIVE_TOTAL], fields: { total: 'blocked' } },
+    });
+    expect(after.blocked).toEqual([]);
+    expect(after.review).toEqual([]);
+    expect(after.fields).toEqual({});
+  });
+
+  it('keeps a rule’s own BLOCK_POSTING reason when the adaptive one lifts', () => {
+    const out = run({
+      mode: 'AUTO',
+      values: { total: value(151), net: value(120), note: value('x') },
+      flags: { review: [ADAPTIVE_TOTAL, 'χωρίς κατηγορία'], blocked: [ADAPTIVE_TOTAL, 'χωρίς κατηγορία'], fields: { total: 'blocked' } },
+    });
+    expect(out.blocked).toEqual(['χωρίς κατηγορία']);
+    expect(out.review).toEqual(['χωρίς κατηγορία']);
+  });
+
+  it('re-adds the reason when a per-field re-read lands in the widened box again', () => {
+    const out = run({
+      mode: 'AUTO',
+      values: { total: adaptive(150), net: value(120), note: value('x') },
+      flags: { review: [], blocked: [], fields: {} },
+    });
+    expect(out.review).toEqual([ADAPTIVE_TOTAL]);
+    expect(out.blocked).toEqual([ADAPTIVE_TOTAL]);
+    expect(out.fields).toEqual({ total: 'blocked' });
+  });
+
+  it('asks for eyes but never blocks outside AUTO', () => {
+    const out = run({
+      values: { total: adaptive(150), net: value(120), note: value('x') },
+      flags: { review: [], blocked: [], fields: {} },
+    });
+    expect(out.review).toEqual([ADAPTIVE_TOTAL]);
+    expect(out.blocked).toEqual([]);
+    expect(out.fields).toEqual({ total: 'review' });
+  });
+
+  it('lets «λείπει υποχρεωτικό» win the per-field verdict over the adaptive one', () => {
+    const out = run({
+      mode: 'AUTO',
+      values: { total: adaptive(null), net: value(120), note: value('x') },
+      flags: { review: [], blocked: [], fields: {} },
+    });
+    expect(out.fields).toEqual({ total: 'blocked' });
+    expect(out.blocked).toEqual([MISSING, ADAPTIVE_TOTAL]);
   });
 });

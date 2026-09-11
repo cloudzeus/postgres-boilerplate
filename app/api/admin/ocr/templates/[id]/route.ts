@@ -6,7 +6,8 @@ import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { bunnyDelete } from '@/lib/bunny';
 import { TEMPLATE_INCLUDE, toTemplateDto } from '@/lib/templates/serialize';
-import { isReady } from '@/lib/templates/readiness';
+import { activationMessage, isReady } from '@/lib/templates/readiness';
+import { trainingGate } from '@/lib/templates/training';
 import { SLUG_RE } from '@/lib/templates/schema';
 
 export const runtime = 'nodejs';
@@ -32,6 +33,9 @@ const PatchBody = z.object({
   vatNumber: z.string().trim().regex(/^\d{9}$/, 'ΑΦΜ 9 ψηφίων').nullable().optional(),
   traderTrdr: z.number().int().positive().nullable().optional(),
   supplierName: z.string().trim().max(200).transform((v) => v || null).nullable().optional(),
+  // Κατώφλια εκπαίδευσης (§11). 0 δείγματα = χωρίς έλεγχο, για πρότυπα που δεν εκπαιδεύονται.
+  minTrainingScore: z.number().min(0).max(1).optional(),
+  minTrainingSamples: z.number().int().min(0).max(100).optional(),
 });
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -54,13 +58,34 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (mode === 'AUTO' && u.role.key !== 'SUPER_ADMIN' && !u.permissionKeys.has('ocr.post')) {
     return NextResponse.json({ error: 'forbidden', message: 'Η αυτόματη λειτουργία απαιτεί δικαίωμα ανάρτησης (ocr.post)' }, { status: 403 });
   }
-  // ACTIVE needs a sample and a field with a region; a mapping only when the mode posts to SoftOne (spec §14.1-4).
-  // Only on an actual transition: a plain {name}/{notifyEmails} PATCH must not be blocked because an
-  // already-ACTIVE template drifted out of readiness (e.g. its only mapping was deleted elsewhere).
+  // ACTIVE needs a sample and a field with a region; a mapping only when the mode posts to SoftOne
+  // (spec §14.1-4). Re-checked whenever the status or the MODE moves, because a mode change can
+  // itself invalidate readiness (MANUAL → SEMI_AUTO with no mapping).
   const status = b.status ?? t.status;
-  if (status === 'ACTIVE' && (b.status !== undefined || b.mode !== undefined)) {
-    if (!isReady({ ...t, mode })) {
-      return NextResponse.json({ error: 'not_ready', message: 'Για ενεργοποίηση χρειάζονται δείγμα και ένα πεδίο με περιοχή — και mapping για ημιαυτόματη/αυτόματη λειτουργία' }, { status: 422 });
+  const gateInput = {
+    // Τα κατώφλια τα παίρνουμε από ΑΥΤΟ το αίτημα όταν τα αλλάζει: «ανέβασε τον πήχη και ενεργοποίησε»
+    // σε μία κίνηση κρίνεται με τον νέο πήχη, όχι με τον παλιό.
+    minTrainingScore: b.minTrainingScore ?? t.minTrainingScore,
+    minTrainingSamples: b.minTrainingSamples ?? t.minTrainingSamples,
+    trainingScore: t.trainingScore,
+    verifiedSamples: t.verifiedSamples,
+  };
+  if (status === 'ACTIVE' && (b.status !== undefined || b.mode !== undefined) && !isReady({ ...t, mode })) {
+    const check = { ok: false, error: 'not_ready' } as const;
+    return NextResponse.json({ error: check.error, message: activationMessage(check, gateInput) }, { status: 422 });
+  }
+  // Η ΠΥΛΗ ΕΚΠΑΙΔΕΥΣΗΣ (spec §11) κρίνει ΜΟΝΟ μια πραγματική ενεργοποίηση — DRAFT → ACTIVE.
+  //
+  // Όχι κάθε αποθήκευση ενός ήδη ενεργού προτύπου: το migration έδωσε σε ΚΑΘΕ υπάρχουσα γραμμή
+  // `minTrainingSamples = 3` και `verifiedSamples = 0`, και ο σχεδιαστής στέλνει `{mode, notifyEmails}`
+  // χωρίς `status` — άρα ένα «άλλαξε τη λειτουργία» σε ενεργό πρότυπο θα γύριζε 422 `need_samples`
+  // για κάτι που δεν ζήτησε κανείς. Ο βαθμός είναι μέτρηση, όχι λόγος να κλειδώσει ένα πρότυπο που
+  // ήδη δουλεύει· μόνο η ρητή ενεργοποίηση πληρώνει το κατώφλι.
+  if (b.status === 'ACTIVE' && t.status !== 'ACTIVE') {
+    const gate = trainingGate(gateInput);
+    if (!gate.ok) {
+      const check = { ok: false, error: 'training_gate', reason: gate.reason } as const;
+      return NextResponse.json({ error: check.error, message: activationMessage(check, gateInput), reason: gate.reason }, { status: 422 });
     }
   }
 
@@ -78,6 +103,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
         ...(b.vatNumber !== undefined && { vatNumber: b.vatNumber }),
         ...(b.traderTrdr !== undefined && { traderTrdr: b.traderTrdr }),
         ...(b.supplierName !== undefined && { supplierName: b.supplierName }),
+        ...(b.minTrainingScore !== undefined && { minTrainingScore: b.minTrainingScore }),
+        ...(b.minTrainingSamples !== undefined && { minTrainingSamples: b.minTrainingSamples }),
         version: { increment: 1 },
       },
       include: TEMPLATE_INCLUDE,
@@ -101,8 +128,14 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   if (t._count.runs > 0 || t._count.jobs > 0) {
     return NextResponse.json({ error: 'has_history', message: 'Το πρότυπο έχει ιστορικό εκτελέσεων. Απενεργοποίησέ το (DRAFT) αντί να το διαγράψεις.' }, { status: 409 });
   }
+  // Τα αρχεία των δειγμάτων ΠΡΙΝ τη διαγραφή: οι γραμμές `TemplateSample` φεύγουν με cascade, και
+  // μετά δεν υπάρχει τρόπος να μάθει κανείς ποια κλειδιά του Bunny έμειναν ορφανά.
+  const sampleKeys = (await prisma.templateSample.findMany({ where: { templateId: id }, select: { storageKey: true } }))
+    .map((s) => s.storageKey);
   await prisma.extractionTemplate.delete({ where: { id } });
-  if (t.sampleStorageKey) await bunnyDelete([t.sampleStorageKey]).catch(() => null);
+  // Το κύριο δείγμα έχει και δική του γραμμή (isPrimary) — `new Set` ώστε να μη ζητηθεί δύο φορές.
+  const keys = [...new Set([...(t.sampleStorageKey ? [t.sampleStorageKey] : []), ...sampleKeys])];
+  if (keys.length) await bunnyDelete(keys).catch((e) => console.warn('[templates] sample files not deleted', id, (e as Error).message));
   await logAudit({ userId: u.id, userEmail: u.email, action: 'template.delete', resource: 'extractionTemplate', resourceId: id, metadata: { name: t.name } });
   return NextResponse.json({ ok: true });
 }

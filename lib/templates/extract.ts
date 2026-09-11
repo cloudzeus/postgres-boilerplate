@@ -5,7 +5,9 @@ import { countPdfPages, isPdfBuffer, renderPage } from '@/lib/ocr/rasterize';
 import { UPGRADED_VISION_MODEL } from '@/lib/ocr/extract';
 import { textInBox } from '@/lib/ocr/region-text';
 import { extractPdfTextItems } from './pdf-text';
-import { prepareCrop, readCropTable, readCropValue, type UsageRef } from './vision';
+import { prepareCrop, readCropTable, readCropValue, readCropValueLocated, type UsageRef } from './vision';
+import { cropBoxToPage } from './geometry';
+import { ADAPTIVE_CONFIDENCE, adaptiveRegion } from './adaptive';
 import { coerceValue } from './coerce';
 import type { FieldDef, FieldValue, TemplateValueType } from './schema';
 
@@ -15,6 +17,8 @@ export type ExtractResult = {
   tokensUsed: number;
   errors: { fieldKey: string; message: string }[];
   pageCount: number;                                 // real page count of the document (images: 1)
+  /** Keys that only the WIDENED second look could read (spec §17.2) — the run flags them for review. */
+  adaptive: string[];
 };
 
 const MIN_TEXT_CHARS = 2;
@@ -39,13 +43,55 @@ function typeInstruction(valueType: TemplateValueType): string {
   return '';
 }
 
+/**
+ * The widened second look (spec §17.2). Returns the value it found, or `null` when it found nothing
+ * — in which case the field keeps whatever the first two reads left on it.
+ *
+ * Its failures are logged, never pushed onto `out.errors`: the field ALREADY has a value (an empty
+ * one), and an error there means something else entirely downstream — «Σφάλμα ανάγνωσης» on the run
+ * card, and a refused per-field re-read. A bonus attempt that could not be made is not a read error.
+ */
+async function readAdaptively(
+  f: FieldDef,
+  base: FieldValue,
+  bitmap: (page: number) => Promise<Buffer>,
+  ref: UsageRef | undefined,
+  spend: { models: Set<string>; add: (tokens: number | null) => void },
+): Promise<FieldValue | null> {
+  const region = adaptiveRegion(f);
+  if (!region) return null;
+  try {
+    const crop = await prepareCrop(await bitmap(region.page), region.bbox, { pad: 0 });
+    const r = await readCropValueLocated({ crop, label: f.label, aiHint: f.aiHint, valueType: f.valueType, operation: 'template.field.adaptive', ref });
+    spend.models.add(r.model);
+    spend.add(r.tokensUsed);
+    const coerced = coerceValue(r.value, f.valueType);
+    if (!r.value || coerced == null) return null;
+    return {
+      ...base,
+      raw: r.value,
+      value: coerced,
+      source: 'vision',
+      confidence: ADAPTIVE_CONFIDENCE,
+      page: region.page,
+      // Where the model says it found the value, else the box we searched — either way the run
+      // records a position the learning can fold into `lastGood`.
+      bbox: cropBoxToPage(region.bbox, r.box) ?? region.bbox,
+      adaptive: true,
+    };
+  } catch (e) {
+    console.warn(`[templates] adaptive read failed for «${f.label}»: ${(e as Error).message}`);
+    return null;
+  }
+}
+
 export async function extractTemplateFields(
   buffer: Buffer,
   mimeType: string,
   fields: FieldDef[],
   opts?: { ref?: UsageRef },
 ): Promise<ExtractResult> {
-  const out: ExtractResult = { values: {}, model: null, tokensUsed: 0, errors: [], pageCount: 1 };
+  const out: ExtractResult = { values: {}, model: null, tokensUsed: 0, errors: [], pageCount: 1, adaptive: [] };
   const isPdf = mimeType === 'application/pdf' || isPdfBuffer(buffer);
   // The real page count drives the `$pageCount` rule variable; a document we cannot count is a
   // single page as far as the rules are concerned (countPdfPages already swallows its own errors).
@@ -142,6 +188,14 @@ export async function extractTemplateFields(
         }
       }
       out.values[f.key] = { ...base, raw: r.value || null, value: coerced, source: 'vision', confidence };
+
+      // Still nothing usable: the box itself is probably in the wrong place on THIS document. Take
+      // one — and only one — look in a widened box around where the field was last found (spec
+      // §17.2), this time asking the model to locate the label rather than to read a fixed rectangle.
+      if (coerced == null) {
+        const adaptive = await readAdaptively(f, base, bitmap, ref, { models, add: (t) => { out.tokensUsed += t ?? 0; } });
+        if (adaptive) { out.values[f.key] = adaptive; out.adaptive.push(f.key); }
+      }
     } catch (e) {
       out.values[f.key] = base;
       out.errors.push({ fieldKey: f.key, message: (e as Error).message });

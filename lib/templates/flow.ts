@@ -22,13 +22,19 @@ export type FlowRun = {
   mappingName: string;
 };
 
+/**
+ * Ο βαθμός εκπαίδευσης ανά πεδίο (spec §11), όπως τον βγάζει το `scoreSamples`. Προαιρετικός: το
+ * διάγραμμα της καρτέλας εκτέλεσης δεν τον ξέρει, το πάνελ του σχεδιαστή ναι.
+ */
+export type FlowScores = Record<string, { ok: number; total: number; score: number }>;
+
 export type FlowNode = { id: string; type: 'sample' | 'field' | 'condition' | 'mapping' | 'output'; position: { x: number; y: number }; data: Record<string, unknown> };
 export type FlowEdge = { id: string; source: string; target: string; label?: string; animated?: boolean; style?: { stroke: string } };
 
 const COL_X = [0, 260, 540, 820, 1100];
 const ROW_H = 96;
 
-export function buildFlow(t: FlowTemplate, run?: FlowRun): { nodes: FlowNode[]; edges: FlowEdge[] } {
+export function buildFlow(t: FlowTemplate, run?: FlowRun, scores?: FlowScores): { nodes: FlowNode[]; edges: FlowEdge[] } {
   const nodes: FlowNode[] = [];
   const edges: FlowEdge[] = [];
   const col = (i: number, row: number) => ({ x: COL_X[i], y: row * ROW_H });
@@ -38,9 +44,17 @@ export function buildFlow(t: FlowTemplate, run?: FlowRun): { nodes: FlowNode[]; 
   t.fields.forEach((f, i) => {
     const v = run?.values[f.key]?.value;
     const status = run ? (v == null || (Array.isArray(v) && v.length === 0) ? 'missing' : 'ok') : undefined;
+    // Ο βαθμός μπαίνει ΜΟΝΟ όταν έχει μετρηθεί κάτι: ένα πεδίο που κανείς δεν επιβεβαίωσε ποτέ
+    // (`total === 0`) θα φορούσε ένα κόκκινο «0 %» που δεν σημαίνει «διαβάζει λάθος».
+    const s = scores?.[f.key];
+    const scored = s && s.total > 0 ? s : null;
     nodes.push({
       id: `field:${f.key}`, type: 'field', position: col(1, i),
-      data: { label: f.label, key: f.key, color: f.color, kind: f.kind, page: f.region?.page ?? null, hasRegion: !!f.region, value: v ?? null, status },
+      data: {
+        label: f.label, key: f.key, color: f.color, kind: f.kind, page: f.region?.page ?? null,
+        hasRegion: !!f.region, value: v ?? null, status,
+        ...(scored && { score: scored.score, scoreOk: scored.ok, scoreTotal: scored.total }),
+      },
     });
     edges.push({ id: `e:sample->${f.key}`, source: 'sample', target: `field:${f.key}`, style: { stroke: f.color } });
   });

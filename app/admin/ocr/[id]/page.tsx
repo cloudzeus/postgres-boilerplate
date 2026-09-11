@@ -140,6 +140,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
           canManage={canManage}
           canPost={canPost}
           postStatus={doc.postStatus}
+          unknownForm={(doc.reviewFlags as { unknownForm?: boolean } | null)?.unknownForm === true}
           helpHref={helpHref}
         />
       )}

@@ -56,7 +56,9 @@ describe('toListRow', () => {
     id: 't1', name: 'Τιμολόγιο', slug: 'timologio', department: 'Λογιστήριο', vatNumber: '123456789',
     supplierName: 'ΑΦΟΙ ΠΑΠΑ', mode: 'SEMI_AUTO' as const, status: 'ACTIVE' as const, version: 3, timesUsed: 12,
     sampleStorageKey: 'ocr/samples/t1.pdf', updatedAt: new Date('2026-02-03T10:20:30.000Z'),
-    _count: { fields: 5, runs: 7 },
+    trainingScore: 0.92, verifiedSamples: 4, notifyEmails: 'a@x.gr',
+    fields: [{ region: { page: 0, bbox: [0, 0, 1, 1] } }, { region: null }, { region: null }, { region: null }, { region: null }],
+    _count: { fields: 5, runs: 7, samples: 6 },
   };
 
   it('flattens counts, the sample flag and the date', () => {
@@ -64,8 +66,14 @@ describe('toListRow', () => {
       id: 't1', name: 'Τιμολόγιο', slug: 'timologio', department: 'Λογιστήριο', vatNumber: '123456789',
       supplierName: 'ΑΦΟΙ ΠΑΠΑ', mode: 'SEMI_AUTO', status: 'ACTIVE', version: 3,
       fieldsCount: 5, runsCount: 7, timesUsed: 12, hasSample: true,
+      samplesCount: 6, trainingScore: 0.92, verifiedSamples: 4,
+      regionFieldsCount: 1, notifyEmails: 'a@x.gr',
       updatedAt: '2026-02-03T10:20:30.000Z',
     });
+  });
+
+  it('counts only the fields a scan could actually read', () => {
+    expect(toListRow({ ...row, fields: [{ region: null }] }).regionFieldsCount).toBe(0);
   });
 
   it('reports hasSample false when no sample is stored', () => {

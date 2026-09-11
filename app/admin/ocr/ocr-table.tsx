@@ -62,6 +62,8 @@ export interface OcrRow {
   templateRunStatus: RunStatus | null;
   reviewCount: number;
   blockedCount: number;
+  /** §14.7 — κανένα πρότυπο δεν αναγνώρισε αυτό το έντυπο· περιμένει χειροκίνητη επιλογή. */
+  unknownForm: boolean;
 }
 
 /**
@@ -526,7 +528,21 @@ export function OcrTable({
       cell: ({ row }) => {
         const r = row.original;
         const st = r.templateRunStatus;
-        if (!st) return <span className="text-xs text-muted-foreground">—</span>;
+        // Χωρίς εκτέλεση υπάρχουν δύο πολύ διαφορετικές σιωπές: «δεν έτρεξε ακόμη τίποτα» και
+        // «ψάξαμε και δεν ξέρουμε τι έντυπο είναι». Μόνο η δεύτερη ζητά κάτι από τον χρήστη.
+        if (!st) {
+          return r.unknownForm ? (
+            <span
+              className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+              style={{ backgroundColor: '#EEF2FF', color: '#4338CA' }}
+              title="Δεν βρέθηκε πρότυπο ούτε από το ΑΦΜ ούτε από τη διάταξη — διάλεξε πρότυπο στην καρτέλα του εγγράφου"
+            >
+              Άγνωστο έντυπο
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          );
+        }
         return (
           <div className="flex flex-col items-start gap-0.5 min-w-[120px]">
             <span className="max-w-[150px] truncate text-[12px] font-medium text-foreground" title={r.templateName ?? undefined}>

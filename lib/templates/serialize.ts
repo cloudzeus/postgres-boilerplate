@@ -3,6 +3,7 @@ import 'server-only';
 import type { ExtractionTemplate, TemplateField, TemplateMapping, TemplateCondition } from '@prisma/client';
 import type { Action, Clause, ColumnDef, FieldDef, MappingRowExcel, MappingRowInvoice, Region } from './schema';
 import { isValidBbox } from './schema';
+import { toLastGood } from './adaptive';
 
 export function toFieldDef(f: TemplateField): FieldDef {
   const region = f.region as { page?: unknown; bbox?: unknown } | null;
@@ -12,6 +13,9 @@ export function toFieldDef(f: TemplateField): FieldDef {
     region: ok ? ({ page: region!.page as number, bbox: region!.bbox } as Region) : null,
     columns: Array.isArray(f.columns) ? (f.columns as unknown as ColumnDef[]) : null,
     aiHint: f.aiHint, required: f.required, order: f.order,
+    // Learned, not authored: the extractor widens its second look around it (spec §17.2). It rides
+    // along on the DTO because `extractTemplateFields` takes `FieldDef`s and nothing else.
+    lastGood: toLastGood(f.lastGood),
   };
 }
 
@@ -23,13 +27,16 @@ export function toConditionDto(c: TemplateCondition) {
   return { id: c.id, name: c.name, order: c.order, isActive: c.isActive, logic: (c.logic === 'OR' ? 'OR' : 'AND') as 'AND' | 'OR', clauses: (c.clauses as unknown as Clause[]) ?? [], actions: (c.actions as unknown as Action[]) ?? [] };
 }
 
-export function toTemplateDto(t: ExtractionTemplate & { fields: TemplateField[]; mappings: TemplateMapping[]; conditions: TemplateCondition[]; _count: { runs: number } }) {
+export function toTemplateDto(t: ExtractionTemplate & { fields: TemplateField[]; mappings: TemplateMapping[]; conditions: TemplateCondition[]; _count: { runs: number; samples: number } }) {
   return {
     id: t.id, name: t.name, slug: t.slug, department: t.department, vatNumber: t.vatNumber, traderTrdr: t.traderTrdr,
     supplierName: t.supplierName, runsCount: t._count.runs,
     mode: t.mode, status: t.status, version: t.version,
     sample: t.sampleStorageKey ? { mimeType: t.sampleMimeType, pageCount: t.samplePageCount ?? 1, thumbUrl: t.sampleThumbUrl } : null,
     notifyEmails: t.notifyEmails, timesUsed: t.timesUsed, createdAt: t.createdAt, updatedAt: t.updatedAt,
+    // Εκπαίδευση (§11) — τα κατώφλια που ο χρήστης ορίζει και ο βαθμός που έχει μετρηθεί ως τώρα.
+    minTrainingScore: t.minTrainingScore, minTrainingSamples: t.minTrainingSamples,
+    trainingScore: t.trainingScore, verifiedSamples: t.verifiedSamples, samplesCount: t._count.samples,
     fields: [...t.fields].sort((a, b) => a.order - b.order).map(toFieldDef),
     mappings: t.mappings.map(toMappingDto),
     conditions: [...t.conditions].sort((a, b) => a.order - b.order).map(toConditionDto),
@@ -37,4 +44,4 @@ export function toTemplateDto(t: ExtractionTemplate & { fields: TemplateField[];
 }
 export type TemplateDto = ReturnType<typeof toTemplateDto>;
 
-export const TEMPLATE_INCLUDE = { fields: true, mappings: true, conditions: true, _count: { select: { runs: true } } } as const;
+export const TEMPLATE_INCLUDE = { fields: true, mappings: true, conditions: true, _count: { select: { runs: true, samples: true } } } as const;

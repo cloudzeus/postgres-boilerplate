@@ -1,9 +1,14 @@
 // components/templates/api.ts — CLIENT. Typed fetch helpers for the template endpoints + Greek error text.
+import type { SampleDto, TrainingSummary } from '@/lib/templates/samples';
+import type { JobDetail, JobListRow } from '@/lib/templates/jobs';
 import type { TemplateDto } from '@/lib/templates/serialize';
 import type { RunDto } from '@/lib/templates/run-dto';
 import type { FieldDef, FieldValue, Region, RunOutcome } from '@/lib/templates/schema';
 
-export type { RunDto, RunOutcome };
+export type { JobDetail, JobListRow, RunDto, RunOutcome, SampleDto, TrainingSummary };
+
+/** Τα μεταδεδομένα που πληκτρολογεί ο χρήστης στον διάλογο μιας νέας εργασίας σάρωσης. */
+export type JobMeta = { title?: string; reference?: string; docDate?: string; description?: string; notifyEmails?: string };
 
 export type Cleanup = { mappings: { name: string; removedRows: number }[]; conditions: { id: string; name: string; removedClauses: number; removedActions: number }[] };
 export type TestFieldResult = { raw: string | null; value: unknown; source: string; model: string | null; tokensUsed: number; color: string; durationMs: number };
@@ -41,7 +46,16 @@ const ERROR_TEXT: Record<string, string> = {
   'file unavailable': 'Το δείγμα δεν είναι διαθέσιμο.',
   unsupported_type: 'Μη υποστηριζόμενος τύπος αρχείου (PDF, PNG, JPEG, WebP).',
   too_large: 'Το αρχείο ξεπερνά τα 25 MB.',
+  too_large_total: 'Τα αρχεία μαζί ξεπερνούν το όριο του ενός ανεβάσματος — χώρισέ τα σε δεύτερη εργασία.',
   file_required: 'Επίλεξε αρχείο.',
+  too_many: 'Πολλά αρχεία σε ένα αίτημα.',
+  primary: 'Το κύριο δείγμα δεν διαγράφεται — αντικατέστησέ το ανεβάζοντας νέο.',
+  copy_failed: 'Το αρχείο του εγγράφου δεν ήταν διαθέσιμο.',
+  no_sample_row: 'Το πρότυπο δεν έχει ακόμη κύριο δείγμα — ανέβασέ το στο βήμα «Δείγμα».',
+  training_gate: 'Το πρότυπο δεν έχει εκπαιδευτεί αρκετά για ενεργοποίηση.',
+  no_files: 'Επίλεξε τουλάχιστον ένα αρχείο.',
+  empty: 'Καμία ολοκληρωμένη ανάγνωση ακόμη — δεν υπάρχει τίποτα να εξαχθεί.',
+  upload_failed: 'Το ανέβασμα απέτυχε. Δοκίμασε ξανά.',
 };
 
 export class ApiError extends Error {
@@ -64,7 +78,7 @@ export const templatesApi = {
   create: (b: { name: string; slug?: string; department?: string | null; vatNumber?: string | null; traderTrdr?: number | null; supplierName?: string | null }) =>
     fetch('/api/admin/ocr/templates', json(b)).then((r) => handle<{ ok: true; id: string; slug: string }>(r)),
   get: (id: string) => fetch(base(id), { cache: 'no-store' }).then((r) => handle<TemplateDto>(r)),
-  patch: (id: string, b: Partial<{ name: string; slug: string; department: string | null; vatNumber: string | null; traderTrdr: number | null; supplierName: string | null; mode: TemplateDto['mode']; status: TemplateDto['status']; notifyEmails: string | null }>) =>
+  patch: (id: string, b: Partial<{ name: string; slug: string; department: string | null; vatNumber: string | null; traderTrdr: number | null; supplierName: string | null; mode: TemplateDto['mode']; status: TemplateDto['status']; notifyEmails: string | null; minTrainingScore: number; minTrainingSamples: number }>) =>
     fetch(base(id), json(b, 'PATCH')).then((r) => handle<TemplateDto>(r)),
   remove: (id: string) => fetch(base(id), { method: 'DELETE' }).then((r) => handle<{ ok: true }>(r)),
   uploadSample: (id: string, file: File) => { const fd = new FormData(); fd.append('file', file); return fetch(`${base(id)}/sample`, { method: 'POST', body: fd }).then((r) => handle<{ ok: true; mimeType: string; pageCount: number }>(r)); },
@@ -80,6 +94,52 @@ export const templatesApi = {
   test: (id: string) => fetch(`${base(id)}/test`, json({})).then((r) => handle<TestTemplateResult>(r)),
   searchSuppliers: (q: string) => fetch(`/api/admin/softone/search?type=suppliers&q=${encodeURIComponent(q)}`).then((r) => handle<{ results: { id: number; code: string; name: string; sub: string; afm: string | null }[] }>(r)),
   pageImageUrl: (id: string, page: number, version: number, scale = 3) => `${base(id)}/page-image?page=${page}&scale=${scale}&v=${version}`,
+
+  /** Δείγματα εκπαίδευσης ενός προτύπου (spec §11). */
+  samples: {
+    list: (id: string) => fetch(`${base(id)}/samples`, { cache: 'no-store' }).then((r) => handle<{ samples: SampleDto[] }>(r)),
+    add: (id: string, files: File[]) => {
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f);
+      return fetch(`${base(id)}/samples`, { method: 'POST', body: fd })
+        .then((r) => handle<{ samples: SampleDto[]; failed: { fileName: string; error: string }[]; training: TrainingSummary }>(r));
+    },
+    read: (id: string, sampleId: string) => fetch(`${base(id)}/samples/${sampleId}/read`, json({})).then((r) => handle<{ sample: SampleDto; model: string | null; tokensUsed: number; errors: { fieldKey: string; message: string }[] }>(r)),
+    readAll: (id: string) => fetch(`${base(id)}/samples/read-all`, json({})).then((r) => handle<{ read: number; failed: number; remaining: number; training: TrainingSummary }>(r)),
+    verify: (id: string, sampleId: string, expected: Record<string, unknown>) => fetch(`${base(id)}/samples/${sampleId}`, json({ expected }, 'PATCH')).then((r) => handle<{ sample: SampleDto; training: TrainingSummary }>(r)),
+    remove: (id: string, sampleId: string) => fetch(`${base(id)}/samples/${sampleId}`, { method: 'DELETE' }).then((r) => handle<{ ok: true; training: TrainingSummary }>(r)),
+    /** Κάνει το κύριο δείγμα (αυτό με τις περιοχές) και δείγμα εκπαίδευσης — για τα παλιά πρότυπα. */
+    adoptPrimary: (id: string) => fetch(`${base(id)}/samples/primary`, json({})).then((r) => handle<{ sample: SampleDto; training: TrainingSummary }>(r)),
+    /** Κάνει ένα ήδη σαρωμένο έγγραφο δείγμα αυτού του προτύπου (§14.7 — «Άγνωστο έντυπο»). */
+    fromDocument: (id: string, documentId: string) => fetch(`${base(id)}/samples/from-document`, json({ documentId })).then((r) => handle<{ sample: SampleDto; training: TrainingSummary }>(r)),
+    pageImageUrl: (id: string, sampleId: string, page: number, scale = 3) => `${base(id)}/samples/${sampleId}/page-image?page=${page}&scale=${scale}`,
+  },
+
+  /** Εργασίες μαζικής σάρωσης (spec §12). Ζουν κάτω από το πρότυπο μόνο όταν δημιουργούνται. */
+  jobs: {
+    /**
+     * Ανεβάζει ΟΛΑ τα αρχεία μιας εργασίας σε ΕΝΑ multipart αίτημα και επιστρέφει το id της. Το route
+     * δεν ξέρει να προσθέτει αρχεία σε υπάρχουσα εργασία, άρα δεν υπάρχουν παρτίδες: τα όρια είναι
+     * `MAX_JOB_FILES` αρχεία και `MAX_JOB_TOTAL_BYTES` συνολικά, και πάνω από αυτά η απάντηση λέει
+     * στον χρήστη να χωρίσει τα αρχεία σε δεύτερη εργασία.
+     */
+    create: (templateId: string, files: File[], meta: JobMeta = {}) => {
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f);
+      for (const [k, v] of Object.entries(meta)) if (v) fd.append(k, v);
+      return fetch(`${base(templateId)}/jobs`, { method: 'POST', body: fd }).then((r) => handle<{ jobId: string }>(r));
+    },
+    list: (q: { templateId?: string; status?: string; limit?: number } = {}) => {
+      const p = new URLSearchParams();
+      for (const [k, v] of Object.entries(q)) if (v != null) p.set(k, String(v));
+      return fetch(`/api/admin/ocr/templates/jobs?${p}`, { cache: 'no-store' }).then((r) => handle<{ jobs: JobListRow[] }>(r));
+    },
+    get: (jobId: string) => fetch(`/api/admin/ocr/templates/jobs/${jobId}`, { cache: 'no-store' }).then((r) => handle<{ job: JobDetail }>(r)),
+    cancel: (jobId: string) => fetch(`/api/admin/ocr/templates/jobs/${jobId}/cancel`, json({})).then((r) => handle<{ status: string; pending: number }>(r)),
+    excelUrl: (jobId: string) => `/api/admin/ocr/templates/jobs/${jobId}/excel`,
+    pageImageUrl: (jobId: string, itemId: string, page: number, scale = 3) =>
+      `/api/admin/ocr/templates/jobs/${jobId}/items/${itemId}/page-image?page=${page}&scale=${scale}`,
+  },
 
   /** Template runs of one OCR document (spec §15.5) — these live under the document, not the template. */
   runs: {

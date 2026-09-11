@@ -6,7 +6,15 @@ import { logAudit } from '@/lib/audit';
 import { FieldsBody } from '@/lib/templates/validate';
 import { TEMPLATE_INCLUDE, toTemplateDto } from '@/lib/templates/serialize';
 import { isReady } from '@/lib/templates/readiness';
+import { lastGoodForRegion } from '@/lib/templates/adaptive';
+import { isValidBbox, type Region } from '@/lib/templates/schema';
 import type { Action, Clause, MappingRowExcel, MappingRowInvoice } from '@/lib/templates/schema';
+
+/** `TemplateField.region` as stored → a `Region`, or null when it is absent/unusable (cf. `toFieldDef`). */
+function storedRegion(raw: unknown): Region | null {
+  const r = raw as { page?: unknown; bbox?: unknown } | null;
+  return r && typeof r.page === 'number' && isValidBbox(r.bbox) ? { page: r.page, bbox: r.bbox } : null;
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,11 +47,24 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const cleanup: Cleanup = { mappings: [], conditions: [] };
   let demoted = false;
   await prisma.$transaction(async (tx) => {
+    // The boxes as they stand NOW, to tell which ones this write actually moves — a moved box makes
+    // the learned position (`lastGood`, spec §17.2) a statement about the OLD box, and searching a
+    // radius around it would send the adaptive read back to the place the user just corrected.
+    const before = new Map(
+      (await tx.templateField.findMany({ where: { templateId: id }, select: { key: true, region: true } }))
+        .map((f) => [f.key, storedRegion(f.region)] as const),
+    );
     await tx.templateField.deleteMany({ where: { templateId: id, key: { notIn: keys } } });
+    const at = new Date().toISOString();
     for (const f of parsed.data.fields) {
       const region = f.region === null ? Prisma.JsonNull : (f.region as unknown as Prisma.InputJsonValue);
       const columns = f.columns === null ? Prisma.JsonNull : (f.columns as unknown as Prisma.InputJsonValue);
-      const data = { label: f.label, kind: f.kind, valueType: f.valueType, color: f.color.toUpperCase(), region, columns, aiHint: f.aiHint, required: f.required, order: f.order };
+      // A box the user just drew (or just saved off a run, «Αποθήκευση στο πρότυπο») IS the new last
+      // good position, with a weight of one: the next reading will average onto it, not onto history.
+      const next = lastGoodForRegion(before.get(f.key) ?? null, f.region ?? null, at);
+      const lastGood = next === undefined ? undefined
+        : next === null ? Prisma.JsonNull : (next as unknown as Prisma.InputJsonValue);
+      const data = { label: f.label, kind: f.kind, valueType: f.valueType, color: f.color.toUpperCase(), region, columns, aiHint: f.aiHint, required: f.required, order: f.order, ...(lastGood === undefined ? {} : { lastGood }) };
       await tx.templateField.upsert({
         where: { templateId_key: { templateId: id, key: f.key } },
         update: data,

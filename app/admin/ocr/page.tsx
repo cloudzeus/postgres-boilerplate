@@ -102,6 +102,7 @@ export default async function AdminOcrPage() {
       templateRunStatus: rf?.runStatus ?? null,
       reviewCount: Array.isArray(rf?.review) ? rf.review.length : 0,
       blockedCount: Array.isArray(rf?.blocked) ? rf.blocked.length : 0,
+      unknownForm: rf?.unknownForm === true,
     };
   });
 
