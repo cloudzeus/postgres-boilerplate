@@ -6,6 +6,7 @@ import { requirePermission, hasPermission } from '@/lib/rbac';
 import { Badge } from '@/components/ui/badge';
 import { OcrResultView } from './result-view';
 import { DeleteButton } from './delete-button';
+import { DocumentJsonCard } from './document-json';
 import { SoftoneChecksStrip } from '@/components/admin/softone-checks-strip';
 import { RunResult } from '@/components/templates/run-result';
 import type { RunDto } from '@/components/templates/api';
@@ -142,6 +143,8 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
           helpHref={helpHref}
         />
       )}
+
+      {completed && <DocumentJsonCard docId={doc.id} canPost={canPost} />}
 
       <OcrResultView doc={doc} />
     </div>

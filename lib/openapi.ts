@@ -1,6 +1,19 @@
 // Centralized OpenAPI 3.0 spec for the DGEspa ERP API.
 // Each operation has a Greek description for documentation purposes —
 // these are the same docs that the mobile app will use.
+import { z } from 'zod';
+import { DOCUMENT_VERSION, DocumentSchema } from '@/lib/ocr/canonical';
+
+/**
+ * Το κανονικό JSON εγγράφου (spec §17.1) παράγεται από το ΙΔΙΟ zod schema που επικυρώνει τα
+ * δεδομένα — έτσι η τεκμηρίωση δεν μπορεί να ξεμείνει πίσω από τον κώδικα. `openapi-3.0` ώστε τα
+ * nullable να βγουν ως `nullable: true` (το draft 2020-12 `type: "null"` δεν διαβάζεται από 3.0.3).
+ */
+const documentJsonSchema = z.toJSONSchema(DocumentSchema, {
+  io: 'output',
+  unrepresentable: 'any',
+  target: 'openapi-3.0',
+} as never) as Record<string, unknown>;
 
 export const openapiSpec = {
   openapi: '3.0.3',
@@ -341,23 +354,30 @@ export const openapiSpec = {
           total: { type: 'number', nullable: true },
         },
       },
-      OcrExtractedInvoice: {
+      OcrDocumentJson: {
+        ...documentJsonSchema,
+        description:
+          'Κανονικό JSON εγγράφου (spec §17.1): kind/type/date/issuer/recipient/lines/totals/vatBreakdown/' +
+          'digital/payment/references/notes/handwritten/custom. Πηγή αλήθειας για Excel και καταχώριση στο SoftOne.',
+      },
+      OcrDocumentEnvelope: {
         type: 'object',
-        description: 'Δομημένα πεδία που εξάγει το LLM για τύπο "invoice". Όλα προαιρετικά — ό,τι δεν εντοπιστεί επιστρέφεται null.',
+        description: 'Ο φάκελος που επιστρέφει το `GET /api/admin/ocr/{id}/document` και αποθηκεύεται στο `TemplateRun.output`.',
         properties: {
-          invoiceNumber: { type: 'string', nullable: true },
-          invoiceDate: { type: 'string', nullable: true, description: 'ISO date (YYYY-MM-DD) αν είναι αναγνώσιμο.' },
-          dueDate: { type: 'string', nullable: true },
-          currency: { type: 'string', nullable: true, example: 'EUR' },
-          supplierName: { type: 'string', nullable: true },
-          vatNumber: { type: 'string', nullable: true, description: 'ΑΦΜ εκδότη (9 ψηφία).' },
-          customerName: { type: 'string', nullable: true },
-          customerVatNumber: { type: 'string', nullable: true, description: 'ΑΦΜ παραλήπτη.' },
-          subtotal: { type: 'number', nullable: true },
-          vatAmount: { type: 'number', nullable: true },
-          total: { type: 'number', nullable: true },
-          items: { type: 'array', items: { $ref: '#/components/schemas/OcrInvoiceItem' } },
+          template: { type: 'string', nullable: true, description: 'Slug του προτύπου που εξήγησε το έγγραφο (null = μόνο base OCR).' },
+          version: { type: 'integer', example: DOCUMENT_VERSION },
+          extractedAt: { type: 'string', format: 'date-time' },
+          file: { type: 'string' },
+          documentId: { type: 'string' },
+          document: { $ref: '#/components/schemas/OcrDocumentJson' },
         },
+      },
+      OcrLegacyExtracted: {
+        type: 'object',
+        additionalProperties: true,
+        description:
+          'Επίπεδη προβολή του κανονικού JSON (`companyName`, `vatNumber`, `invoiceNumber`, `date`, `subtotal`, ' +
+          '`vatAmount`, `totalAmount`, `items[]`, …). Παράγωγο — διατηρείται για συμβατότητα με παλιούς clients.',
       },
       OcrDocument: {
         type: 'object',
@@ -371,7 +391,8 @@ export const openapiSpec = {
           pdfSource: { type: 'string', enum: ['DIGITAL', 'SCANNED'], nullable: true },
           language: { type: 'string', example: 'el' },
           status: { type: 'string', enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'] },
-          extractedData: { $ref: '#/components/schemas/OcrExtractedInvoice' },
+          extractedData: { $ref: '#/components/schemas/OcrLegacyExtracted' },
+          document: { $ref: '#/components/schemas/OcrDocumentJson' },
           rawText: { type: 'string', nullable: true },
           model: { type: 'string', nullable: true },
           tokensUsed: { type: 'integer', nullable: true },
@@ -1155,7 +1176,7 @@ export const openapiSpec = {
                   type: 'object',
                   properties: {
                     id: { type: 'string' },
-                    data: { $ref: '#/components/schemas/OcrExtractedInvoice' },
+                    data: { $ref: '#/components/schemas/OcrLegacyExtracted' },
                     durationMs: { type: 'integer' },
                   },
                 },
@@ -1237,6 +1258,21 @@ export const openapiSpec = {
         responses: { 200: { description: 'WebP image', content: { 'image/webp': { schema: { type: 'string', format: 'binary' } } } } },
       },
     },
+    '/api/admin/ocr/{id}/document': {
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+        { name: 'download', in: 'query', required: false, schema: { type: 'string', enum: ['1'] }, description: 'Με `1` επιστρέφεται ως αρχείο (`Content-Disposition: attachment`).' },
+      ],
+      get: {
+        tags: ['Invoice OCR'],
+        summary: 'Κανονικό JSON εγγράφου (§17.1)',
+        description: '**Απαιτεί `ocr.read`**. Ο φάκελος με το κανονικό JSON — ό,τι διαβάζουν το Excel και η καταχώριση στο SoftOne.',
+        responses: {
+          200: { description: 'Envelope', content: { 'application/json': { schema: { $ref: '#/components/schemas/OcrDocumentEnvelope' } } } },
+          404: { description: 'Not found' },
+        },
+      },
+    },
     '/api/admin/ocr/{id}/reextract': {
       parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
       post: {
@@ -1255,7 +1291,7 @@ export const openapiSpec = {
                   properties: {
                     ok: { type: 'boolean' },
                     model: { type: 'string' },
-                    data: { $ref: '#/components/schemas/OcrExtractedInvoice' },
+                    data: { $ref: '#/components/schemas/OcrLegacyExtracted' },
                   },
                 },
               },
@@ -1267,24 +1303,57 @@ export const openapiSpec = {
     },
     '/api/admin/ocr/{id}/post-softone': {
       parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      get: {
+        tags: ['Invoice OCR'],
+        summary: 'Προεπισκόπηση καταχώρισης (dry-run)',
+        description:
+          '**Απαιτεί `ocr.post`** και `?dryRun=1`. Επιστρέφει το PURDOC payload που ΘΑ σταλεί και τα εμπόδια που ' +
+          'το κρατούν πίσω, ΧΩΡΙΣ καμία κλήση προς SoftOne και χωρίς καμία εγγραφή. Τα εμπόδια δεν είναι σφάλμα — ' +
+          'επιστρέφονται με 200.',
+        parameters: [{ name: 'dryRun', in: 'query', required: true, schema: { type: 'string', enum: ['1'] } }],
+        responses: {
+          200: {
+            description: 'Preview',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    enabled: { type: 'boolean', description: 'Ο διακόπτης `softone.postingEnabled`.' },
+                    blockers: {
+                      type: 'array',
+                      items: { type: 'object', properties: { code: { type: 'string' }, message: { type: 'string' } } },
+                    },
+                    payload: { type: 'object', additionalProperties: true, description: 'setData PURDOC (OBJECT/KEY/DATA).' },
+                    summary: { type: 'object', additionalProperties: true },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Λείπει το `dryRun=1`' },
+          404: { description: 'Not found' },
+        },
+      },
       post: {
         tags: ['Invoice OCR'],
-        summary: 'Καταχώρηση στο SoftOne (FINDOC / PURDOC / SODOC)',
+        summary: 'Καταχώριση στο SoftOne (setData PURDOC + read-back)',
         description:
-          '**Απαιτεί `ocr.post`**. Το document πρέπει να είναι `status=COMPLETED` με ορισμένο `category`. ' +
-          'Routing ανά category: `EXPENSE`/`INVOICE_IN` → PURDOC · `INVOICE_OUT`/`RECEIPT` → SODOC · ' +
-          '`CREDIT_NOTE` → PURDOC/SODOC με αρνητική SERIES.',
+          '**Απαιτεί `ocr.post`**. Χτίζει το PURDOC payload από το κανονικό JSON και το στέλνει ΜΟΝΟ όταν η ρύθμιση ' +
+          '`softone.postingEnabled` είναι ανοιχτή. Μετά το `setData` το παραστατικό διαβάζεται πίσω (`getData PURDOC`) ' +
+          'και επαληθεύονται `FINCODE`/`TRDR` — το `success:true` του SoftOne δεν αποδεικνύει εγγραφή.',
         responses: {
           200: {
             description: 'Posted',
             content: {
               'application/json': {
-                schema: { type: 'object', properties: { ok: { type: 'boolean' }, ref: { type: 'string' } } },
+                schema: { type: 'object', properties: { ok: { type: 'boolean' }, ref: { type: 'string', description: 'FINDOC id' } } },
               },
             },
           },
-          422: { description: 'Δεν είναι COMPLETED ή λείπει category' },
-          502: { description: 'SoftOne error (διατηρείται postError στο record)' },
+          409: { description: 'Η καταχώριση είναι απενεργοποιημένη στις Ρυθμίσεις' },
+          422: { description: 'Εκκρεμότητες (κατηγορία, προμηθευτής, σειρά, γραμμές χωρίς αντιστοίχιση, …)' },
+          502: { description: 'SoftOne error ή αποτυχία επαλήθευσης (διατηρείται `postError` στο record)' },
         },
       },
     },
