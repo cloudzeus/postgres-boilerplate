@@ -2,7 +2,6 @@
 
 import * as React from 'react';
 import { FiArrowLeft, FiCheckCircle, FiInbox, FiSearch } from 'react-icons/fi';
-import { PageHeader } from '@/components/admin/page-header';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useQueueKeys } from './use-queue-keys';
@@ -21,12 +20,24 @@ export interface QueueProgress {
 }
 
 export interface QueueLayoutProps<T> {
-  /** PageHeader — same props as everywhere else in /admin. */
-  title: string;
+  /**
+   * Ready-made header element. `PageHeader` renders the wiki `?` icon from a
+   * server component (it awaits the user's permissions), so it cannot be
+   * imported here — pass it in from the server page instead:
+   * `header={<PageHeader … helpAnchor="…" />}`. Without it the fields below
+   * render a plain header with no help icon.
+   */
+  header?: React.ReactNode;
+  /** Fallback header — used only when `header` is not given. */
+  title?: string;
   description?: string;
-  helpAnchor?: string;
   icon?: React.ReactNode;
   actions?: React.ReactNode;
+  /**
+   * Δεν έχει πια επίδραση εδώ: το `?` της wiki το φέρνει ο `PageHeader` που
+   * περνάς στο `header`. Μένει στο type για τις σελίδες που το έδιναν ήδη.
+   */
+  helpAnchor?: string;
 
   /** Rows of the queue, already filtered/sorted by the page. */
   items: T[];
@@ -143,9 +154,9 @@ function isStacked(): boolean {
  * presentational — every piece of state is owned by the page.
  */
 export function QueueLayout<T,>({
+  header,
   title,
   description,
-  helpAnchor,
   icon,
   actions,
   items,
@@ -210,7 +221,22 @@ export function QueueLayout<T,>({
 
   return (
     <div className={cn('w-full', className)}>
-      <PageHeader icon={icon} title={title} description={description} helpAnchor={helpAnchor} actions={actions} />
+      {header ?? (
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            {icon && (
+              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm bg-[var(--cx-accent-soft)] text-primary [&_svg]:size-4">
+                {icon}
+              </span>
+            )}
+            <div className="min-w-0">
+              <h1 className="truncate text-title-2 font-semibold tracking-tight text-foreground">{title}</h1>
+              {description && <p className="mt-0.5 text-body-sm text-muted-foreground">{description}</p>}
+            </div>
+          </div>
+          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[380px_minmax(0,1fr)] lg:items-start">
         <section
