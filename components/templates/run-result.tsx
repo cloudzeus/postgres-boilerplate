@@ -7,7 +7,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FiChevronDown, FiChevronRight, FiDownload, FiFileText, FiHelpCircle, FiPlay, FiPlus, FiUploadCloud } from 'react-icons/fi';
+import { FiBookOpen, FiChevronDown, FiChevronRight, FiDownload, FiFileText, FiHelpCircle, FiPlay, FiPlus, FiUploadCloud } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { RegionMarker, type SavedRegion } from '@/components/ui/region-marker';
@@ -34,6 +34,8 @@ type Props = {
   canManage: boolean;
   canPost: boolean;
   postStatus: string;
+  /** §14.7 — ο αναγνωριστής δεν βρήκε πρότυπο για αυτό το έγγραφο (`reviewFlags.unknownForm`). */
+  unknownForm?: boolean;
   /** Wiki page for the `template-runs` help anchor, resolved on the server (null = no access). */
   helpHref?: string | null;
 };
@@ -50,7 +52,7 @@ function FlagList({ items, color, bg, title }: { items: string[]; color: string;
   );
 }
 
-export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, canManage, canPost, postStatus, helpHref }: Props) {
+export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, canManage, canPost, postStatus, unknownForm, helpHref }: Props) {
   const router = useRouter();
   const [runs, setRuns] = React.useState<RunDto[]>(initialRuns);
   const [selectedId, setSelectedId] = React.useState<string | null>(initialRuns[0]?.id ?? null);
@@ -70,6 +72,10 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
   const [posting, setPosting] = React.useState(false);
   const [flowOpen, setFlowOpen] = React.useState(false);
   const [historyOpen, setHistoryOpen] = React.useState(false);
+  // «Χρήση ως δείγμα εκπαίδευσης»: ένα κλικ, μία φορά ανά εκτέλεση — μετά το κουμπί λέει τι έγινε
+  // αντί να προσκαλεί σε ένα δεύτερο, πανομοιότυπο δείγμα.
+  const [sampledRunId, setSampledRunId] = React.useState<string | null>(null);
+  const [sampling, setSampling] = React.useState(false);
 
   // One element per field row, so a click on a flow node can bring its row into view (spec §16.5).
   const rowRefs = React.useRef<Record<string, HTMLLIElement | null>>({});
@@ -194,6 +200,25 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
     }
   }, [docId, router]);
 
+  /**
+   * Το έγγραφο γίνεται δείγμα εκπαίδευσης του προτύπου που μόλις έτρεξε. Αυτό είναι το κλείσιμο του
+   * κύκλου του «Άγνωστου εντύπου» (§14.7): ο άνθρωπος ήξερε κάτι που ο αναγνωριστής δεν ήξερε, και
+   * από την επόμενη φορά το ξέρει κι εκείνος — χωρίς καμία νέα κλήση μοντέλου.
+   */
+  const doSample = React.useCallback(async () => {
+    if (!run) return;
+    setSampling(true);
+    try {
+      await templatesApi.samples.fromDocument(run.template.id, docId);
+      setSampledRunId(run.id);
+      toast.success(`Προστέθηκε ως δείγμα εκπαίδευσης στο «${run.template.name}».`);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setSampling(false);
+    }
+  }, [docId, run]);
+
   const flowRun = React.useMemo<FlowRun | undefined>(
     () => (run ? { status: run.status, values: run.values, matchedIds: run.matched.map((m) => m.id), mappingName: run.mappingName } : undefined),
     [run],
@@ -234,6 +259,12 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
                 className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-lg border border-input bg-background px-2.5 text-[0.8rem] font-medium hover:bg-muted">
                 <FiDownload className="size-3.5" /> Excel
               </a>
+              {canManage && (
+                <Button size="sm" variant="secondary" onClick={doSample} disabled={sampling || sampledRunId === run.id}
+                  title={`Πρόσθεσε αυτό το αρχείο στα δείγματα εκπαίδευσης του «${run.template.name}» — ώστε το επόμενο ίδιο έντυπο να αναγνωριστεί μόνο του`}>
+                  <FiBookOpen /> {sampledRunId === run.id ? 'Μπήκε στα δείγματα' : sampling ? 'Προσθήκη…' : 'Χρήση ως δείγμα εκπαίδευσης'}
+                </Button>
+              )}
             </>
           )}
           {/* A BLOCK_POSTING reason stops the button too: the server refuses the post anyway, so offering it
@@ -249,6 +280,12 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
       {!run ? (
         <div className="space-y-1 rounded-lg border border-dashed border-border p-4 text-[12px] text-muted-foreground">
           <p>Δεν έχει τρέξει πρότυπο σε αυτό το έγγραφο.</p>
+          {unknownForm && (
+            <p style={{ color: '#4338CA' }}>
+              Άγνωστο έντυπο: κανένα ενεργό πρότυπο δεν ταιριάζει ούτε στο ΑΦΜ του εκδότη ούτε στη διάταξη της σελίδας.
+              {canManage ? ' Διάλεξε πρότυπο και τρέξε το — μετά πρόσθεσέ το ως δείγμα εκπαίδευσης, ώστε το επόμενο ίδιο έντυπο να αναγνωριστεί μόνο του.' : ''}
+            </p>
+          )}
           {vatHint && <p style={{ color: '#047857' }}>Βρέθηκε πρότυπο για το ΑΦΜ εκδότη.</p>}
         </div>
       ) : (

@@ -1,9 +1,10 @@
 // components/templates/api.ts — CLIENT. Typed fetch helpers for the template endpoints + Greek error text.
+import type { SampleDto, TrainingSummary } from '@/lib/templates/samples';
 import type { TemplateDto } from '@/lib/templates/serialize';
 import type { RunDto } from '@/lib/templates/run-dto';
 import type { FieldDef, FieldValue, Region, RunOutcome } from '@/lib/templates/schema';
 
-export type { RunDto, RunOutcome };
+export type { RunDto, RunOutcome, SampleDto, TrainingSummary };
 
 export type Cleanup = { mappings: { name: string; removedRows: number }[]; conditions: { id: string; name: string; removedClauses: number; removedActions: number }[] };
 export type TestFieldResult = { raw: string | null; value: unknown; source: string; model: string | null; tokensUsed: number; color: string; durationMs: number };
@@ -42,6 +43,10 @@ const ERROR_TEXT: Record<string, string> = {
   unsupported_type: 'Μη υποστηριζόμενος τύπος αρχείου (PDF, PNG, JPEG, WebP).',
   too_large: 'Το αρχείο ξεπερνά τα 25 MB.',
   file_required: 'Επίλεξε αρχείο.',
+  too_many: 'Πολλά αρχεία σε ένα αίτημα.',
+  primary: 'Το κύριο δείγμα δεν διαγράφεται — αντικατέστησέ το ανεβάζοντας νέο.',
+  copy_failed: 'Το αρχείο του εγγράφου δεν ήταν διαθέσιμο.',
+  training_gate: 'Το πρότυπο δεν έχει εκπαιδευτεί αρκετά για ενεργοποίηση.',
 };
 
 export class ApiError extends Error {
@@ -80,6 +85,24 @@ export const templatesApi = {
   test: (id: string) => fetch(`${base(id)}/test`, json({})).then((r) => handle<TestTemplateResult>(r)),
   searchSuppliers: (q: string) => fetch(`/api/admin/softone/search?type=suppliers&q=${encodeURIComponent(q)}`).then((r) => handle<{ results: { id: number; code: string; name: string; sub: string; afm: string | null }[] }>(r)),
   pageImageUrl: (id: string, page: number, version: number, scale = 3) => `${base(id)}/page-image?page=${page}&scale=${scale}&v=${version}`,
+
+  /** Δείγματα εκπαίδευσης ενός προτύπου (spec §11). */
+  samples: {
+    list: (id: string) => fetch(`${base(id)}/samples`, { cache: 'no-store' }).then((r) => handle<{ samples: SampleDto[] }>(r)),
+    add: (id: string, files: File[]) => {
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f);
+      return fetch(`${base(id)}/samples`, { method: 'POST', body: fd })
+        .then((r) => handle<{ samples: SampleDto[]; failed: { fileName: string; error: string }[]; training: TrainingSummary }>(r));
+    },
+    read: (id: string, sampleId: string) => fetch(`${base(id)}/samples/${sampleId}/read`, json({})).then((r) => handle<{ sample: SampleDto; model: string | null; tokensUsed: number; errors: { fieldKey: string; message: string }[] }>(r)),
+    readAll: (id: string) => fetch(`${base(id)}/samples/read-all`, json({})).then((r) => handle<{ read: number; failed: number; training: TrainingSummary }>(r)),
+    verify: (id: string, sampleId: string, expected: Record<string, unknown>) => fetch(`${base(id)}/samples/${sampleId}`, json({ expected }, 'PATCH')).then((r) => handle<{ sample: SampleDto; training: TrainingSummary }>(r)),
+    remove: (id: string, sampleId: string) => fetch(`${base(id)}/samples/${sampleId}`, { method: 'DELETE' }).then((r) => handle<{ ok: true; training: TrainingSummary }>(r)),
+    /** Κάνει ένα ήδη σαρωμένο έγγραφο δείγμα αυτού του προτύπου (§14.7 — «Άγνωστο έντυπο»). */
+    fromDocument: (id: string, documentId: string) => fetch(`${base(id)}/samples/from-document`, json({ documentId })).then((r) => handle<{ sample: SampleDto; training: TrainingSummary }>(r)),
+    pageImageUrl: (id: string, sampleId: string, page: number, scale = 3) => `${base(id)}/samples/${sampleId}/page-image?page=${page}&scale=${scale}`,
+  },
 
   /** Template runs of one OCR document (spec §15.5) — these live under the document, not the template. */
   runs: {

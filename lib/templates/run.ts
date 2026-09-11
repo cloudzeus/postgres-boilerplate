@@ -25,9 +25,13 @@ import {
 import { recomputeFieldFlags, type StoredFlags } from './run-flags';
 import { toLastGood, updateLastGood } from './adaptive';
 import { RUN_INCLUDE, type RunWithTemplate } from './run-dto';
-import { isValidBbox, normalizeVat, type FieldValue, type MappingRowInvoice, type Region, type RunOutcome, type RunTrigger } from './schema';
+import { isValidBbox, type FieldValue, type MappingRowInvoice, type Region, type RunOutcome, type RunTrigger } from './schema';
+import { findTemplateForVat } from './match-vat';
+import { markUnknownForm, recognizeTemplate, type RecognizedBy } from './recognize';
 
 export type { RunOutcome, RunTrigger };
+// Re-exported where it has always lived: every caller of the runner asks it this question too.
+export { findTemplateForVat };
 
 /** Prefix of the review reason a field read in the WIDENED box gets (spec §17.2). */
 export const ADAPTIVE_PREFIX = 'Διαβάστηκε σε διευρυμένη περιοχή «';
@@ -95,19 +99,7 @@ export async function persistProjection(documentId: string, projected: DocumentJ
   if (linesChanged) await matchDocItems(documentId).catch(() => null);
 }
 
-/** The ACTIVE template linked to this issuer ΑΦΜ (most recently updated wins). */
-export async function findTemplateForVat(vat: unknown): Promise<string | null> {
-  const afm = normalizeVat(vat);
-  if (!afm) return null;
-  const t = await prisma.extractionTemplate.findFirst({
-    where: { vatNumber: afm, status: 'ACTIVE' },
-    orderBy: { updatedAt: 'desc' },
-    select: { id: true },
-  });
-  return t?.id ?? null;
-}
-
-export async function runTemplateOnDocument(input: { documentId: string; templateId: string; trigger: RunTrigger }): Promise<RunOutcome> {
+export async function runTemplateOnDocument(input: { documentId: string; templateId: string; trigger: RunTrigger; recognizedBy?: RecognizedBy }): Promise<RunOutcome> {
   const started = Date.now();
   const [doc, t] = await Promise.all([
     prisma.ocrDocument.findUnique({ where: { id: input.documentId }, include: { _count: { select: { items: true } } } }),
@@ -120,6 +112,9 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
   const rules: RuleDef[] = [...t.conditions].sort((a, b) => a.order - b.order).map(toConditionDto);
   const mappings = t.mappings.map(toMappingDto);
   const base = { templateId: t.id, templateVersion: t.version, documentId: doc.id, trigger: input.trigger };
+  // Πώς βρέθηκε αυτό το πρότυπο (§14.7) — ταξιδεύει στα flags ώστε μια εκτέλεση που «μαντεύτηκε»
+  // από τη διάταξη να ξεχωρίζει από μία που ζητήθηκε ονομαστικά.
+  const recognizedBy = input.recognizedBy ?? null;
   // Το κανονικό έγγραφο, όπως το άφησε το βασικό OCR. Ό,τι διαβάσει το πρότυπο γράφεται ΠΑΝΩ του.
   const document = await loadDocumentJson(doc.id);
   // What the base OCR read, captured NOW — the projection below overwrites the document with the
@@ -246,7 +241,7 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
         createdAt,
         values: values as unknown as Prisma.InputJsonValue,
         matched: applied.matched as unknown as Prisma.InputJsonValue,
-        flags: { ...flags, notified: [] as string[], learned, baseOcr } as unknown as Prisma.InputJsonValue,
+        flags: { ...flags, notified: [] as string[], learned, baseOcr, ...(recognizedBy && { recognizedBy }) } as unknown as Prisma.InputJsonValue,
         // The canonical document this run produced (spec §17.1) — the whole output of the run, frozen
         // at the moment it ran. A later re-run of the same template writes its own row.
         // `normalizeDocument` because that is what `saveDocumentJson` stored: the downloaded envelope
@@ -275,7 +270,7 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
     });
     if (notified.length) {
       await prisma.templateRun
-        .update({ where: { id: run.id }, data: { flags: { ...flags, notified, learned, baseOcr } as unknown as Prisma.InputJsonValue } })
+        .update({ where: { id: run.id }, data: { flags: { ...flags, notified, learned, baseOcr, ...(recognizedBy && { recognizedBy }) } as unknown as Prisma.InputJsonValue } })
         .catch((e) => console.error('[templates] notified flags not stored', run.id, (e as Error).message));
     }
 
@@ -283,7 +278,7 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
     // never fall through to the outer catch (that would write a second, FAILED, run for the same work).
     await prisma
       .$transaction([
-        prisma.ocrDocument.update({ where: { id: doc.id }, data: { reviewFlags: buildReviewFlags(t, status, run.id, flags) as unknown as Prisma.InputJsonValue } }),
+        prisma.ocrDocument.update({ where: { id: doc.id }, data: { reviewFlags: buildReviewFlags(t, status, run.id, flags, recognizedBy) as unknown as Prisma.InputJsonValue } }),
         prisma.extractionTemplate.update({ where: { id: t.id }, data: { timesUsed: { increment: 1 } } }),
       ])
       .catch((e) => console.error('[templates] run bookkeeping failed', run.id, (e as Error).message));
@@ -478,12 +473,23 @@ export async function rereadField(input: { documentId: string; runId: string; fi
   return { ok: true, run: updated, value, region, overridden: input.region != null, model: ex.model, tokensUsed: ex.tokensUsed };
 }
 
-/** Convenience for the upload/reextract hooks: match by ΑΦΜ and run; never throws. */
+/**
+ * Convenience for the upload/reextract hooks: find the template this document belongs to and run it.
+ * Never throws.
+ *
+ * The ΑΦΜ is only the FIRST question (spec §14.7): a document whose issuer has no template is then
+ * compared by layout against every trained one, and only when that fails too is it marked «άγνωστο
+ * έντυπο» — a flag the list shows, so a human picks the template once and the sample they make out
+ * of it teaches the recogniser for next time.
+ */
 export async function runMatchingTemplate(documentId: string, vat: unknown, trigger: RunTrigger): Promise<RunOutcome | null> {
   try {
-    const templateId = await findTemplateForVat(vat);
-    if (!templateId) return null;
-    return await runTemplateOnDocument({ documentId, templateId, trigger });
+    const found = await recognizeTemplate(documentId, vat);
+    if (!found) {
+      await markUnknownForm(documentId);
+      return null;
+    }
+    return await runTemplateOnDocument({ documentId, templateId: found.templateId, trigger, recognizedBy: found.by });
   } catch (e) {
     console.error('[templates] runMatchingTemplate', (e as Error).message);
     return null;

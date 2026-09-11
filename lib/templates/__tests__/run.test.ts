@@ -3,7 +3,7 @@ import type { FieldValue, TemplateValueType } from '../schema';
 
 const db = vi.hoisted(() => ({
   ocrDocument: { findUnique: vi.fn(), update: vi.fn() },
-  extractionTemplate: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
+  extractionTemplate: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() },
   templateRun: { create: vi.fn(), findMany: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
   ocrInvoiceItem: { deleteMany: vi.fn(), createMany: vi.fn(), findMany: vi.fn() },
   templateField: { update: vi.fn() },
@@ -432,6 +432,17 @@ describe('runMatchingTemplate', () => {
     db.extractionTemplate.findFirst.mockResolvedValue(null);
     await expect(runMatchingTemplate('d1', '123456789', 'upload')).resolves.toBeNull();
     expect(db.templateRun.create).not.toHaveBeenCalled();
+  });
+
+  it('marks the document «άγνωστο έντυπο» when neither the ΑΦΜ nor the layout knows it', async () => {
+    db.extractionTemplate.findFirst.mockResolvedValue(null);
+    db.extractionTemplate.findMany.mockResolvedValue([]);
+    db.ocrDocument.findUnique.mockResolvedValue({ id: 'd1', issuerAfm: null, rawText: null, document: null, reviewFlags: { review: ['παλιός λόγος'], blocked: [] } });
+    await expect(runMatchingTemplate('d1', '123456789', 'upload')).resolves.toBeNull();
+    expect(db.ocrDocument.update).toHaveBeenCalledWith({
+      where: { id: 'd1' },
+      data: { reviewFlags: { review: ['παλιός λόγος'], blocked: [], unknownForm: true } },
+    });
   });
 
   it('resolves null (never throws) when the runner itself rejects', async () => {

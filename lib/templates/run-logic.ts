@@ -215,7 +215,23 @@ export function tableFellThrough(
  * The document's cached summary of its LATEST run (`OcrDocument.reviewFlags`). Deliberately only the
  * two reason lists: the per-field verdict lives on the run itself, where the card that renders it is.
  */
-export type ReviewFlags = { review: string[]; blocked: string[]; templateSlug: string; templateName: string; runStatus: RunStatus; runId: string };
-export function buildReviewFlags(t: { slug: string; name: string }, status: RunStatus, runId: string, flags: Pick<RunFlags, 'review' | 'blocked'>): ReviewFlags {
-  return { review: flags.review, blocked: flags.blocked, templateSlug: t.slug, templateName: t.name, runStatus: status, runId };
+export type ReviewFlags = {
+  review: string[]; blocked: string[]; templateSlug: string; templateName: string; runStatus: RunStatus; runId: string;
+  /** §14.7 — how the runner found this template; absent when a human named it. */
+  recognizedBy?: 'vat' | 'similarity' | 'model';
+  /**
+   * §14.7 — set by `markUnknownForm` on a document NO template could be matched to. It lives in the
+   * same JSON column, which is why it is declared here: a run of any kind rewrites the column whole
+   * and the flag therefore clears itself the moment somebody picks a template by hand.
+   */
+  unknownForm?: boolean;
+};
+export function buildReviewFlags(
+  t: { slug: string; name: string }, status: RunStatus, runId: string,
+  flags: Pick<RunFlags, 'review' | 'blocked'>, recognizedBy?: ReviewFlags['recognizedBy'] | null,
+): ReviewFlags {
+  return {
+    review: flags.review, blocked: flags.blocked, templateSlug: t.slug, templateName: t.name,
+    runStatus: status, runId, ...(recognizedBy && { recognizedBy }),
+  };
 }
