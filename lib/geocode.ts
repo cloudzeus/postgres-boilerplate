@@ -172,7 +172,7 @@ async function nominatimParts(q: string, countryHint?: string): Promise<AddressP
 /**
  * Αναλύει μια ΕΛΕΥΘΕΡΗ διεύθυνση σε χώρα / πόλη / Τ.Κ.
  *
- * Πάροχος: Google Geocoding όταν υπάρχει `GOOGLE_GEOCODING_API_KEY`, αλλιώς
+ * Πάροχος: Google Geocoding όταν υπάρχει `GOOGLE_GEOCODING_API_KEY` (ή το υπάρχον `GOOGLE_MAPS_API_KEY`), αλλιώς
  * Nominatim (OpenStreetMap, χωρίς κλειδί). Καμία επανάληψη, προθεσμία 8s και
  * ΠΟΤΕ exception προς το UI: μια αποτυχία είναι απλώς `null`.
  */
@@ -182,7 +182,7 @@ export async function geocodeAddressParts(
 ): Promise<AddressParts | null> {
   const query = String(q ?? '').trim();
   if (!query) return null;
-  const key = process.env.GOOGLE_GEOCODING_API_KEY ?? '';
+  const key = process.env.GOOGLE_GEOCODING_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '';
   return key
     ? googleParts(query, key, opts.countryHint)
     : nominatimParts(query, opts.countryHint);
