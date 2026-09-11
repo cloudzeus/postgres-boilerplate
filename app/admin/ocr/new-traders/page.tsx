@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
 export default async function NewTradersPage() {
   await requirePermission('ocr.read');
 
-  const [{ groups, ignored }, canManage, taxOffices] = await Promise.all([
+  const [{ groups, ignored, truncated }, canManage, taxOffices] = await Promise.all([
     loadTraderQueue({ includeIgnored: true }),
     hasPermission('ocr.categorize'),
     // Best-effort: χωρίς SoftOne η σελίδα δουλεύει, απλώς το πεδίο Δ.Ο.Υ. μένει κενό.
@@ -36,6 +36,7 @@ export default async function NewTradersPage() {
       }
       groups={groups}
       ignored={ignored}
+      truncated={truncated}
       taxOffices={taxOffices}
       canManage={canManage}
     />

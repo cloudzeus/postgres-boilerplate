@@ -1,12 +1,13 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { FiCheckCircle } from 'react-icons/fi';
 import { toast } from 'sonner';
-import { QueueEmpty, QueueLayout } from '@/components/admin/queue-layout';
+import { QueueEmpty, QueueLayout, type QueueLayoutHandle } from '@/components/admin/queue-layout';
 import type { ItemQueueGroup, QueueSuggestion } from '@/lib/ocr/queues';
 import type { MatchKind } from '@/lib/ocr/line-match';
-import { CATEGORY_META, ItemPanel, type UnitOption, type VatOption } from './item-panel';
+import { CATEGORY_META, ItemPanel, docLabel, lineLabel, type UnitOption, type VatOption } from './item-panel';
 
 const FILTERS = [
   { key: 'all', label: 'Όλα' },
@@ -35,7 +36,9 @@ export function NewItemsClient({
   header,
   initialGroups,
   total,
+  truncated,
   suggestedFor,
+  canManage,
   vats,
   units,
 }: {
@@ -43,10 +46,16 @@ export function NewItemsClient({
   header: React.ReactNode;
   initialGroups: ItemQueueGroup[];
   total: number;
+  /** Η ουρά κόπηκε στο πλαφόν γραμμών του server. */
+  truncated: boolean;
   suggestedFor: number;
+  /** `ocr.categorize` — χωρίς αυτό καμία ενέργεια δεν είναι διαθέσιμη. */
+  canManage: boolean;
   vats: VatOption[];
   units: UnitOption[];
 }) {
+  const router = useRouter();
+  const layout = React.useRef<QueueLayoutHandle | null>(null);
   const [groups, setGroups] = React.useState(initialGroups);
   const [selectedKey, setSelectedKey] = React.useState<string | null>(initialGroups[0]?.key ?? null);
   const [search, setSearch] = React.useState('');
@@ -60,6 +69,9 @@ export function NewItemsClient({
     () => new Set(initialGroups.slice(0, suggestedFor).map((g) => g.key)),
   );
   const [loadingSuggest, setLoadingSuggest] = React.useState<string | null>(null);
+  // Ομάδες που η lazy φόρτωση προτάσεων απέτυχε: ΔΕΝ μετράνε ως «φορτωμένες»
+  // (θα φαίνονταν «χωρίς πρόταση») και δεν ξαναζητιούνται χωρίς ρητό retry.
+  const [failedSuggest, setFailedSuggest] = React.useState<Set<string>>(() => new Set());
 
   // Η επιλεγμένη κατηγορία ανά ομάδα (segmented) — ξεκινά από την προεπιλογή
   // του server και κρατιέται όσο ο χρήστης γυρίζει πάνω-κάτω στην ουρά.
@@ -104,7 +116,7 @@ export function NewItemsClient({
 
   // Lazy προτάσεις για την επιλεγμένη ομάδα.
   React.useEffect(() => {
-    if (!selected || loaded.has(selected.key)) return;
+    if (!selected || loaded.has(selected.key) || failedSuggest.has(selected.key)) return;
     const g = selected;
     let ignore = false;
     setLoadingSuggest(g.key);
@@ -112,19 +124,35 @@ export function NewItemsClient({
     if (g.code) params.set('code', g.code);
     if (g.sample) params.set('sample', g.sample);
     fetch(`/api/admin/ocr/new-items/suggest?${params}`)
-      .then((r) => r.json())
-      .then((d: { suggestions?: QueueSuggestion[] }) => {
+      .then(async (r) => {
+        // 4xx/5xx δεν είναι «καμία πρόταση» — η ομάδα μένει αφόρτωτη.
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return (await r.json()) as { suggestions?: QueueSuggestion[] };
+      })
+      .then((d) => {
         if (ignore) return;
         const suggestions = d.suggestions ?? [];
         setGroups((prev) => prev.map((x) => (x.key === g.key ? { ...x, suggestions } : x)));
         setLoaded((prev) => new Set(prev).add(g.key));
       })
       .catch(() => {
-        if (!ignore) toast.error('Δεν φορτώθηκαν οι προτάσεις για την ομάδα.');
+        if (!ignore) setFailedSuggest((prev) => new Set(prev).add(g.key));
       })
       .finally(() => { if (!ignore) setLoadingSuggest(null); });
     return () => { ignore = true; };
-  }, [selected, loaded]);
+  }, [selected, loaded, failedSuggest]);
+
+  /** «Δοκίμασε ξανά» στο panel: βγάζει την ομάδα από τις αποτυχημένες ⇒ το effect ξαναχτυπά. */
+  const retrySuggestions = React.useCallback(() => {
+    const key = selectedKey;
+    if (!key) return;
+    setFailedSuggest((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  }, [selectedKey]);
 
   const category: MatchKind = selected ? (categories[selected.key] ?? selected.category) : 'product';
   const setCategory = (k: MatchKind) => {
@@ -145,7 +173,11 @@ export function NewItemsClient({
     setGroups((prev) => prev.filter((g) => g.key !== key));
     setSelectedKey(next);
     setDone((d) => d + 1);
-  }, [visible]);
+    // Το κουμπί που πατήθηκε μόλις ξεχάστηκε — η εστίαση πάει στη λίστα, στη νέα επιλογή.
+    if (next) requestAnimationFrame(() => layout.current?.focusList());
+    // Ο server είναι η πηγή αλήθειας (badges του sidebar, μετρητές άλλων σελίδων).
+    router.refresh();
+  }, [visible, router]);
 
   async function post<T>(url: string, body: unknown): Promise<T | null> {
     try {
@@ -167,7 +199,7 @@ export function NewItemsClient({
   }
 
   const match = React.useCallback(async (target: { mtrl?: number; expn?: number }, isService: boolean) => {
-    if (!selected || busy) return;
+    if (!selected || busy || !canManage) return;
     const g = selected;
     setBusy(true);
     try {
@@ -178,61 +210,69 @@ export function NewItemsClient({
         isService,
       });
       if (!d) return;
-      toast.success(`Αντιστοιχίστηκαν ${d.linesUpdated} γραμμές → ${d.name}`, { description: memoryNote(g) });
+      toast.success(
+        `${d.linesUpdated === 1 ? 'Αντιστοιχίστηκε' : 'Αντιστοιχίστηκαν'} ${lineLabel(d.linesUpdated)} → ${d.name}`,
+        { description: memoryNote(g) },
+      );
       retire(g.key);
     } finally {
       setBusy(false);
     }
-  }, [selected, busy, retire]);
+  }, [selected, busy, canManage, retire]);
 
   const create = React.useCallback(async (input: {
     kind: MatchKind; code: string; name: string; vat: string | null; unit: string | null; price: number | null;
   }) => {
-    if (!selected || busy) return;
+    if (!selected || busy || !canManage) return;
     const g = selected;
     setBusy(true);
     try {
       const d = await post<ActionResult>('/api/admin/ocr/new-items/create', { afm: g.afm, pattern: g.pattern, ...input });
       if (!d) return;
-      toast.success(`Δημιουργήθηκε «${d.name}» — αντιστοιχίστηκαν ${d.linesUpdated} γραμμές`, {
-        description: memoryNote(g),
-      });
+      toast.success(
+        `Δημιουργήθηκε «${d.name}» — ${d.linesUpdated === 1 ? 'αντιστοιχίστηκε' : 'αντιστοιχίστηκαν'} ${lineLabel(d.linesUpdated)}`,
+        { description: memoryNote(g) },
+      );
       retire(g.key);
     } finally {
       setBusy(false);
     }
-  }, [selected, busy, retire]);
+  }, [selected, busy, canManage, retire]);
 
   const skip = React.useCallback(async () => {
-    if (!selected || busy) return;
+    if (!selected || busy || !canManage) return;
     const g = selected;
     setBusy(true);
     try {
       const d = await post<ActionResult>('/api/admin/ocr/new-items/skip', { afm: g.afm, pattern: g.pattern });
       if (!d) return;
-      toast.success(`Παραλείφθηκαν ${d.linesUpdated} γραμμές`, {
+      toast.success(`${d.linesUpdated === 1 ? 'Παραλείφθηκε' : 'Παραλείφθηκαν'} ${lineLabel(d.linesUpdated)}`, {
         description: 'Μπορείς να τις επαναφέρεις από την καρτέλα του παραστατικού.',
       });
       retire(g.key);
     } finally {
       setBusy(false);
     }
-  }, [selected, busy, retire]);
+  }, [selected, busy, canManage, retire]);
 
   /** Enter στη λίστα = αντιστοίχιση με την πρώτη πρόταση της κατηγορίας. */
   const onPrimary = React.useCallback((id: string) => {
-    if (!selected || selected.key !== id) return;
+    if (!selected || selected.key !== id || !canManage) return;
     const first = shownSuggestions[0];
     if (!first) { toast.info('Καμία πρόταση — διάλεξε από το μητρώο ή δημιούργησε νέο.'); return; }
     void match(
       first.expn != null ? { expn: first.expn } : { mtrl: first.mtrl ?? undefined },
       first.kind === 'service',
     );
-  }, [selected, shownSuggestions, match]);
+  }, [selected, canManage, shownSuggestions, match]);
 
   return (
     <QueueLayout<ItemQueueGroup>
       header={header}
+      handleRef={layout}
+      notice={truncated
+        ? `Εμφανίζονται οι πρώτες ${total} εγγραφές — ολοκλήρωσε αυτές και ανανέωσε.`
+        : undefined}
       items={visible}
       getId={(g) => g.key}
       selectedId={selectedKey}
@@ -244,7 +284,8 @@ export function NewItemsClient({
       onSearch={setSearch}
       searchPlaceholder="Αναζήτηση κειμένου, προμηθευτή, ΑΦΜ…"
       progress={{ done, total }}
-      onPrimary={onPrimary}
+      // Χωρίς `ocr.categorize` το Enter δεν κλέβεται καν από την ουρά.
+      onPrimary={canManage ? onPrimary : undefined}
       keysEnabled={!busy}
       listLabel="Ουρά γραμμών"
       empty={
@@ -271,6 +312,9 @@ export function NewItemsClient({
           suggestions={shownSuggestions}
           hiddenSuggestions={hiddenSuggestions}
           loadingSuggestions={loadingSuggest === selected.key}
+          suggestionsFailed={failedSuggest.has(selected.key)}
+          onRetrySuggestions={retrySuggestions}
+          canManage={canManage}
           busy={busy}
           onMatch={match}
           onCreate={create}
@@ -300,7 +344,7 @@ function GroupRow({ group, noSuggestion }: { group: ItemQueueGroup; noSuggestion
       </p>
       <div className="mt-1 flex flex-wrap items-center gap-1">
         <span className="rounded-sm bg-neutral-6 px-1.5 py-0.5 text-caption tabular-nums text-muted-foreground">
-          ×{group.lineCount} γραμμές · {group.docCount} παραστατικά
+          {lineLabel(group.lineCount)} · {docLabel(group.docCount)}
         </span>
         <span
           className="rounded-sm px-1.5 py-0.5 text-caption font-medium"

@@ -19,25 +19,40 @@ export interface QueueProgress {
   total: number;
 }
 
-export interface QueueLayoutProps<T> {
-  /**
-   * Ready-made header element. `PageHeader` renders the wiki `?` icon from a
-   * server component (it awaits the user's permissions), so it cannot be
-   * imported here — pass it in from the server page instead:
-   * `header={<PageHeader … helpAnchor="…" />}`. Without it the fields below
-   * render a plain header with no help icon.
-   */
-  header?: React.ReactNode;
-  /** Fallback header — used only when `header` is not given. */
-  title?: string;
-  description?: string;
-  icon?: React.ReactNode;
-  actions?: React.ReactNode;
-  /**
-   * Δεν έχει πια επίδραση εδώ: το `?` της wiki το φέρνει ο `PageHeader` που
-   * περνάς στο `header`. Μένει στο type για τις σελίδες που το έδιναν ήδη.
-   */
-  helpAnchor?: string;
+/**
+ * Κεφαλίδα: είτε έτοιμο element (`header`) είτε τα πεδία του απλού header —
+ * ποτέ και τα δύο. Ο `PageHeader` φέρνει το `?` της wiki από server component
+ * (περιμένει τα δικαιώματα του χρήστη), γι' αυτό δεν μπορεί να φτιαχτεί εδώ:
+ * περνιέται έτοιμος ως `header={<PageHeader … helpAnchor="…" />}`.
+ */
+export type QueueHeaderProps =
+  | {
+      header: React.ReactNode;
+      title?: never;
+      description?: never;
+      icon?: never;
+      actions?: never;
+    }
+  | {
+      header?: never;
+      /** Απλή κεφαλίδα χωρίς το `?` της wiki. */
+      title: string;
+      description?: string;
+      icon?: React.ReactNode;
+      actions?: React.ReactNode;
+    };
+
+/** Imperative χειριστήριο του shell — μόνο η εστίαση στη λίστα. */
+export interface QueueLayoutHandle {
+  /** Φέρνει την εστίαση στο listbox (π.χ. αφού μια γραμμή φύγει από την ουρά). */
+  focusList: () => void;
+}
+
+export interface QueueLayoutBaseProps<T> {
+  /** Χειριστήριο για `focusList()` — προαιρετικό. */
+  handleRef?: React.RefObject<QueueLayoutHandle | null>;
+  /** Διακριτική σημείωση πάνω από τη λίστα (π.χ. κομμένη ουρά). */
+  notice?: React.ReactNode;
 
   /** Rows of the queue, already filtered/sorted by the page. */
   items: T[];
@@ -74,6 +89,8 @@ export interface QueueLayoutProps<T> {
   panelClassName?: string;
   className?: string;
 }
+
+export type QueueLayoutProps<T> = QueueLayoutBaseProps<T> & QueueHeaderProps;
 
 /** Stable, whitespace-free DOM id for a row so `aria-activedescendant` works. */
 export function queueOptionId(id: string): string {
@@ -159,6 +176,8 @@ export function QueueLayout<T,>({
   description,
   icon,
   actions,
+  handleRef,
+  notice,
   items,
   getId,
   renderItem,
@@ -182,6 +201,13 @@ export function QueueLayout<T,>({
 }: QueueLayoutProps<T>) {
   const listRef = React.useRef<HTMLElement>(null);
   const panelRef = React.useRef<HTMLElement>(null);
+  const listboxRef = React.useRef<HTMLUListElement>(null);
+
+  // Μετά από αφαίρεση γραμμής η σελίδα ζητά `focusList()`, ώστε το πληκτρολόγιο
+  // να μη μείνει σε κουμπί που μόλις ξεχάστηκε από το DOM.
+  React.useImperativeHandle(handleRef, () => ({
+    focusList: () => listboxRef.current?.focus(),
+  }), []);
 
   const ids = items.map(getId);
 
@@ -331,6 +357,12 @@ export function QueueLayout<T,>({
             )}
           </div>
 
+          {notice && (
+            <p className="border-b border-border bg-neutral-4 px-3 py-1.5 text-caption text-muted-foreground">
+              {notice}
+            </p>
+          )}
+
           {items.length === 0 ? (
             empty ?? (
               <QueueEmpty
@@ -340,6 +372,7 @@ export function QueueLayout<T,>({
             )
           ) : (
             <ul
+              ref={listboxRef}
               role="listbox"
               tabIndex={0}
               aria-label={listLabel}

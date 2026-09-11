@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { FiLoader, FiSearch } from 'react-icons/fi';
+import { FiAlertTriangle, FiLoader, FiRefreshCw, FiSearch } from 'react-icons/fi';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
@@ -51,34 +51,41 @@ export function RegistrySearch({
   const [q, setQ] = React.useState('');
   const [results, setResults] = React.useState<Result[]>([]);
   const [loading, setLoading] = React.useState(false);
+  const [failed, setFailed] = React.useState(false);
+  const [reload, setReload] = React.useState(0);
   const [open, setOpen] = React.useState(false);
   const [active, setActive] = React.useState(0);
   const rootRef = React.useRef<HTMLDivElement>(null);
   const listId = `${id}-list`;
 
   // Αλλαγή μητρώου (segmented) ⇒ τα προηγούμενα αποτελέσματα δεν ισχύουν πια.
-  React.useEffect(() => { setResults([]); setOpen(false); setActive(0); }, [kind]);
+  React.useEffect(() => { setResults([]); setOpen(false); setActive(0); setFailed(false); }, [kind]);
 
   React.useEffect(() => {
     const term = q.trim();
-    if (term.length < 2) { setResults([]); setLoading(false); return; }
+    if (term.length < 2) { setResults([]); setLoading(false); setFailed(false); return; }
     // `ignore` ώστε μια αργή απάντηση να μην προσπεράσει μια νεότερη.
     let ignore = false;
     setLoading(true);
     const h = setTimeout(() => {
       fetch(`/api/admin/softone/search?type=${ENDPOINT[kind]}&q=${encodeURIComponent(term)}`)
-        .then((r) => r.json())
-        .then((d: { results?: Result[] }) => {
+        .then(async (r) => {
+          // Σφάλμα δικτύου/διακομιστή δεν είναι «δεν βρέθηκε»: το λέμε ρητά.
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return (await r.json()) as { results?: Result[] };
+        })
+        .then((d) => {
           if (ignore) return;
           setResults(d.results ?? []);
+          setFailed(false);
           setActive(0);
           setOpen(true);
         })
-        .catch(() => { if (!ignore) setResults([]); })
+        .catch(() => { if (!ignore) { setResults([]); setFailed(true); setOpen(true); } })
         .finally(() => { if (!ignore) setLoading(false); });
     }, 250);
     return () => { ignore = true; clearTimeout(h); };
-  }, [q, kind]);
+  }, [q, kind, reload]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -101,8 +108,9 @@ export function RegistrySearch({
     });
   };
 
-  const showList = open && results.length > 0;
-  const showEmpty = open && !loading && q.trim().length >= 2 && results.length === 0;
+  const showList = open && !failed && results.length > 0;
+  const showError = open && failed && !loading;
+  const showEmpty = open && !failed && !loading && q.trim().length >= 2 && results.length === 0;
 
   return (
     <div className="relative" ref={rootRef}>
@@ -127,7 +135,7 @@ export function RegistrySearch({
             else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); void choose(results[active]); }
           }}
           role="combobox"
-          aria-expanded={showList || showEmpty}
+          aria-expanded={showList || showEmpty || showError}
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={showList ? `${listId}-${active}` : undefined}
@@ -174,6 +182,24 @@ export function RegistrySearch({
             </li>
           ))}
         </ul>
+      )}
+
+      {showError && (
+        <div
+          id={listId}
+          role="status"
+          className="absolute z-20 mt-1 flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-body-sm text-muted-foreground shadow-fluent-8"
+        >
+          <FiAlertTriangle aria-hidden className="size-3.5 shrink-0 text-warning-500" />
+          <span>Σφάλμα φόρτωσης</span>
+          <button
+            type="button"
+            onClick={() => { setFailed(false); setReload((n) => n + 1); }}
+            className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-sm px-1.5 py-0.5 text-caption font-medium text-sisyphus-700 outline-none hover:bg-[var(--cx-hover)] focus-visible:ring-2 focus-visible:ring-sisyphus-500"
+          >
+            <FiRefreshCw aria-hidden className="size-3" /> Δοκίμασε ξανά
+          </button>
+        </div>
       )}
 
       {showEmpty && (

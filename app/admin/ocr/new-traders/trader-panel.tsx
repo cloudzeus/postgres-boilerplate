@@ -33,10 +33,22 @@ interface AadePreview {
 type TraderKind = 'supplier' | 'creditor';
 
 const KIND_LABEL: Record<TraderKind, string> = { supplier: 'Προμηθευτής', creditor: 'Πιστωτής' };
+const KINDS: readonly TraderKind[] = ['supplier', 'creditor'];
 /** Χρώματα chip ανά τύπο (inline hex — ο JIT δεν κρατά δυναμικές κλάσεις). */
 export const KIND_COLORS: Record<TraderKind, { bg: string; fg: string }> = {
   supplier: { bg: '#EAF4FC', fg: '#0078D4' },
   creditor: { bg: '#F3E8FF', fg: '#6D28D9' },
+};
+
+/** Σε ποια κατάσταση βρίσκεται η άντληση στοιχείων από την ΑΑΔΕ. */
+type AadeState = 'loading' | 'ready' | 'missing' | 'invalid' | 'forbidden' | 'error';
+
+/** Τι λέμε στον χρήστη ανά κατάσταση — μόνο το `error` έχει νόημα να ξαναδοκιμαστεί. */
+const AADE_MESSAGE: Record<Exclude<AadeState, 'loading' | 'ready'>, string> = {
+  missing: 'Το ΑΦΜ δεν βρέθηκε στην ΑΑΔΕ — συμπλήρωσε τα στοιχεία χειροκίνητα.',
+  invalid: 'Μη έγκυρο ΑΦΜ (9 ψηφία) — συμπλήρωσε τα στοιχεία χειροκίνητα.',
+  forbidden: 'Χρειάζεται δικαίωμα «ocr.categorize».',
+  error: 'Η ΑΑΔΕ δεν απάντησε.',
 };
 
 export function fmtEuro(n: number | null | undefined): string {
@@ -129,8 +141,9 @@ export function TraderPanel({
   const [failure, setFailure] = React.useState<string | null>(null);
 
   const [aade, setAade] = React.useState<AadePreview | null>(null);
-  const [aadeState, setAadeState] = React.useState<'loading' | 'ready' | 'error' | 'missing'>('loading');
+  const [aadeState, setAadeState] = React.useState<AadeState>('loading');
   const [aadeReload, setAadeReload] = React.useState(0);
+  const kindRefs = React.useRef<Partial<Record<TraderKind, HTMLButtonElement | null>>>({});
 
   const [showSearch, setShowSearch] = React.useState(false);
   const [ignoring, setIgnoring] = React.useState(false);
@@ -161,7 +174,12 @@ export function TraderPanel({
         const d = (await r.json().catch(() => null)) as (AadePreview & { error?: string }) | null;
         if (ignore) return;
         if (r.ok && d) { setAade(d); setAadeState('ready'); return; }
-        setAadeState(d?.error === 'not_found' ? 'missing' : 'error');
+        // Ο κωδικός του route ξεχωρίζει «άκυρο ΑΦΜ» / «χωρίς δικαίωμα» / «δεν
+        // βρέθηκε» από μια πραγματική αποτυχία της ΑΑΔΕ (μόνο αυτή ξαναδοκιμάζεται).
+        if (r.status === 403 || r.status === 401) { setAadeState('forbidden'); return; }
+        if (d?.error === 'invalid_afm') { setAadeState('invalid'); return; }
+        if (d?.error === 'not_found' || r.status === 404) { setAadeState('missing'); return; }
+        setAadeState('error');
       })
       .catch(() => { if (!ignore) setAadeState('error'); });
     return () => { ignore = true; };
@@ -288,16 +306,17 @@ export function TraderPanel({
     }
   };
 
+  // Σημασιολογία `||` παντού: μια κενή τιμή της ΑΑΔΕ ΔΕΝ σβήνει ό,τι έφερε το OCR.
   const applyAll = () => {
     if (!aade) return;
     setForm((f) => ({
       ...f,
       name: aade.name || f.name,
-      doyCode: aade.doyCode ?? matchDoy(aade.doyDescr, taxOffices) ?? f.doyCode,
-      profession: aade.profession ?? f.profession,
-      address: aade.address ?? f.address,
-      zip: aade.zip ?? f.zip,
-      city: aade.city ?? f.city,
+      doyCode: aade.doyCode || matchDoy(aade.doyDescr, taxOffices) || f.doyCode,
+      profession: aade.profession || f.profession,
+      address: aade.address || f.address,
+      zip: aade.zip || f.zip,
+      city: aade.city || f.city,
     }));
     toast.success('Συμπληρώθηκαν τα στοιχεία της ΑΑΔΕ');
   };
@@ -353,8 +372,19 @@ export function TraderPanel({
 
       {/* 2 — Στοιχεία ΑΑΔΕ + σύγκριση */}
       <section className="px-4 py-3" aria-label="Στοιχεία ΑΑΔΕ">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-[13px] font-semibold text-foreground">Στοιχεία ΑΑΔΕ</h3>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
+            Στοιχεία ΑΑΔΕ
+            {/* Το μητρώο λέει ρητά ότι ο ΑΦΜ είναι ανενεργός — χρήσιμο πριν τη δημιουργία. */}
+            {aadeState === 'ready' && aade?.isActive === false && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                style={{ backgroundColor: '#FFF8EE', color: '#92400E' }}
+              >
+                <FiAlertTriangle aria-hidden className="size-3" /> Ανενεργό στην ΑΑΔΕ
+              </span>
+            )}
+          </h3>
           {aadeState === 'ready' && (
             <button
               type="button"
@@ -375,25 +405,23 @@ export function TraderPanel({
           </div>
         )}
 
-        {(aadeState === 'error' || aadeState === 'missing') && (
+        {aadeState !== 'loading' && aadeState !== 'ready' && (
           <div
             className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-[12px]"
             style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}
             role="status"
           >
             <FiAlertTriangle aria-hidden className="size-4 shrink-0" />
-            <span>
-              {aadeState === 'missing'
-                ? 'Το ΑΦΜ δεν βρέθηκε στην ΑΑΔΕ — συμπλήρωσε τα στοιχεία χειροκίνητα.'
-                : 'Η ΑΑΔΕ δεν απάντησε.'}
-            </span>
-            <Button
-              type="button" variant="outline" size="sm"
-              className="ml-auto cursor-pointer"
-              onClick={() => setAadeReload((n) => n + 1)}
-            >
-              <FiRefreshCw aria-hidden className="size-3.5" /> Δοκίμασε ξανά
-            </Button>
+            <span>{AADE_MESSAGE[aadeState]}</span>
+            {aadeState === 'error' && (
+              <Button
+                type="button" variant="outline" size="sm"
+                className="ml-auto cursor-pointer"
+                onClick={() => setAadeReload((n) => n + 1)}
+              >
+                <FiRefreshCw aria-hidden className="size-3.5" /> Δοκίμασε ξανά
+              </Button>
+            )}
           </div>
         )}
 
@@ -431,8 +459,23 @@ export function TraderPanel({
       <section className="px-4 py-3" aria-label="Στοιχεία συναλλασσομένου">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <span className="text-[11px] font-medium text-muted-foreground">Τύπος</span>
-          <div role="radiogroup" aria-label="Τύπος συναλλασσομένου" className="inline-flex rounded-lg border border-border p-0.5">
-            {(['supplier', 'creditor'] as const).map((k) => {
+          <div
+            role="radiogroup"
+            aria-label="Τύπος συναλλασσομένου"
+            className="inline-flex rounded-lg border border-border p-0.5"
+            // ←/→ μετακινούν την ΕΠΙΛΟΓΗ (roving tabindex), όπως ορίζει το WAI-ARIA
+            // για radiogroup· το stopPropagation κρατά τα πλήκτρα μακριά από την ουρά.
+            onKeyDown={(e) => {
+              if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+              e.preventDefault();
+              e.stopPropagation();
+              const at = KINDS.indexOf(form.kind);
+              const next = KINDS[(at + (e.key === 'ArrowRight' ? 1 : -1) + KINDS.length) % KINDS.length];
+              setForm((f) => ({ ...f, kind: next }));
+              kindRefs.current[next]?.focus();
+            }}
+          >
+            {KINDS.map((k) => {
               const active = form.kind === k;
               return (
                 <button
@@ -440,6 +483,8 @@ export function TraderPanel({
                   type="button"
                   role="radio"
                   aria-checked={active}
+                  tabIndex={active ? 0 : -1}
+                  ref={(el) => { kindRefs.current[k] = el; }}
                   onClick={() => setForm((f) => ({ ...f, kind: k }))}
                   className={cn(
                     'inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium outline-none cx-transition',
@@ -461,7 +506,11 @@ export function TraderPanel({
           </Field>
 
           <Field label="ΑΦΜ" id="tp-afm" hint="Κλειδωμένο — προέρχεται από τα παραστατικά.">
-            <Input id="tp-afm" value={group.afm} readOnly disabled className="h-8 font-mono text-[13px]" />
+            {/* `readOnly` (όχι `disabled`): το πεδίο μένει εστιάσιμο και αναγνώσιμο από screen reader. */}
+            <Input
+              id="tp-afm" value={group.afm} readOnly aria-readonly
+              className="h-8 bg-neutral-4 font-mono text-[13px]"
+            />
           </Field>
 
           <Field label="Κωδικός" id="tp-code" error={errorOf('code')} hint="Κενό = αυτόματος από SoftOne.">

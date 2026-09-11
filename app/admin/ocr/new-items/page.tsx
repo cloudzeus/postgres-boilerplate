@@ -1,6 +1,6 @@
 import { FiPackage } from 'react-icons/fi';
 import { prisma } from '@/lib/db';
-import { requirePermission } from '@/lib/rbac';
+import { requirePermission, hasPermission } from '@/lib/rbac';
 import { PageHeader } from '@/components/admin/page-header';
 import { loadItemQueue } from '@/lib/ocr/queues';
 import { NewItemsClient } from './queue-client';
@@ -16,8 +16,10 @@ const SUGGEST_FOR = 50;
 export default async function NewItemsPage() {
   await requirePermission('ocr.read');
 
-  const [queue, vats, units] = await Promise.all([
+  const [queue, canManage, vats, units] = await Promise.all([
     loadItemQueue({ suggestFor: SUGGEST_FOR }),
+    // Χωρίς `ocr.categorize` η σελίδα είναι μόνο για ανάγνωση (ίδιο με «Νέοι συναλλασσόμενοι»).
+    hasPermission('ocr.categorize'),
     // Ίδια πηγή με τα υπόλοιπα σημεία της εφαρμογής: το μητρώο `VatCategory`
     // (κλειδί = ο κωδικός ΦΠΑ του SoftOne, ό,τι περιμένει το setData).
     prisma.vatCategory.findMany({
@@ -44,7 +46,9 @@ export default async function NewItemsPage() {
       }
       initialGroups={queue.groups}
       total={queue.total}
+      truncated={queue.truncated}
       suggestedFor={SUGGEST_FOR}
+      canManage={canManage}
       vats={vats.map((v) => ({ code: v.code, label: v.rate != null ? `${v.descr} (${v.rate}%)` : v.descr, rate: v.rate }))}
       units={units.map((u) => ({ code: u.code, label: u.name }))}
     />

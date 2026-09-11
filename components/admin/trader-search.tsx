@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { FiSearch, FiX } from 'react-icons/fi';
+import { FiAlertTriangle, FiRefreshCw, FiSearch, FiX } from 'react-icons/fi';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
@@ -49,6 +49,8 @@ export function TraderSearch({
   const [results, setResults] = React.useState<TraderHit[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [searched, setSearched] = React.useState(false);
+  const [failed, setFailed] = React.useState(false);
+  const [reload, setReload] = React.useState(0);
   const [open, setOpen] = React.useState(false);
   const [active, setActive] = React.useState(0);
   const rootRef = React.useRef<HTMLDivElement>(null);
@@ -59,6 +61,7 @@ export function TraderSearch({
     if (term.length < MIN_CHARS) {
       setResults([]);
       setSearched(false);
+      setFailed(false);
       setLoading(false);
       return;
     }
@@ -67,21 +70,26 @@ export function TraderSearch({
     setLoading(true);
     const h = setTimeout(() => {
       fetch(`/api/admin/softone/search?type=traders&q=${encodeURIComponent(term)}`)
-        .then((r) => (r.ok ? r.json() : { results: [] }))
-        .then((d: { results?: TraderHit[] }) => {
+        .then(async (r) => {
+          // 4xx/5xx δεν σημαίνει «κανένα αποτέλεσμα» — το δείχνουμε ως σφάλμα.
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return (await r.json()) as { results?: TraderHit[] };
+        })
+        .then((d) => {
           if (ignore) return;
           setResults(d.results ?? []);
+          setFailed(false);
           setActive(0);
           setSearched(true);
           setOpen(true);
         })
         .catch(() => {
-          if (!ignore) { setResults([]); setSearched(true); }
+          if (!ignore) { setResults([]); setSearched(false); setFailed(true); setOpen(true); }
         })
         .finally(() => { if (!ignore) setLoading(false); });
     }, DEBOUNCE_MS);
     return () => { ignore = true; clearTimeout(h); };
-  }, [q]);
+  }, [q, reload]);
 
   // Κλικ εκτός: κλείνει η λίστα, το κείμενο μένει.
   React.useEffect(() => {
@@ -100,8 +108,9 @@ export function TraderSearch({
     onPick(hit);
   };
 
-  const showList = open && results.length > 0;
-  const showEmpty = open && searched && !loading && results.length === 0 && q.trim().length >= MIN_CHARS;
+  const showList = open && !failed && results.length > 0;
+  const showError = open && failed && !loading;
+  const showEmpty = open && searched && !failed && !loading && results.length === 0 && q.trim().length >= MIN_CHARS;
 
   return (
     <div className={cn('relative', className)} ref={rootRef}>
@@ -120,7 +129,7 @@ export function TraderSearch({
           autoFocus={autoFocus}
           autoComplete="off"
           role="combobox"
-          aria-expanded={showList || showEmpty}
+          aria-expanded={showList || showEmpty || showError}
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={showList ? `${listId}-${active}` : undefined}
@@ -154,7 +163,7 @@ export function TraderSearch({
           <button
             type="button"
             aria-label="Καθαρισμός αναζήτησης"
-            onClick={() => { setQ(''); setResults([]); setOpen(false); setSearched(false); }}
+            onClick={() => { setQ(''); setResults([]); setOpen(false); setSearched(false); setFailed(false); }}
             className="absolute right-2 top-1/2 grid size-6 -translate-y-1/2 cursor-pointer place-items-center rounded-sm text-muted-foreground outline-none cx-transition hover:bg-[var(--cx-hover)] focus-visible:ring-2 focus-visible:ring-sisyphus-500"
           >
             <FiX className="size-3.5" />
@@ -197,6 +206,24 @@ export function TraderSearch({
             </li>
           ))}
         </ul>
+      )}
+
+      {showError && (
+        <div
+          id={listId}
+          role="status"
+          className="absolute z-20 mt-1 flex w-full items-center gap-2 rounded-md border border-border bg-neutral-0 px-3 py-2 text-[12px] text-muted-foreground shadow-fluent-8"
+        >
+          <FiAlertTriangle aria-hidden className="size-3.5 shrink-0 text-warning-500" />
+          <span>Σφάλμα φόρτωσης</span>
+          <button
+            type="button"
+            onClick={() => { setFailed(false); setReload((n) => n + 1); }}
+            className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] font-medium text-sisyphus-700 outline-none hover:bg-[var(--cx-hover)] focus-visible:ring-2 focus-visible:ring-sisyphus-500"
+          >
+            <FiRefreshCw aria-hidden className="size-3" /> Δοκίμασε ξανά
+          </button>
+        </div>
       )}
 
       {showEmpty && (

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FiCheckCircle, FiEyeOff, FiFile, FiUserPlus } from 'react-icons/fi';
 import { toast } from 'sonner';
-import { QueueLayout, QueueEmpty, type QueueFilter } from '@/components/admin/queue-layout';
+import { QueueLayout, QueueEmpty, type QueueFilter, type QueueLayoutHandle } from '@/components/admin/queue-layout';
 import { Button } from '@/components/ui/button';
 import { TraderPanel, KIND_COLORS, fmtDate, fmtEuro, type TaxOffice } from './trader-panel';
 import type { IgnoredIssuerRow, TraderGroup } from '@/lib/ocr/queues';
@@ -30,6 +30,8 @@ export interface NewTradersClientProps {
   header: React.ReactNode;
   groups: TraderGroup[];
   ignored: IgnoredIssuerRow[];
+  /** Η ουρά κόπηκε στο πλαφόν εγγράφων του server. */
+  truncated: boolean;
   taxOffices: TaxOffice[];
   canManage: boolean;
 }
@@ -38,8 +40,9 @@ export interface NewTradersClientProps {
  * Ουρά «Νέοι συναλλασσόμενοι»: master–detail με πληκτρολόγιο (J/K/Enter/Esc),
  * αισιόδοξη αφαίρεση της γραμμής μόλις ο εκδότης λυθεί και πρόοδος συνεδρίας.
  */
-export function NewTradersClient({ header, groups, ignored, taxOffices, canManage }: NewTradersClientProps) {
+export function NewTradersClient({ header, groups, ignored, truncated, taxOffices, canManage }: NewTradersClientProps) {
   const router = useRouter();
+  const layout = React.useRef<QueueLayoutHandle | null>(null);
   const [pending, setPending] = React.useState<TraderGroup[]>(groups);
   const [hidden, setHidden] = React.useState<IgnoredIssuerRow[]>(ignored);
   const [done, setDone] = React.useState(0);
@@ -84,6 +87,8 @@ export function NewTradersClient({ header, groups, ignored, taxOffices, canManag
     setPending((list) => list.filter((g) => g.afm !== afm));
     setDone((n) => n + 1);
     setSelectedId(next);
+    // Το κουμπί που πατήθηκε φεύγει από το DOM — η εστίαση πάει στη λίστα.
+    if (next) requestAnimationFrame(() => layout.current?.focusList());
   };
 
   const handleResolved = (afm: string, message: string) => {
@@ -152,6 +157,10 @@ export function NewTradersClient({ header, groups, ignored, taxOffices, canManag
   return (
     <QueueLayout<Row>
       header={header}
+      handleRef={layout}
+      notice={truncated
+        ? `Εμφανίζονται οι πρώτες ${groups.length} εγγραφές — ολοκλήρωσε αυτές και ανανέωσε.`
+        : undefined}
       items={rows}
       getId={(r) => r.id}
       selectedId={selectedId}

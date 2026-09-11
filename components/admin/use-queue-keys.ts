@@ -20,6 +20,13 @@ export interface UseQueueKeysArgs {
 const TYPING_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 
 /**
+ * Στοιχεία που έχουν δική τους σημασία για το Enter (ενεργοποίηση κουμπιού,
+ * άνοιγμα `details`, επιλογή option…). Η ουρά δεν κλέβει το πλήκτρο από αυτά.
+ */
+const INTERACTIVE_SELECTOR =
+  'button, a[href], summary, select, [role="button"], [role="tab"], [role="option"], [contenteditable]';
+
+/**
  * True when the key press belongs to a text-entry surface, in which case the
  * queue must not steal it (typing «j» in the search box means the letter j).
  */
@@ -31,10 +38,21 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 /**
+ * True όταν η εστίαση είναι σε (ή μέσα σε) στοιχείο που χειρίζεται μόνο του το
+ * Enter — τότε το Enter είναι δικό του, όχι της ουράς.
+ */
+function isInteractive(target: EventTarget | null): boolean {
+  const el = target as Element | null;
+  if (!el || typeof el.closest !== 'function') return false;
+  return el.closest(INTERACTIVE_SELECTOR) != null;
+}
+
+/**
  * Keyboard navigation for a master–detail queue:
  * `j` / `ArrowDown` next · `k` / `ArrowUp` previous · `Enter` primary action ·
  * `Escape` clear. Ignored while focus is in an input/textarea/select/
- * contenteditable, and while a modifier key is held. Navigation clamps at the
+ * contenteditable, and while a modifier key is held; `Enter` is additionally
+ * left alone on buttons/links/summary/options. Navigation clamps at the
  * ends (no wrap-around); with nothing selected, next picks the first row and
  * previous the last.
  */
@@ -81,6 +99,8 @@ export function useQueueKeys({
 
       if (key === 'Enter') {
         if (!selectedId || !onPrimary) return;
+        // Κουμπί/σύνδεσμος/summary/option έχουν δική τους ενέργεια στο Enter.
+        if (isInteractive(e.target)) return;
         e.preventDefault();
         onPrimary(selectedId);
         return;

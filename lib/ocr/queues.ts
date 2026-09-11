@@ -666,8 +666,39 @@ export async function skipGroup(input: { afm: string; pattern: string }): Promis
 // ============================================================
 
 /**
+ * Πλήθος ΟΜΑΔΩΝ της ουράς «Είδη & έξοδα» — ίδια ομαδοποίηση με τη σελίδα
+ * (ΑΦΜ εκδότη + κανονικοποιημένο κείμενο) και ίδιο πλαφόν γραμμών, ώστε το badge
+ * να λέει τον ίδιο αριθμό με τη λίστα. Κατεβάζει μόνο τα πεδία της ομαδοποίησης.
+ */
+async function countItemGroups(): Promise<number> {
+  const lines = await prisma.ocrInvoiceItem.findMany({
+    where: UNMATCHED_LINE_WHERE,
+    select: { id: true, documentId: true, name: true, code: true },
+    orderBy: { id: 'asc' },
+    take: MAX_QUEUE_LINES,
+  });
+  if (lines.length === 0) return 0;
+
+  const docIds = Array.from(new Set(lines.map((l) => l.documentId)));
+  const docRows = await prisma.ocrDocument.findMany({
+    where: { id: { in: docIds } },
+    // Μόνο το indexed ΑΦΜ εκδότη — κανένα JSON.
+    select: { id: true, issuerAfm: true },
+  });
+  const afmOf = new Map(docRows.map((d) => [d.id, d.issuerAfm ?? '']));
+
+  return groupLines(lines.map((l) => ({
+    id: l.id,
+    afm: afmOf.get(l.documentId) ?? '',
+    docId: l.documentId,
+    name: l.name,
+    code: l.code,
+  }))).length;
+}
+
+/**
  * Φθηνοί μετρητές των δύο ουρών: διακριτά ΑΦΜ χωρίς συναλλασσόμενο (χωρίς τους
- * αγνοημένους) και πλήθος εκκρεμών γραμμών (προσέγγιση των ομάδων).
+ * αγνοημένους) και πλήθος ΟΜΑΔΩΝ γραμμών — ό,τι ακριβώς μετρά και κάθε σελίδα.
  */
 export async function countQueues(): Promise<{ traders: number; items: number }> {
   const [afmRows, ignoredRows, items] = await Promise.all([
@@ -680,7 +711,7 @@ export async function countQueues(): Promise<{ traders: number; items: number }>
       },
     }),
     prisma.ignoredIssuer.findMany({ select: { afm: true } }),
-    prisma.ocrInvoiceItem.count({ where: UNMATCHED_LINE_WHERE }),
+    countItemGroups(),
   ]);
   const ignored = new Set(ignoredRows.map((r) => r.afm));
   const traders = afmRows.filter((r) => r.issuerAfm && !ignored.has(r.issuerAfm)).length;

@@ -3,10 +3,9 @@
 import * as React from 'react';
 import Link from 'next/link';
 import {
-  FiAlertCircle, FiCheck, FiCornerDownLeft, FiDollarSign, FiExternalLink,
-  FiInfo, FiLoader, FiPackage, FiPlusCircle, FiSkipForward, FiTool,
+  FiAlertCircle, FiAlertTriangle, FiCheck, FiCornerDownLeft, FiDollarSign, FiExternalLink,
+  FiInfo, FiLoader, FiPackage, FiPlusCircle, FiRefreshCw, FiSkipForward, FiTool,
 } from 'react-icons/fi';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RegistrySearch } from '@/components/admin/registry-search';
@@ -27,6 +26,15 @@ export const CATEGORY_META: Record<MatchKind, { label: string; bg: string; fg: s
 const eur = new Intl.NumberFormat('el-GR', { style: 'currency', currency: 'EUR' });
 export const money = (v: number | null) => (v == null ? '—' : eur.format(v));
 
+const qty = new Intl.NumberFormat('el-GR', { maximumFractionDigits: 3 });
+/** Ποσότητα με ελληνικούς διαχωριστές (1.250,5) — ποτέ ωμό `toString()`. */
+export const quantity = (v: number | null) => (v == null ? '—' : qty.format(v));
+
+/** «1 γραμμή» / «5 γραμμές» — κοινός ενικός/πληθυντικός για όλη την ουρά. */
+export const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+export const lineLabel = (n: number) => plural(n, 'γραμμή', 'γραμμές');
+export const docLabel = (n: number) => plural(n, 'παραστατικό', 'παραστατικά');
+
 /** Γιατί προτάθηκε — το `by` του server σε ανθρώπινα ελληνικά. */
 const REASON: Record<string, string> = {
   memory: 'μνήμη',
@@ -35,6 +43,9 @@ const REASON: Record<string, string> = {
   code2: 'κωδικός εργοστασίου',
   name: 'ομοιότητα ονόματος',
 };
+
+/** Πόσο περιμένουμε μετά την τελευταία πληκτρολόγηση πριν ξαναζητήσουμε dry-run. */
+const DRY_DEBOUNCE_MS = 400;
 
 const KIND_ICON: Record<MatchKind, React.ReactNode> = {
   product: <FiPackage aria-hidden className="size-3.5" />,
@@ -67,7 +78,7 @@ function defaultUnit(units: UnitOption[]): string {
  */
 export function ItemPanel({
   group, category, onCategory, suggestions, hiddenSuggestions, loadingSuggestions,
-  busy, onMatch, onCreate, onSkip, vats, units,
+  suggestionsFailed, onRetrySuggestions, canManage, busy, onMatch, onCreate, onSkip, vats, units,
 }: {
   group: ItemQueueGroup;
   category: MatchKind;
@@ -75,6 +86,11 @@ export function ItemPanel({
   suggestions: QueueSuggestion[];
   hiddenSuggestions: number;
   loadingSuggestions: boolean;
+  /** Η lazy φόρτωση προτάσεων απέτυχε — άλλο από «καμία πρόταση». */
+  suggestionsFailed: boolean;
+  onRetrySuggestions: () => void;
+  /** `ocr.categorize` — χωρίς αυτό το panel είναι μόνο για ανάγνωση. */
+  canManage: boolean;
   busy: boolean;
   onMatch: (target: { mtrl?: number; expn?: number }, isService: boolean) => void | Promise<void>;
   onCreate: (input: {
@@ -86,8 +102,10 @@ export function ItemPanel({
 }) {
   const cat = CATEGORY_META[category];
   const needsUnit = category !== 'expense';
+  const locked = busy || !canManage;
 
   const [creating, setCreating] = React.useState(false);
+  const segmentRefs = React.useRef<Partial<Record<MatchKind, HTMLButtonElement | null>>>({});
   const [touched, setTouched] = React.useState<Record<string, boolean>>({});
   const [form, setForm] = React.useState(() => ({
     code: group.code ?? slugCode(group.sample),
@@ -98,12 +116,16 @@ export function ItemPanel({
   }));
   const [dryPayload, setDryPayload] = React.useState<unknown>(null);
   const [dryLoading, setDryLoading] = React.useState(false);
+  const [dryError, setDryError] = React.useState<string | null>(null);
+  const [dryOpen, setDryOpen] = React.useState(false);
 
   // Νέα ομάδα ⇒ καθαρή φόρμα με νέα προσυμπλήρωση.
   React.useEffect(() => {
     setCreating(false);
     setTouched({});
     setDryPayload(null);
+    setDryError(null);
+    setDryOpen(false);
     setForm({
       code: group.code ?? slugCode(group.sample),
       name: group.sample.trim().slice(0, 200),
@@ -113,10 +135,7 @@ export function ItemPanel({
     });
   }, [group.key, group.code, group.sample, group.lines, vats, units]);
 
-  const set = (k: keyof typeof form, v: string) => {
-    setForm((s) => ({ ...s, [k]: v }));
-    setDryPayload(null);
-  };
+  const set = (k: keyof typeof form, v: string) => setForm((s) => ({ ...s, [k]: v }));
 
   const errors: Record<string, string | null> = {
     code: form.code.trim() ? null : 'Ο κωδικός είναι υποχρεωτικός.',
@@ -126,7 +145,7 @@ export function ItemPanel({
   };
   const invalid = Object.values(errors).some(Boolean);
 
-  const payloadBody = () => ({
+  const body = React.useMemo(() => ({
     afm: group.afm,
     pattern: group.pattern,
     kind: category,
@@ -135,32 +154,38 @@ export function ItemPanel({
     vat: form.vat || null,
     unit: needsUnit ? form.unit || null : null,
     price: form.price.trim() ? Number(form.price.replace(',', '.')) : null,
-  });
+  }), [group.afm, group.pattern, category, form.code, form.name, form.vat, form.unit, form.price, needsUnit]);
 
-  const loadDryRun = async () => {
-    if (invalid || dryLoading || dryPayload != null) return;
+  // Όσο η προεπισκόπηση είναι ανοιχτή ακολουθεί τη φόρμα: κάθε αλλαγή ξαναζητά
+  // το dry-run μετά από {@link DRY_DEBOUNCE_MS}, ώστε να μη δείχνει παλιό payload.
+  React.useEffect(() => {
+    if (!dryOpen) return;
+    if (invalid) { setDryPayload(null); setDryError(null); setDryLoading(false); return; }
+    let ignore = false;
     setDryLoading(true);
-    try {
-      const res = await fetch('/api/admin/ocr/new-items/create', {
+    const h = setTimeout(() => {
+      fetch('/api/admin/ocr/new-items/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payloadBody(), dryRun: true }),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) { toast.error(d?.message ?? 'Η προεπισκόπηση απέτυχε.'); return; }
-      setDryPayload(d.payload ?? d);
-    } catch {
-      toast.error('Σφάλμα δικτύου στην προεπισκόπηση.');
-    } finally {
-      setDryLoading(false);
-    }
-  };
+        body: JSON.stringify({ ...body, dryRun: true }),
+      })
+        .then(async (res) => {
+          const d = (await res.json().catch(() => ({}))) as { payload?: unknown; message?: string };
+          if (ignore) return;
+          if (!res.ok) { setDryError(d?.message ?? 'Η προεπισκόπηση απέτυχε.'); return; }
+          setDryError(null);
+          setDryPayload(d.payload ?? d);
+        })
+        .catch(() => { if (!ignore) setDryError('Σφάλμα δικτύου στην προεπισκόπηση.'); })
+        .finally(() => { if (!ignore) setDryLoading(false); });
+    }, DRY_DEBOUNCE_MS);
+    return () => { ignore = true; clearTimeout(h); };
+  }, [dryOpen, invalid, body]);
 
   const submitCreate = () => {
     setTouched({ code: true, name: true, vat: true, unit: true });
     if (invalid) return;
-    const b = payloadBody();
-    void onCreate({ kind: category, code: b.code, name: b.name, vat: b.vat, unit: b.unit, price: b.price });
+    void onCreate({ kind: category, code: body.code, name: body.name, vat: body.vat, unit: body.unit, price: body.price });
   };
 
   return (
@@ -174,7 +199,7 @@ export function ItemPanel({
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <span className="rounded-sm bg-neutral-6 px-1.5 py-0.5 text-caption tabular-nums text-muted-foreground">
-            ×{group.lineCount} γραμμές · {group.docCount} παραστατικά
+            {lineLabel(group.lineCount)} · {docLabel(group.docCount)}
           </span>
           {group.code && (
             <span className="rounded-sm bg-neutral-6 px-1.5 py-0.5 font-mono text-caption text-muted-foreground">
@@ -210,7 +235,7 @@ export function ItemPanel({
               {group.lines.map((l) => (
                 <tr key={l.id} className="border-b border-border/60 last:border-0">
                   <td className="max-w-[220px] truncate py-1 pr-2 text-foreground">{l.name}</td>
-                  <td className="py-1 px-2 text-right tabular-nums">{l.quantity ?? '—'}</td>
+                  <td className="py-1 px-2 text-right tabular-nums">{quantity(l.quantity)}</td>
                   <td className="py-1 px-2 text-right tabular-nums">{money(l.price)}</td>
                   <td className="py-1 px-2 text-right tabular-nums">{money(l.total)}</td>
                   <td className="py-1 pl-2">
@@ -229,7 +254,7 @@ export function ItemPanel({
         </div>
         {group.lineCount > group.lines.length && (
           <p className="mt-1 text-caption text-muted-foreground">
-            …και άλλες {group.lineCount - group.lines.length} όμοιες γραμμές στην ίδια ομάδα.
+            …και {plural(group.lineCount - group.lines.length, 'ακόμη όμοια γραμμή', 'ακόμη όμοιες γραμμές')} στην ίδια ομάδα.
           </p>
         )}
       </section>
@@ -239,15 +264,31 @@ export function ItemPanel({
         <h3 className="mb-1.5 text-caption font-semibold uppercase tracking-wider text-muted-foreground">
           Κατηγορία
         </h3>
-        <div role="tablist" aria-label="Κατηγορία ομάδας" className="grid grid-cols-3 gap-1 rounded-lg bg-neutral-6 p-1">
+        <div
+          role="radiogroup"
+          aria-label="Κατηγορία ομάδας"
+          className="grid grid-cols-3 gap-1 rounded-lg bg-neutral-6 p-1"
+          // ←/→ αλλάζουν την επιλεγμένη κατηγορία (roving tabindex, WAI-ARIA radiogroup).
+          onKeyDown={(e) => {
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+            e.preventDefault();
+            e.stopPropagation();
+            const at = SEGMENTS.indexOf(category);
+            const next = SEGMENTS[(at + (e.key === 'ArrowRight' ? 1 : -1) + SEGMENTS.length) % SEGMENTS.length];
+            onCategory(next);
+            segmentRefs.current[next]?.focus();
+          }}
+        >
           {SEGMENTS.map((k) => {
             const active = k === category;
             return (
               <button
                 key={k}
                 type="button"
-                role="tab"
-                aria-selected={active}
+                role="radio"
+                aria-checked={active}
+                tabIndex={active ? 0 : -1}
+                ref={(el) => { segmentRefs.current[k] = el; }}
                 onClick={() => onCategory(k)}
                 className={cn(
                   'inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md text-[12px] font-medium',
@@ -281,6 +322,24 @@ export function ItemPanel({
               <FiLoader className="size-3.5 animate-spin motion-reduce:animate-none" /> Φόρτωση προτάσεων…
             </li>
           </ul>
+        ) : suggestionsFailed ? (
+          // Αποτυχία φόρτωσης ≠ «καμία πρόταση»: δεν αφήνουμε τον χρήστη να νομίσει
+          // ότι το μητρώο δεν έχει τίποτα, του δίνουμε κουμπί επανάληψης.
+          <div
+            role="status"
+            className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-body-sm"
+            style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}
+          >
+            <FiAlertTriangle aria-hidden className="size-4 shrink-0" />
+            <span>Σφάλμα φόρτωσης προτάσεων.</span>
+            <Button
+              type="button" variant="outline" size="sm"
+              className="ml-auto h-8 cursor-pointer"
+              onClick={onRetrySuggestions}
+            >
+              <FiRefreshCw aria-hidden className="size-3.5" /> Δοκίμασε ξανά
+            </Button>
+          </div>
         ) : suggestions.length === 0 ? (
           <p className="flex items-start gap-1.5 rounded-lg bg-neutral-6 px-3 py-2 text-body-sm text-muted-foreground">
             <FiInfo aria-hidden className="mt-0.5 size-3.5 shrink-0" />
@@ -293,14 +352,14 @@ export function ItemPanel({
                 key={`${s.mtrl ?? 's'}-${s.expn ?? 'e'}-${s.code}`}
                 suggestion={s}
                 first={i === 0}
-                busy={busy}
+                disabled={locked}
                 onMatch={onMatch}
               />
             ))}
           </ul>
         )}
 
-        {hiddenSuggestions > 0 && !loadingSuggestions && (
+        {hiddenSuggestions > 0 && !loadingSuggestions && !suggestionsFailed && (
           <p className="mt-1.5 text-caption text-muted-foreground">
             {hiddenSuggestions} ακόμη {hiddenSuggestions === 1 ? 'πρόταση' : 'προτάσεις'} σε άλλη κατηγορία — άλλαξε το segmented για να τις δεις.
           </p>
@@ -309,7 +368,7 @@ export function ItemPanel({
         <div className="mt-3">
           <RegistrySearch
             kind={category}
-            disabled={busy}
+            disabled={locked}
             id={`registry-${category}`}
             onPick={(p) => onMatch(
               p.kind === 'expense' ? { expn: p.id } : { mtrl: p.id },
@@ -325,7 +384,7 @@ export function ItemPanel({
           <Button
             type="button"
             variant="outline"
-            disabled={busy}
+            disabled={locked}
             onClick={() => setCreating(true)}
             className="h-9 w-full cursor-pointer"
           >
@@ -339,7 +398,7 @@ export function ItemPanel({
 
             <Field id="ni-name" label="Περιγραφή" required error={touched.name ? errors.name : null}>
               <Input
-                id="ni-name" value={form.name} disabled={busy}
+                id="ni-name" value={form.name} disabled={locked}
                 onChange={(e) => set('name', e.target.value)}
                 onBlur={() => setTouched((t) => ({ ...t, name: true }))}
                 aria-invalid={touched.name && !!errors.name}
@@ -350,7 +409,7 @@ export function ItemPanel({
             <div className="grid grid-cols-2 gap-2">
               <Field id="ni-code" label="Κωδικός" required error={touched.code ? errors.code : null}>
                 <Input
-                  id="ni-code" value={form.code} disabled={busy}
+                  id="ni-code" value={form.code} disabled={locked}
                   onChange={(e) => set('code', e.target.value)}
                   onBlur={() => setTouched((t) => ({ ...t, code: true }))}
                   aria-invalid={touched.code && !!errors.code}
@@ -360,7 +419,7 @@ export function ItemPanel({
 
               <Field id="ni-vat" label="ΦΠΑ" required error={touched.vat ? errors.vat : null}>
                 <select
-                  id="ni-vat" value={form.vat} disabled={busy}
+                  id="ni-vat" value={form.vat} disabled={locked}
                   onChange={(e) => set('vat', e.target.value)}
                   onBlur={() => setTouched((t) => ({ ...t, vat: true }))}
                   aria-invalid={touched.vat && !!errors.vat}
@@ -375,7 +434,7 @@ export function ItemPanel({
                 <Field id="ni-unit" label="Μονάδα" required error={touched.unit ? errors.unit : null}>
                   {units.length > 0 ? (
                     <select
-                      id="ni-unit" value={form.unit} disabled={busy}
+                      id="ni-unit" value={form.unit} disabled={locked}
                       onChange={(e) => set('unit', e.target.value)}
                       onBlur={() => setTouched((t) => ({ ...t, unit: true }))}
                       aria-invalid={touched.unit && !!errors.unit}
@@ -386,7 +445,7 @@ export function ItemPanel({
                     </select>
                   ) : (
                     <Input
-                      id="ni-unit" value={form.unit} disabled={busy} placeholder="ΤΕΜ"
+                      id="ni-unit" value={form.unit} disabled={locked} placeholder="ΤΕΜ"
                       onChange={(e) => set('unit', e.target.value)}
                       onBlur={() => setTouched((t) => ({ ...t, unit: true }))}
                       aria-invalid={touched.unit && !!errors.unit}
@@ -399,7 +458,7 @@ export function ItemPanel({
               {needsUnit && (
                 <Field id="ni-price" label="Τιμή (προαιρετικό)" error={null}>
                   <Input
-                    id="ni-price" value={form.price} disabled={busy} inputMode="decimal" placeholder="0,00"
+                    id="ni-price" value={form.price} disabled={locked} inputMode="decimal" placeholder="0,00"
                     onChange={(e) => set('price', e.target.value)}
                     className="h-9 text-right text-[13px] tabular-nums"
                   />
@@ -408,20 +467,32 @@ export function ItemPanel({
             </div>
 
             <details
+              open={dryOpen}
               className="rounded-lg border border-border bg-neutral-4 px-2.5 py-1.5"
-              onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) void loadDryRun(); }}
+              onToggle={(e) => setDryOpen((e.currentTarget as HTMLDetailsElement).open)}
             >
               <summary className="cursor-pointer text-caption font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-500">
                 Προεπισκόπηση setData (dry-run)
               </summary>
-              {dryLoading ? (
+              {dryError ? (
+                <p className="mt-1.5 flex items-center gap-1.5 text-caption text-danger-500">
+                  <FiAlertTriangle aria-hidden className="size-3.5" /> {dryError}
+                </p>
+              ) : dryLoading && dryPayload == null ? (
                 <p className="mt-1.5 flex items-center gap-1.5 text-caption text-muted-foreground">
                   <FiLoader aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" /> Προετοιμασία…
                 </p>
               ) : dryPayload != null ? (
-                <pre className="mt-1.5 max-h-56 overflow-auto rounded-md bg-[#0E1626] p-2.5 font-mono text-[11px] leading-relaxed text-[#d6e2f5]">
-                  {JSON.stringify(dryPayload, null, 2)}
-                </pre>
+                <>
+                  <pre className="mt-1.5 max-h-56 overflow-auto rounded-md bg-[#0E1626] p-2.5 font-mono text-[11px] leading-relaxed text-[#d6e2f5]">
+                    {JSON.stringify(dryPayload, null, 2)}
+                  </pre>
+                  {dryLoading && (
+                    <p className="mt-1 flex items-center gap-1.5 text-caption text-muted-foreground">
+                      <FiLoader aria-hidden className="size-3 animate-spin motion-reduce:animate-none" /> Ενημέρωση…
+                    </p>
+                  )}
+                </>
               ) : (
                 <p className="mt-1.5 flex items-center gap-1.5 text-caption text-muted-foreground">
                   <FiAlertCircle aria-hidden className="size-3.5" /> Συμπλήρωσε τα υποχρεωτικά πεδία για προεπισκόπηση.
@@ -430,13 +501,13 @@ export function ItemPanel({
             </details>
 
             <div className="flex flex-wrap gap-2">
-              <Button type="button" disabled={busy} onClick={submitCreate} className="h-9 cursor-pointer">
+              <Button type="button" disabled={locked} onClick={submitCreate} className="h-9 cursor-pointer">
                 {busy ? <FiLoader aria-hidden className="animate-spin motion-reduce:animate-none" /> : <FiCheck aria-hidden />}
                 Δημιουργία στο SoftOne
               </Button>
               <Button
-                type="button" variant="ghost" disabled={busy}
-                onClick={() => { setCreating(false); setDryPayload(null); }}
+                type="button" variant="ghost" disabled={locked}
+                onClick={() => { setCreating(false); setDryOpen(false); setDryPayload(null); setDryError(null); }}
                 className="h-9 cursor-pointer"
               >
                 Άκυρο
@@ -444,19 +515,25 @@ export function ItemPanel({
             </div>
             <p className="flex items-start gap-1.5 text-caption text-muted-foreground">
               <FiAlertCircle aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-              Η δημιουργία γράφει πραγματικά στο SoftOne και αντιστοιχίζει αμέσως τις {group.lineCount} γραμμές.
+              Η δημιουργία γράφει πραγματικά στο SoftOne και αντιστοιχίζει αμέσως {lineLabel(group.lineCount)}.
             </p>
           </div>
         )}
       </section>
 
       {/* ── Παράλειψη ───────────────────────────────────────────────── */}
-      <footer className="flex items-center justify-between gap-2 px-4 py-2.5">
+      <footer className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
         <p className="text-caption text-muted-foreground">
-          <kbd className="rounded-sm border border-border bg-neutral-0 px-1 font-sans">Enter</kbd> = πρώτη πρόταση
+          {canManage ? (
+            <>
+              <kbd className="rounded-sm border border-border bg-neutral-0 px-1 font-sans">Enter</kbd> = πρώτη πρόταση
+            </>
+          ) : (
+            'Χρειάζεται δικαίωμα «ocr.categorize».'
+          )}
         </p>
         <Button
-          type="button" variant="ghost" size="sm" disabled={busy}
+          type="button" variant="ghost" size="sm" disabled={locked}
           onClick={() => void onSkip()}
           className="cursor-pointer text-muted-foreground"
         >
@@ -494,11 +571,12 @@ function Field({
 
 /** Μια πρόταση: κωδικός, όνομα, λόγος, μπάρα σκορ, κουμπί αντιστοίχισης. */
 function SuggestionRow({
-  suggestion: s, first, busy, onMatch,
+  suggestion: s, first, disabled, onMatch,
 }: {
   suggestion: QueueSuggestion;
   first: boolean;
-  busy: boolean;
+  /** Τρέχει ενέργεια ή λείπει το δικαίωμα `ocr.categorize`. */
+  disabled: boolean;
   onMatch: (target: { mtrl?: number; expn?: number }, isService: boolean) => void | Promise<void>;
 }) {
   const pct = Math.round(Math.max(0, Math.min(1, s.score)) * 100);
@@ -523,14 +601,14 @@ function SuggestionRow({
               {KIND_ICON[s.kind]} {meta.label}
             </span>
             <span aria-hidden>·</span>
-            <span>{REASON[s.by] ?? s.by}</span>
+            <span>{REASON[s.by] ?? 'άλλο'}</span>
           </p>
         </div>
         <Button
           type="button"
           size="sm"
           variant={first ? 'default' : 'outline'}
-          disabled={busy}
+          disabled={disabled}
           onClick={() => void onMatch(s.expn != null ? { expn: s.expn } : { mtrl: s.mtrl ?? undefined }, s.kind === 'service')}
           className="h-8 shrink-0 cursor-pointer"
         >

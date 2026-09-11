@@ -351,15 +351,26 @@ describe('skipGroup', () => {
 });
 
 describe('countQueues', () => {
-  it('μετράει διακριτά ΑΦΜ (χωρίς τους αγνοημένους) με groupBy, χωρίς να κατεβάσει έγγραφα', async () => {
+  it('μετράει διακριτά ΑΦΜ (χωρίς τους αγνοημένους) με groupBy και ΟΜΑΔΕΣ γραμμών', async () => {
     db.ocrDocument.groupBy.mockResolvedValue([
       { issuerAfm: '094073495' }, { issuerAfm: '111222333' }, { issuerAfm: '999888777' },
     ]);
     db.ignoredIssuer.findMany.mockResolvedValue([{ afm: '111222333' }]);
-    db.ocrInvoiceItem.count.mockResolvedValue(37);
+    // Ίδια ομαδοποίηση με τη σελίδα: 3 γραμμές → 2 ομάδες (το badge λέει «2», όχι «3»).
+    db.ocrInvoiceItem.findMany.mockResolvedValue(LINES);
+    db.ocrDocument.findMany.mockResolvedValue(DOCS);
 
-    expect(await countQueues()).toEqual({ traders: 2, items: 37 });
-    expect(db.ocrDocument.findMany).not.toHaveBeenCalled();
+    expect(await countQueues()).toEqual({ traders: 2, items: 2 });
     expect(db.ocrDocument.groupBy.mock.calls[0][0]).toMatchObject({ by: ['issuerAfm'] });
+    // Το βαρύ `extractedData` δεν κατεβαίνει για έναν μετρητή.
+    expect(db.ocrDocument.findMany.mock.calls[0][0].select).toEqual({ id: true, issuerAfm: true });
+    expect(db.ocrInvoiceItem.count).not.toHaveBeenCalled();
+  });
+
+  it('καμία εκκρεμής γραμμή ⇒ 0 ομάδες χωρίς ερώτημα εγγράφων', async () => {
+    db.ocrInvoiceItem.findMany.mockResolvedValue([]);
+
+    expect(await countQueues()).toEqual({ traders: 0, items: 0 });
+    expect(db.ocrDocument.findMany).not.toHaveBeenCalled();
   });
 });
