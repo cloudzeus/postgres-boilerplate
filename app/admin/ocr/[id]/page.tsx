@@ -56,6 +56,15 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
     : [[], []];
   const runs: RunDto[] = runRows.map(toRunDto);
   const templates: TemplateSummary[] = templateRows;
+  // «Τύπος: ΤΠΥ — Τιμολόγιο Παροχής Υπηρεσιών · 92 % · <αιτιολογία>» (spec 2026-09-11 §1.5).
+  const series = doc.softoneSeries
+    ? doc.seriesSource === 1653
+      ? await prisma.softoneDocSeries.findFirst({ where: { code: doc.softoneSeries, sosource: 1653 }, select: { abbrev: true, name: true } })
+      : await prisma.purchaseDocType.findUnique({ where: { code: doc.softoneSeries }, select: { abbrev: true, name: true } })
+    : null;
+  const manualSeries = doc.seriesBy === 'manual';
+  const seriesTone = manualSeries || (doc.seriesConfidence ?? 0) >= 0.8 ? '#047857' : doc.seriesConfidence != null ? '#B45309' : '#94A3B8';
+
   const issuerVat = ((doc.extractedData ?? {}) as { vatNumber?: unknown }).vatNumber;
   const helpHref = completed ? helpHrefFor('template-runs', (user.role.key as WikiRoleKey | undefined) ?? null) : null;
 
@@ -86,6 +95,26 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
               {doc.durationMs && ` · ${doc.durationMs} ms`}
               {doc.model && ` · ${doc.model}`}
             </p>
+            {doc.softoneSeries && (
+              <p
+                className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground"
+                aria-label={`Τύπος παραστατικού ${series?.abbrev ?? doc.softoneSeries}, ${manualSeries ? 'χειροκίνητη επιλογή' : (doc.seriesConfidence ?? 0) >= 0.8 ? 'σίγουρο' : 'να ελεγχθεί'}`}
+              >
+                <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: seriesTone }} />
+                <span className="font-semibold text-foreground">
+                  Τύπος: {series?.abbrev ?? doc.softoneSeries}{series?.name ? ` — ${series.name}` : ''}
+                </span>
+                <span>· {doc.seriesSource === 1653 ? 'Πιστωτών' : 'Αγορών'}</span>
+                {manualSeries
+                  ? <span>· χειροκίνητη επιλογή</span>
+                  : (
+                    <>
+                      {doc.seriesConfidence != null && <span>· {Math.round(doc.seriesConfidence * 100)} %</span>}
+                      {doc.seriesReason && <span>· {doc.seriesReason}</span>}
+                    </>
+                  )}
+              </p>
+            )}
           </div>
           <Badge variant={doc.status === 'COMPLETED' ? 'default' : doc.status === 'FAILED' ? 'destructive' : 'secondary'}>
             {doc.status}

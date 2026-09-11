@@ -4,14 +4,14 @@ import { requirePermission, hasPermission } from '@/lib/rbac';
 import { PageHeader } from '@/components/admin/page-header';
 import type { ReviewFlags } from '@/lib/templates/run-logic';
 import { OcrUploadForm } from './upload-form';
-import { OcrTable, type OcrRow } from './ocr-table';
+import { OcrTable, type OcrRow, type SeriesOption } from './ocr-table';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminOcrPage() {
   await requirePermission('ocr.read');
 
-  const [docs, canCategorize, canPost, canDelete, canCreateCompany, seriesRows] = await Promise.all([
+  const [docs, canCategorize, canPost, canDelete, canCreateCompany, purchaseSeries, creditorSeries] = await Promise.all([
     prisma.ocrDocument.findMany({
       orderBy: { createdAt: 'desc' },
       take: 500,
@@ -26,7 +26,7 @@ export default async function AdminOcrPage() {
         softoneTrdr: true, softoneCode: true, softoneName: true, softoneKind: true, softoneChecked: true,
         softoneDocExists: true,
         reconOverride: true, itemsTotal: true, itemsMatched: true,
-        softoneSeries: true,
+        softoneSeries: true, seriesSource: true, seriesConfidence: true, seriesReason: true, seriesBy: true,
         reviewFlags: true,
       },
     }),
@@ -37,9 +37,21 @@ export default async function AdminOcrPage() {
     prisma.purchaseDocType.findMany({
       where: { isActive: true },
       orderBy: [{ order: 'asc' }, { code: 'asc' }],
+      select: { code: true, abbrev: true, name: true, section: true, enabled: true },
+    }),
+    // Σειρές πιστωτών (SOSOURCE 1653): μόνο όσες έχει ενεργοποιήσει ο χρήστης — ο ταξινομητής
+    // διαλέγει από το ίδιο σύνολο (spec 2026-09-11 §1.1).
+    prisma.softoneDocSeries.findMany({
+      where: { enabled: true, isActive: true, sosource: 1653 },
+      orderBy: [{ order: 'asc' }, { code: 'asc' }],
       select: { code: true, abbrev: true, name: true, section: true },
     }),
   ]);
+
+  const seriesRows: SeriesOption[] = [
+    ...purchaseSeries.map((s) => ({ ...s, kind: 'purchase' as const })),
+    ...creditorSeries.map((s) => ({ ...s, kind: 'creditor' as const, enabled: true })),
+  ];
 
   const rows: OcrRow[] = docs.map((d) => {
     const data = (d.extractedData ?? {}) as any;
@@ -76,6 +88,10 @@ export default async function AdminOcrPage() {
       itemsTotal: d.itemsTotal,
       itemsMatched: d.itemsMatched,
       softoneSeries: d.softoneSeries,
+      seriesSource: d.seriesSource,
+      seriesConfidence: d.seriesConfidence,
+      seriesReason: d.seriesReason,
+      seriesBy: d.seriesBy,
       templateName: rf?.templateName ?? null,
       templateRunStatus: rf?.runStatus ?? null,
       reviewCount: Array.isArray(rf?.review) ? rf.review.length : 0,

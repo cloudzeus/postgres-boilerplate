@@ -6,6 +6,7 @@ import { extractDocument } from '@/lib/ocr/extract';
 import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
 import { getSetting } from '@/lib/settings';
 import { runMatchingTemplate } from '@/lib/templates/run';
+import { classifyDocument } from '@/lib/ocr/doc-type';
 import type { RunOutcome } from '@/lib/templates/schema';
 
 export const runtime = 'nodejs';
@@ -106,6 +107,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       const dup = await buildDuplicateCheck(softone.softoneTrdr, result.data?.invoiceNumber, result.data?.date);
       await prisma.ocrDocument.update({ where: { id }, data: dup }).catch(() => null);
     }
+
+    // Σειρά παραστατικού από τις ενεργοποιημένες σειρές αγορών/πιστωτών (spec 2026-09-11 §1).
+    // Best-effort και ποτέ πάνω από χειροκίνητη επιλογή.
+    await classifyDocument(id);
 
     vat = result.data?.vatNumber;
     ok = { model: result.model, data: result.data };

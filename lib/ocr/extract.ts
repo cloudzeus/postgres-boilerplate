@@ -204,7 +204,15 @@ export async function rasterizePdf(buffer: Buffer, maxPages = 3, scale = 2): Pro
   return pages;
 }
 
-async function callTextLLM(cfg: DeepSeekCfg, system: string, userContent: string) {
+/**
+ * One JSON-mode call to the text model. `usage` lets a caller label the spend
+ * (και να το δέσει σε έγγραφο) — ο ταξινομητής σειράς το χρησιμοποιεί.
+ * ΠΡΟΣΟΧΗ: στέλνει `response_format: json_object`, άρα το prompt ΠΡΕΠΕΙ να ζητά JSON.
+ */
+export async function callTextLLM(
+  cfg: DeepSeekCfg, system: string, userContent: string,
+  usage?: { operation?: string; refType?: string; refId?: string },
+) {
   const res = await fetchWithRetry(cfg.textUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.textKey}` },
@@ -225,10 +233,12 @@ async function callTextLLM(cfg: DeepSeekCfg, system: string, userContent: string
     scope: 'OCR_TEXT',
     provider: providerFromUrl(cfg.textUrl),
     model: cfg.textModel,
-    operation: 'ocr.digital_pdf',
+    operation: usage?.operation ?? 'ocr.digital_pdf',
     inputTokens: u.prompt_tokens ?? 0,
     outputTokens: u.completion_tokens ?? 0,
     totalTokens: u.total_tokens ?? 0,
+    refType: usage?.refType ?? null,
+    refId: usage?.refId ?? null,
   });
   return {
     content: data?.choices?.[0]?.message?.content as string,

@@ -617,13 +617,22 @@ export function OcrRowDetail({
             <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2 lg:max-w-xl">
               <label className="flex min-w-0 flex-col gap-0.5">
                 <span className={LABEL_CLS}>Τύπος παραστατικού (SoftOne)</span>
-                <select value={softoneSeries} disabled={ro} onChange={(e) => setSoftoneSeries(e.target.value)} className={cn(INPUT_CLS, 'w-full')}>
+                <select value={softoneSeries} disabled={ro} onChange={(e) => setSoftoneSeries(e.target.value)} className={cn(INPUT_CLS, 'w-full cursor-pointer')}>
                   <option value="">— Επιλογή σειράς —</option>
-                  {seriesOptions.map((o) => (
-                    <option key={o.code} value={o.code}>
-                      {o.abbrev ? `${o.abbrev} · ` : ''}{o.name}
-                    </option>
-                  ))}
+                  {/* Ομαδοποίηση όπως στο SoftOne: σειρές αγορών (1251) και σειρές πιστωτών (1653). */}
+                  {(['purchase', 'creditor'] as const).map((kind) => {
+                    const group = seriesOptions.filter((o) => o.kind === kind);
+                    if (!group.length) return null;
+                    return (
+                      <optgroup key={kind} label={kind === 'purchase' ? 'Αγορών' : 'Πιστωτών'}>
+                        {group.map((o) => (
+                          <option key={`${kind}-${o.code}`} value={o.code}>
+                            {o.abbrev ? `${o.abbrev} · ` : ''}{o.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
                 </select>
               </label>
               <label className="flex min-w-0 flex-col gap-0.5">

@@ -9,6 +9,7 @@ import { ensureOcrThumbnail } from '@/lib/ocr/thumbnail';
 import { inferDocKind } from '@/lib/ocr/validate';
 import { type DocType, type SupportedLang } from '@/lib/ocr/templates';
 import { runMatchingTemplate } from '@/lib/templates/run';
+import { classifyDocument } from '@/lib/ocr/doc-type';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -178,6 +179,9 @@ export async function POST(req: Request) {
       const dup = await buildDuplicateCheck(softone.softoneTrdr, result.data?.invoiceNumber, result.data?.date);
       await prisma.ocrDocument.update({ where: { id: doc.id }, data: dup }).catch(() => null);
     }
+
+    // Σειρά παραστατικού από τις ενεργοποιημένες σειρές αγορών/πιστωτών (spec 2026-09-11 §1). Best-effort.
+    await classifyDocument(doc.id);
 
     // Extraction template linked to this issuer (spec §15.1). Best-effort; failures become a FAILED run.
     const templateRun = await runMatchingTemplate(doc.id, result.data?.vatNumber, 'upload');

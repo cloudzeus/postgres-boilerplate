@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { type ColumnDef } from '@tanstack/react-table';
@@ -50,6 +51,11 @@ export interface OcrRow {
   itemsTotal: number | null;
   itemsMatched: number | null;
   softoneSeries: string | null;
+  /** Αποτέλεσμα αναγνώρισης τύπου (spec 2026-09-11 §1): ενότητα, βεβαιότητα, αιτιολογία, auto/manual. */
+  seriesSource: number | null;
+  seriesConfidence: number | null;
+  seriesReason: string | null;
+  seriesBy: string | null;
   /** Latest template run, cached on OcrDocument.reviewFlags by the runner (spec §15.7). */
   templateName: string | null;
   templateRunStatus: RunStatus | null;
@@ -57,12 +63,25 @@ export interface OcrRow {
   blockedCount: number;
 }
 
-/** A SoftOne purchase document SERIES (PurchaseDocType) offered in the «Τύπος παραστατικού» picker. */
+/**
+ * Μια σειρά παραστατικών SoftOne στον επιλογέα «Τύπος παραστατικού»: αγορών
+ * (`PurchaseDocType`, SOSOURCE 1251) ή πιστωτών (`SoftoneDocSeries`, SOSOURCE 1653).
+ */
 export interface SeriesOption {
   code: string;
   abbrev: string | null;
   name: string;
   section: string | null;
+  kind: 'purchase' | 'creditor';
+  /** Ενεργοποιημένη στην εφαρμογή — μόνο αυτές βλέπει ο αυτόματος ταξινομητής. */
+  enabled: boolean;
+}
+
+/** Κουκκίδα βεβαιότητας: πράσινο ≥ 0,8, πορτοκαλί χαμηλότερα, γκρι χωρίς μέτρηση. */
+export function seriesConfidenceTone(confidence: number | null): { color: string; label: string } {
+  if (confidence == null) return { color: '#94A3B8', label: 'χωρίς βεβαιότητα' };
+  if (confidence >= 0.8) return { color: '#047857', label: 'σίγουρο' };
+  return { color: '#B45309', label: 'να ελεγχθεί' };
 }
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -294,6 +313,13 @@ export function OcrTable({
     router.refresh();
   }
 
+  // Σειρές ανά «είδος:κωδικός» — ο ίδιος κωδικός μπορεί να υπάρχει και στις δύο ενότητες.
+  const seriesByCode = React.useMemo(
+    () => new Map(seriesOptions.map((o) => [`${o.kind}:${o.code}`, o])),
+    [seriesOptions],
+  );
+  const anyEnabledSeries = React.useMemo(() => seriesOptions.some((o) => o.enabled), [seriesOptions]);
+
   const columns: ColumnDef<OcrRow>[] = React.useMemo(() => [
     {
       id: 'thumb',
@@ -405,6 +431,48 @@ export function OcrTable({
           );
         }
         return <span className="text-xs text-muted-foreground">—</span>;
+      },
+    },
+    {
+      id: 'series',
+      // «Σειρά»: το αποτέλεσμα του αυτόματου ταξινομητή. Κλικ ανοίγει τη γραμμή, όπου βρίσκεται
+      // ο επιλογέας σειράς (η αλλαγή γίνεται `manual` και δεν ξαναγράφεται αυτόματα).
+      header: () => (
+        anyEnabledSeries
+          ? <span>Σειρά</span>
+          : (
+            <Link href="/admin/doc-series" className="text-[12px] font-semibold text-sisyphus-600 underline underline-offset-2 cursor-pointer">
+              Ενεργοποίησε σειρές
+            </Link>
+          )
+      ),
+      cell: ({ row }) => {
+        const r = row.original;
+        if (!r.softoneSeries) return <span className="text-xs text-muted-foreground">—</span>;
+        const opt = seriesByCode.get(`${r.seriesSource === 1653 ? 'creditor' : 'purchase'}:${r.softoneSeries}`)
+          ?? seriesByCode.get(`purchase:${r.softoneSeries}`)
+          ?? seriesByCode.get(`creditor:${r.softoneSeries}`);
+        const manual = r.seriesBy === 'manual';
+        const tone = seriesConfidenceTone(manual ? 1 : r.seriesConfidence);
+        const pct = r.seriesConfidence != null ? `${Math.round(r.seriesConfidence * 100)} %` : null;
+        const why = manual ? 'χειροκίνητη επιλογή' : (r.seriesReason ?? 'χωρίς αιτιολογία');
+        return (
+          <button
+            type="button"
+            onClick={() => row.toggleExpanded()}
+            title={`${opt?.name ?? r.softoneSeries}${pct ? ` · ${pct}` : ''} · ${why}`}
+            aria-label={`Σειρά ${opt?.abbrev ?? r.softoneSeries} — ${tone.label}${pct ? ` (${pct})` : ''}. ${why}`}
+            className="flex min-w-[90px] cursor-pointer flex-col items-start gap-0.5 text-left"
+          >
+            <span className="flex items-center gap-1.5">
+              <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: tone.color }} />
+              <span className="text-[12px] font-semibold text-foreground">{opt?.abbrev ?? r.softoneSeries}</span>
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              {r.seriesSource === 1653 ? 'Πιστωτών' : 'Αγορών'}{manual ? ' · χειροκίνητη' : pct ? ` · ${pct}` : ''}
+            </span>
+          </button>
+        );
       },
     },
     {
@@ -611,7 +679,7 @@ export function OcrTable({
       },
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [busyId, canPost, canDelete, reextractingId, dupInfo]);
+  ], [busyId, canPost, canDelete, reextractingId, dupInfo, seriesByCode, anyEnabledSeries]);
 
   return (
     <>

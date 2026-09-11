@@ -42,7 +42,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const body = PatchSchema.parse(await req.json());
   const { items, ...scalar } = body;
 
-  const doc = await prisma.ocrDocument.update({ where: { id }, data: scalar as any });
+  // Χειροκίνητη επιλογή σειράς: κλειδώνει το έγγραφο απέναντι στον αυτόματο ταξινομητή
+  // (`seriesBy: 'manual'`, spec 2026-09-11 §1.4). Καθάρισμα της σειράς ξεκλειδώνει.
+  const seriesPatch = 'softoneSeries' in body
+    ? body.softoneSeries
+      ? {
+        seriesBy: 'manual', seriesConfidence: 1, seriesReason: 'χειροκίνητη επιλογή',
+        seriesSource: await sourceOfSeries(body.softoneSeries),
+      }
+      : { seriesBy: null, seriesConfidence: null, seriesReason: null, seriesSource: null }
+    : {};
+
+  const doc = await prisma.ocrDocument.update({ where: { id }, data: { ...scalar, ...seriesPatch } as any });
 
   if (items) {
     await prisma.$transaction([
@@ -58,6 +69,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   const fresh = await prisma.ocrDocument.findUnique({ where: { id }, include: { items: { orderBy: { rowIndex: 'asc' } } } });
   return NextResponse.json(fresh ?? doc);
+}
+
+/** SOSOURCE της σειράς: 1251 όταν είναι σειρά αγορών, αλλιώς η ενότητα της `SoftoneDocSeries`. */
+async function sourceOfSeries(code: string): Promise<number | null> {
+  const purchase = await prisma.purchaseDocType.findUnique({ where: { code }, select: { id: true } });
+  if (purchase) return 1251;
+  const other = await prisma.softoneDocSeries.findFirst({ where: { code }, select: { sosource: true }, orderBy: { sosource: 'asc' } });
+  return other?.sosource ?? null;
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
