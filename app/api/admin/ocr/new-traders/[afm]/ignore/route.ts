@@ -12,6 +12,10 @@ const Body = z.object({ reason: z.string().trim().max(200).nullable().optional()
 
 // POST — «Αγνόηση» εκδότη: βγαίνει από την ουρά χωρίς να δημιουργηθεί τίποτα στο
 // SoftOne (spec 2026-09-11 §2). DELETE αναιρεί.
+//
+// Το `[afm]` είναι το ΤΡΕΧΟΝ κλειδί της ομάδας — προθεματισμένο (`CY10123456A`) όταν
+// έτσι το διάβασε το OCR, γυμνό αλλιώς. ΔΕΝ προσθέτουμε πρόθεμα εδώ: η αγνόηση δεν
+// ξαναγράφει τα έγγραφα, οπότε ένα «διορθωμένο» ΑΦΜ δεν θα ταίριαζε ποτέ με την ομάδα.
 export async function POST(req: Request, { params }: { params: Promise<{ afm: string }> }) {
   const u = await requirePermission('ocr.categorize');
   const afm = parseAfmParam((await params).afm);

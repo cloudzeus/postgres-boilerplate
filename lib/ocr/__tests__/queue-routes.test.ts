@@ -4,7 +4,7 @@
 // τους φύλακες (permission, ΑΦΜ, SODTYPE) και ότι το dry-run δεν γράφει ΠΟΥΘΕΝΑ.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { db, rbac, s1, audit } = vi.hoisted(() => ({
+const { db, rbac, s1, audit, s1read } = vi.hoisted(() => ({
   db: {
     ocrDocument: { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
     purchaseDocType: { findFirst: vi.fn(), findUnique: vi.fn() },
@@ -15,6 +15,7 @@ const { db, rbac, s1, audit } = vi.hoisted(() => ({
     softoneItem: { findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
     softoneExpense: { findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
     lineMatchRule: { findMany: vi.fn(), upsert: vi.fn() },
+    $transaction: vi.fn(),
   },
   rbac: { requirePermission: vi.fn() },
   s1: {
@@ -25,6 +26,9 @@ const { db, rbac, s1, audit } = vi.hoisted(() => ({
     softoneLoadExpenseTemplate: vi.fn(),
   },
   audit: { logAudit: vi.fn() },
+  // Read-only SoftOne lookups: ΔΕΝ μπαίνουν στο `s1` (το `expectNoWrites` απαιτεί
+  // ότι κανένα από εκείνα δεν κλήθηκε — μια ανάγνωση όμως επιτρέπεται στο dry-run).
+  s1read: { softoneFetchCountries: vi.fn() },
 }));
 
 vi.mock('@/lib/db', () => ({ prisma: db }));
@@ -36,6 +40,7 @@ vi.mock('@/lib/audit', () => audit);
 vi.mock('@/lib/softone', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/softone')>()),
   ...s1,
+  ...s1read,
 }));
 
 import { POST as createTrader } from '@/app/api/admin/ocr/new-traders/[afm]/create/route';
@@ -68,6 +73,8 @@ beforeEach(() => {
   rbac.requirePermission.mockResolvedValue(USER);
   audit.logAudit.mockResolvedValue(undefined);
   db.ocrDocument.findMany.mockResolvedValue([]);
+  // Οι δοκιμές δεν χρειάζονται πραγματική συναλλαγή: εκτελούμε ό,τι μας δοθεί.
+  db.$transaction.mockImplementation((ops: unknown) => Promise.resolve(ops));
   db.ocrDocument.updateMany.mockResolvedValue({ count: 0 });
   db.ocrDocument.groupBy.mockResolvedValue([]);
   db.ocrInvoiceItem.findMany.mockResolvedValue([]);
@@ -80,6 +87,11 @@ beforeEach(() => {
   db.purchaseDocType.findFirst.mockResolvedValue(null);
   db.purchaseDocType.findUnique.mockResolvedValue(null);
   db.softoneDocSeries.findFirst.mockResolvedValue(null);
+  // Μητρώο χωρών SoftOne: μόνο όσα χρειάζονται οι δοκιμές (COUNTRY.COUNTRY = id).
+  s1read.softoneFetchCountries.mockResolvedValue([
+    { id: '1000', shortcut: 'GR', name: 'ΕΛΛΑΔΑ', intcode: 'GR', intercode: 'GR' },
+    { id: '1012', shortcut: 'CY', name: 'ΚΥΠΡΟΣ', intcode: 'CY', intercode: 'CY' },
+  ]);
 });
 
 describe('dry-run', () => {
@@ -129,6 +141,108 @@ describe('dry-run', () => {
 
     expect(body.dryRun).toBe(true);
     expect(body.payload.OBJECT).toBe('ITEM');
+    expectNoWrites();
+  });
+});
+
+describe('ξένος εκδότης', () => {
+  const CY = 'CY10123456A';
+
+  it('το ΑΦΜ με πρόθεμα χώρας γίνεται δεκτό και φεύγει αυτούσιο στο SoftOne', async () => {
+    const res = await createTrader(post({ kind: 'supplier', name: 'ALPHA LTD', dryRun: true }), ctx(CY));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    // Το πρόθεμα ΔΕΝ κόβεται: είναι μέρος της ταυτότητας του ξένου εκδότη.
+    expect(body.payload.DATA.SUPPLIER[0].AFM).toBe(CY);
+    // Η χώρα βγαίνει από το ίδιο το ΑΦΜ και γίνεται αριθμητικό FK COUNTRY.
+    expect(body.payload.DATA.SUPPLIER[0].COUNTRY).toBe(1012);
+    expect(body.warnings).toEqual([]);
+    expectNoWrites();
+  });
+
+  it('ελληνικός εκδότης παίρνει COUNTRY Ελλάδας χωρίς να το ζητήσει κανείς', async () => {
+    const res = await createTrader(post({ kind: 'supplier', name: 'ΑΛΦΑ ΑΕ', dryRun: true }), ctx(AFM));
+    expect((await res.json()).payload.DATA.SUPPLIER[0].COUNTRY).toBe(1000);
+  });
+
+  it('χώρα εκτός μητρώου: το πεδίο παραλείπεται και επιστρέφεται warning', async () => {
+    const res = await createTrader(
+      post({ kind: 'supplier', name: 'MUSTER GMBH', country: 'DE', dryRun: true }),
+      ctx('DE144960040'),
+    );
+    const body = await res.json();
+    expect(body.payload.DATA.SUPPLIER[0]).not.toHaveProperty('COUNTRY');
+    expect(body.warnings).toEqual(['country_not_found']);
+    expectNoWrites();
+  });
+
+  it('χώρα από τη διεύθυνση: το γυμνό ΑΦΜ παίρνει πρόθεμα σε SoftOne ΚΑΙ στα έγγραφα', async () => {
+    s1.softoneCreateSupplier.mockResolvedValue({ trdr: 7001, code: 'Π.0007' });
+    db.ocrDocument.findMany.mockResolvedValue([
+      { id: 'd1', extractedData: { vatNumber: '144960040', companyName: 'MUSTER GMBH' } },
+      { id: 'd2', extractedData: null },
+    ]);
+    db.softoneTrader.upsert.mockResolvedValue({});
+
+    const res = await createTrader(
+      post({ kind: 'supplier', name: 'MUSTER GMBH', country: 'DE' }),
+      ctx('144960040'),
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, afm: 'DE144960040', docsUpdated: 2 });
+    // SoftOne παίρνει το προθεματισμένο ΑΦΜ…
+    expect(s1.softoneCreateSupplier.mock.calls[0][0]).toMatchObject({ afm: 'DE144960040' });
+    // …και τα έγγραφα ξαναγράφονται, ώστε το κλειδί της ουράς να μείνει συνεπές.
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    expect(db.ocrDocument.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'd1' },
+      data: expect.objectContaining({
+        issuerAfm: 'DE144960040',
+        extractedData: { vatNumber: 'DE144960040', companyName: 'MUSTER GMBH' },
+      }),
+    }));
+    // Έγγραφο χωρίς extractedData δεν σκάει — παίρνει μόνο το vatNumber.
+    expect(db.ocrDocument.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'd2' },
+      data: expect.objectContaining({ extractedData: { vatNumber: 'DE144960040' } }),
+    }));
+    expect(db.ocrDocument.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('ελληνικός εκδότης ΔΕΝ παίρνει ποτέ πρόθεμα — ένα updateMany, καμία JSON εγγραφή', async () => {
+    s1.softoneCreateSupplier.mockResolvedValue({ trdr: 7002, code: 'Π.0008' });
+    db.ocrDocument.updateMany.mockResolvedValue({ count: 4 });
+    db.softoneTrader.upsert.mockResolvedValue({});
+
+    const res = await createTrader(post({ kind: 'supplier', name: 'ΑΛΦΑ ΑΕ', country: 'GR' }), ctx(AFM));
+
+    expect(await res.json()).toMatchObject({ ok: true, afm: AFM, docsUpdated: 4 });
+    expect(s1.softoneCreateSupplier.mock.calls[0][0]).toMatchObject({ afm: AFM });
+    expect(db.ocrDocument.updateMany).toHaveBeenCalledTimes(1);
+    expect(db.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('«Είναι υπάρχων…» με χώρα: το κλειδί των εγγράφων διορθώνεται κι εκεί', async () => {
+    db.softoneTrader.findUnique.mockResolvedValue({
+      trdr: 8001, code: 'Π.1', name: 'MUSTER GMBH', kind: 'Προμηθευτής', sodtype: 12,
+    });
+    db.ocrDocument.findMany.mockResolvedValue([{ id: 'd9', extractedData: { vatNumber: '144960040' } }]);
+
+    const res = await linkTrader(post({ trdr: 8001, country: 'DE' }), ctx('144960040'));
+
+    expect(await res.json()).toMatchObject({ ok: true, afm: 'DE144960040', docsUpdated: 1 });
+    expect(db.ocrDocument.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ issuerAfm: 'DE144960040' }),
+    }));
+  });
+
+  it.each(['ZZ12345678', 'EL094073495', 'C1234567890'])('άγνωστο πρόθεμα %j → 400', async (afm) => {
+    const res = await createTrader(post({ kind: 'supplier', name: 'X' }), ctx(afm));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('invalid_afm');
     expectNoWrites();
   });
 });
