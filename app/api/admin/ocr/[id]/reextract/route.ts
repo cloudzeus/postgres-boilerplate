@@ -5,7 +5,7 @@ import { bunnyDownload } from '@/lib/bunny';
 import { extractDocument } from '@/lib/ocr/extract';
 import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
 import { getSetting } from '@/lib/settings';
-import { normalizeAfm } from '@/lib/ocr/validate';
+import { saveDocumentJson } from '@/lib/ocr/document';
 import { runMatchingTemplate } from '@/lib/templates/run';
 import { classifyDocument } from '@/lib/ocr/doc-type';
 import type { RunOutcome } from '@/lib/templates/schema';
@@ -64,50 +64,34 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       pdfSource: doc.mimeType === 'application/pdf' ? 'scanned' : undefined,
     });
 
-    const items = doc.docType === 'INVOICE' && Array.isArray(result.data?.items) ? result.data.items : [];
-
     // Re-check the SoftOne supplier match (issuer ΑΦΜ → TRDR SODTYPE=12). Best-effort.
-    const softone = await buildSoftoneMatch(result.data?.vatNumber);
+    const softone = await buildSoftoneMatch(result.document.issuer.vat);
 
-    await prisma.$transaction([
-      prisma.ocrInvoiceItem.deleteMany({ where: { documentId: id } }),
-      prisma.ocrDocument.update({
-        where: { id },
-        data: {
-          status: 'COMPLETED',
-          extractedData: result.data,
-          // ΑΦΜ εκδότη ως στήλη με index — οι ουρές δεν σαρώνουν JSON (spec §2/§3).
-          issuerAfm: normalizeAfm(result.data?.vatNumber),
-          rawText: result.rawText,
-          model: result.model,
-          tokensUsed: result.tokensUsed,
-          durationMs: result.durationMs,
-          completedAt: new Date(),
-          errorMessage: null,
-          ...softone,
-        },
-      }),
-      ...items.map((it: any, idx: number) =>
-        prisma.ocrInvoiceItem.create({
-          data: {
-            documentId: id, rowIndex: idx,
-            code: it?.code ?? null, name: String(it?.name ?? ''),
-            quantity: it?.quantity != null ? Number(it.quantity) : null,
-            price: it?.price != null ? Number(it.price) : null,
-            discount: it?.discount != null ? Number(it.discount) : null,
-            vatRate: it?.vatRate != null ? Number(it.vatRate) : null,
-            total: it?.total != null ? Number(it.total) : null,
-          },
-        }),
-      ),
-    ]);
+    // Ο ΕΝΑΣ γραφέας: κανονικό έγγραφο + `extractedData` + `issuerAfm` + γραμμές. Οι γραμμές
+    // ξαναχτίζονται κρατώντας την αντιστοίχιση SoftOne της παλιάς γραμμής — μια δεύτερη ανάγνωση
+    // του ίδιου αρχείου δεν επιτρέπεται να διαγράψει δουλειά που έγινε με το χέρι.
+    await saveDocumentJson(id, result.document, { replaceItems: true });
+
+    await prisma.ocrDocument.update({
+      where: { id },
+      data: {
+        status: 'COMPLETED',
+        rawText: result.rawText,
+        model: result.model,
+        tokensUsed: result.tokensUsed,
+        durationMs: result.durationMs,
+        completedAt: new Date(),
+        errorMessage: null,
+        ...softone,
+      },
+    });
 
     // Auto-match invoice lines to SoftOne items (products + services).
     await matchDocItems(id).catch(() => null);
 
     // PURDOC duplicate check (best-effort).
     if (softone.softoneTrdr) {
-      const dup = await buildDuplicateCheck(softone.softoneTrdr, result.data?.invoiceNumber, result.data?.date);
+      const dup = await buildDuplicateCheck(softone.softoneTrdr, result.document.type.number, result.document.date);
       await prisma.ocrDocument.update({ where: { id }, data: dup }).catch(() => null);
     }
 
@@ -115,7 +99,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     // Best-effort και ποτέ πάνω από χειροκίνητη επιλογή.
     await classifyDocument(id);
 
-    vat = result.data?.vatNumber;
+    vat = result.document.issuer.vat;
     ok = { model: result.model, data: result.data };
   } catch (err: any) {
     await prisma.ocrDocument.update({

@@ -6,7 +6,8 @@ import { bunnyUploadPrivate } from '@/lib/bunny';
 import { extractDocument } from '@/lib/ocr/extract';
 import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
 import { ensureOcrThumbnail } from '@/lib/ocr/thumbnail';
-import { inferDocKind, normalizeAfm } from '@/lib/ocr/validate';
+import { inferDocKind } from '@/lib/ocr/validate';
+import { saveDocumentJson } from '@/lib/ocr/document';
 import { type DocType, type SupportedLang } from '@/lib/ocr/templates';
 import { runMatchingTemplate } from '@/lib/templates/run';
 import { classifyDocument } from '@/lib/ocr/doc-type';
@@ -120,9 +121,6 @@ export async function POST(req: Request) {
       pdfSource: file.type === 'application/pdf' ? pdfSource : undefined,
     });
 
-    // Persist invoice line items if present.
-    const items = docType === 'invoice' && Array.isArray(result.data?.items) ? result.data.items : [];
-
     // Auto-classify: a financial doc with no recipient block is a receipt (ΑΠΟΔΕΙΞΗ),
     // otherwise an invoice (τιμολόγιο / δελτίο αποστολής). general_text is left as-is.
     const resolvedDocType =
@@ -133,52 +131,37 @@ export async function POST(req: Request) {
           : 'INVOICE';
 
     // Tag with the SoftOne supplier (issuer ΑΦΜ → TRDR SODTYPE=12). Best-effort.
-    const softone = await buildSoftoneMatch(result.data?.vatNumber);
+    const softone = await buildSoftoneMatch(result.document.issuer.vat);
 
-    await prisma.$transaction([
-      prisma.ocrDocument.update({
-        where: { id: doc.id },
-        data: {
-          status: 'COMPLETED',
-          docType: resolvedDocType,
-          extractedData: result.data,
-          // ΑΦΜ εκδότη ως στήλη με index — οι ουρές δεν σαρώνουν JSON (spec §2/§3).
-          issuerAfm: normalizeAfm(result.data?.vatNumber),
-          rawText: result.rawText,
-          model: result.model,
-          tokensUsed: result.tokensUsed,
-          durationMs: result.durationMs,
-          completedAt: new Date(),
-          ...softone,
-          // Reflect the path actually taken: rawText present ⇒ digital, otherwise scanned.
-          pdfSource: file.type === 'application/pdf'
-            ? (result.rawText ? 'DIGITAL' : 'SCANNED')
-            : null,
-        },
-      }),
-      ...items.map((it: any, idx: number) =>
-        prisma.ocrInvoiceItem.create({
-          data: {
-            documentId: doc.id,
-            rowIndex: idx,
-            code: it?.code ?? null,
-            name: String(it?.name ?? ''),
-            quantity: it?.quantity != null ? Number(it.quantity) : null,
-            price: it?.price != null ? Number(it.price) : null,
-            discount: it?.discount != null ? Number(it.discount) : null,
-            vatRate: it?.vatRate != null ? Number(it.vatRate) : null,
-            total: it?.total != null ? Number(it.total) : null,
-          },
-        }),
-      ),
-    ]);
+    // Το κανονικό έγγραφο και ΟΛΑ τα παράγωγά του (`extractedData`, `issuerAfm`, γραμμές) σε ένα
+    // transaction, από τον έναν γραφέα. Πρώτα τα δεδομένα και μετά το `COMPLETED`: αν σκάσει το
+    // γράψιμο, το έγγραφο μένει PROCESSING και πιάνεται από το catch — ποτέ «ολοκληρωμένο κενό».
+    await saveDocumentJson(doc.id, result.document, { replaceItems: true });
+
+    await prisma.ocrDocument.update({
+      where: { id: doc.id },
+      data: {
+        status: 'COMPLETED',
+        docType: resolvedDocType,
+        rawText: result.rawText,
+        model: result.model,
+        tokensUsed: result.tokensUsed,
+        durationMs: result.durationMs,
+        completedAt: new Date(),
+        ...softone,
+        // Reflect the path actually taken: rawText present ⇒ digital, otherwise scanned.
+        pdfSource: file.type === 'application/pdf'
+          ? (result.rawText ? 'DIGITAL' : 'SCANNED')
+          : null,
+      },
+    });
 
     // Auto-match invoice lines to SoftOne items (cheap local lookup; manual matches preserved).
     await matchDocItems(doc.id).catch(() => null);
 
     // PURDOC duplicate check (supplier + αριθμός παραστατικού + ημ/νία). Best-effort.
     if (softone.softoneTrdr) {
-      const dup = await buildDuplicateCheck(softone.softoneTrdr, result.data?.invoiceNumber, result.data?.date);
+      const dup = await buildDuplicateCheck(softone.softoneTrdr, result.document.type.number, result.document.date);
       await prisma.ocrDocument.update({ where: { id: doc.id }, data: dup }).catch(() => null);
     }
 
@@ -186,7 +169,7 @@ export async function POST(req: Request) {
     await classifyDocument(doc.id);
 
     // Extraction template linked to this issuer (spec §15.1). Best-effort; failures become a FAILED run.
-    const templateRun = await runMatchingTemplate(doc.id, result.data?.vatNumber, 'upload');
+    const templateRun = await runMatchingTemplate(doc.id, result.document.issuer.vat, 'upload');
 
     // Best-effort thumbnail generation (don't fail the request if it errors).
     ensureOcrThumbnail(doc.id).catch(() => null);

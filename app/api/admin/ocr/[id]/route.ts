@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { bunnyDelete } from '@/lib/bunny';
-import { normalizeAfm } from '@/lib/ocr/validate';
+import { DocumentSchema, normalizeDocument, type DocumentJson } from '@/lib/ocr/canonical';
+import { loadDocumentJson, mergeLegacyPatch, saveDocumentJson } from '@/lib/ocr/document';
 
 const ItemSchema = z.object({
   code: z.string().nullable().optional(), name: z.string(),
@@ -15,6 +16,10 @@ const PatchSchema = z.object({
   category: z.enum(['EXPENSE','INVOICE_IN','INVOICE_OUT','RECEIPT','CREDIT_NOTE','PAYROLL','TAX','OTHER']).nullable().optional(),
   docType: z.enum(['INVOICE','RECEIPT','GENERAL_TEXT']).optional(),
   notes: z.string().max(4000).nullable().optional(),
+  // Το κανονικό έγγραφο (spec §17.1) — ο νέος τρόπος. Επικυρώνεται με το `DocumentSchema`.
+  document: z.record(z.string(), z.any()).optional(),
+  // Ο παλιός τρόπος: flat κλειδιά + γραμμές. Επικαλύπτονται πάνω στο υπάρχον έγγραφο, ώστε ένας
+  // client που δεν ξέρει από ψηφιακή σήμανση / χειρόγραφα να μην τα σβήνει γράφοντας το σύνολο.
   extractedData: z.record(z.string(), z.any()).optional(),
   items: z.array(ItemSchema).optional(),
   // Hybrid reconciliation lock: null = auto-derived, RESOLVED = ολοκληρώθηκε, IGNORED = αγνοήθηκε.
@@ -44,7 +49,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   await requirePermission('ocr.categorize');
   const { id } = await params;
   const body = PatchSchema.parse(await req.json());
-  const { items, seriesSource: _seriesSource, ...scalar } = body;
+  const { items, document: documentPatch, extractedData, seriesSource: _seriesSource, ...scalar } = body;
+
+  // Η επικύρωση του εγγράφου γίνεται ΠΡΙΝ από οποιοδήποτε γράψιμο: ένα άκυρο σώμα δεν επιτρέπεται
+  // να προλάβει να αποθηκεύσει τα μισά πεδία της καρτέλας.
+  let nextDocument: DocumentJson | null = null;
+  if (documentPatch !== undefined) {
+    const parsed = DocumentSchema.safeParse(documentPatch);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'invalid_document', message: 'Το JSON του εγγράφου δεν ταιριάζει με το σχήμα.', issues: parsed.error.issues },
+        { status: 422 },
+      );
+    }
+    nextDocument = normalizeDocument(parsed.data);
+  }
 
   // Χειροκίνητη επιλογή σειράς: κλειδώνει το έγγραφο απέναντι στον αυτόματο ταξινομητή
   // (`seriesBy: 'manual'`, spec 2026-09-11 §1.4). Καθάρισμα της σειράς ξεκλειδώνει.
@@ -87,25 +106,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
   }
 
-  // Το ΑΦΜ εκδότη ζει και ως στήλη με index (spec §2/§3): κάθε γράψιμο του
-  // `extractedData` πρέπει να το ξανασυγχρονίζει, αλλιώς οι ουρές δείχνουν παλιά ομάδα.
-  const afmPatch = body.extractedData
-    ? { issuerAfm: normalizeAfm((body.extractedData as { vatNumber?: unknown }).vatNumber) }
-    : {};
+  const doc = await prisma.ocrDocument.update({ where: { id }, data: { ...scalar, ...seriesPatch } as any });
 
-  const doc = await prisma.ocrDocument.update({ where: { id }, data: { ...scalar, ...seriesPatch, ...afmPatch } as any });
-
-  if (items) {
-    await prisma.$transaction([
-      prisma.ocrInvoiceItem.deleteMany({ where: { documentId: id } }),
-      prisma.ocrInvoiceItem.createMany({
-        data: items.map((it, i) => ({
-          documentId: id, rowIndex: i, code: it.code ?? null, name: it.name,
-          quantity: it.quantity ?? null, price: it.price ?? null, discount: it.discount ?? null,
-          vatRate: it.vatRate ?? null, total: it.total ?? null,
-        })),
-      }),
-    ]);
+  // Όλα τα γραψίματα του εγγράφου — κανονικά ή legacy — καταλήγουν στον έναν γραφέα, που κρατάει
+  // `document`, `extractedData`, `issuerAfm` και τις γραμμές συμφωνημένα στο ίδιο transaction.
+  if (nextDocument || extractedData !== undefined || items !== undefined) {
+    const next = nextDocument ?? mergeLegacyPatch(await loadDocumentJson(id), extractedData ?? {}, items);
+    await saveDocumentJson(id, next, { replaceItems: true });
   }
   const fresh = await prisma.ocrDocument.findUnique({ where: { id }, include: { items: { orderBy: { rowIndex: 'asc' } } } });
   return NextResponse.json(fresh ?? doc);
