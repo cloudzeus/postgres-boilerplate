@@ -124,6 +124,22 @@ export function gridTicks(max: number, count = 4): number[] {
   return Array.from({ length: count }, (_, i) => (top * (i + 1)) / count);
 }
 
+/**
+ * Πλέγμα για μετρήσιμα μεγέθη (πλήθη εγγράφων): μόνο ακέραιες τιμές, ώστε ένας
+ * άξονας με κορυφή 1 να μη δείχνει «1 1 1 0» από στρογγυλοποίηση δεκαδικών.
+ * Διαλέγει το πυκνότερο πλήθος βημάτων (≤ `maxCount`) που διαιρεί ακριβώς την κορυφή.
+ */
+export function integerTicks(max: number, maxCount = 5): number[] {
+  const top = Math.round(niceMax(max));
+  for (let count = maxCount; count >= 1; count--) {
+    if (top % count === 0) {
+      const step = top / count;
+      return Array.from({ length: count }, (_, i) => step * (i + 1));
+    }
+  }
+  return [top];
+}
+
 export interface DonutSlice {
   key: string;
   label: string;

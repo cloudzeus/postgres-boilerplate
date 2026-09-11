@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseRange, windowFor, isoDay, startOfDayUtc, delta, bucketByDay, isWeekend,
-  dayLabel, niceMax, gridTicks, donutSlices, share, successRate, topN, DEFAULT_RANGE,
+  dayLabel, niceMax, gridTicks, integerTicks, donutSlices, share, successRate, topN, DEFAULT_RANGE,
 } from '../series';
 
 describe('parseRange', () => {
@@ -144,6 +144,25 @@ describe('άξονας y', () => {
   it('gridTicks δίνει ισαπέχουσες τιμές μέχρι το στρογγυλό μέγιστο', () => {
     expect(gridTicks(7, 4)).toEqual([2.5, 5, 7.5, 10]);
     expect(gridTicks(0, 2)).toEqual([0.5, 1]);
+  });
+
+  it('integerTicks δεν επαναλαμβάνει ποτέ ετικέτα σε μικρούς άξονες', () => {
+    // Η κορυφή 1 με δεκαδικά βήματα θα έδειχνε «1 1 1 0» μετά τη στρογγυλοποίηση.
+    expect(integerTicks(1)).toEqual([1]);
+    expect(integerTicks(2)).toEqual([1, 2]);
+    expect(integerTicks(4)).toEqual([1, 2, 3, 4, 5]);
+    expect(integerTicks(9)).toEqual([2, 4, 6, 8, 10]);
+    expect(integerTicks(140)).toEqual([40, 80, 120, 160, 200]);
+  });
+
+  it('integerTicks επιστρέφει μόνο ακέραιες τιμές που τελειώνουν στην κορυφή', () => {
+    for (const peak of [0, 1, 3, 7, 12, 48, 199, 2300]) {
+      const ticks = integerTicks(peak);
+      expect(ticks.length).toBeGreaterThan(0);
+      expect(ticks.every(Number.isInteger)).toBe(true);
+      expect(ticks.at(-1)).toBe(niceMax(peak));
+      expect(new Set(ticks).size).toBe(ticks.length);
+    }
   });
 });
 

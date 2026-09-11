@@ -145,6 +145,28 @@ body {
 }
 
 /* ===========================
+   Dashboard — διακριτικό grow-in
+   Μπαίνει ΜΟΝΟ όταν ο χρήστης δεν έχει ζητήσει λιγότερη κίνηση· χωρίς το media
+   query οι μπάρες ξεκινούν ήδη στο τελικό τους μέγεθος (τα δεδομένα διαβάζονται
+   αμέσως, η κίνηση είναι στολίδι).
+   =========================== */
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes dashBarGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+  @keyframes dashBarWipe { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+  .dash-bar-grow {
+    transform-box: fill-box;
+    transform-origin: bottom;
+    animation: dashBarGrow 280ms cubic-bezier(0.1, 0.9, 0.2, 1) both;
+  }
+  .dash-bar-wipe {
+    transform-origin: left center;
+    animation: dashBarWipe 280ms cubic-bezier(0.1, 0.9, 0.2, 1) both;
+  }
+}
+
+/* ===========================
    Wiki content — friendly UX
    =========================== */
 
