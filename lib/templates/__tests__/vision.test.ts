@@ -8,7 +8,7 @@ vi.mock('@/lib/ai/usage', () => ({ logAiUsage: vi.fn(async () => {}), providerFr
 const fetchMock = vi.fn();
 vi.mock('@/lib/ocr/fetch-retry', () => ({ fetchWithRetry: (...a: unknown[]) => fetchMock(...a) }));
 
-import { readCropValue, readCropTable, prepareCrop, resetVisionConfigCache } from '../vision';
+import { readCropValue, readCropValueLocated, readCropTable, cropBoxToPage, prepareCrop, resetVisionConfigCache } from '../vision';
 import sharp from 'sharp';
 import { logAiUsage } from '@/lib/ai/usage';
 
@@ -166,5 +166,57 @@ describe('model override', () => {
     await readCropValue({ crop: png, prompt: 'p', operation: 'x', model: 'gemini-2.5-flash' });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe('gemini-2.5-flash');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('readCropValueLocated', () => {
+  const answer = (content: string) => ({ ok: true, json: async () => ({ choices: [{ message: { content } }], usage: { total_tokens: 9 } }) });
+
+  it('returns the value and the box the model drew inside the crop', async () => {
+    fetchMock.mockResolvedValueOnce(answer('{"value":"1.240,00","box_2d":[100,200,300,800]}'));
+    const r = await readCropValueLocated({ crop: png, label: 'Σύνολο', valueType: 'CURRENCY', operation: 'template.field.adaptive' });
+    expect(r.value).toBe('1.240,00');
+    expect(r.box).toEqual([0.2, 0.1, 0.6, 0.2]);
+    expect(r.tokensUsed).toBe(9);
+  });
+  it('names the label and the hint in the prompt', async () => {
+    fetchMock.mockResolvedValueOnce(answer('{"value":null}'));
+    await readCropValueLocated({ crop: png, label: 'Σύνολο', aiHint: 'κάτω δεξιά', valueType: 'CURRENCY', operation: 'x' });
+    const system = JSON.parse(fetchMock.mock.calls[0][1].body).messages[0].content;
+    expect(system).toContain('Σύνολο');
+    expect(system).toContain('κάτω δεξιά');
+    expect(system).toContain('box_2d');
+  });
+  it('reads a value the model located nowhere', async () => {
+    fetchMock.mockResolvedValueOnce(answer('{"value":"ΤΙΜ-451"}'));
+    const r = await readCropValueLocated({ crop: png, label: 'Αριθμός', valueType: 'TEXT', operation: 'x' });
+    expect(r).toMatchObject({ value: 'ΤΙΜ-451', box: null });
+  });
+  it('a null / nullish answer is an empty value, not the word "null"', async () => {
+    fetchMock.mockResolvedValueOnce(answer('{"value":null,"box_2d":[0,0,10,10]}'));
+    expect((await readCropValueLocated({ crop: png, label: 'L', valueType: 'TEXT', operation: 'x' })).value).toBe('');
+    fetchMock.mockResolvedValueOnce(answer('{"value":"—"}'));
+    expect((await readCropValueLocated({ crop: png, label: 'L', valueType: 'TEXT', operation: 'x' })).value).toBe('');
+  });
+  it('an answer that is not JSON reads as nothing (never as prose)', async () => {
+    fetchMock.mockResolvedValueOnce(answer('Δεν μπορώ να βρω την ετικέτα σε αυτή την εικόνα.'));
+    expect(await readCropValueLocated({ crop: png, label: 'L', valueType: 'TEXT', operation: 'x' }))
+      .toMatchObject({ value: '', box: null });
+  });
+  it('drops a box the page cannot hold', async () => {
+    fetchMock.mockResolvedValueOnce(answer('{"value":"X","box_2d":[500,500,100,100]}'));
+    expect((await readCropValueLocated({ crop: png, label: 'L', valueType: 'TEXT', operation: 'x' })).box).toBeNull();
+  });
+});
+
+describe('cropBoxToPage', () => {
+  it('maps a box inside the crop back onto the page', () => {
+    expect(cropBoxToPage([0.2, 0.3, 0.4, 0.2], [0.5, 0.5, 0.25, 0.5])).toEqual([0.4, 0.4, 0.1, 0.1]);
+  });
+  it('a whole-page crop changes nothing', () => {
+    expect(cropBoxToPage([0, 0, 1, 1], [0.25, 0.25, 0.5, 0.5])).toEqual([0.25, 0.25, 0.5, 0.5]);
+  });
+  it('is null without a box to map', () => {
+    expect(cropBoxToPage([0.2, 0.3, 0.4, 0.2], null)).toBeNull();
   });
 });

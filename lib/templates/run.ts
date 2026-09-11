@@ -23,10 +23,57 @@ import {
   type FieldFlag, type RunFlags,
 } from './run-logic';
 import { recomputeFieldFlags, type StoredFlags } from './run-flags';
+import { toLastGood, updateLastGood } from './adaptive';
 import { RUN_INCLUDE, type RunWithTemplate } from './run-dto';
-import { normalizeVat, type FieldValue, type MappingRowInvoice, type Region, type RunOutcome, type RunTrigger } from './schema';
+import { isValidBbox, normalizeVat, type FieldValue, type MappingRowInvoice, type Region, type RunOutcome, type RunTrigger } from './schema';
 
 export type { RunOutcome, RunTrigger };
+
+/** Prefix of the review reason a field read in the WIDENED box gets (spec §17.2). */
+export const ADAPTIVE_PREFIX = 'Διαβάστηκε σε διευρυμένη περιοχή «';
+
+/**
+ * A reading worth learning from: produced by a READER (not typed by a human, not written by a rule),
+ * non-empty, and carrying the box it came from. A manual correction is exactly the case to skip —
+ * the human disagreed with what was read, so the position that produced it is not a good position.
+ */
+function learnable(v: FieldValue | undefined): v is FieldValue & { page: number; bbox: [number, number, number, number] } {
+  return !!v && (v.source === 'text' || v.source === 'vision') && v.value != null && v.value !== ''
+    && typeof v.page === 'number' && isValidBbox(v.bbox);
+}
+
+/**
+ * Fold the positions these fields were read at into `TemplateField.lastGood` (spec §17.2) and report
+ * which keys were actually learned, so the run can record them and never learn the same reading
+ * twice (every later correction on the SAME run re-runs `finalizeRunEdit`).
+ *
+ * Bookkeeping: a failure here is logged and swallowed — nothing about a run's outcome depends on it.
+ */
+async function learnLastGood(
+  templateId: string,
+  rows: { key: string; lastGood: unknown }[],
+  values: Record<string, FieldValue>,
+  keys: string[],
+): Promise<string[]> {
+  const at = new Date().toISOString();
+  const done: string[] = [];
+  for (const key of keys) {
+    const v = values[key];
+    const row = rows.find((r) => r.key === key);
+    if (!row || !learnable(v)) continue;
+    const next = updateLastGood(toLastGood(row.lastGood), v.page, v.bbox, at);
+    try {
+      await prisma.templateField.update({
+        where: { templateId_key: { templateId, key } },
+        data: { lastGood: next as unknown as Prisma.InputJsonValue },
+      });
+      done.push(key);
+    } catch (e) {
+      console.error('[templates] lastGood not stored', templateId, key, (e as Error).message);
+    }
+  }
+  return done;
+}
 
 /** Public base URL for the links inside notification emails ('' → the email names the file instead of linking). */
 const APP_URL = () => process.env.APP_URL ?? '';
@@ -100,10 +147,17 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
     for (const f of missing) fieldFlags[f.key] = t.mode === 'AUTO' ? 'blocked' : 'review';
     for (const e of ex.errors) if (!fieldFlags[e.fieldKey]) fieldFlags[e.fieldKey] = 'review';
 
+    // A value only the widened box could find was NOT read where the designer drew the region — say
+    // so, so a human glances at it (and so an AUTO template's own «Ασυμφωνία» list is not the only
+    // thing that ever mentions a field the template is slowly drifting away from).
+    const adaptiveKeys = ex.adaptive ?? [];
+    const adaptiveLabels = adaptiveKeys.map((k) => `${ADAPTIVE_PREFIX}${labelOf(k)}»`);
+
     const blocked = [...applied.flags.blocked, ...(t.mode === 'AUTO' ? missingLabels : [])];
     // Everything that blocks is also worth a human's eyes, so the blocked reasons are mirrored into
     // `review` (deduped — a missing required field would otherwise land in both lists twice).
-    const flags: RunFlags = { review: [...new Set([...applied.flags.review, ...missingLabels, ...readErrors, ...blocked])], blocked, fields: fieldFlags };
+    const flags: RunFlags = { review: [...new Set([...applied.flags.review, ...missingLabels, ...readErrors, ...adaptiveLabels, ...blocked])], blocked, fields: fieldFlags };
+    for (const k of adaptiveKeys) if (!fieldFlags[k]) fieldFlags[k] = 'review';
     if (mappingFellBack(mappings, applied.mappingName)) {
       flags.review.push(`Ο κανόνας ζήτησε mapping «${applied.mappingName}» που δεν υπάρχει`);
     }
@@ -176,6 +230,14 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
     // not cost us the run itself. The ids that were actually notified are folded in afterwards.
     // `createdAt` is set explicitly so the envelope's `extractedAt` and the run's own timestamp are
     // the SAME instant — the JSON the user downloads must not claim a different moment than the card.
+    // A run that ended without anyone having to intervene is the template's own confirmation that
+    // the widened box was the right place to look: fold it into `lastGood` now, so the NEXT document
+    // is searched there from the start. A run that stopped for review learns nothing yet — its
+    // corrections (or its untouched values) go through `finalizeRunEdit` instead.
+    const learned = status === 'EXTRACTED' || status === 'POSTED'
+      ? await learnLastGood(t.id, t.fields, values, adaptiveKeys)
+      : [];
+
     const createdAt = new Date();
     const run = await prisma.templateRun.create({
       data: {
@@ -184,7 +246,7 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
         createdAt,
         values: values as unknown as Prisma.InputJsonValue,
         matched: applied.matched as unknown as Prisma.InputJsonValue,
-        flags: { ...flags, notified: [] as string[], baseOcr } as unknown as Prisma.InputJsonValue,
+        flags: { ...flags, notified: [] as string[], learned, baseOcr } as unknown as Prisma.InputJsonValue,
         // The canonical document this run produced (spec §17.1) — the whole output of the run, frozen
         // at the moment it ran. A later re-run of the same template writes its own row.
         // `normalizeDocument` because that is what `saveDocumentJson` stored: the downloaded envelope
@@ -213,7 +275,7 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
     });
     if (notified.length) {
       await prisma.templateRun
-        .update({ where: { id: run.id }, data: { flags: { ...flags, notified, baseOcr } as unknown as Prisma.InputJsonValue } })
+        .update({ where: { id: run.id }, data: { flags: { ...flags, notified, learned, baseOcr } as unknown as Prisma.InputJsonValue } })
         .catch((e) => console.error('[templates] notified flags not stored', run.id, (e as Error).message));
     }
 
@@ -296,6 +358,16 @@ export async function finalizeRunEdit(input: {
   // The cross-check compares against `flags.baseOcr` (the pre-projection snapshot the run stored),
   // NOT against the live document — by now that is this run's own projection.
   const flags = recomputeFieldFlags({ flags: run.flags as StoredFlags | null, fields, values, mode: t.mode, rows });
+
+  // Every value this edit LEAVES as the reader produced it is a confirmed position (spec §17.2): the
+  // human looked at the run and did not correct it. `flags.learned` records what this run already
+  // taught the template, so correcting a second field does not fold the first one's box in again.
+  const already = new Set(flags.learned ?? []);
+  const learned = await learnLastGood(
+    t.id, t.fields, values,
+    fields.map((f) => f.key).filter((k) => !already.has(k)),
+  );
+  flags.learned = [...already, ...learned];
 
   // A correction is only worth anything if it reaches the document the ERP posts from — but a
   // template with no INVOICE mapping has nothing to project.

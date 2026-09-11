@@ -6,7 +6,13 @@ import { getSetting } from '@/lib/settings';
 import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
 import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
 import { buildModelChain, tryModels } from '@/lib/ocr/model-fallback';
-import { padBbox, type Bbox } from './schema';
+import { extractJson, toBbox } from './detect-parse';
+import { padBbox, type Bbox, type TemplateValueType } from './schema';
+
+// The pure mapping «box inside this crop» → «box on the page» lives with the rest of the bbox maths;
+// re-exported here because the adaptive read is the only thing that needs it and this is where that
+// read is defined.
+export { cropBoxToPage } from './geometry';
 
 const DEFAULT_VISION_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 
@@ -143,6 +149,47 @@ export async function readCropValue(input: { crop: Buffer; prompt: string; opera
   const r = await callVision(input.crop, system, input.operation, input.ref, 'image/png', input.model);
   const v = r.content.trim();
   return { value: NULLISH.has(v.toLowerCase()) ? '' : v, model: r.model, tokensUsed: r.tokensUsed };
+}
+
+/**
+ * Read one field from a WIDER crop that is not tight around the value (spec §17.2): the model is
+ * asked to FIND the label first and then report the value next to it, together with where it found
+ * it (`box_2d`, 0–1000 relative to the crop). The position is what makes the read worth its cost —
+ * it is folded into `TemplateField.lastGood` so the next document is searched in the right place.
+ *
+ * Asked in Greek because the documents and their labels are Greek, and the label is quoted verbatim
+ * from the template: an English paraphrase of «Καθαρή αξία» is a different question.
+ */
+export async function readCropValueLocated(input: {
+  crop: Buffer;
+  label: string;
+  aiHint?: string | null;
+  valueType: TemplateValueType;
+  operation: string;
+  ref?: UsageRef;
+  model?: string;
+}): Promise<{ value: string; box: Bbox | null; model: string; tokensUsed: number | null }> {
+  const hint = input.aiHint ? ` (ή το πεδίο: ${input.aiHint})` : '';
+  const system = [
+    `Η εικόνα είναι ένα κομμάτι σαρωμένου εμπορικού εγγράφου. Βρες την ετικέτα «${input.label}»${hint} μέσα στην εικόνα`,
+    'και δώσε ΜΟΝΟ την τιμή που βρίσκεται δίπλα ή κάτω από αυτήν.',
+    `Τύπος τιμής: ${input.valueType.toLowerCase()}. Γράψε την τιμή ΑΚΡΙΒΩΣ όπως είναι τυπωμένη, χωρίς ετικέτες και χωρίς σύμβολα νομίσματος.`,
+    'Απάντησε ΜΟΝΟ με JSON: {"value": "...", "box_2d": [ymin, xmin, ymax, xmax]}',
+    'όπου το box_2d είναι το πλαίσιο της ΤΙΜΗΣ σε κλίμακα 0-1000 ως προς αυτή την εικόνα.',
+    'Αν η ετικέτα ή η τιμή δεν υπάρχει στην εικόνα, απάντησε {"value": null}. Χωρίς markdown, χωρίς εξηγήσεις.',
+  ].join('\n');
+
+  const r = await callVision(input.crop, system, input.operation, input.ref, 'image/png', input.model);
+  const parsed = extractJson(r.content);
+  // Deliberately NOT falling back to the raw content: this prompt asks for JSON, so anything else is
+  // the model explaining itself — and storing an apology as an invoice number is worse than a blank.
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { value: '', box: null, model: r.model, tokensUsed: r.tokensUsed };
+  }
+  const obj = parsed as Record<string, unknown>;
+  const v = obj.value == null ? '' : String(obj.value).trim();
+  const value = NULLISH.has(v.toLowerCase()) ? '' : v;
+  return { value, box: value ? toBbox(obj) : null, model: r.model, tokensUsed: r.tokensUsed };
 }
 
 /** Read a table crop into rows keyed by the template's column keys. */

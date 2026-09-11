@@ -9,10 +9,9 @@
 // off the field for every document that follows. It is only ever updated from values a human either
 // confirmed or declined to correct — learning from a wrong reading would teach the wrong place.
 import { clampBbox } from './geometry';
-import { isValidBbox, type Bbox, type Region } from './schema';
+import { isValidBbox, type Bbox, type LastGood, type Region } from './schema';
 
-/** Where a field was last read successfully. `n` = how many readings the average carries (capped). */
-export type LastGood = { page: number; bbox: Bbox; at: string; n: number };
+export type { LastGood };
 
 /**
  * Confidence of a value only the widened read could find. Below `RETRY_CONFIDENCE` (0.6) on purpose:
@@ -84,4 +83,21 @@ export function toLastGood(raw: unknown): LastGood | null {
   const page = typeof o.page === 'number' && Number.isInteger(o.page) && o.page >= 0 ? o.page : 0;
   const n = typeof o.n === 'number' && o.n >= 1 ? Math.min(Math.floor(o.n), LAST_GOOD_MAX_N) : 1;
   return { page, bbox: o.bbox, at: typeof o.at === 'string' ? o.at : '', n };
+}
+
+/**
+ * What `lastGood` must become when a region is written by hand — the designer drawing a box, or
+ * «Αποθήκευση στο πρότυπο» saving the box a re-read used. `undefined` = leave the stored value
+ * alone (the region did not move), `null` = clear it (the region is gone).
+ *
+ * A moved box makes everything learned so far a statement about the OLD position: keeping it would
+ * send the widened read straight back to the place the user has just corrected. The new box starts
+ * the average again at `n = 1`, so the very next reading can still pull it.
+ */
+export function lastGoodForRegion(prev: Region | null, next: Region | null, at: string): LastGood | null | undefined {
+  const same = prev == null && next == null
+    ? true
+    : prev != null && next != null && prev.page === next.page && sameBbox(prev.bbox, next.bbox);
+  if (same) return undefined;
+  return next ? { page: next.page, bbox: next.bbox, at, n: 1 } : null;
 }

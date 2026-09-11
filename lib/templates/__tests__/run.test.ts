@@ -6,6 +6,7 @@ const db = vi.hoisted(() => ({
   extractionTemplate: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
   templateRun: { create: vi.fn(), findMany: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
   ocrInvoiceItem: { deleteMany: vi.fn(), createMany: vi.fn(), findMany: vi.fn() },
+  templateField: { update: vi.fn() },
   // The runner hands `$transaction` an ARRAY of promises (prisma batch form).
   $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
 }));
@@ -73,7 +74,7 @@ const value = (v: FieldValue['value'], source: FieldValue['source'] = 'vision'):
   ({ raw: v == null ? null : String(v), value: v, confidence: 1, source, page: 0, bbox: [0, 0, 0.1, 0.1], color: '#0078D4' });
 
 const extractResult = (values: Record<string, FieldValue>, over: Record<string, unknown> = {}) =>
-  ({ values, model: 'gpt', tokensUsed: 42, errors: [] as { fieldKey: string; message: string }[], pageCount: 1, ...over });
+  ({ values, model: 'gpt', tokensUsed: 42, errors: [] as { fieldKey: string; message: string }[], pageCount: 1, adaptive: [] as string[], ...over });
 
 /** Last `templateRun.create` payload. */
 const runData = () => db.templateRun.create.mock.calls.at(-1)![0].data as Record<string, any>;
@@ -84,7 +85,9 @@ beforeEach(() => {
   for (const m of [db.ocrDocument.findUnique, db.ocrDocument.update, db.extractionTemplate.findUnique, db.extractionTemplate.findFirst,
     db.extractionTemplate.update, db.templateRun.create, db.templateRun.findMany, db.templateRun.update,
     db.templateRun.findUnique, db.templateRun.findFirst,
-    db.ocrInvoiceItem.deleteMany, db.ocrInvoiceItem.createMany, db.ocrInvoiceItem.findMany, db.$transaction, extract, post, notify, matchItems]) m.mockReset();
+    db.ocrInvoiceItem.deleteMany, db.ocrInvoiceItem.createMany, db.ocrInvoiceItem.findMany, db.templateField.update,
+    db.$transaction, extract, post, notify, matchItems]) m.mockReset();
+  db.templateField.update.mockResolvedValue({});
   db.$transaction.mockImplementation(async (ops: Promise<unknown>[]) => Promise.all(ops));
   db.ocrDocument.update.mockResolvedValue({});
   db.extractionTemplate.update.mockResolvedValue({});
@@ -824,5 +827,130 @@ describe('finalizeRunEdit', () => {
     const out = runUpdate().output;
     expect(out).toMatchObject({ template: 'promitheftis', version: 3, file: 'a.pdf', documentId: 'd1', extractedAt: '2026-09-10T10:00:00.000Z' });
     expect(out.document.totals.total).toBe(50);
+  });
+});
+
+describe('learning the last good position (spec §17.2)', () => {
+  /** Every `templateField.update` payload, keyed by field key. */
+  const learned = () => Object.fromEntries(
+    db.templateField.update.mock.calls.map((c) => [c[0].where.templateId_key.key, c[0].data.lastGood as Record<string, any>]),
+  );
+
+  it('a field read in the widened box is flagged for review and named in the reason', async () => {
+    load(template({ mode: 'SEMI_AUTO' }));
+    extract.mockResolvedValue(extractResult(
+      { total: { ...value(150), adaptive: true, confidence: 0.5 }, note: value('x') },
+      { adaptive: ['total'] },
+    ));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'upload' });
+
+    expect(out.status).toBe('REVIEW');
+    expect(out.flags.review).toContain('Διαβάστηκε σε διευρυμένη περιοχή «Σύνολο»');
+    expect(out.flags.blocked).toEqual([]);
+    expect(runData().flags.fields.total).toBe('review');
+  });
+
+  it('a run that finished on its own teaches the template where it actually found the value', async () => {
+    load(template());                                        // MANUAL → EXTRACTED
+    extract.mockResolvedValue(extractResult(
+      { total: { ...value(150), page: 1, bbox: [0.5, 0.5, 0.2, 0.05], adaptive: true }, note: value('x') },
+      { adaptive: ['total'] },
+    ));
+
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'upload' });
+
+    // The field had no `lastGood` yet → the average starts at this box.
+    expect(learned().total).toMatchObject({ page: 1, bbox: [0.5, 0.5, 0.2, 0.05], n: 1 });
+    expect(db.templateField.update).toHaveBeenCalledTimes(1);     // only the adaptive field
+    expect(runData().flags.learned).toEqual(['total']);
+  });
+
+  it('averages onto the position the field already carries', async () => {
+    const total = { ...TOTAL, lastGood: { page: 0, bbox: [0.4, 0.4, 0.2, 0.05], at: 'T0', n: 1 } };
+    load(template({ fields: [total, NOTE] }));
+    extract.mockResolvedValue(extractResult(
+      { total: { ...value(150), page: 0, bbox: [0.6, 0.4, 0.2, 0.05], adaptive: true }, note: value('x') },
+      { adaptive: ['total'] },
+    ));
+
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'upload' });
+
+    expect(learned().total).toMatchObject({ bbox: [0.5, 0.4, 0.2, 0.05], n: 2 });
+  });
+
+  it('a run that stopped for review teaches nothing yet', async () => {
+    load(template({ mode: 'SEMI_AUTO' }));
+    extract.mockResolvedValue(extractResult(
+      { total: { ...value(150), adaptive: true }, note: value('x') },
+      { adaptive: ['total'] },
+    ));
+
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'upload' });
+
+    expect(db.templateField.update).not.toHaveBeenCalled();
+    expect(runData().flags.learned).toEqual([]);
+  });
+
+  it('finalizeRunEdit learns every value the human left as it was read', async () => {
+    const run = runRow({ template: template({ mode: 'MANUAL', conditions: [] }), status: 'EXTRACTED' });
+    db.templateRun.update.mockResolvedValue(run);
+    db.ocrDocument.findUnique.mockResolvedValue({ fileName: 'a.pdf', extractedData: {} });
+
+    await finalizeRunEdit({
+      run: run as never,
+      values: {
+        total: { ...value(99, 'manual'), bbox: [0.7, 0.7, 0.1, 0.1] },   // corrected by hand → not a good box
+        note: { ...value('x'), page: 0, bbox: [0.2, 0.2, 0.1, 0.05] },   // left as read → learn it
+      },
+    });
+
+    expect(Object.keys(learned())).toEqual(['note']);
+    expect(learned().note).toMatchObject({ page: 0, bbox: [0.2, 0.2, 0.1, 0.05], n: 1 });
+    expect(runUpdate().flags.learned).toEqual(['note']);
+  });
+
+  it('never learns the same reading twice, however often the run is edited', async () => {
+    const run = runRow({
+      template: template({ mode: 'MANUAL', conditions: [] }), status: 'EXTRACTED',
+      flags: { review: [], blocked: [], notified: [], fields: {}, learned: ['note'] },
+    });
+    db.templateRun.update.mockResolvedValue(run);
+    db.ocrDocument.findUnique.mockResolvedValue({ fileName: 'a.pdf', extractedData: {} });
+
+    await finalizeRunEdit({ run: run as never, values: { total: value(99), note: value('x') } });
+
+    expect(Object.keys(learned())).toEqual(['total']);
+    expect(runUpdate().flags.learned).toEqual(['note', 'total']);
+  });
+
+  it('a blank reading, a rule-written value and a missing box teach nothing', async () => {
+    const run = runRow({ template: template({ mode: 'MANUAL', conditions: [] }), status: 'EXTRACTED' });
+    db.templateRun.update.mockResolvedValue(run);
+    db.ocrDocument.findUnique.mockResolvedValue({ fileName: 'a.pdf', extractedData: {} });
+
+    await finalizeRunEdit({
+      run: run as never,
+      values: {
+        total: { ...value(null), page: 0, bbox: [0.1, 0.1, 0.1, 0.1] },  // read nothing
+        note: { ...value('x', 'rule'), page: 0, bbox: [0.1, 0.1, 0.1, 0.1] },
+      },
+    });
+
+    expect(db.templateField.update).not.toHaveBeenCalled();
+  });
+
+  it('a database that refuses the write never fails the run', async () => {
+    load(template());
+    db.templateField.update.mockRejectedValue(new Error('deadlock'));
+    extract.mockResolvedValue(extractResult(
+      { total: { ...value(150), adaptive: true }, note: value('x') },
+      { adaptive: ['total'] },
+    ));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'upload' });
+
+    expect(out.status).toBe('EXTRACTED');
+    expect(runData().flags.learned).toEqual([]);
   });
 });

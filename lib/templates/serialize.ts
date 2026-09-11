@@ -3,6 +3,7 @@ import 'server-only';
 import type { ExtractionTemplate, TemplateField, TemplateMapping, TemplateCondition } from '@prisma/client';
 import type { Action, Clause, ColumnDef, FieldDef, MappingRowExcel, MappingRowInvoice, Region } from './schema';
 import { isValidBbox } from './schema';
+import { toLastGood } from './adaptive';
 
 export function toFieldDef(f: TemplateField): FieldDef {
   const region = f.region as { page?: unknown; bbox?: unknown } | null;
@@ -12,6 +13,9 @@ export function toFieldDef(f: TemplateField): FieldDef {
     region: ok ? ({ page: region!.page as number, bbox: region!.bbox } as Region) : null,
     columns: Array.isArray(f.columns) ? (f.columns as unknown as ColumnDef[]) : null,
     aiHint: f.aiHint, required: f.required, order: f.order,
+    // Learned, not authored: the extractor widens its second look around it (spec §17.2). It rides
+    // along on the DTO because `extractTemplateFields` takes `FieldDef`s and nothing else.
+    lastGood: toLastGood(f.lastGood),
   };
 }
 

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const textItems = vi.fn();
 const readValue = vi.fn();
 const readTable = vi.fn();
+const readLocated = vi.fn();
 const prepare = vi.fn(async (..._a: unknown[]) => Buffer.from('crop'));
 const countPages = vi.fn(async (..._a: unknown[]) => 3);
 vi.mock('../pdf-text', () => ({ extractPdfTextItems: (...a: unknown[]) => textItems(...a) }));
@@ -10,6 +11,7 @@ vi.mock('../vision', () => ({
   prepareCrop: (...a: unknown[]) => prepare(...a),
   readCropValue: (...a: unknown[]) => readValue(...a),
   readCropTable: (...a: unknown[]) => readTable(...a),
+  readCropValueLocated: (...a: unknown[]) => readLocated(...a),
 }));
 // The retry asks for the upgraded model by name; the real module is a heavy server import.
 vi.mock('@/lib/ocr/extract', () => ({ UPGRADED_VISION_MODEL: 'gemini-2.5-pro' }));
@@ -20,7 +22,9 @@ vi.mock('@/lib/ocr/rasterize', () => ({
 }));
 
 import { extractTemplateFields } from '../extract';
-import type { FieldDef } from '../schema';
+import { widenBbox } from '../adaptive';
+import { cropBoxToPage } from '../geometry';
+import type { Bbox, FieldDef } from '../schema';
 
 const field = (over: Partial<FieldDef>): FieldDef => ({
   key: 'no', label: 'Αριθμός', kind: 'SINGLE', valueType: 'TEXT', color: '#0078D4',
@@ -30,9 +34,11 @@ const pdf = Buffer.from('%PDF-1.4 fake');
 const png = Buffer.from('not a pdf');
 
 beforeEach(() => {
-  textItems.mockReset(); readValue.mockReset(); readTable.mockReset(); countPages.mockReset(); prepare.mockReset();
+  textItems.mockReset(); readValue.mockReset(); readTable.mockReset(); countPages.mockReset(); prepare.mockReset(); readLocated.mockReset();
   countPages.mockResolvedValue(3);
   prepare.mockResolvedValue(Buffer.from('crop'));
+  // The widened second look finds nothing unless a test says otherwise.
+  readLocated.mockResolvedValue({ value: '', box: null, model: 'm', tokensUsed: 0 });
 });
 
 describe('extractTemplateFields', () => {
@@ -190,5 +196,100 @@ describe('typed reading and the one-shot retry', () => {
     const out = await extractTemplateFields(png, 'image/png', [field({ key: 'note' })]);
     expect(readValue).toHaveBeenCalledTimes(1);
     expect(out.values.note).toMatchObject({ raw: null, value: null, confidence: null });
+  });
+});
+
+describe('the adaptive second look (spec §17.2)', () => {
+  const REGION_BBOX: Bbox = [0.1, 0.1, 0.3, 0.05];
+  const lastGood = (bbox: Bbox, page = 0) => ({ page, bbox, at: '2026-09-10T10:00:00.000Z', n: 3 });
+
+  it('re-reads a blank field in a widened box and stores where it actually found the value', async () => {
+    readValue.mockResolvedValueOnce({ value: '', model: 'm', tokensUsed: 1 });
+    readLocated.mockResolvedValueOnce({ value: 'ΤΙΜ-451', box: [0.5, 0.4, 0.2, 0.3], model: 'gemini-2.5-flash', tokensUsed: 6 });
+
+    const out = await extractTemplateFields(png, 'image/png', [field({})]);
+
+    const wide = widenBbox(REGION_BBOX);
+    expect(readLocated).toHaveBeenCalledTimes(1);
+    expect(readLocated.mock.calls[0][0]).toMatchObject({ label: 'Αριθμός', valueType: 'TEXT' });
+    // The widened crop is cut EXACTLY — the box is already the padding.
+    expect(prepare.mock.calls[1][1]).toEqual(wide);
+    expect(prepare.mock.calls[1][2]).toEqual({ pad: 0 });
+    expect(out.values.no).toMatchObject({
+      raw: 'ΤΙΜ-451', value: 'ΤΙΜ-451', source: 'vision', confidence: 0.5, adaptive: true,
+      page: 0, bbox: cropBoxToPage(wide, [0.5, 0.4, 0.2, 0.3]),
+    });
+    expect(out.adaptive).toEqual(['no']);
+    expect(out.tokensUsed).toBe(7);
+  });
+
+  it('searches around lastGood — and on ITS page — once the field has drifted', async () => {
+    readValue.mockResolvedValueOnce({ value: '', model: 'm', tokensUsed: 0 });
+    readLocated.mockResolvedValueOnce({ value: 'X', box: null, model: 'm', tokensUsed: 1 });
+    const lg = lastGood([0.12, 0.3, 0.3, 0.05], 2);
+
+    const out = await extractTemplateFields(png, 'image/png', [field({ lastGood: lg })]);
+
+    expect(prepare.mock.calls[1][1]).toEqual(widenBbox(lg.bbox));
+    // No box from the model → the value is recorded at the box that was searched.
+    expect(out.values.no).toMatchObject({ page: 2, bbox: widenBbox(lg.bbox), adaptive: true });
+  });
+
+  it('comes after the one-shot retry, and only when that retry also read nothing', async () => {
+    readValue.mockResolvedValueOnce({ value: '', model: 'm', tokensUsed: 1 });
+    readValue.mockResolvedValueOnce({ value: '229,40', model: 'gemini-2.5-pro', tokensUsed: 9 });
+    const out = await extractTemplateFields(png, 'image/png', [field({ key: 'total', valueType: 'CURRENCY' })]);
+    expect(readLocated).not.toHaveBeenCalled();
+    expect(out.values.total).toMatchObject({ value: 229.4, confidence: 0.6 });
+    expect(out.values.total.adaptive).toBeUndefined();
+    expect(out.adaptive).toEqual([]);
+  });
+
+  it('runs for a CURRENCY field the retry could not rescue either', async () => {
+    readValue.mockResolvedValueOnce({ value: '', model: 'm', tokensUsed: 1 });
+    readValue.mockResolvedValueOnce({ value: '', model: 'gemini-2.5-pro', tokensUsed: 1 });
+    readLocated.mockResolvedValueOnce({ value: '1.240,00', box: null, model: 'm', tokensUsed: 2 });
+    const out = await extractTemplateFields(png, 'image/png', [field({ key: 'total', valueType: 'CURRENCY' })]);
+    expect(readValue).toHaveBeenCalledTimes(2);
+    expect(out.values.total).toMatchObject({ value: 1240, confidence: 0.5, adaptive: true });
+  });
+
+  it('a text-layer hit never triggers it (the free reader was right)', async () => {
+    textItems.mockResolvedValueOnce([{ str: 'ΤΙΜ-451', x: 0.12, y: 0.11, w: 0.1, h: 0.02 }]);
+    await extractTemplateFields(pdf, 'application/pdf', [field({})]);
+    expect(readLocated).not.toHaveBeenCalled();
+  });
+
+  it('asks at most ONCE per field, however blank the answer', async () => {
+    readValue.mockResolvedValue({ value: '', model: 'm', tokensUsed: 0 });
+    const out = await extractTemplateFields(png, 'image/png', [field({ key: 'a' }), field({ key: 'b' })]);
+    expect(readLocated).toHaveBeenCalledTimes(2);   // once per field, not once per box
+    expect(out.adaptive).toEqual([]);
+    expect(out.values.a).toMatchObject({ raw: null, value: null, source: 'vision' });
+  });
+
+  it('keeps the reading the model would not coerce rather than an adaptive null', async () => {
+    readValue.mockResolvedValueOnce({ value: 'δεν διαβάζεται', model: 'm', tokensUsed: 1 });
+    readValue.mockResolvedValueOnce({ value: '', model: 'gemini-2.5-pro', tokensUsed: 1 });
+    readLocated.mockResolvedValueOnce({ value: 'κι αυτό όχι', box: null, model: 'm', tokensUsed: 1 });
+    const out = await extractTemplateFields(png, 'image/png', [field({ key: 'when', valueType: 'DATE' })]);
+    expect(out.values.when).toMatchObject({ raw: 'δεν διαβάζεται', value: null, confidence: 0.8 });
+    expect(out.adaptive).toEqual([]);
+  });
+
+  it('never runs for a TABLE field, or for a field with no region at all', async () => {
+    readTable.mockResolvedValueOnce({ rows: [], model: 'm', tokensUsed: 1 });
+    const table = field({ key: 'lines', kind: 'TABLE', columns: [{ key: 'c', label: 'C', valueType: 'TEXT' }] });
+    await extractTemplateFields(png, 'image/png', [table, field({ key: 'none', region: null })]);
+    expect(readLocated).not.toHaveBeenCalled();
+  });
+
+  it('a widened read that blows up leaves the field as the first read left it', async () => {
+    readValue.mockResolvedValueOnce({ value: '', model: 'm', tokensUsed: 1 });
+    readLocated.mockRejectedValueOnce(new Error('page out of range'));
+    const out = await extractTemplateFields(png, 'image/png', [field({})]);
+    expect(out.values.no).toMatchObject({ raw: null, value: null, source: 'vision' });
+    expect(out.errors).toEqual([]);      // the field did not fail — it just found nothing
+    expect(out.adaptive).toEqual([]);
   });
 });

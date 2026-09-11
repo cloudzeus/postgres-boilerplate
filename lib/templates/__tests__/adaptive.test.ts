@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ADAPTIVE_CONFIDENCE, WIDEN_FACTOR, adaptiveRegion, searchBoxes, toLastGood, updateLastGood, widenBbox } from '../adaptive';
+import { ADAPTIVE_CONFIDENCE, WIDEN_FACTOR, adaptiveRegion, lastGoodForRegion, searchBoxes, toLastGood, updateLastGood, widenBbox } from '../adaptive';
 import type { Bbox } from '../schema';
 
 const REGION = { page: 0, bbox: [0.4, 0.4, 0.2, 0.1] as Bbox };
@@ -98,5 +98,23 @@ describe('toLastGood', () => {
 describe('constants', () => {
   it('reads in a widened radius are worth a human glance', () => {
     expect(ADAPTIVE_CONFIDENCE).toBe(0.5);
+  });
+});
+
+describe('lastGoodForRegion', () => {
+  const R = (page: number, bbox: Bbox) => ({ page, bbox });
+
+  it('leaves the learned position alone when the box did not move', () => {
+    expect(lastGoodForRegion(R(0, [0.1, 0.1, 0.2, 0.2]), R(0, [0.1, 0.1, 0.2, 0.2]), 'T')).toBeUndefined();
+    expect(lastGoodForRegion(null, null, 'T')).toBeUndefined();
+  });
+  it('restarts the average on the box the user just drew', () => {
+    expect(lastGoodForRegion(R(0, [0.1, 0.1, 0.2, 0.2]), R(1, [0.1, 0.1, 0.2, 0.2]), 'T'))
+      .toEqual({ page: 1, bbox: [0.1, 0.1, 0.2, 0.2], at: 'T', n: 1 });
+    expect(lastGoodForRegion(null, R(0, [0.3, 0.3, 0.1, 0.1]), 'T'))
+      .toEqual({ page: 0, bbox: [0.3, 0.3, 0.1, 0.1], at: 'T', n: 1 });
+  });
+  it('clears it when the region is removed', () => {
+    expect(lastGoodForRegion(R(0, [0.1, 0.1, 0.2, 0.2]), null, 'T')).toBeNull();
   });
 });

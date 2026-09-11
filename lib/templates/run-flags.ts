@@ -21,7 +21,12 @@ export const MISMATCH_PREFIX = 'Ασυμφωνία «';
  * (`baseOcrSnapshot`), and is the ONLY thing a re-check may compare against: the document's own
  * `extractedData` has since been overwritten with the template's values.
  */
-export type StoredFlags = { review?: string[]; blocked?: string[]; notified?: string[]; fields?: Record<string, FieldFlag>; baseOcr?: Record<string, unknown> };
+export type StoredFlags = {
+  review?: string[]; blocked?: string[]; notified?: string[]; fields?: Record<string, FieldFlag>;
+  baseOcr?: Record<string, unknown>;
+  /** Field keys whose read position this run has ALREADY folded into `TemplateField.lastGood` (§17.2). */
+  learned?: string[];
+};
 export type RecomputedFlags = StoredFlags & { review: string[]; blocked: string[]; fields: Record<string, FieldFlag> };
 
 export function recomputeFieldFlags(input: {
