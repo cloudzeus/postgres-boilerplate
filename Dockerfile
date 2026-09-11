@@ -16,7 +16,12 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
-RUN npm ci
+# --include=dev is MANDATORY: the build needs tailwindcss/postcss/autoprefixer/
+# typescript, which live in devDependencies. Coolify injects NODE_ENV=production
+# into every stage, and `npm ci` then silently skips devDependencies — the build
+# dies later with «Cannot find module 'autoprefixer'». The dev packages never
+# reach the runtime image: only .next/standalone is copied into stage 3.
+RUN npm ci --include=dev
 
 # 2) builder — generate Prisma client + build Next.js (produces .next/standalone).
 FROM node:22-slim AS builder
