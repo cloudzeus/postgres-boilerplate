@@ -47,7 +47,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  await requirePermission('ocr.categorize');
+  const user = await requirePermission('ocr.categorize');
   const { id } = await params;
   const body = PatchSchema.parse(await req.json());
   const { items, document: documentPatch, extractedData, seriesSource: _seriesSource, ...scalar } = body;
@@ -107,11 +107,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
   }
 
-  const doc = await prisma.ocrDocument.update({ where: { id }, data: { ...scalar, ...seriesPatch } as any });
+  // Όταν ΑΝΘΡΩΠΟΣ πειράζει την ίδια την ανάγνωση (κανονικό έγγραφο, flat πεδία ή γραμμές), το
+  // έγγραφο γίνεται «επιβεβαιωμένο»: από εκεί και πέρα επιτρέπεται να γίνει παράδειγμα αναφοράς
+  // για τον ίδιο εκδότη. Μια αλλαγή κατηγορίας ή σημείωσης ΔΕΝ είναι επιβεβαίωση της ανάγνωσης.
+  const touchesReading = nextDocument != null || extractedData !== undefined || items !== undefined;
+  const verifiedPatch = touchesReading ? { verifiedAt: new Date(), verifiedById: user.id } : {};
+
+  const doc = await prisma.ocrDocument.update({
+    where: { id },
+    data: { ...scalar, ...seriesPatch, ...verifiedPatch } as any,
+  });
 
   // Όλα τα γραψίματα του εγγράφου — κανονικά ή legacy — καταλήγουν στον έναν γραφέα, που κρατάει
   // `document`, `extractedData`, `issuerAfm` και τις γραμμές συμφωνημένα στο ίδιο transaction.
-  if (nextDocument || extractedData !== undefined || items !== undefined) {
+  if (touchesReading) {
     // Το `docType` του ΙΔΙΟΥ PATCH αποφασίζει το είδος του εγγράφου: αλλιώς ένα τιμολόγιο που μόλις
     // έγινε «γενικό κείμενο» θα κρατούσε `kind: 'invoice'` μέχρι την επόμενη εξαγωγή.
     const next = nextDocument

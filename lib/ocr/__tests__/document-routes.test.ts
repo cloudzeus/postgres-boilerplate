@@ -4,7 +4,7 @@
 // από τον ΕΝΑ γραφέα (`saveDocumentJson`) — ποτέ απευθείας στο `extractedData` ή στις γραμμές.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { db, rbac, bunny, ocr, sm, tpl, dt, thumb, writer } = vi.hoisted(() => ({
+const { db, rbac, bunny, ocr, sm, tpl, dt, thumb, writer, ex } = vi.hoisted(() => ({
   db: {
     ocrDocument: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     ocrInvoiceItem: { deleteMany: vi.fn(), createMany: vi.fn(), findMany: vi.fn() },
@@ -21,6 +21,7 @@ const { db, rbac, bunny, ocr, sm, tpl, dt, thumb, writer } = vi.hoisted(() => ({
   tpl: { runMatchingTemplate: vi.fn() },
   dt: { classifyDocument: vi.fn() },
   thumb: { ensureOcrThumbnail: vi.fn() },
+  ex: { loadIssuerExample: vi.fn() },
   writer: { saveDocumentJson: vi.fn(), loadDocumentJson: vi.fn() },
 }));
 
@@ -32,6 +33,7 @@ vi.mock('@/lib/ocr/softone-match', () => sm);
 vi.mock('@/lib/templates/run', () => tpl);
 vi.mock('@/lib/ocr/doc-type', () => dt);
 vi.mock('@/lib/ocr/thumbnail', () => thumb);
+vi.mock('@/lib/ocr/example-lookup', () => ex);
 vi.mock('@/lib/settings', () => ({ getSetting: vi.fn().mockResolvedValue(null) }));
 // Ο γραφέας μένει αληθινός εκτός από τα δύο σημεία που αγγίζουν τη βάση: θέλουμε να δούμε ΤΙ
 // έγγραφο του δόθηκε, με το πραγματικό `mergeLegacyPatch` να έχει τρέξει από πάνω.
@@ -80,6 +82,7 @@ beforeEach(() => {
   tpl.runMatchingTemplate.mockResolvedValue(null);
   dt.classifyDocument.mockResolvedValue(undefined);
   thumb.ensureOcrThumbnail.mockResolvedValue(undefined);
+  ex.loadIssuerExample.mockResolvedValue(null);
   writer.saveDocumentJson.mockResolvedValue(undefined);
   writer.loadDocumentJson.mockResolvedValue(DOC);
   ocr.extractDocument.mockResolvedValue({
@@ -203,6 +206,20 @@ describe('POST /api/admin/ocr/[id]/reextract', () => {
     expect(ocr.extractDocument).not.toHaveBeenCalled();
   });
 
+  it('δίνει στο μοντέλο το επιβεβαιωμένο παράδειγμα του ίδιου εκδότη (χωρίς δεύτερη κλήση)', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({
+      id: 'doc1', storageKey: 'ocr/x.pdf', mimeType: 'application/pdf', docType: 'INVOICE',
+      language: 'el', originalName: 'x.pdf', fileName: 'x.pdf', issuerAfm: '999863881',
+      softoneSeries: null, seriesSource: null,
+    });
+    ex.loadIssuerExample.mockResolvedValue({ issuer: { name: 'ΚΑΠΑΛΙΝΕ ΑΕ' } });
+    await reextract(new Request('http://localhost/x', { method: 'POST' }), ctx());
+    expect(ex.loadIssuerExample).toHaveBeenCalledWith('999863881', { excludeId: 'doc1' });
+    expect(ocr.extractDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ example: { issuer: { name: 'ΚΑΠΑΛΙΝΕ ΑΕ' } } }),
+    );
+  });
+
   it('ξαναγράφει το έγγραφο μέσω saveDocumentJson, χωρίς χειροκίνητο delete/create γραμμών', async () => {
     const res = await reextract(new Request('http://localhost/x', { method: 'POST' }), ctx());
     expect(res.status).toBe(200);
@@ -263,6 +280,19 @@ describe('PATCH /api/admin/ocr/[id]', () => {
     const [, , opts] = writer.saveDocumentJson.mock.calls[0];
     expect(opts).toEqual({ replaceItems: true });
     expect(sm.matchDocItems).toHaveBeenCalledWith('doc1');
+  });
+
+  it('μια ανθρώπινη διόρθωση της ανάγνωσης σφραγίζει το έγγραφο ως επιβεβαιωμένο', async () => {
+    await patchDoc(patch({ extractedData: { ...LEGACY, totalAmount: 200 } }), ctx());
+    const [call] = db.ocrDocument.update.mock.calls;
+    expect(call[0].data.verifiedAt).toBeInstanceOf(Date);
+    expect(call[0].data.verifiedById).toBe('u1');
+  });
+
+  it('αλλαγή κατηγορίας / σημείωσης ΔΕΝ είναι επιβεβαίωση της ανάγνωσης', async () => {
+    await patchDoc(patch({ category: 'EXPENSE', notes: 'κάτι' }), ctx());
+    const [call] = db.ocrDocument.update.mock.calls;
+    expect(call[0].data).not.toHaveProperty('verifiedAt');
   });
 
   it('μια αποθήκευση μόνο κατηγορίας δεν αγγίζει καθόλου το έγγραφο', async () => {

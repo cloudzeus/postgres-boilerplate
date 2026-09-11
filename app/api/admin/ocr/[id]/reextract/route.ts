@@ -10,6 +10,7 @@ import { runMatchingTemplate } from '@/lib/templates/run';
 import { classifyDocument } from '@/lib/ocr/doc-type';
 import { docTypeFromKind } from '@/lib/ocr/canonical';
 import { isExtractDocType, type ExtractDocType } from '@/lib/ocr/templates';
+import { loadIssuerExample } from '@/lib/ocr/example-lookup';
 import type { RunOutcome } from '@/lib/templates/schema';
 
 export const runtime = 'nodejs';
@@ -71,6 +72,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       docType,
       language: doc.language as any,
       pdfSource: doc.mimeType === 'application/pdf' ? 'scanned' : undefined,
+      // ΕΔΩ, και μόνο εδώ, το παράδειγμα είναι δωρεάν: το έγγραφο κουβαλάει ήδη το ΑΦΜ του εκδότη
+      // από την πρώτη ανάγνωση, οπότε βρίσκουμε το επιβεβαιωμένο «αδελφάκι» του χωρίς δεύτερη
+      // κλήση στο μοντέλο. Σε νέο ανέβασμα ο εκδότης είναι άγνωστος μέχρι να διαβαστεί η σελίδα.
+      example: await loadIssuerExample(doc.issuerAfm, { excludeId: id }),
     });
 
     // Re-check the SoftOne supplier match (issuer ΑΦΜ → TRDR SODTYPE=12). Best-effort.

@@ -244,7 +244,14 @@ export async function postDocumentToSoftone(id: string, opts: { syncTemplateRun?
 
     await prisma.ocrDocument.update({
       where: { id },
-      data: { postStatus: 'POSTED', postedAt: new Date(), postedRef: ref, postError: null },
+      data: {
+        postStatus: 'POSTED', postedAt: new Date(), postedRef: ref, postError: null,
+        // Η καταχώριση στο SoftOne είναι η ισχυρότερη ανθρώπινη επιβεβαίωση που υπάρχει: κάποιος
+        // κοίταξε την ανάγνωση και τη δέχτηκε ως λογιστικό γεγονός. Από εδώ και πέρα το έγγραφο
+        // μπορεί να γίνει παράδειγμα αναφοράς για τον ίδιο εκδότη (`lib/ocr/example-lookup.ts`).
+        // `verifiedById` μένει κενό: η καταχώριση μπορεί να ξεκινήσει και από εκτέλεση προτύπου.
+        verifiedAt: new Date(),
+      },
     });
     if (opts.syncTemplateRun) {
       await markLatestRunPosted(id).catch((e) => console.error('[ocr] run status not synced after post', doc.id, (e as Error).message));

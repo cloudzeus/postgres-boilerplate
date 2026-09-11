@@ -120,6 +120,18 @@ describe('postDocumentToSoftone', () => {
     expect(res.ref).toBe('90210');
     const last = db.ocrDocument.update.mock.calls.at(-1)?.[0];
     expect(last.data).toMatchObject({ postStatus: 'POSTED', postedRef: '90210', postError: null });
+    // Η καταχώριση είναι ανθρώπινη επιβεβαίωση: το έγγραφο μπορεί πλέον να γίνει παράδειγμα
+    // αναφοράς για τον ίδιο εκδότη.
+    expect(last.data.verifiedAt).toBeInstanceOf(Date);
+  });
+
+  it('μια ΑΠΟΤΥΧΗΜΕΝΗ καταχώριση δεν επιβεβαιώνει τίποτα', async () => {
+    settings.getSetting.mockResolvedValue(true);
+    softone.softoneCall.mockResolvedValue({ success: false, error: 'κάτι έσπασε' });
+    await expect(postDocumentToSoftone('d1')).rejects.toThrow();
+    for (const call of db.ocrDocument.update.mock.calls) {
+      expect(call[0].data).not.toHaveProperty('verifiedAt');
+    }
   });
 
   it('setData success αλλά read-back δεν ταιριάζει → FAILED, ΜΕ το postedRef φυλαγμένο', async () => {
