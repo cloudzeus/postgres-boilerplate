@@ -1,7 +1,7 @@
 import 'server-only';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
-import { normalizeAfm } from '@/lib/ocr/validate';
+import { normalizeAfm, vatCountry } from '@/lib/ocr/validate';
 import { refreshDocTallies } from '@/lib/ocr/softone-match';
 import { SODTYPE_LABEL, TRADER_KIND_SODTYPE } from '@/lib/softone';
 import {
@@ -91,6 +91,14 @@ export interface TraderQueueDoc {
 }
 export interface TraderGroup {
   afm: string;
+  /**
+   * ISO-2 χώρα του εκδότη από το ίδιο το ΑΦΜ/VAT id — `null` όταν είναι άγνωστη
+   * (σκέτα ψηφία που δεν περνούν τον ελληνικό έλεγχο). Το `null` το χειριζόμαστε
+   * ως ελληνικό: η ΑΑΔΕ απλώς θα αστοχήσει, όπως και σήμερα.
+   */
+  country: string | null;
+  /** Γνωστή χώρα ≠ GR: χωρίς ΑΑΔΕ/Δ.Ο.Υ., με VIES αντ' αυτής. */
+  isForeign: boolean;
   name: string | null;
   doy: string | null;
   profession: string | null;
@@ -210,8 +218,11 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
       ignored.push({ afm: g.afm, name: topName(g.names), reason: ignoredReason.get(g.afm) ?? null });
       continue;
     }
+    const country = vatCountry(g.afm);
     groups.push({
       afm: g.afm,
+      country,
+      isForeign: country != null && country !== 'GR',
       name: topName(g.names),
       doy: g.doy, profession: g.profession, address: g.address, phone: g.phone, email: g.email,
       docCount: g.docCount,
