@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   FiGrid, FiUsers, FiShield, FiKey, FiImage, FiChevronDown, FiList,
-  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiLayers, FiCpu, FiBookOpen, FiUserCheck, FiBox, FiTool, FiFolder, FiAlertCircle, FiUserPlus, FiPackage,
+  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiLayers, FiCpu, FiBookOpen, FiUserCheck, FiBox, FiTool, FiFolder, FiAlertCircle, FiUserPlus, FiPackage, FiPlayCircle,
 } from 'react-icons/fi';
 
 type IconType = React.ComponentType<{ className?: string }>;
@@ -28,6 +28,8 @@ export interface Badges {
   newTraders?: number;
   /** Ομάδες γραμμών χωρίς αντιστοίχιση — από το ίδιο endpoint. */
   newItems?: number;
+  /** Εργασίες σάρωσης που τρέχουν ή περιμένουν — από /api/admin/ocr/templates/jobs?count=1. */
+  activeJobs?: number;
 }
 
 /** DGsoft wordmark shown at the top of the sidebar. */
@@ -57,7 +59,8 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/ocr/new-traders', label: 'Νέοι συναλλασσόμενοι', icon: FiUserPlus, permissions: ['ocr.read'], badgeKey: 'newTraders' },
       { href: '/admin/ocr/new-items', label: 'Είδη & έξοδα', icon: FiPackage, permissions: ['ocr.read'], badgeKey: 'newItems' },
       { href: '/admin/ocr/pending', label: 'Εκκρεμότητες OCR', icon: FiAlertCircle, permissions: ['ocr.read'] },
-      { href: '/admin/ocr/templates', label: 'Πρότυπα εξαγωγής', icon: FiLayers, permissions: ['ocr.read'] },
+      { href: '/admin/ocr/templates', label: 'Πρότυπα εξαγωγής', icon: FiLayers, permissions: ['ocr.read'], exact: true },
+      { href: '/admin/ocr/templates/jobs', label: 'Εργασίες σάρωσης', icon: FiPlayCircle, permissions: ['ocr.read'], badgeKey: 'activeJobs' },
     ],
   },
   {
@@ -136,7 +139,7 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
   // Queue badges («Νέοι συναλλασσόμενοι» / «Είδη & έξοδα») — fetched once on
   // mount. Any failure (404 while the route is not deployed, offline, 403) is
   // swallowed: the badge is decoration, never a blocker.
-  const [queueCounts, setQueueCounts] = React.useState<Pick<Badges, 'newTraders' | 'newItems'>>({});
+  const [queueCounts, setQueueCounts] = React.useState<Pick<Badges, 'newTraders' | 'newItems' | 'activeJobs'>>({});
   const canReadOcr = permissionKeys.includes('ocr.read');
   React.useEffect(() => {
     if (!canReadOcr) return;
@@ -148,7 +151,15 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
         setQueueCounts({ newTraders: Number(d.traders) || 0, newItems: Number(d.items) || 0 });
       })
       .catch(() => { /* badges are optional */ });
-    return () => { cancelled = true; };
+    // Οι ενεργές εργασίες σάρωσης είναι ξεχωριστό, φθηνό ερώτημα (ένα COUNT) — ζητείται και
+    // περιοδικά, γιατί σε αντίθεση με τις ουρές αλλάζει μόνο του όσο ο χρήστης κοιτά αλλού.
+    const jobs = () => fetch('/api/admin/ocr/templates/jobs?count=1', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { active?: unknown } | null) => { if (!cancelled && d) setQueueCounts((p) => ({ ...p, activeJobs: Number(d.active) || 0 })); })
+      .catch(() => { /* badges are optional */ });
+    void jobs();
+    const timer = setInterval(() => { void jobs(); }, 30_000);
+    return () => { cancelled = true; clearInterval(timer); };
   }, [canReadOcr]);
   const allBadges: Badges = { ...badges, ...queueCounts };
 

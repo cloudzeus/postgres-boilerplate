@@ -2,7 +2,8 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { FiArrowLeft, FiCheckCircle, FiChevronRight, FiCpu, FiFileText, FiGitBranch, FiImage, FiLayers } from 'react-icons/fi';
+import { FiArrowLeft, FiCheckCircle, FiChevronRight, FiCpu, FiFileText, FiGitBranch, FiImage, FiLayers, FiPlayCircle } from 'react-icons/fi';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { TemplateDto } from '@/lib/templates/serialize';
 import { MODE_LABEL, STATUS_LABEL } from '@/lib/templates/labels';
@@ -13,6 +14,7 @@ import { RegionsStep } from './regions-step';
 import { MappingStep } from './mapping-step';
 import { ConditionsStep } from './conditions-step';
 import { FlowPanel } from './flow-panel';
+import { JobUploadDialog } from './job-upload-dialog';
 
 const STEPS = [
   { key: 'details', label: 'Στοιχεία', icon: FiFileText },
@@ -38,6 +40,7 @@ function stepDone(dto: TemplateDto, i: number): boolean {
 
 export function TemplateDesigner({ initial, canManage, canPost }: { initial: TemplateDto; canManage: boolean; canPost: boolean }) {
   const [dto, setDto] = React.useState(initial);
+  const [scanOpen, setScanOpen] = React.useState(false);
   // A fresh template lands on «Δείγμα» — the details step only needs the name, which the dialog already asked for.
   const [step, setStep] = React.useState(() => (initial.sample && initial.fields.length ? 2 : 1));
   const [focusKey, setFocusKey] = React.useState<string | null>(null);
@@ -96,6 +99,20 @@ export function TemplateDesigner({ initial, canManage, canPost }: { initial: Tem
             <div className="mt-1 flex justify-between"><span>Λειτουργία</span><span className="font-medium text-foreground">{MODE_LABEL[dto.mode]}</span></div>
             <div className="mt-1 flex justify-between"><span>Έκδοση</span><span className="font-mono">{dto.version}</span></div>
           </div>
+          {/* Μαζική σάρωση (spec §12) — το πρότυπο δουλεύει, τώρα ρίξ' του πολλά αρχεία. Δεν έχει
+              νόημα πριν υπάρχει πεδίο με περιοχή: ο εξαγωγέας δεν θα είχε τι να διαβάσει. */}
+          {canManage && dto.fields.some((f) => f.region) && (
+            <>
+              <Button variant="ghost" size="sm" className="mt-2 w-full justify-start" onClick={() => setScanOpen(true)}>
+                <FiPlayCircle className="mr-1.5 size-3.5" /> Σάρωση αρχείων
+              </Button>
+              <Link href="/admin/ocr/templates/jobs" className="mt-1 block px-3 text-[11px] text-muted-foreground hover:text-foreground">Εργασίες σάρωσης →</Link>
+              <JobUploadDialog
+                templateId={dto.id} templateName={dto.name} defaultEmails={dto.notifyEmails}
+                open={scanOpen} onOpenChange={setScanOpen}
+              />
+            </>
+          )}
         </nav>
 
         {/* Step content */}

@@ -60,3 +60,19 @@ export const RUN_STATUS_LABEL: Record<RunStatus, string> = { EXTRACTED: 'Εξή�
 export const TRIGGER_LABEL: Record<RunTrigger, string> = { upload: 'στο upload', manual: 'χειροκίνητα', reextract: 'στην επανεξαγωγή' };
 /** How a stored value was produced (TemplateRun.values[key].source). */
 export const SOURCE_LABEL: Record<FieldValue['source'], string> = { text: 'κείμενο', vision: 'μοντέλο', manual: 'χειροκίνητο', rule: 'κανόνας', none: '—' };
+
+/** Εργασίες μαζικής σάρωσης (spec §12) — η κατάσταση, όπως τη διαβάζει ο χρήστης. */
+export const JOB_STATUS_LABEL = {
+  QUEUED: 'Σε αναμονή', RUNNING: 'Τρέχει', DONE: 'Ολοκληρώθηκε', FAILED: 'Απέτυχε', CANCELLED: 'Ακυρώθηκε',
+} as const;
+export const JOB_ITEM_STATUS_LABEL = {
+  QUEUED: 'Σε αναμονή', RUNNING: 'Διαβάζεται', DONE: 'Διαβάστηκε', FAILED: 'Απέτυχε',
+} as const;
+/** Inline hex (παλέτα DG) — ο JIT του Tailwind καθαρίζει ό,τι χτίζεται δυναμικά. */
+export const JOB_STATUS_STYLE: Record<keyof typeof JOB_STATUS_LABEL, { bg: string; fg: string }> = {
+  QUEUED: { bg: '#F3F2F1', fg: '#5C5C5C' },
+  RUNNING: { bg: '#EAF4FC', fg: '#0078D4' },
+  DONE: { bg: '#E8F7F0', fg: '#047857' },
+  FAILED: { bg: '#FDECEA', fg: '#B91C1C' },
+  CANCELLED: { bg: '#FDF3E3', fg: '#B45309' },
+};

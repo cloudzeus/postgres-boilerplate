@@ -28,7 +28,7 @@ import {
   ACTIVE_JOB_STATUSES, finalJobStatus, isActive, jobToSheetInputs, MAX_JOB_FILES, progressOf, STALE_MS,
   type JobItemStatus, type JobProgress, type JobStatus,
 } from './jobs-logic';
-import type { FieldValue, MappingRowExcel, MappingRowInvoice } from './schema';
+import type { FieldValue, MappingRowExcel, MappingRowInvoice, TemplateFieldKind, TemplateValueType } from './schema';
 import type { SheetInput } from './excel';
 
 /** Κάθε πόσο χτυπά ο worker όταν δεν έχει δουλειά. */
@@ -419,7 +419,7 @@ export type JobItemRow = {
 
 export type JobDetail = JobListRow & {
   /** Τα πεδία του προτύπου, για τις στήλες του πίνακα — με τα χρώματα που έχουν και στον σχεδιαστή. */
-  fields: { key: string; label: string; kind: string; color: string }[];
+  fields: { key: string; label: string; kind: TemplateFieldKind; valueType: TemplateValueType; color: string }[];
   items: JobItemRow[];
 };
 
@@ -428,7 +428,7 @@ export async function getJob(jobId: string): Promise<JobDetail | null> {
     where: { id: jobId },
     select: {
       ...JOB_LIST_SELECT,
-      template: { select: { id: true, name: true, slug: true, fields: { orderBy: { order: 'asc' }, select: { key: true, label: true, kind: true, color: true } } } },
+      template: { select: { id: true, name: true, slug: true, fields: { orderBy: { order: 'asc' }, select: { key: true, label: true, kind: true, valueType: true, color: true } } } },
       items: {
         orderBy: { order: 'asc' },
         select: { id: true, order: true, fileName: true, status: true, page: true, values: true, flags: true, model: true, tokensUsed: true, durationMs: true, error: true },

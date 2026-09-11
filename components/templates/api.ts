@@ -1,10 +1,14 @@
 // components/templates/api.ts — CLIENT. Typed fetch helpers for the template endpoints + Greek error text.
 import type { SampleDto, TrainingSummary } from '@/lib/templates/samples';
+import type { JobDetail, JobListRow } from '@/lib/templates/jobs';
 import type { TemplateDto } from '@/lib/templates/serialize';
 import type { RunDto } from '@/lib/templates/run-dto';
 import type { FieldDef, FieldValue, Region, RunOutcome } from '@/lib/templates/schema';
 
-export type { RunDto, RunOutcome, SampleDto, TrainingSummary };
+export type { JobDetail, JobListRow, RunDto, RunOutcome, SampleDto, TrainingSummary };
+
+/** Τα μεταδεδομένα που πληκτρολογεί ο χρήστης στον διάλογο μιας νέας εργασίας σάρωσης. */
+export type JobMeta = { title?: string; reference?: string; docDate?: string; description?: string; notifyEmails?: string };
 
 export type Cleanup = { mappings: { name: string; removedRows: number }[]; conditions: { id: string; name: string; removedClauses: number; removedActions: number }[] };
 export type TestFieldResult = { raw: string | null; value: unknown; source: string; model: string | null; tokensUsed: number; color: string; durationMs: number };
@@ -47,6 +51,9 @@ const ERROR_TEXT: Record<string, string> = {
   primary: 'Το κύριο δείγμα δεν διαγράφεται — αντικατέστησέ το ανεβάζοντας νέο.',
   copy_failed: 'Το αρχείο του εγγράφου δεν ήταν διαθέσιμο.',
   training_gate: 'Το πρότυπο δεν έχει εκπαιδευτεί αρκετά για ενεργοποίηση.',
+  no_files: 'Επίλεξε τουλάχιστον ένα αρχείο.',
+  empty: 'Καμία ολοκληρωμένη ανάγνωση ακόμη — δεν υπάρχει τίποτα να εξαχθεί.',
+  upload_failed: 'Το ανέβασμα απέτυχε. Δοκίμασε ξανά.',
 };
 
 export class ApiError extends Error {
@@ -102,6 +109,31 @@ export const templatesApi = {
     /** Κάνει ένα ήδη σαρωμένο έγγραφο δείγμα αυτού του προτύπου (§14.7 — «Άγνωστο έντυπο»). */
     fromDocument: (id: string, documentId: string) => fetch(`${base(id)}/samples/from-document`, json({ documentId })).then((r) => handle<{ sample: SampleDto; training: TrainingSummary }>(r)),
     pageImageUrl: (id: string, sampleId: string, page: number, scale = 3) => `${base(id)}/samples/${sampleId}/page-image?page=${page}&scale=${scale}`,
+  },
+
+  /** Εργασίες μαζικής σάρωσης (spec §12). Ζουν κάτω από το πρότυπο μόνο όταν δημιουργούνται. */
+  jobs: {
+    /**
+     * Ανεβάζει τα αρχεία σε παρτίδες και επιστρέφει το id της εργασίας. Η ΠΡΩΤΗ παρτίδα φτιάχνει την
+     * εργασία με τα μεταδεδομένα· οι υπόλοιπες δεν υποστηρίζονται από το route, γι' αυτό ο διάλογος
+     * κόβει τα αρχεία στο `FILES_PER_REQUEST` και στέλνει ένα αίτημα ανά εργασία.
+     */
+    create: (templateId: string, files: File[], meta: JobMeta = {}) => {
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f);
+      for (const [k, v] of Object.entries(meta)) if (v) fd.append(k, v);
+      return fetch(`${base(templateId)}/jobs`, { method: 'POST', body: fd }).then((r) => handle<{ jobId: string }>(r));
+    },
+    list: (q: { templateId?: string; status?: string; limit?: number } = {}) => {
+      const p = new URLSearchParams();
+      for (const [k, v] of Object.entries(q)) if (v != null) p.set(k, String(v));
+      return fetch(`/api/admin/ocr/templates/jobs?${p}`, { cache: 'no-store' }).then((r) => handle<{ jobs: JobListRow[] }>(r));
+    },
+    get: (jobId: string) => fetch(`/api/admin/ocr/templates/jobs/${jobId}`, { cache: 'no-store' }).then((r) => handle<{ job: JobDetail }>(r)),
+    cancel: (jobId: string) => fetch(`/api/admin/ocr/templates/jobs/${jobId}/cancel`, json({})).then((r) => handle<{ status: string; pending: number }>(r)),
+    excelUrl: (jobId: string) => `/api/admin/ocr/templates/jobs/${jobId}/excel`,
+    pageImageUrl: (jobId: string, itemId: string, page: number, scale = 3) =>
+      `/api/admin/ocr/templates/jobs/${jobId}/items/${itemId}/page-image?page=${page}&scale=${scale}`,
   },
 
   /** Template runs of one OCR document (spec §15.5) — these live under the document, not the template. */
