@@ -11,7 +11,7 @@
 //   • σύνολα / ανάλυση ΦΠΑ → κερδίζει η ΤΕΛΕΥΤΑΙΑ σελίδα που τα έχει (τυπώνονται στο υποσέλιδο, και
 //     οι ενδιάμεσες σελίδες κουβαλάνε μερικά αθροίσματα «εις νέον» που δεν είναι τα τελικά).
 import { emptyDocument, type DocumentJson, type DocumentLine, getPath } from '@/lib/ocr/canonical';
-import { REQUIRED_PATHS, type DocType } from '@/lib/ocr/templates';
+import { REQUIRED_PATHS, resolveDocType, type ExtractDocType } from '@/lib/ocr/templates';
 
 type Dict = Record<string, unknown>;
 
@@ -178,10 +178,15 @@ export function mergeHybridDocuments(digital: DocumentJson, vision: DocumentJson
 /**
  * Πόσα υποχρεωτικά πεδία λείπουν. Οδηγεί τη μοναδική ακριβή απόφαση του pipeline: αν αξίζει
  * δεύτερο πέρασμα με το αναβαθμισμένο μοντέλο (×8 κόστος).
+ *
+ * Τα υποχρεωτικά διαβάζονται με βάση ΤΟ ΕΙΔΟΣ ΠΟΥ ΑΠΑΝΤΗΣΕ το μοντέλο (`resolveDocType`), όχι την
+ * επιλογή του χρήστη: στο «Αυτόματα», ένα ελεύθερο κείμενο (`kind: "general"`) δεν έχει εκδότη,
+ * αριθμό ή σύνολα — αν το μετρούσαμε ως τιμολόγιο, ΚΑΘΕ επιστολή θα ξαναδιαβαζόταν με το ακριβό
+ * μοντέλο για να «βρει» πεδία που δεν υπάρχουν.
  */
-export function missingRequired(document: DocumentJson, docType: DocType): number {
+export function missingRequired(document: DocumentJson, docType: ExtractDocType): number {
   let n = 0;
-  for (const path of REQUIRED_PATHS[docType] ?? []) {
+  for (const path of REQUIRED_PATHS[resolveDocType(docType, document.kind)] ?? []) {
     const v = getPath(document, path);
     if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) n += 1;
   }

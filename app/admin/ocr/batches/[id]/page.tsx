@@ -46,6 +46,17 @@ export default async function BatchDetailPage({ params }: { params: Promise<{ id
     <div className="w-full">
       <PageHeader icon={<FiFolder />} title={batch.name}
         description={`${rows.length} παραστατικά · δημιουργήθηκε ${batch.createdAt.toLocaleString('el-GR')}`} />
+      {batch.sourceKey && (
+        // Φάκελος από διαχωρισμό πολυ-παραστατικού PDF: το πρωτότυπο μένει μία αναφορά μακριά.
+        <p className="mb-3 text-[12px] text-muted-foreground">
+          Προέκυψε από διαχωρισμό του{' '}
+          <a href={`/api/admin/ocr/batches/${id}/source`} target="_blank" rel="noreferrer"
+            className="font-medium text-sisyphus-600 underline underline-offset-2">
+            {batch.sourceName ?? 'πρωτότυπου PDF'}
+          </a>
+          {batch.sourcePages ? ` (${batch.sourcePages} σελίδες)` : ''}.
+        </p>
+      )}
       <BatchDetailClient batchId={id} rows={rows} />
     </div>
   );

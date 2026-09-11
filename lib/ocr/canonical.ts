@@ -27,6 +27,15 @@ export function docTypeOf(docType: unknown): CanonicalDocType {
   return docType === 'GENERAL_TEXT' ? 'general_text' : docType === 'RECEIPT' ? 'receipt' : 'invoice';
 }
 
+/**
+ * Το αντίστροφο: το είδος που απάντησε η ανάγνωση → Prisma `OcrDocType`. Ζει εδώ (και όχι στο
+ * route) γιατί ο ΜΟΝΟΣ κανόνας ταξινόμησης πρέπει να είναι ένας — το ίδιο `kind` που κρίνει το
+ * `toLegacy`, ο γραφέας και η καρτέλα.
+ */
+export function docTypeFromKind(kind: DocumentKind): 'INVOICE' | 'RECEIPT' | 'GENERAL_TEXT' {
+  return kind === 'general' ? 'GENERAL_TEXT' : kind === 'receipt' ? 'RECEIPT' : 'INVOICE';
+}
+
 const isObj = (v: unknown): v is Record<string, unknown> => v != null && typeof v === 'object' && !Array.isArray(v);
 const round2 = (x: number) => Math.round((x + Number.EPSILON) * 100) / 100;
 

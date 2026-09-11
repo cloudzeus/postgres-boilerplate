@@ -3,14 +3,9 @@ import { customAlphabet } from 'nanoid';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { bunnyUploadPrivate } from '@/lib/bunny';
-import { extractDocument } from '@/lib/ocr/extract';
-import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
-import { ensureOcrThumbnail } from '@/lib/ocr/thumbnail';
-import { inferDocKind } from '@/lib/ocr/validate';
-import { saveDocumentJson } from '@/lib/ocr/document';
-import { type DocType, type SupportedLang } from '@/lib/ocr/templates';
-import { runMatchingTemplate } from '@/lib/templates/run';
-import { classifyDocument } from '@/lib/ocr/doc-type';
+import { extractAndPersist } from '@/lib/ocr/pipeline';
+import { isExtractDocType, type ExtractDocType, type SupportedLang } from '@/lib/ocr/templates';
+import { MAX_OCR_BYTES, MAX_OCR_MB } from '@/lib/ocr/limits';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,14 +13,12 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const slug = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 8);
-const MAX_OCR_BYTES = 25 * 1024 * 1024; // 25 MB
 
 const ALLOWED_MIMES = new Set([
   'application/pdf',
   'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/tiff', 'image/bmp',
 ]);
 
-const DOC_TYPES: DocType[] = ['invoice', 'receipt', 'general_text'];
 const LANGS: SupportedLang[] = ['el', 'en', 'de'];
 
 function sanitizeFileName(name: string) {
@@ -62,7 +55,9 @@ export async function POST(req: Request) {
 
   const form = await req.formData();
   const file = form.get('file');
-  const docType = String(form.get('docType') ?? 'invoice') as DocType;
+  // Προεπιλογή «auto»: ο χρήστης δεν χρειάζεται να ξέρει αν αυτό που ανεβάζει είναι τιμολόγιο,
+  // απόδειξη ή ελεύθερο κείμενο — το αποφασίζει η ίδια η ανάγνωση.
+  const docType = String(form.get('docType') ?? 'auto') as ExtractDocType;
   const language = String(form.get('language') ?? 'el') as SupportedLang;
   const pdfSource = String(form.get('pdfSource') ?? 'auto') as 'auto' | 'digital' | 'scanned';
   const batchId = form.get('batchId') ? String(form.get('batchId')) : null;
@@ -70,7 +65,7 @@ export async function POST(req: Request) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: 'file is required (multipart/form-data)' }, { status: 400 });
   }
-  if (!DOC_TYPES.includes(docType)) {
+  if (!isExtractDocType(docType)) {
     return NextResponse.json({ error: `Invalid docType: ${docType}` }, { status: 400 });
   }
   if (!LANGS.includes(language)) {
@@ -80,7 +75,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Unsupported file type: ${file.type}` }, { status: 415 });
   }
   if (file.size > MAX_OCR_BYTES) {
-    return NextResponse.json({ error: `File exceeds ${MAX_OCR_BYTES / (1024 * 1024)} MB limit` }, { status: 413 });
+    return NextResponse.json({ error: `File exceeds ${MAX_OCR_MB} MB limit` }, { status: 413 });
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
@@ -102,7 +97,9 @@ export async function POST(req: Request) {
       publicUrl,
       mimeType: file.type,
       size: file.size,
-      docType: docType === 'invoice' ? 'INVOICE' : docType === 'receipt' ? 'RECEIPT' : 'GENERAL_TEXT',
+      // Προσωρινό είδος όσο τρέχει η ανάγνωση· αντικαθίσταται από το `resolvedDocType` παρακάτω.
+      // Στο «auto» δεν ξέρουμε ακόμη τίποτα — κρατάμε INVOICE, το συνηθέστερο.
+      docType: docType === 'receipt' ? 'RECEIPT' : docType === 'general_text' ? 'GENERAL_TEXT' : 'INVOICE',
       // We store the *resolved* mode after extraction; placeholder for now.
       pdfSource: file.type === 'application/pdf'
         ? (pdfSource === 'scanned' ? 'SCANNED' : pdfSource === 'digital' ? 'DIGITAL' : null)
@@ -114,67 +111,19 @@ export async function POST(req: Request) {
     },
   });
 
-  // 3) Run extraction.
+  // 3) Run extraction — η ΚΟΙΝΗ διαδρομή (ίδια για τα κομμάτια ενός διαχωρισμένου PDF).
   try {
-    const result = await extractDocument({
-      buffer, mimeType: file.type, docType, language,
-      pdfSource: file.type === 'application/pdf' ? pdfSource : undefined,
+    const { data, durationMs, templateRun } = await extractAndPersist({
+      documentId: doc.id,
+      buffer,
+      mimeType: file.type,
+      docType,
+      language,
+      pdfSource,
+      trigger: 'upload',
     });
 
-    // Auto-classify: a financial doc with no recipient block is a receipt (ΑΠΟΔΕΙΞΗ),
-    // otherwise an invoice (τιμολόγιο / δελτίο αποστολής). general_text is left as-is.
-    const resolvedDocType =
-      docType === 'general_text'
-        ? 'GENERAL_TEXT'
-        : inferDocKind(result.data) === 'receipt'
-          ? 'RECEIPT'
-          : 'INVOICE';
-
-    // Tag with the SoftOne supplier (issuer ΑΦΜ → TRDR SODTYPE=12). Best-effort.
-    const softone = await buildSoftoneMatch(result.document.issuer.vat);
-
-    // Το κανονικό έγγραφο και ΟΛΑ τα παράγωγά του (`extractedData`, `issuerAfm`, γραμμές) σε ένα
-    // transaction, από τον έναν γραφέα. Πρώτα τα δεδομένα και μετά το `COMPLETED`: αν σκάσει το
-    // γράψιμο, το έγγραφο μένει PROCESSING και πιάνεται από το catch — ποτέ «ολοκληρωμένο κενό».
-    await saveDocumentJson(doc.id, result.document, { replaceItems: true });
-
-    await prisma.ocrDocument.update({
-      where: { id: doc.id },
-      data: {
-        status: 'COMPLETED',
-        docType: resolvedDocType,
-        rawText: result.rawText,
-        model: result.model,
-        tokensUsed: result.tokensUsed,
-        durationMs: result.durationMs,
-        completedAt: new Date(),
-        ...softone,
-        // Reflect the path actually taken: rawText present ⇒ digital, otherwise scanned.
-        pdfSource: file.type === 'application/pdf'
-          ? (result.rawText ? 'DIGITAL' : 'SCANNED')
-          : null,
-      },
-    });
-
-    // Auto-match invoice lines to SoftOne items (cheap local lookup; manual matches preserved).
-    await matchDocItems(doc.id).catch(() => null);
-
-    // PURDOC duplicate check (supplier + αριθμός παραστατικού + ημ/νία). Best-effort.
-    if (softone.softoneTrdr) {
-      const dup = await buildDuplicateCheck(softone.softoneTrdr, result.document.type.number, result.document.date);
-      await prisma.ocrDocument.update({ where: { id: doc.id }, data: dup }).catch(() => null);
-    }
-
-    // Σειρά παραστατικού από τις ενεργοποιημένες σειρές αγορών/πιστωτών (spec 2026-09-11 §1). Best-effort.
-    await classifyDocument(doc.id);
-
-    // Extraction template linked to this issuer (spec §15.1). Best-effort; failures become a FAILED run.
-    const templateRun = await runMatchingTemplate(doc.id, result.document.issuer.vat, 'upload');
-
-    // Best-effort thumbnail generation (don't fail the request if it errors).
-    ensureOcrThumbnail(doc.id).catch(() => null);
-
-    return NextResponse.json({ id: doc.id, data: result.data, durationMs: result.durationMs, templateRun });
+    return NextResponse.json({ id: doc.id, data, durationMs, templateRun });
   } catch (err: any) {
     await prisma.ocrDocument.update({
       where: { id: doc.id },

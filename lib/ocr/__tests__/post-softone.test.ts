@@ -122,6 +122,43 @@ describe('postDocumentToSoftone', () => {
     expect(last.data).toMatchObject({ postStatus: 'POSTED', postedRef: '90210', postError: null });
   });
 
+  // Ποιος «επιβεβαιώνει» ένα έγγραφο είναι η πιο ακριβή λεπτομέρεια αυτού του αρχείου: ένα
+  // επιβεβαιωμένο έγγραφο γίνεται παράδειγμα αναφοράς για ΚΑΘΕ επόμενο του ίδιου εκδότη
+  // (`lib/ocr/example-lookup.ts`). Λάθος σφραγίδα = λάθος που διδάσκει τον εαυτό του.
+  it('ΑΥΤΟΜΑΤΗ ανάρτηση (εκτελεστής προτύπων) ΔΕΝ επιβεβαιώνει το έγγραφο', async () => {
+    settings.getSetting.mockResolvedValue(true);
+    softone.softoneCall.mockResolvedValue({ success: true, id: 90210 });
+    softone.softoneGetData.mockResolvedValue({ PURDOC: [{ FINDOC: '90210', FINCODE: '17', TRDR: '12345' }] });
+
+    await postDocumentToSoftone('d1');                       // όπως το καλεί το lib/templates/run.ts
+
+    for (const call of db.ocrDocument.update.mock.calls) {
+      expect(call[0].data).not.toHaveProperty('verifiedAt');
+      expect(call[0].data).not.toHaveProperty('verifiedById');
+    }
+  });
+
+  it('ΧΕΙΡΟΚΙΝΗΤΗ ανάρτηση επιβεβαιώνει, με τον χρήστη που την έκανε', async () => {
+    settings.getSetting.mockResolvedValue(true);
+    softone.softoneCall.mockResolvedValue({ success: true, id: 90210 });
+    softone.softoneGetData.mockResolvedValue({ PURDOC: [{ FINDOC: '90210', FINCODE: '17', TRDR: '12345' }] });
+
+    await postDocumentToSoftone('d1', { verified: true, verifiedById: 'u1' });
+
+    const last = db.ocrDocument.update.mock.calls.at(-1)?.[0];
+    expect(last.data.verifiedAt).toBeInstanceOf(Date);
+    expect(last.data.verifiedById).toBe('u1');
+  });
+
+  it('μια ΑΠΟΤΥΧΗΜΕΝΗ χειροκίνητη ανάρτηση δεν επιβεβαιώνει τίποτα', async () => {
+    settings.getSetting.mockResolvedValue(true);
+    softone.softoneCall.mockResolvedValue({ success: false, error: 'κάτι έσπασε' });
+    await expect(postDocumentToSoftone('d1', { verified: true, verifiedById: 'u1' })).rejects.toThrow();
+    for (const call of db.ocrDocument.update.mock.calls) {
+      expect(call[0].data).not.toHaveProperty('verifiedAt');
+    }
+  });
+
   it('setData success αλλά read-back δεν ταιριάζει → FAILED, ΜΕ το postedRef φυλαγμένο', async () => {
     settings.getSetting.mockResolvedValue(true);
     softone.softoneCall.mockResolvedValue({ success: true, id: 90210 });

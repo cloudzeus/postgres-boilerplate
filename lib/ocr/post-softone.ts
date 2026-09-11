@@ -202,7 +202,21 @@ const sameRef = (a: unknown, b: unknown): boolean =>
  * evidence. Throws PostError for precondition failures (the runner turns those into BLOCKED);
  * a transport/verification failure marks the row FAILED and is rethrown as a plain Error.
  */
-export async function postDocumentToSoftone(id: string, opts: { syncTemplateRun?: boolean } = {}): Promise<{ ref: string }> {
+export interface PostOptions {
+  syncTemplateRun?: boolean;
+  /**
+   * Η ανάρτηση είναι ΑΝΘΡΩΠΙΝΗ επιβεβαίωση της ανάγνωσης (το χειροκίνητο κουμπί «Ανάρτηση»).
+   * ΠΡΟΕΠΙΛΟΓΗ `false`, και αυτό είναι το ασφαλές: ο εκτελεστής προτύπων (`lib/templates/run.ts`)
+   * αναρτά ΜΟΝΟΣ ΤΟΥ σε AUTO πρότυπα χωρίς εμπόδια, σε έγγραφα που δεν άνοιξε ποτέ άνθρωπος. Αν
+   * σφραγίζαμε κι εκείνα ως επιβεβαιωμένα, θα γίνονταν «παράδειγμα αναφοράς» για τον εκδότη τους
+   * (`lib/ocr/example-lookup.ts`) και μια αυτόματη λάθος ανάγνωση θα δίδασκε τον εαυτό της.
+   */
+  verified?: boolean;
+  /** Ποιος επιβεβαίωσε (μόνο όταν `verified`). */
+  verifiedById?: string | null;
+}
+
+export async function postDocumentToSoftone(id: string, opts: PostOptions = {}): Promise<{ ref: string }> {
   const { doc, document, ctx, blockers, payload } = await gather(id);
   // ΙΔΕΜΠΟΤΗΤΑ, πρώτο απ' όλα: ένα δεύτερο κλικ (ή μια δεύτερη εκτέλεση προτύπου) δεν δημιουργεί
   // δεύτερο παραστατικό στο SoftOne. Πριν από κάθε έλεγχο εμποδίων — ένα ήδη καταχωρισμένο
@@ -244,7 +258,13 @@ export async function postDocumentToSoftone(id: string, opts: { syncTemplateRun?
 
     await prisma.ocrDocument.update({
       where: { id },
-      data: { postStatus: 'POSTED', postedAt: new Date(), postedRef: ref, postError: null },
+      data: {
+        postStatus: 'POSTED', postedAt: new Date(), postedRef: ref, postError: null,
+        // ΜΟΝΟ χειροκίνητη ανάρτηση επιβεβαιώνει την ανάγνωση: κάποιος κοίταξε το παραστατικό και
+        // το δέχτηκε ως λογιστικό γεγονός. Η αυτόματη ανάρτηση ενός AUTO προτύπου δεν είναι
+        // επιβεβαίωση κανενός — βλ. `PostOptions.verified`.
+        ...(opts.verified ? { verifiedAt: new Date(), verifiedById: opts.verifiedById ?? null } : {}),
+      },
     });
     if (opts.syncTemplateRun) {
       await markLatestRunPosted(id).catch((e) => console.error('[ocr] run status not synced after post', doc.id, (e as Error).message));

@@ -23,7 +23,8 @@ export default async function OcrBatchesPage() {
   return (
     <div className="w-full space-y-5">
       <PageHeader icon={<FiFolder />} title="Φάκελοι παραστατικών"
-        description="Ανέβασε ολόκληρους φακέλους — αυτόματο OCR, ομαδοποίηση, αντιστοιχίσεις & έλεγχοι." />
+        description="Ανέβασε ολόκληρους φακέλους — αυτόματο OCR, ομαδοποίηση, αντιστοιχίσεις & έλεγχοι."
+        helpAnchor="ocr-split" />
 
       <OcrFolderUpload />
 

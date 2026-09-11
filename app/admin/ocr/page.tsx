@@ -114,6 +114,7 @@ export default async function AdminOcrPage() {
         title="OCR & εξαγωγή δεδομένων"
         description="Έξυπνη αναγνώριση τιμολογίων, αποδείξεων και ελεύθερου κειμένου με ένα drop."
         icon={<FiFileText />}
+        helpAnchor="ocr"
       />
 
       {/* Stats strip */}

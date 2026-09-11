@@ -1,9 +1,12 @@
 import sharp from 'sharp';
 import { getSetting } from '@/lib/settings';
-import { buildSystemPrompt, type DocType, type SupportedLang } from '@/lib/ocr/templates';
+import { buildSystemPrompt, resolveDocType, type ExtractDocType, type SupportedLang } from '@/lib/ocr/templates';
 import { logAiUsage, providerFromUrl, type AiScope } from '@/lib/ai/usage';
 import { qualityScore } from '@/lib/ocr/validate';
-import { coerceDocument, normalizeDocument, reconcileDocument, toLegacy, type DocumentJson } from '@/lib/ocr/canonical';
+import {
+  coerceDocument, normalizeDocument, reconcileDocument, toLegacy,
+  type CanonicalDocType, type DocumentJson,
+} from '@/lib/ocr/canonical';
 import {
   fixSwappedPartiesDocument, mergeDocuments, mergeHybridDocuments, missingRequired,
 } from '@/lib/ocr/extract-merge';
@@ -72,9 +75,15 @@ export async function enhanceForOcr(input: Buffer | Uint8Array | ArrayBuffer): P
 export interface ExtractInput {
   buffer: Buffer;
   mimeType: string;
-  docType: DocType;
+  /** `auto` = το μοντέλο αποφασίζει (μία κλήση, ίδιο κόστος) — βλ. `resolveDocType`. */
+  docType: ExtractDocType;
   language: SupportedLang;
   pdfSource?: PdfSource;
+  /**
+   * Συμπυκνωμένο παράδειγμα ΕΠΙΒΕΒΑΙΩΜΕΝΟΥ εγγράφου του ΙΔΙΟΥ εκδότη (`lib/ocr/example.ts`).
+   * Μπαίνει αυτούσιο στο system prompt ως οδηγός θέσης πεδίων — ποτέ ως πηγή τιμών.
+   */
+  example?: unknown;
 }
 
 export interface ExtractResult {
@@ -412,11 +421,15 @@ export async function callVisionLLM(
  * σύνολα που διάβασε το vision, και το `missingRequired` θα μετρούσε λιγότερα κενά από όσα υπάρχουν
  * — δηλαδή η επανάληψη με το ισχυρό μοντέλο δεν θα ενεργοποιούνταν ποτέ.
  */
-function toDocument(raw: unknown, docType: DocType, ownAfm: string | null): DocumentJson {
-  return fixSwappedPartiesDocument(
-    normalizeDocument(coerceDocument(raw, docType)),
-    docType === 'invoice' ? ownAfm : null,
-  );
+function toDocument(raw: unknown, docType: ExtractDocType, ownAfm: string | null): DocumentJson {
+  // «Αυτόματα» δεν επιβάλλει είδος: το `coerceDocument` χωρίς τύπο σέβεται το `kind` που απάντησε
+  // το μοντέλο (και πέφτει στον κανόνα «έχει παραλήπτη → τιμολόγιο» μόνο όταν δεν απάντησε).
+  const canonical: CanonicalDocType | undefined = docType === 'auto' ? undefined : docType;
+  const document = normalizeDocument(coerceDocument(raw, canonical));
+  // Ο έλεγχος «ο εκδότης είμαστε εμείς» έχει νόημα μόνο σε τιμολόγιο: σε απόδειξη δεν υπάρχει
+  // παραλήπτης να ανταλλαγεί, και σε ελεύθερο κείμενο δεν υπάρχουν καν πλευρές.
+  const asInvoice = resolveDocType(docType, document.kind) === 'invoice';
+  return fixSwappedPartiesDocument(document, asInvoice ? ownAfm : null);
 }
 
 /** Η ΜΙΑ συμφωνία συνόλων στο τέλος μιας διαδρομής (μετά από κάθε συγχώνευση και κάθε επανάληψη). */
@@ -433,13 +446,14 @@ function settled(result: ExtractResult): ExtractResult {
  * και τι είναι παρόν αλλά λάθος (άκυρο ΑΦΜ, σύνολα που δεν βγαίνουν) — κρίνει πάνω στην προβολή
  * `toLegacy`, όπου ζουν όλοι αυτοί οι έλεγχοι.
  */
-const score = (document: DocumentJson, docType: DocType): number => qualityScore(toLegacy(document), docType);
+const score = (document: DocumentJson, docType: ExtractDocType): number =>
+  qualityScore(toLegacy(document), resolveDocType(docType, document.kind));
 
 async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
   const cfg = await resolveCfg();
   if (!cfg.textKey) throw new Error('DeepSeek API key is not configured (settings: ai.deepseekApiKey).');
 
-  const system = buildSystemPrompt(input.docType, input.language);
+  const system = buildSystemPrompt(input.docType, input.language, input.example);
   const started = Date.now();
 
   const isPdf = input.mimeType === 'application/pdf';
@@ -561,7 +575,7 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
  * Όποιος το επιστρέφει στον χρήστη το περνάει από το `settled(...)`.
  */
 async function runDigitalPdf(
-  cfg: DeepSeekCfg, system: string, buffer: Buffer, docType: DocType, started: number, preExtracted?: string,
+  cfg: DeepSeekCfg, system: string, buffer: Buffer, docType: ExtractDocType, started: number, preExtracted?: string,
 ): Promise<ExtractResult> {
   const text = preExtracted ?? await extractDigitalPdfText(buffer);
   if (!text) throw new Error('No selectable text discovered in PDF. Use scanned/auto mode.');
@@ -580,7 +594,7 @@ async function runDigitalPdf(
 
 /** ΕΣΩΤΕΡΙΚΗ διαδρομή: γυρνάει ΑΣΥΜΦΩΝΗΤΟ έγγραφο — βλ. `runDigitalPdf`. */
 async function runScannedPdf(
-  cfg: DeepSeekCfg, system: string, buffer: Buffer, docType: DocType, started: number,
+  cfg: DeepSeekCfg, system: string, buffer: Buffer, docType: ExtractDocType, started: number,
 ): Promise<ExtractResult> {
   // Fast path: Gemini accepts PDFs natively (text + images) — skip rasterization.
   if (cfg.visionUrl.includes('generativelanguage.googleapis.com')) {

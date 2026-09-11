@@ -1,4 +1,4 @@
-import { countMissingRequired, type DocType } from '@/lib/ocr/templates';
+import { countMissingRequired, type ExtractDocType } from '@/lib/ocr/templates';
 
 /**
  * Greek ΑΦΜ check-digit validation (mod-11 over the first 8 digits, weighted
@@ -13,21 +13,6 @@ export function isValidAfm(input: string | null | undefined): boolean {
   for (let i = 0; i < 8; i++) sum += d[i] * 2 ** (8 - i);
   const check = (sum % 11) % 10;
   return check === d[8];
-}
-
-/**
- * Classify a financial document from its extracted payload.
- *
- * The recipient/Πελάτης is always us (the company running the app), so its
- * PRESENCE — not its value — is the signal: a document that names a recipient is
- * a proper invoice (τιμολόγιο / τιμολόγιο–δελτίο αποστολής), while one with no
- * recipient block at all is a retail receipt (ΑΠΟΔΕΙΞΗ). Returns 'receipt' only
- * for inputs that were financial to begin with; callers pass through general_text.
- */
-export function inferDocKind(data: any): 'invoice' | 'receipt' {
-  const has = (v: unknown) => v != null && String(v).trim() !== '';
-  const hasRecipient = has(data?.customerName) || has(data?.customerVatNumber);
-  return hasRecipient ? 'invoice' : 'receipt';
 }
 
 /**
@@ -208,7 +193,7 @@ function vatPenalty(v: unknown): number {
  * LOWER is better. Replaces bare missing-count in the retry-keep decision so a
  * present-but-wrong field can lose to a better pass.
  */
-export function qualityScore(data: any, docType: DocType): number {
+export function qualityScore(data: any, docType: ExtractDocType): number {
   let score = countMissingRequired(data, docType);
   if (docType === 'invoice') {
     score += vatPenalty(data?.vatNumber) + vatPenalty(data?.customerVatNumber);

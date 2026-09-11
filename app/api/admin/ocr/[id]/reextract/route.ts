@@ -8,6 +8,9 @@ import { getSetting } from '@/lib/settings';
 import { saveDocumentJson } from '@/lib/ocr/document';
 import { runMatchingTemplate } from '@/lib/templates/run';
 import { classifyDocument } from '@/lib/ocr/doc-type';
+import { docTypeFromKind } from '@/lib/ocr/canonical';
+import { isExtractDocType, type ExtractDocType } from '@/lib/ocr/templates';
+import { loadIssuerExample } from '@/lib/ocr/example-lookup';
 import type { RunOutcome } from '@/lib/templates/schema';
 
 export const runtime = 'nodejs';
@@ -20,9 +23,19 @@ export const maxDuration = 300;
  * Useful for blurry / low-contrast scans where the default fast model misses
  * fields. Temporarily overrides ai.visionModel to gemini-2.5-pro for the call.
  */
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   await requirePermission('ocr.create');
   const { id } = await params;
+
+  // Ο τύπος της ΔΕΥΤΕΡΗΣ ανάγνωσης. Προεπιλογή «auto»: αν η πρώτη ανάγνωση είχε ταξινομήσει
+  // λάθος (π.χ. απόδειξη που ήταν τιμολόγιο), η επανεκτέλεση είναι ακριβώς η στιγμή να το
+  // διορθώσει. Παλιοί clients στέλνουν άδειο σώμα — και παίρνουν το ίδιο «auto».
+  const body = await req.json().catch(() => null) as { docType?: unknown } | null;
+  const requested = body?.docType;
+  if (requested !== undefined && !isExtractDocType(requested)) {
+    return NextResponse.json({ error: `Invalid docType: ${String(requested)}` }, { status: 400 });
+  }
+  const docType: ExtractDocType = (requested as ExtractDocType | undefined) ?? 'auto';
 
   const doc = await prisma.ocrDocument.findUnique({ where: { id } });
   if (!doc) return NextResponse.json({ error: 'not found' }, { status: 404 });
@@ -53,15 +66,16 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   let failure: string | null = null;
 
   try {
-    const docTypeMap: Record<string, 'invoice' | 'receipt' | 'general_text'> = {
-      INVOICE: 'invoice', RECEIPT: 'receipt', GENERAL_TEXT: 'general_text',
-    };
     const result = await extractDocument({
       buffer,
       mimeType: doc.mimeType,
-      docType: docTypeMap[doc.docType],
+      docType,
       language: doc.language as any,
       pdfSource: doc.mimeType === 'application/pdf' ? 'scanned' : undefined,
+      // ΕΔΩ, και μόνο εδώ, το παράδειγμα είναι δωρεάν: το έγγραφο κουβαλάει ήδη το ΑΦΜ του εκδότη
+      // από την πρώτη ανάγνωση, οπότε βρίσκουμε το επιβεβαιωμένο «αδελφάκι» του χωρίς δεύτερη
+      // κλήση στο μοντέλο. Σε νέο ανέβασμα ο εκδότης είναι άγνωστος μέχρι να διαβαστεί η σελίδα.
+      example: await loadIssuerExample(doc.issuerAfm, { excludeId: id }),
     });
 
     // Re-check the SoftOne supplier match (issuer ΑΦΜ → TRDR SODTYPE=12). Best-effort.
@@ -76,6 +90,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       where: { id },
       data: {
         status: 'COMPLETED',
+        // Το είδος ξανακρίνεται από την ίδια την ανάγνωση (βλ. upload route).
+        docType: docTypeFromKind(result.document.kind),
         rawText: result.rawText,
         model: result.model,
         tokensUsed: result.tokensUsed,

@@ -26,9 +26,15 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
   const router = useRouter();
   const [running, setRunning] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
+  const [reading, setReading] = React.useState(false);
+  const [readProgress, setReadProgress] = React.useState(0);
   // FAILED runs stored no values and the export routes skip them, so a folder whose only runs failed
   // has nothing to export — offering the buttons would just hand the user a 404.
   const hasRuns = rows.some((r) => r.templateRunStatus != null && r.templateRunStatus !== 'FAILED');
+
+  // Παιδιά ενός διαχωρισμένου PDF που δεν πρόλαβαν να διαβαστούν (κλειστή καρτέλα, πεσμένο δίκτυο)
+  // ή που απέτυχαν. Μένουν εδώ μέχρι κάποιος να τα διαβάσει — δεν χάνονται, αλλά πρέπει να φαίνονται.
+  const unread = rows.filter((r) => r.status === 'PENDING' || r.status === 'FAILED');
 
   const kpi = {
     total: rows.length,
@@ -37,6 +43,30 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
     duplicates: rows.filter((r) => r.duplicate).length,
     linesMatched: rows.reduce((a, r) => a + r.matchedLines, 0),
     linesTotal: rows.reduce((a, r) => a + r.totalLines, 0),
+  };
+
+  /**
+   * Διαβάζει ΟΛΑ τα αδιάβαστα παιδιά, ένα-ένα, με τη ΦΘΗΝΗ διαδρομή (`/extract`, το κανονικό
+   * μοντέλο του ανεβάσματος) — όχι με το «Επανασκανάρισμα», που ανεβάζει σε gemini-2.5-pro.
+   * Σειριακά και όχι παράλληλα: κάθε ανάγνωση είναι μια ακριβή κλήση, και η σειρά κρατάει το
+   * κόστος προβλέψιμο αν ο χρήστης αλλάξει γνώμη στη μέση.
+   */
+  const readPending = async () => {
+    if (unread.length === 0) return;
+    setReading(true); setReadProgress(0);
+    let done = 0, errors = 0;
+    for (const row of unread) {
+      try {
+        const res = await fetch(`/api/admin/ocr/${row.id}/extract`, { method: 'POST' });
+        if (!res.ok) errors += 1;
+      } catch { errors += 1; }
+      done += 1;
+      setReadProgress(Math.round((done / unread.length) * 100));
+    }
+    setReading(false);
+    if (errors > 0) toast.warning(`Ολοκληρώθηκε με ${errors} αποτυχίες`);
+    else toast.success('Όλα τα παραστατικά διαβάστηκαν');
+    router.refresh();
   };
 
   // Run correlation across all completed docs (concurrency 3).
@@ -60,6 +90,20 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
 
   return (
     <div className="space-y-4">
+      {unread.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-[13px] font-medium text-amber-900 dark:text-amber-200">
+          <span>
+            {unread.length === 1
+              ? '1 παραστατικό δεν έχει διαβαστεί ακόμη'
+              : `${unread.length} παραστατικά δεν έχουν διαβαστεί ακόμη`}
+            {' '}— η ανάγνωση γίνεται με το κανονικό (φθηνό) μοντέλο.
+          </span>
+          <Button size="sm" onClick={readPending} disabled={reading}>
+            <FiZap className="mr-1.5 h-3.5 w-3.5" />
+            {reading ? `Ανάγνωση… ${readProgress}%` : `Διάβασε τα υπόλοιπα (${unread.length})`}
+          </Button>
+        </div>
+      )}
       {kpi.duplicates > 0 && (
         <div className="flex items-center gap-2 rounded-lg border px-4 py-2.5 text-[13px] font-medium"
           style={{ background: '#FEF2F2', borderColor: '#FECACA', color: '#B91C1C' }}>

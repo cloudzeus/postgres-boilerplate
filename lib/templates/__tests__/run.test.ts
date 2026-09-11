@@ -205,6 +205,8 @@ describe('runTemplateOnDocument', () => {
     const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'upload' });
 
     expect(out.status).toBe('POSTED');
+    // ΧΩΡΙΣ `verified`: η αυτόματη ανάρτηση ενός AUTO προτύπου δεν είναι ανθρώπινη επιβεβαίωση —
+    // αλλιώς ένα έγγραφο που δεν άνοιξε ποτέ κανείς θα γινόταν «παράδειγμα αναφοράς» του εκδότη.
     expect(post).toHaveBeenCalledWith('d1');
     expect(runData().mappingName).toBe('default');
     expect(db.ocrInvoiceItem.deleteMany).toHaveBeenCalledWith({ where: { documentId: 'd1' } });
