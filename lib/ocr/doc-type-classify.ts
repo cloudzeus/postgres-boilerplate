@@ -1,9 +1,11 @@
 // lib/ocr/doc-type-classify.ts — PURE. Maps a scanned document to one of the ENABLED SoftOne series (spec 2026-09-11 §1).
+import { n as toNumber } from './invoice-math';
+
 export type SeriesKind = 'purchase' | 'creditor';
 export type SeriesCandidate = { code: string; abbrev: string | null; name: string; kind: SeriesKind; sosource: number };
 export type Family = 'TPY' | 'TDA' | 'TIM' | 'DA' | 'PT' | 'APY' | 'ALP' | 'LOG';
 export type ClassifyInput = { documentTypeLabel: string | null | undefined; issuerKind: 'supplier' | 'creditor' | null; totalAmount: number | null | undefined; invoiceKind: 'service' | 'product' | 'mixed' | null | undefined };
-export type ClassifyResult = { code: string; sosource: number; kind: SeriesKind; confidence: number; reason: string; tie: boolean; alternatives: { code: string; abbrev: string | null; name: string; score: number }[] };
+export type ClassifyResult = { code: string; sosource: number; kind: SeriesKind; confidence: number; reason: string; tie: boolean; alternatives: { code: string; sosource: number; abbrev: string | null; name: string; score: number }[] };
 
 // Τελεία ανάμεσα σε ΜΟΝΟΓΡΑΜΜΑΤΕΣ συντμήσεις σβήνεται («Δ.Α.» → «ΔΑ», «Τ.Δ.Α.» → «ΤΔΑ»)· τελεία πριν από
 // ολόκληρη λέξη γίνεται κενό («Δ.ΑΠΟΣΤΟΛΗΣ» → «Δ ΑΠΟΣΤΟΛΗΣ», «ΤΙΜ. ΠΑΡΟΧΗΣ» → «ΤΙΜ ΠΑΡΟΧΗΣ»).
@@ -95,7 +97,34 @@ export function classifySeries(input: ClassifyInput, candidates: SeriesCandidate
     input.invoiceKind ? `περιεχόμενο ${input.invoiceKind}` : null,
     emptyPool ? `δεν υπάρχουν ενεργές σειρές ${wantedSide === 'creditor' ? 'πιστωτών' : 'αγορών'}` : null,
   ].filter(Boolean).join(' · ');
-  return { code: best.c.code, sosource: best.c.sosource, kind: best.c.kind, confidence: clamp01(confidence), reason, tie, alternatives: scored.slice(0, 5).map((s) => ({ code: s.c.code, abbrev: s.c.abbrev, name: s.c.name, score: Math.round(clamp01(s.score) * 100) / 100 })) };
+  return { code: best.c.code, sosource: best.c.sosource, kind: best.c.kind, confidence: clamp01(confidence), reason, tie, alternatives: scored.slice(0, 5).map((s) => ({ code: s.c.code, sosource: s.c.sosource, abbrev: s.c.abbrev, name: s.c.name, score: Math.round(clamp01(s.score) * 100) / 100 })) };
+}
+
+/* ------------------------------------------------------------------ */
+/* Ταυτότητα σειράς                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Ταυτότητα μιας σειράς είναι το ΖΕΥΓΟΣ `sosource:code` — ο ίδιος κωδικός υπάρχει
+ * και στις αγορές (1251) και στους πιστωτές (1653), άρα ο κωδικός μόνος του δεν αρκεί.
+ */
+export const seriesKey = (s: { sosource: number; code: string }): string => `${s.sosource}:${s.code}`;
+
+/**
+ * Διαβάζει την απάντηση του μοντέλου: δέχεται είτε το ζεύγος «1251:7001» είτε σκέτο
+ * κωδικό «7001» — ο σκέτος κωδικός γίνεται δεκτός ΜΟΝΟ αν είναι μοναδικός ανάμεσα
+ * στις επιλογές (αλλιώς δεν ξέρουμε ποια ενότητα εννοεί το μοντέλο).
+ */
+export function parseSeriesChoice(raw: string | null | undefined, options: SeriesCandidate[]): SeriesCandidate | null {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  const pair = s.match(/^(\d+)\s*:\s*(.+)$/);
+  if (pair) {
+    const key = `${Number(pair[1])}:${pair[2].trim()}`;
+    return options.find((o) => seriesKey(o) === key) ?? null;
+  }
+  const hits = options.filter((o) => o.code === s);
+  return hits.length === 1 ? hits[0] : null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -124,7 +153,8 @@ export function inferInvoiceKind(data: unknown): 'service' | 'product' | null {
   const items: RawItem[] = Array.isArray(raw) ? (raw as RawItem[]) : [];
   if (!items.length) return null;
 
-  const qtyOf = (it: RawItem): number | null => (typeof it?.quantity === 'number' && Number.isFinite(it.quantity) ? it.quantity : null);
+  // Οι ποσότητες έρχονται συχνά ως κείμενο («1», «2,5»): ίδια μετατροπή με το `lib/ocr/invoice-math.ts`.
+  const qtyOf = (it: RawItem): number | null => toNumber(it?.quantity);
   const textOf = (it: RawItem): string => normalizeGreek(`${it?.name ?? ''} ${it?.unit ?? ''}`);
 
   const allSingleQty = items.every((it) => { const q = qtyOf(it); return q == null || q === 1; });

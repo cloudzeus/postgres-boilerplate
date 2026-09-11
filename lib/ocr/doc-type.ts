@@ -1,6 +1,9 @@
 import 'server-only';
 import { prisma } from '@/lib/db';
-import { classifySeries, inferInvoiceKind, type ClassifyResult, type SeriesCandidate } from './doc-type-classify';
+import {
+  classifySeries, inferInvoiceKind, parseSeriesChoice, seriesKey,
+  type ClassifyResult, type SeriesCandidate,
+} from './doc-type-classify';
 import { callTextLLM, resolveCfg } from './extract';
 
 /**
@@ -60,8 +63,11 @@ export async function classifyDocument(docId: string): Promise<{ code: string; c
 
     // Ισοπαλία (< 0,15 διαφορά): ρωτάμε το μοντέλο κειμένου με τις υποψήφιες σειρές (spec §1.3).
     if (r.tie) {
+      // Ταυτότητα σειράς = `sosource:code`: ο ίδιος κωδικός υπάρχει και στις δύο ενότητες,
+      // οπότε αναζήτηση με σκέτο κωδικό θα έφερνε τη σειρά της ΛΑΘΟΣ πλευράς.
+      const byKey = new Map(candidates.map((c) => [seriesKey(c), c]));
       const options = r.alternatives
-        .map((a) => candidates.find((c) => c.code === a.code))
+        .map((a) => byKey.get(seriesKey(a)))
         .filter((c): c is SeriesCandidate => Boolean(c));
       // Αν το μοντέλο δεν απαντήσει, κρατάμε τον νικητή της βαθμολογίας (με τη χαμηλή βεβαιότητα της ισοπαλίας).
       const picked = await modelTieBreak(docId, d, options).catch((e) => {
@@ -108,28 +114,30 @@ async function modelTieBreak(
   if (options.length < 2) return null;
   const cfg = await resolveCfg();
   if (!cfg.textKey) return null;
+  // Κάθε επιλογή δηλώνεται με την ΠΛΗΡΗ ταυτότητά της (`sosource:code`) — ο σκέτος κωδικός
+  // δεν ξεχωρίζει τη σειρά αγορών από την ομώνυμη σειρά πιστωτών.
   const list = options
-    .map((o) => `${o.code}: ${o.abbrev ?? ''} ${o.name} (${o.kind === 'purchase' ? 'αγορών' : 'πιστωτών'})`)
+    .map((o) => `${seriesKey(o)} — ${o.abbrev ?? ''} ${o.name} (${o.kind === 'purchase' ? 'αγορών' : 'πιστωτών'})`)
     .join('\n');
   const lines = Array.isArray(d.items)
     ? (d.items as { name?: unknown }[]).slice(0, 5).map((i) => String(i?.name ?? '')).join('; ')
     : '';
   const system = 'You classify Greek purchase documents into ONE SoftOne document series. '
-    + 'Answer with JSON only: {"code":"<series code from the list>"}.';
+    + 'Answer with JSON only: {"code":"<sosource:code exactly as listed>"}.';
   const user = `Document: type «${d.documentTypeLabel ?? ''}», issuer «${d.companyName ?? ''}», `
-    + `total ${d.totalAmount ?? ''}, lines: ${lines}\n\nSeries:\n${list}\n\nReply {"code":"…"}.`;
+    + `total ${d.totalAmount ?? ''}, lines: ${lines}\n\nSeries:\n${list}\n\nReply {"code":"<sosource:code>"}.`;
   const out = await callTextLLM(cfg, system, user, {
     operation: 'ocr.classify_series', refType: 'OcrDocument', refId: docId,
   });
   const raw = String(out?.content ?? '');
-  let code: string | null = null;
+  let answer: string | null = null;
   try {
     const parsed = JSON.parse(raw) as { code?: unknown };
-    if (parsed && parsed.code != null) code = String(parsed.code).trim();
+    if (parsed && parsed.code != null) answer = String(parsed.code).trim();
   } catch {
-    // Το μοντέλο αγνόησε το json_object (ή γύρισε σκέτο κωδικό): κρατάμε τον πρώτο αριθμό.
-    code = raw.match(/\d{3,6}/)?.[0] ?? null;
+    // Το μοντέλο αγνόησε το json_object: κρατάμε το πρώτο «sosource:code» ή τον πρώτο κωδικό.
+    answer = raw.match(/\d+\s*:\s*[^\s",}]+/)?.[0] ?? raw.match(/\d{3,6}/)?.[0] ?? null;
   }
-  if (!code) return null;
-  return options.find((o) => o.code === code) ?? null;
+  // Δεκτό είτε το ζεύγος «1251:7001» είτε σκέτος κωδικός — ο σκέτος μόνο αν είναι μοναδικός.
+  return parseSeriesChoice(answer, options);
 }

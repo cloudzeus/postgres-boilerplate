@@ -72,7 +72,8 @@ export interface SeriesOption {
   abbrev: string | null;
   name: string;
   section: string | null;
-  kind: 'purchase' | 'creditor';
+  /** Πλευρά: αγορών (1251) / πιστωτών (1653) — «other» για ανενεργή σειρά άλλης ενότητας. */
+  kind: 'purchase' | 'creditor' | 'other';
   /** SOSOURCE: 1251 αγορών, 1653 πιστωτών. Ταυτότητα της σειράς είναι το ζεύγος `sosource:code`. */
   sosource: number;
   /** Ενεργοποιημένη στην εφαρμογή — μόνο αυτές βλέπει ο αυτόματος ταξινομητής. */

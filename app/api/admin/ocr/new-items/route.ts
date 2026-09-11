@@ -13,6 +13,7 @@ export async function GET(req: Request) {
   const raw = new URL(req.url).searchParams.get('suggestFor');
   const n = Number(raw);
   const suggestFor = Number.isFinite(n) && n >= 0 ? Math.min(n, 200) : undefined;
-  const { groups, total } = await loadItemQueue({ suggestFor });
-  return NextResponse.json({ groups, total });
+  const { groups, total, truncated } = await loadItemQueue({ suggestFor });
+  // `truncated` = χτύπησε το πλαφόν γραμμών· η σελίδα μπορεί να το αγνοήσει προς το παρόν.
+  return NextResponse.json({ groups, total, truncated });
 }

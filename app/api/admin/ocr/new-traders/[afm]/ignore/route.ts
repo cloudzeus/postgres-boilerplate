@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
-import { normalizeAfm } from '@/lib/ocr/validate';
+import { parseAfmParam } from '@/lib/ocr/validate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,7 @@ const Body = z.object({ reason: z.string().trim().max(200).nullable().optional()
 // SoftOne (spec 2026-09-11 §2). DELETE αναιρεί.
 export async function POST(req: Request, { params }: { params: Promise<{ afm: string }> }) {
   const u = await requirePermission('ocr.categorize');
-  const afm = normalizeAfm((await params).afm);
+  const afm = parseAfmParam((await params).afm);
   if (!afm) return NextResponse.json({ error: 'invalid_afm', message: 'Μη έγκυρο ΑΦΜ.' }, { status: 400 });
 
   const parsed = Body.safeParse((await req.json().catch(() => null)) ?? {});
@@ -40,7 +40,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ afm: string }> }) {
   const u = await requirePermission('ocr.categorize');
-  const afm = normalizeAfm((await params).afm);
+  const afm = parseAfmParam((await params).afm);
   if (!afm) return NextResponse.json({ error: 'invalid_afm', message: 'Μη έγκυρο ΑΦΜ.' }, { status: 400 });
 
   await prisma.ignoredIssuer.delete({ where: { afm } }).catch(() => null);

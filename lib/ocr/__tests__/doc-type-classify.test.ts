@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeGreek, familyOf, seriesFamily, classifySeries, inferInvoiceKind, type SeriesCandidate } from '../doc-type-classify';
+import {
+  normalizeGreek, familyOf, seriesFamily, classifySeries, inferInvoiceKind,
+  parseSeriesChoice, seriesKey, type SeriesCandidate,
+} from '../doc-type-classify';
 const C = (code: string, abbrev: string | null, name: string, kind: 'purchase' | 'creditor', sosource = kind === 'purchase' ? 1251 : 1653): SeriesCandidate => ({ code, abbrev, name, kind, sosource });
 const purchases = [C('2061', 'ΤΙΜΑ', 'Τιμολόγιο Αγοράς', 'purchase'), C('2062', 'ΤΔΑΠ', 'Τιμολόγιο Αγοράς-Δελτίο Αποστολής', 'purchase'), C('2081', 'ΠΤΑ', 'Πιστωτικό Τιμολόγιο Αγοράς', 'purchase'), C('2041', 'ΔΕΑΠ', 'Δελτίο Αποστολής Προμηθευτή', 'purchase')];
 const creditors = [C('1001', 'ΤΠΥ', 'Τιμολόγιο Παροχής Υπηρεσιών', 'creditor'), C('1002', 'ΑΠΥ', 'Απόδειξη Παροχής Υπηρεσιών', 'creditor'), C('1003', 'ΠΤΠΥ', 'Πιστωτικό Παροχής Υπηρεσιών', 'creditor')];
@@ -131,5 +134,75 @@ describe('inferInvoiceKind', () => {
     expect(inferInvoiceKind({ items: [{ name: 'Διάφορα', quantity: 1 }] })).toBeNull();
     // Ποσότητα > 1 χωρίς κωδικό είδους δεν φτάνει από μόνη της.
     expect(inferInvoiceKind({ items: [{ name: 'Διάφορα', quantity: 4 }] })).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Ταυτότητα σειράς: `sosource:code`                                   */
+/* ------------------------------------------------------------------ */
+
+describe('seriesKey / alternatives', () => {
+  it('η ταυτότητα είναι το ζεύγος ενότητα:κωδικός', () => {
+    expect(seriesKey(C('2061', 'ΤΙΜΑ', 'Τιμολόγιο Αγοράς', 'purchase'))).toBe('1251:2061');
+    expect(seriesKey(C('2061', 'ΤΠΥ', 'Τιμολόγιο Παροχής', 'creditor'))).toBe('1653:2061');
+  });
+
+  it('οι εναλλακτικές κουβαλούν την ενότητά τους, ώστε να ξεχωρίζουν ομώνυμοι κωδικοί', () => {
+    // ΙΔΙΟΣ κωδικός «2061» και στις δύο πλευρές: χωρίς `sosource` δεν ξεχωρίζουν.
+    const twins = [
+      C('2061', 'ΤΙΜΑ', 'Τιμολόγιο Αγοράς', 'purchase'),
+      C('2061', 'ΤΠΥ', 'Τιμολόγιο Παροχής Υπηρεσιών', 'creditor'),
+    ];
+    const r = classifySeries(
+      { documentTypeLabel: 'ΤΙΜΟΛΟΓΙΟ', issuerKind: null, totalAmount: 100, invoiceKind: null },
+      twins,
+    )!;
+    expect(r.alternatives.map(seriesKey).sort()).toEqual(['1251:2061', '1653:2061']);
+    expect(r.alternatives.every((a) => typeof a.sosource === 'number')).toBe(true);
+  });
+});
+
+describe('parseSeriesChoice', () => {
+  const options = [
+    C('2061', 'ΤΙΜΑ', 'Τιμολόγιο Αγοράς', 'purchase'),
+    C('2061', 'ΤΠΥ', 'Τιμολόγιο Παροχής Υπηρεσιών', 'creditor'),
+    C('1002', 'ΑΠΥ', 'Απόδειξη Παροχής Υπηρεσιών', 'creditor'),
+  ];
+
+  it('δέχεται το ζεύγος και διαλέγει τη ΣΩΣΤΗ πλευρά', () => {
+    expect(parseSeriesChoice('1653:2061', options)).toBe(options[1]);
+    expect(parseSeriesChoice('1251:2061', options)).toBe(options[0]);
+    expect(parseSeriesChoice(' 1653 : 2061 ', options)).toBe(options[1]);
+  });
+
+  it('σκέτος κωδικός γίνεται δεκτός μόνο όταν είναι μοναδικός', () => {
+    expect(parseSeriesChoice('1002', options)).toBe(options[2]);
+    // «2061» υπάρχει και στις δύο ενότητες → αμφίσημο, το απορρίπτουμε.
+    expect(parseSeriesChoice('2061', options)).toBeNull();
+  });
+
+  it('άγνωστη ή κενή απάντηση → null', () => {
+    expect(parseSeriesChoice('1251:9999', options)).toBeNull();
+    expect(parseSeriesChoice('9999', options)).toBeNull();
+    expect(parseSeriesChoice('', options)).toBeNull();
+    expect(parseSeriesChoice(null, options)).toBeNull();
+  });
+});
+
+describe('inferInvoiceKind — ποσότητες ως κείμενο', () => {
+  it('«1» ως string μετράει σαν μονάδα (υπηρεσία), όχι σαν άγνωστη ποσότητα', () => {
+    expect(inferInvoiceKind({ items: [{ name: 'ΠΑΡΟΧΗ ΥΠΗΡΕΣΙΩΝ ΛΟΓΙΣΤΗ', quantity: '1' }] })).toBe('service');
+  });
+
+  it('«12» ως string βγάζει τη γραμμή από τις υπηρεσίες, όπως και ο αριθμός', () => {
+    expect(inferInvoiceKind({ items: [{ code: 'Μ1', name: 'ΜΕΤΑΦΟΡΙΚΑ', quantity: '12' }] })).toBe('product');
+  });
+
+  it('δεκαδικό με ΚΟΜΜΑ («9,56») διαβάζεται σωστά', () => {
+    expect(inferInvoiceKind({ items: [{ code: '7001', name: 'Βίδες', quantity: '9,56' }] })).toBe('product');
+  });
+
+  it('ποσότητα που δεν είναι αριθμός μένει άγνωστη', () => {
+    expect(inferInvoiceKind({ items: [{ name: 'Αμοιβή συμβούλου', quantity: 'κατ αποκοπήν' }] })).toBe('service');
   });
 });

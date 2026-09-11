@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { normalizeAfm } from '@/lib/ocr/validate';
 import { refreshDocTallies } from '@/lib/ocr/softone-match';
+import { SODTYPE_LABEL, TRADER_KIND_SODTYPE } from '@/lib/softone';
 import {
   groupLines,
   scoreCandidates,
@@ -71,10 +72,14 @@ function parseDocDate(v: unknown): Date | null {
 // §2 — Ουρά «Νέοι συναλλασσόμενοι»
 // ============================================================
 
-/** Ετικέτα τύπου συναλλασσομένου όπως την αποθηκεύουν `SoftoneTrader.kind` / `OcrDocument.softoneKind`. */
+/**
+ * Ετικέτα τύπου συναλλασσομένου όπως την αποθηκεύουν `SoftoneTrader.kind` /
+ * `OcrDocument.softoneKind`. Παράγεται από το ΙΔΙΟ λεξικό SODTYPE με το `lib/softone.ts`,
+ * ώστε μια αλλαγή ετικέτας εκεί να μη διχάσει τις δύο πλευρές.
+ */
 export const TRADER_KIND_LABEL: Record<'supplier' | 'creditor', string> = {
-  supplier: 'Προμηθευτής',
-  creditor: 'Πιστωτής',
+  supplier: SODTYPE_LABEL[TRADER_KIND_SODTYPE.supplier],
+  creditor: SODTYPE_LABEL[TRADER_KIND_SODTYPE.creditor],
 };
 
 export interface TraderQueueDoc {
@@ -140,13 +145,18 @@ const topName = (names: Map<string, number>): string | null => {
 export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): Promise<{
   groups: TraderGroup[];
   ignored: IgnoredIssuerRow[];
+  truncated: boolean;
 }> {
   const [docs, ignoredRows] = await Promise.all([
     prisma.ocrDocument.findMany({
-      where: { status: 'COMPLETED', softoneTrdr: null, softoneChecked: { not: null } },
+      // Το ΑΦΜ εκδότη είναι στήλη με index (`issuerAfm`): κανένα φιλτράρισμα πάνω σε JSON.
+      where: {
+        status: 'COMPLETED', softoneTrdr: null, softoneChecked: { not: null },
+        issuerAfm: { not: null },
+      },
       select: {
         id: true, fileName: true, thumbUrl: true, createdAt: true, extractedData: true,
-        softoneSeries: true, seriesSource: true, invoiceKind: true,
+        issuerAfm: true, softoneSeries: true, seriesSource: true, invoiceKind: true,
       },
       orderBy: { createdAt: 'desc' },
       take: MAX_QUEUE_DOCS,
@@ -159,7 +169,7 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
 
   for (const doc of docs) {
     const ed = (doc.extractedData ?? {}) as Record<string, unknown>;
-    const afm = normalizeAfm(ed.vatNumber);
+    const afm = doc.issuerAfm;
     if (!afm) continue;
     let g = acc.get(afm);
     if (!g) {
@@ -218,7 +228,8 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
   }
 
   groups.sort((a, b) => (b.docCount - a.docCount) || (b.total - a.total) || a.afm.localeCompare(b.afm));
-  return { groups, ignored: opts.includeIgnored ? ignored : [] };
+  // Το πλαφόν χτύπησε: η σελίδα βλέπει μέρος της ουράς (οι μετρητές του sidebar μένουν σωστοί).
+  return { groups, ignored: opts.includeIgnored ? ignored : [], truncated: docs.length >= MAX_QUEUE_DOCS };
 }
 
 export interface TraderLink {
@@ -236,16 +247,9 @@ export interface TraderLink {
 export async function applyTraderToDocs(afm: string, trader: TraderLink): Promise<number> {
   const target = normalizeAfm(afm);
   if (!target) return 0;
-  const docs = await prisma.ocrDocument.findMany({
-    where: { softoneTrdr: null },
-    select: { id: true, extractedData: true },
-  });
-  const ids = docs
-    .filter((d) => normalizeAfm((d.extractedData as { vatNumber?: unknown } | null)?.vatNumber) === target)
-    .map((d) => d.id);
-  if (ids.length === 0) return 0;
-  await prisma.ocrDocument.updateMany({
-    where: { id: { in: ids } },
+  // Ένα `updateMany` πάνω στο indexed `issuerAfm` — καμία ανάγνωση/σάρωση JSON.
+  const res = await prisma.ocrDocument.updateMany({
+    where: { status: 'COMPLETED', softoneTrdr: null, issuerAfm: target },
     data: {
       softoneTrdr: trader.trdr,
       softoneCode: trader.code ?? null,
@@ -254,7 +258,7 @@ export async function applyTraderToDocs(afm: string, trader: TraderLink): Promis
       softoneChecked: new Date(),
     },
   });
-  return ids.length;
+  return res.count;
 }
 
 // ============================================================
@@ -320,7 +324,11 @@ type UnmatchedLine = {
 type QueueDocInfo = { fileName: string | null; afm: string; supplier: string | null };
 
 /** Οι εκκρεμείς γραμμές μαζί με τα στοιχεία εκδότη του παραστατικού τους. */
-async function loadUnmatchedLines(): Promise<{ lines: UnmatchedLine[]; docs: Map<string, QueueDocInfo> }> {
+async function loadUnmatchedLines(): Promise<{
+  lines: UnmatchedLine[];
+  docs: Map<string, QueueDocInfo>;
+  truncated: boolean;
+}> {
   const lines = (await prisma.ocrInvoiceItem.findMany({
     where: UNMATCHED_LINE_WHERE,
     select: {
@@ -335,7 +343,7 @@ async function loadUnmatchedLines(): Promise<{ lines: UnmatchedLine[]; docs: Map
   const docRows = docIds.length
     ? await prisma.ocrDocument.findMany({
         where: { id: { in: docIds } },
-        select: { id: true, fileName: true, extractedData: true, softoneName: true },
+        select: { id: true, fileName: true, extractedData: true, softoneName: true, issuerAfm: true },
       })
     : [];
   const docs = new Map<string, QueueDocInfo>();
@@ -343,11 +351,12 @@ async function loadUnmatchedLines(): Promise<{ lines: UnmatchedLine[]; docs: Map
     const ed = (d.extractedData ?? {}) as Record<string, unknown>;
     docs.set(d.id, {
       fileName: d.fileName ?? null,
-      afm: normalizeAfm(ed.vatNumber) ?? '',
+      // Το ΑΦΜ εκδότη έρχεται από τη στήλη· το JSON μένει μόνο για την επωνυμία-εφεδρεία.
+      afm: d.issuerAfm ?? '',
       supplier: d.softoneName ?? str(ed.companyName),
     });
   }
-  return { lines, docs };
+  return { lines, docs, truncated: lines.length >= MAX_QUEUE_LINES };
 }
 
 /**
@@ -358,9 +367,10 @@ async function loadUnmatchedLines(): Promise<{ lines: UnmatchedLine[]; docs: Map
 export async function loadItemQueue(opts: { suggestFor?: number } = {}): Promise<{
   groups: ItemQueueGroup[];
   total: number;
+  truncated: boolean;
 }> {
   const suggestFor = opts.suggestFor ?? DEFAULT_SUGGEST_GROUPS;
-  const { lines, docs } = await loadUnmatchedLines();
+  const { lines, docs, truncated } = await loadUnmatchedLines();
   const byId = new Map(lines.map((l) => [l.id, l]));
 
   const grouped = groupLines(lines.map((l) => ({
@@ -402,7 +412,8 @@ export async function loadItemQueue(opts: { suggestFor?: number } = {}): Promise
       })),
     });
   }
-  return { groups, total: groups.length };
+  // Το πλαφόν γραμμών χτύπησε: υπάρχουν κι άλλες εκκρεμείς ομάδες πέρα από αυτές εδώ.
+  return { groups, total: groups.length, truncated };
 }
 
 /** Προεπιλεγμένη κατηγορία: κανόνας μνήμης → `softoneIsService` των γραμμών → προϊόν. */
@@ -419,6 +430,13 @@ function searchTokens(pattern: string): string[] {
     .sort((a, b) => b.length - a.length)
     .slice(0, MAX_TOKENS);
 }
+
+/**
+ * Τα `%` και `_` είναι wildcards του LIKE: αν περάσουν αυτούσια στο `contains`, μια
+ * περιγραφή σαν «ΕΚΠΤΩΣΗ 20%» ταιριάζει με τα πάντα. Διαφυγή με backslash (το default
+ * escape character του Postgres), με το ίδιο το backslash να διαφεύγει πρώτο.
+ */
+const likeEscape = (s: string): string => s.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 
 const itemCandidate = (i: {
   mtrl: number; code: string; code1: string | null; code2: string | null; name: string; isService: boolean;
@@ -461,8 +479,9 @@ export async function suggestForGroup(input: {
     expenseOr.push({ code: { in: [code] } });
   }
   for (const t of tokens) {
-    itemOr.push({ name: { contains: t, mode: 'insensitive' } });
-    expenseOr.push({ name: { contains: t, mode: 'insensitive' } });
+    const safe = likeEscape(t);
+    itemOr.push({ name: { contains: safe, mode: 'insensitive' } });
+    expenseOr.push({ name: { contains: safe, mode: 'insensitive' } });
   }
 
   const [items, expenses, rules] = await Promise.all([
@@ -600,19 +619,24 @@ export async function applyMatchToGroup(input: {
   }
 
   const { lineIds, docIds } = await groupLineIds(afm, pattern);
-  if (lineIds.length > 0) {
-    await prisma.ocrInvoiceItem.updateMany({
-      where: { id: { in: lineIds } },
-      data: {
-        softoneMtrl: mtrl, softoneExpn: expn, softoneCode: code, softoneName: name,
-        softoneIsService: isService, softoneMatchedBy: 'manual',
-      },
-    });
+  // Καμία γραμμή: η ομάδα έφυγε από την ουρά όσο ο χρήστης αποφάσιζε (άλλη καρτέλα, νέα
+  // σάρωση). Δεν γράφουμε μνήμη για ομάδα-φάντασμα — θα «διόρθωνε» γραμμές που κανείς δεν είδε.
+  if (lineIds.length === 0) {
+    return { linesUpdated: 0, docIds, mtrl, expn, code, name };
   }
 
+  await prisma.ocrInvoiceItem.updateMany({
+    where: { id: { in: lineIds } },
+    data: {
+      softoneMtrl: mtrl, softoneExpn: expn, softoneCode: code, softoneName: name,
+      softoneIsService: isService, softoneMatchedBy: 'manual',
+    },
+  });
+
+  // Ο κανόνας ξαναχρησιμοποιήθηκε (ο χρήστης επιβεβαίωσε την ίδια αντιστοίχιση): +1 χρήση.
   await prisma.lineMatchRule.upsert({
     where: { afm_pattern: { afm, pattern } },
-    update: { mtrl, expn, isService },
+    update: { mtrl, expn, isService, timesUsed: { increment: 1 } },
     create: { afm, pattern, mtrl, expn, isService, createdById: input.userId ?? null },
   });
 
@@ -646,20 +670,19 @@ export async function skipGroup(input: { afm: string; pattern: string }): Promis
  * αγνοημένους) και πλήθος εκκρεμών γραμμών (προσέγγιση των ομάδων).
  */
 export async function countQueues(): Promise<{ traders: number; items: number }> {
-  const [docs, ignoredRows, items] = await Promise.all([
-    prisma.ocrDocument.findMany({
-      where: { status: 'COMPLETED', softoneTrdr: null, softoneChecked: { not: null } },
-      select: { extractedData: true },
-      take: MAX_QUEUE_DOCS,
+  const [afmRows, ignoredRows, items] = await Promise.all([
+    // `groupBy` πάνω στο indexed `issuerAfm`: τα διακριτά ΑΦΜ χωρίς να κατέβει ούτε ένα JSON.
+    prisma.ocrDocument.groupBy({
+      by: ['issuerAfm'],
+      where: {
+        status: 'COMPLETED', softoneTrdr: null, softoneChecked: { not: null },
+        issuerAfm: { not: null },
+      },
     }),
     prisma.ignoredIssuer.findMany({ select: { afm: true } }),
     prisma.ocrInvoiceItem.count({ where: UNMATCHED_LINE_WHERE }),
   ]);
   const ignored = new Set(ignoredRows.map((r) => r.afm));
-  const afms = new Set<string>();
-  for (const d of docs) {
-    const afm = normalizeAfm((d.extractedData as { vatNumber?: unknown } | null)?.vatNumber);
-    if (afm && !ignored.has(afm)) afms.add(afm);
-  }
-  return { traders: afms.size, items };
+  const traders = afmRows.filter((r) => r.issuerAfm && !ignored.has(r.issuerAfm)).length;
+  return { traders, items };
 }

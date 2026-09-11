@@ -5,6 +5,7 @@ import { bunnyDownload } from '@/lib/bunny';
 import { extractDocument } from '@/lib/ocr/extract';
 import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
 import { getSetting } from '@/lib/settings';
+import { normalizeAfm } from '@/lib/ocr/validate';
 import { runMatchingTemplate } from '@/lib/templates/run';
 import { classifyDocument } from '@/lib/ocr/doc-type';
 import type { RunOutcome } from '@/lib/templates/schema';
@@ -75,6 +76,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         data: {
           status: 'COMPLETED',
           extractedData: result.data,
+          // ΑΦΜ εκδότη ως στήλη με index — οι ουρές δεν σαρώνουν JSON (spec §2/§3).
+          issuerAfm: normalizeAfm(result.data?.vatNumber),
           rawText: result.rawText,
           model: result.model,
           tokensUsed: result.tokensUsed,

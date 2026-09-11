@@ -173,7 +173,9 @@ async function loadInactiveSeries(
     ...purchases.map((s) => ({ ...s, kind: 'purchase' as const, sosource: 1251, enabled: false })),
     ...others
       .filter((s) => missing.get(s.sosource)?.has(s.code))
-      .map((s) => ({ ...s, kind: 'creditor' as const, enabled: false })),
+      // Πιστωτής είναι ΜΟΝΟ η ενότητα 1653. Ένα παραστατικό μπορεί να κρατάει σειρά από
+      // εντελώς άλλη ενότητα (παλιό δεδομένο/import): μπαίνει ως «Άλλη ενότητα», όχι ως πιστωτών.
+      .map((s) => ({ ...s, kind: s.sosource === 1653 ? ('creditor' as const) : ('other' as const), enabled: false })),
   ];
 }
 

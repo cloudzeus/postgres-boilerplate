@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   await requirePermission('ocr.read');
   const includeIgnored = new URL(req.url).searchParams.get('ignored') === '1';
-  const { groups, ignored } = await loadTraderQueue({ includeIgnored });
-  return NextResponse.json({ groups, ignored });
+  const { groups, ignored, truncated } = await loadTraderQueue({ includeIgnored });
+  // `truncated` = χτύπησε το πλαφόν φόρτωσης· η σελίδα μπορεί να το αγνοήσει προς το παρόν.
+  return NextResponse.json({ groups, ignored, truncated });
 }

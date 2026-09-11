@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
-import { normalizeAfm } from '@/lib/ocr/validate';
+import { parseAfmParam } from '@/lib/ocr/validate';
 import { applyTraderToDocs } from '@/lib/ocr/queues';
 import { SUPPLIER_SODTYPES } from '@/lib/softone';
 
@@ -16,7 +16,7 @@ const Body = z.object({ trdr: z.number().int().positive() });
 // προμηθευτή/πιστωτή (SODTYPE 12/16) του τοπικού μητρώου (spec 2026-09-11 §2).
 export async function POST(req: Request, { params }: { params: Promise<{ afm: string }> }) {
   const u = await requirePermission('ocr.categorize');
-  const afm = normalizeAfm((await params).afm);
+  const afm = parseAfmParam((await params).afm);
   if (!afm) return NextResponse.json({ error: 'invalid_afm', message: 'Μη έγκυρο ΑΦΜ.' }, { status: 400 });
 
   const parsed = Body.safeParse(await req.json().catch(() => null));

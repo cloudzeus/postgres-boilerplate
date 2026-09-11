@@ -111,7 +111,7 @@ const NO_MATCH: LineMatchUpdate = {
 export async function matchDocItems(docId: string): Promise<{ matched: number; total: number }> {
   const items = await prisma.ocrInvoiceItem.findMany({
     where: { documentId: docId },
-    select: { id: true, code: true, name: true, softoneMatchedBy: true },
+    select: { id: true, code: true, name: true, softoneMatchedBy: true, softoneMtrl: true, softoneExpn: true },
   });
   if (items.length === 0) {
     await writeDocTally(docId, 0, 0);
@@ -136,7 +136,12 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
 
   // ── 1. Πέρασμα κωδικού ──────────────────────────────────────────────
   for (const it of items) {
-    if (it.softoneMatchedBy === 'manual') { matched++; continue; }
+    // Χειροκίνητη γραμμή: δεν την ξαναγράφουμε, αλλά μετράει ως αντιστοιχισμένη ΜΟΝΟ αν
+    // κρατάει πράγματι είδος ή έξοδο — ίδιος κανόνας με το `refreshDocTallies`.
+    if (it.softoneMatchedBy === 'manual') {
+      if (it.softoneMtrl != null || it.softoneExpn != null) matched++;
+      continue;
+    }
     if (it.softoneMatchedBy === 'skipped') continue;
     const code = (it.code ?? '').trim();
     let m: (typeof sItems)[number] | undefined;

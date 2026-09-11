@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
-import { normalizeAfm } from '@/lib/ocr/validate';
+import { parseAfmParam } from '@/lib/ocr/validate';
 import { applyTraderToDocs, TRADER_KIND_LABEL } from '@/lib/ocr/queues';
 import {
   buildTraderPayload, softoneCreateSupplier, softoneCreateCreditor, TRADER_KIND_SODTYPE,
@@ -31,7 +31,7 @@ const Body = z.object({
 // ΑΦΜ (spec 2026-09-11 §2). `dryRun` επιστρέφει μόνο το setData payload.
 export async function POST(req: Request, { params }: { params: Promise<{ afm: string }> }) {
   const u = await requirePermission('ocr.categorize');
-  const afm = normalizeAfm((await params).afm);
+  const afm = parseAfmParam((await params).afm);
   if (!afm) return NextResponse.json({ error: 'invalid_afm', message: 'Μη έγκυρο ΑΦΜ.' }, { status: 400 });
 
   const parsed = Body.safeParse(await req.json().catch(() => null));
@@ -49,6 +49,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
     address: b.address ?? null,
     zip: b.zip ?? null,
     city: b.city ?? null,
+    phone: b.phone ?? null,
+    email: b.email ?? null,
   };
 
   // Dry-run: το ακριβές setData χωρίς καμία εγγραφή στο SoftOne.
@@ -69,7 +71,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
   const kind = TRADER_KIND_LABEL[b.kind];
   const sodtype = TRADER_KIND_SODTYPE[b.kind];
   // Καθρέφτης: ο νέος συναλλασσόμενος γίνεται αμέσως αναζητήσιμος/αντιστοιχίσιμος.
-  // Τα τηλέφωνο/email δεν μπαίνουν στο setData (δεν τα γράφει ο payload builder) — μένουν τοπικά.
+  // Τηλέφωνο/email γράφονται και στο SoftOne (PHONE01/EMAIL) και εδώ.
   const mirror = {
     code, name: b.name, afm, sodtype, kind, isActive: true,
     doy: b.doyCode ?? null, profession: b.profession ?? null,

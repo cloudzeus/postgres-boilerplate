@@ -12,7 +12,12 @@ export async function POST(req: Request) {
   if (mtrl == null) {
     await prisma.ocrInvoiceItem.update({
       where: { id: String(lineId) },
-      data: { softoneMtrl: null, softoneCode: null, softoneName: null, softoneIsService: null, softoneMatchedBy: null },
+      // Καθαρίζουμε ΚΑΙ το έξοδο: αλλιώς μια γραμμή αντιστοιχισμένη σε EXPN έμενε
+      // «αντιστοιχισμένη» και δεν επέστρεφε ποτέ στην ουρά (spec §3).
+      data: {
+        softoneMtrl: null, softoneExpn: null, softoneCode: null,
+        softoneName: null, softoneIsService: null, softoneMatchedBy: null,
+      },
     });
     return NextResponse.json({ ok: true, cleared: true });
   }
@@ -23,7 +28,7 @@ export async function POST(req: Request) {
   await prisma.ocrInvoiceItem.update({
     where: { id: String(lineId) },
     data: {
-      softoneMtrl: item.mtrl, softoneCode: item.code, softoneName: item.name,
+      softoneMtrl: item.mtrl, softoneExpn: null, softoneCode: item.code, softoneName: item.name,
       softoneIsService: item.isService, softoneMatchedBy: 'manual',
     },
   });

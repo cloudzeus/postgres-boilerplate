@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const { db } = vi.hoisted(() => ({
   db: {
-    ocrDocument: { findMany: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
+    ocrDocument: { findMany: vi.fn(), updateMany: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
     ocrInvoiceItem: { findMany: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     ignoredIssuer: { findMany: vi.fn() },
     softoneItem: { findMany: vi.fn(), findUnique: vi.fn() },
@@ -17,6 +17,9 @@ vi.mock('@/lib/db', () => ({ prisma: db }));
 vi.mock('@/lib/softone', () => ({
   softoneFindTraderByAfm: vi.fn(),
   softoneCheckPurchaseDoc: vi.fn(),
+  // Το `TRADER_KIND_LABEL` των ουρών παράγεται από αυτό το λεξικό — κρατάμε τις αληθινές τιμές.
+  SODTYPE_LABEL: { 12: 'Προμηθευτής', 13: 'Πελάτης', 16: 'Πιστωτής' } as Record<number, string>,
+  TRADER_KIND_SODTYPE: { supplier: 12, creditor: 16 },
 }));
 
 import {
@@ -24,16 +27,26 @@ import {
   applyMatchToGroup, skipGroup, countQueues, QueueError,
 } from '../queues';
 
-const doc = (o: Partial<Record<string, unknown>> & { id: string }) => ({
-  fileName: `${o.id}.pdf`, thumbUrl: null, createdAt: new Date('2025-03-01T00:00:00Z'),
-  extractedData: {}, softoneSeries: null, seriesSource: null, invoiceKind: null, ...o,
-});
+// Το `issuerAfm` είναι ΣΤΗΛΗ (γράφεται στην εξαγωγή): εδώ το παράγουμε από το ίδιο fixture
+// ώστε τα δεδομένα να είναι συνεπή με ό,τι θα είχε γράψει η ροή upload/reextract.
+const doc = (o: Partial<Record<string, unknown>> & { id: string }) => {
+  const row = {
+    fileName: `${o.id}.pdf`, thumbUrl: null, createdAt: new Date('2025-03-01T00:00:00Z'),
+    extractedData: {}, softoneSeries: null, seriesSource: null, invoiceKind: null, ...o,
+  } as Record<string, unknown>;
+  if (!('issuerAfm' in row)) {
+    const vat = String((row.extractedData as { vatNumber?: unknown } | null)?.vatNumber ?? '').replace(/\D+/g, '');
+    row.issuerAfm = vat || null;
+  }
+  return row;
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
   db.ocrDocument.findMany.mockResolvedValue([]);
   db.ocrDocument.updateMany.mockResolvedValue({ count: 0 });
   db.ocrDocument.update.mockResolvedValue({});
+  db.ocrDocument.groupBy.mockResolvedValue([]);
   db.ocrInvoiceItem.findMany.mockResolvedValue([]);
   db.ocrInvoiceItem.updateMany.mockResolvedValue({ count: 0 });
   db.ocrInvoiceItem.count.mockResolvedValue(0);
@@ -65,12 +78,17 @@ describe('loadTraderQueue', () => {
         },
       }),
       doc({ id: 'd3', extractedData: { vatNumber: '094073495', companyName: 'ΑΛΦΑ Α.Ε.' } }),
-      // Χωρίς ΑΦΜ → δεν μπαίνει σε καμία ομάδα.
+      // Χωρίς ΑΦΜ → δεν μπαίνει σε καμία ομάδα (το ερώτημα ήδη το αποκλείει, αλλά κρατάμε τη δικλείδα).
       doc({ id: 'd4', extractedData: { companyName: 'ΑΓΝΩΣΤΟΣ' } }),
     ]);
 
-    const { groups } = await loadTraderQueue();
+    const { groups, truncated } = await loadTraderQueue();
 
+    // Το ΑΦΜ έρχεται από τη ΣΤΗΛΗ: το ερώτημα φιλτράρει `issuerAfm`, χωρίς σάρωση JSON.
+    expect(db.ocrDocument.findMany.mock.calls[0][0].where).toMatchObject({
+      status: 'COMPLETED', softoneTrdr: null, issuerAfm: { not: null },
+    });
+    expect(truncated).toBe(false);
     expect(groups).toHaveLength(1);
     const g = groups[0];
     expect(g.afm).toBe('094073495');
@@ -112,26 +130,25 @@ describe('loadTraderQueue', () => {
 });
 
 describe('applyTraderToDocs', () => {
-  it('ενημερώνει ΟΛΑ τα έγγραφα του ΑΦΜ (κανονικοποιημένο) και μόνο αυτά', async () => {
-    db.ocrDocument.findMany.mockResolvedValue([
-      { id: 'a', extractedData: { vatNumber: 'EL 094073495' } },
-      { id: 'b', extractedData: { vatNumber: '094073495' } },
-      { id: 'c', extractedData: { vatNumber: '999888777' } },
-      { id: 'd', extractedData: null },
-    ]);
+  it('ένα updateMany πάνω στο indexed ΑΦΜ — καμία ανάγνωση εγγράφων', async () => {
     db.ocrDocument.updateMany.mockResolvedValue({ count: 2 });
 
-    const n = await applyTraderToDocs('094073495', { trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', kind: 'Προμηθευτής' });
+    const n = await applyTraderToDocs('EL 094073495', { trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', kind: 'Προμηθευτής' });
 
     expect(n).toBe(2);
+    expect(db.ocrDocument.findMany).not.toHaveBeenCalled();
     const arg = db.ocrDocument.updateMany.mock.calls[0][0];
-    expect(arg.where).toEqual({ id: { in: ['a', 'b'] } });
+    expect(arg.where).toEqual({ status: 'COMPLETED', softoneTrdr: null, issuerAfm: '094073495' });
     expect(arg.data).toMatchObject({ softoneTrdr: 5001, softoneCode: 'Π.0001', softoneName: 'ΑΛΦΑ ΑΕ', softoneKind: 'Προμηθευτής' });
   });
 
-  it('δεν γράφει τίποτα όταν κανένα έγγραφο δεν ταιριάζει', async () => {
-    db.ocrDocument.findMany.mockResolvedValue([{ id: 'c', extractedData: { vatNumber: '999888777' } }]);
+  it('επιστρέφει 0 όταν το updateMany δεν άγγιξε τίποτα', async () => {
+    db.ocrDocument.updateMany.mockResolvedValue({ count: 0 });
     expect(await applyTraderToDocs('094073495', { trdr: 1, code: null, name: 'X', kind: 'Πιστωτής' })).toBe(0);
+  });
+
+  it('χωρίς έγκυρο ΑΦΜ δεν γράφει τίποτα', async () => {
+    expect(await applyTraderToDocs('  ', { trdr: 1, code: null, name: 'X', kind: 'Πιστωτής' })).toBe(0);
     expect(db.ocrDocument.updateMany).not.toHaveBeenCalled();
   });
 });
@@ -142,8 +159,8 @@ const LINES = [
   { id: 'l3', documentId: 'doc1', code: null, name: 'ΜΙΣΘΩΜΑ ΦΙΑΛΩΝ', quantity: 1, price: 10, total: 10, softoneIsService: true },
 ];
 const DOCS = [
-  { id: 'doc1', fileName: 'a.pdf', extractedData: { vatNumber: 'EL094073495', companyName: 'ΑΛΦΑ ΑΕ' }, softoneName: null },
-  { id: 'doc2', fileName: 'b.pdf', extractedData: { vatNumber: '094073495' }, softoneName: 'ΑΛΦΑ ΑΕ' },
+  { id: 'doc1', fileName: 'a.pdf', issuerAfm: '094073495', extractedData: { companyName: 'ΑΛΦΑ ΑΕ' }, softoneName: null },
+  { id: 'doc2', fileName: 'b.pdf', issuerAfm: '094073495', extractedData: {}, softoneName: 'ΑΛΦΑ ΑΕ' },
 ];
 
 describe('loadItemQueue', () => {
@@ -265,7 +282,8 @@ describe('applyMatchToGroup', () => {
     });
     expect(db.lineMatchRule.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { afm_pattern: { afm: '094073495', pattern: 'υγρο αζωτο kg' } },
-      update: { mtrl: 77, expn: null, isService: false },
+      // Ο κανόνας ξαναχρησιμοποιήθηκε → +1 χρήση.
+      update: { mtrl: 77, expn: null, isService: false, timesUsed: { increment: 1 } },
       create: { afm: '094073495', pattern: 'υγρο αζωτο kg', mtrl: 77, expn: null, isService: false, createdById: 'u1' },
     }));
     // refreshDocTallies: ένα update ανά παραστατικό που άγγιξε η ομάδα.
@@ -277,7 +295,7 @@ describe('applyMatchToGroup', () => {
       { ...LINES[2], documentId: 'doc3' },
     ]);
     db.ocrDocument.findMany.mockResolvedValue([
-      { id: 'doc3', fileName: 'c.pdf', extractedData: {}, softoneName: null },
+      { id: 'doc3', fileName: 'c.pdf', issuerAfm: null, extractedData: {}, softoneName: null },
     ]);
     db.softoneExpense.findUnique.mockResolvedValue({ expn: 12, code: 'ΕΞ12', name: 'ΜΙΣΘΩΜΑΤΑ' });
 
@@ -294,6 +312,18 @@ describe('applyMatchToGroup', () => {
     db.softoneItem.findUnique.mockResolvedValue(null);
     await expect(applyMatchToGroup({ afm: '', pattern: 'x y', target: { mtrl: 1 } }))
       .rejects.toMatchObject({ code: 'item_not_found', status: 404 });
+    expect(db.ocrInvoiceItem.updateMany).not.toHaveBeenCalled();
+    expect(db.lineMatchRule.upsert).not.toHaveBeenCalled();
+  });
+
+  it('ομάδα χωρίς γραμμές: καμία εγγραφή, κανένας κανόνας μνήμης', async () => {
+    db.ocrInvoiceItem.findMany.mockResolvedValue(LINES);
+    db.ocrDocument.findMany.mockResolvedValue(DOCS);
+    db.softoneItem.findUnique.mockResolvedValue({ mtrl: 77, code: '76-71106', name: 'ΥΓΡΟ ΑΖΩΤΟ', isService: false });
+
+    const r = await applyMatchToGroup({ afm: '094073495', pattern: 'ομαδα φαντασμα', target: { mtrl: 77 } });
+
+    expect(r.linesUpdated).toBe(0);
     expect(db.ocrInvoiceItem.updateMany).not.toHaveBeenCalled();
     expect(db.lineMatchRule.upsert).not.toHaveBeenCalled();
   });
@@ -321,17 +351,15 @@ describe('skipGroup', () => {
 });
 
 describe('countQueues', () => {
-  it('μετράει διακριτά ΑΦΜ (χωρίς τους αγνοημένους) και εκκρεμείς γραμμές', async () => {
-    db.ocrDocument.findMany.mockResolvedValue([
-      { extractedData: { vatNumber: 'EL094073495' } },
-      { extractedData: { vatNumber: '094073495' } },
-      { extractedData: { vatNumber: '111222333' } },
-      { extractedData: { vatNumber: '999888777' } },
-      { extractedData: null },
+  it('μετράει διακριτά ΑΦΜ (χωρίς τους αγνοημένους) με groupBy, χωρίς να κατεβάσει έγγραφα', async () => {
+    db.ocrDocument.groupBy.mockResolvedValue([
+      { issuerAfm: '094073495' }, { issuerAfm: '111222333' }, { issuerAfm: '999888777' },
     ]);
     db.ignoredIssuer.findMany.mockResolvedValue([{ afm: '111222333' }]);
     db.ocrInvoiceItem.count.mockResolvedValue(37);
 
     expect(await countQueues()).toEqual({ traders: 2, items: 37 });
+    expect(db.ocrDocument.findMany).not.toHaveBeenCalled();
+    expect(db.ocrDocument.groupBy.mock.calls[0][0]).toMatchObject({ by: ['issuerAfm'] });
   });
 });

@@ -41,6 +41,16 @@ export function normalizeAfm(input: unknown): string | null {
   return digits || null;
 }
 
+/**
+ * ΑΦΜ που έρχεται ως route parameter (`/new-traders/[afm]/…`). Δεν κανονικοποιούμε εδώ:
+ * το path είναι ταυτότητα ομάδας και πρέπει να είναι ακριβώς 8–12 ψηφία — οτιδήποτε άλλο
+ * (γράμματα, κενά, «EL…», τεράστια strings) είναι λάθος αίτημα, όχι κάτι προς καθάρισμα.
+ */
+export function parseAfmParam(input: unknown): string | null {
+  const s = String(input ?? '').trim();
+  return /^\d{8,12}$/.test(s) ? s : null;
+}
+
 /** Overwrite issuer/recipient ΑΦΜ fields in-place with their normalized form. */
 export function normalizeAfmFields<T extends Record<string, any>>(data: T): T {
   if (!data || typeof data !== 'object') return data;

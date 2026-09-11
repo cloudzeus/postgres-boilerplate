@@ -49,8 +49,8 @@ describe('matchDocItems — code pass', () => {
 
   it('διατηρεί τις χειροκίνητες αντιστοιχίσεις και τις παραλείψεις', async () => {
     db.ocrInvoiceItem.findMany.mockResolvedValue([
-      { id: 'l1', code: null, name: 'ΥΓΡΟ ΑΖΩΤΟ', softoneMatchedBy: 'manual' },
-      { id: 'l2', code: null, name: 'ΚΑΤΙ ΑΛΛΟ', softoneMatchedBy: 'skipped' },
+      { id: 'l1', code: null, name: 'ΥΓΡΟ ΑΖΩΤΟ', softoneMatchedBy: 'manual', softoneMtrl: 77, softoneExpn: null },
+      { id: 'l2', code: null, name: 'ΚΑΤΙ ΑΛΛΟ', softoneMatchedBy: 'skipped', softoneMtrl: null, softoneExpn: null },
     ]);
 
     const r = await matchDocItems('doc1');
@@ -58,6 +58,20 @@ describe('matchDocItems — code pass', () => {
     expect(r).toEqual({ matched: 1, total: 2 });
     expect(db.ocrInvoiceItem.update).not.toHaveBeenCalled();
     expect(db.lineMatchRule.findMany).not.toHaveBeenCalled();
+  });
+
+  it('χειροκίνητη γραμμή σε ΕΞΟΔΟ μετράει αντιστοιχισμένη· καθαρισμένη χειροκίνητη ΟΧΙ', async () => {
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { id: 'l1', code: null, name: 'ΕΝΟΙΚΙΟ', softoneMatchedBy: 'manual', softoneMtrl: null, softoneExpn: 9 },
+      // Ο χρήστης καθάρισε την αντιστοίχιση: το `manual` έμεινε αλλά δεν υπάρχει πια στόχος.
+      { id: 'l2', code: null, name: 'ΑΚΥΡΩΜΕΝΗ', softoneMatchedBy: 'manual', softoneMtrl: null, softoneExpn: null },
+    ]);
+
+    const r = await matchDocItems('doc1');
+
+    // Ίδιος κανόνας με το `refreshDocTallies`: αντιστοιχισμένη = έχει mtrl ή expn.
+    expect(r).toEqual({ matched: 1, total: 2 });
+    expect(db.ocrDocument.update).toHaveBeenCalledWith({ where: { id: 'doc1' }, data: { itemsTotal: 2, itemsMatched: 1 } });
   });
 });
 

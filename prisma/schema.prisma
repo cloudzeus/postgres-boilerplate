@@ -905,6 +905,9 @@ model OcrDocument {
   postedAt      DateTime?
   postedRef     String?                                 // SoftOne FINDOC ref / external doc id
   postError     String?       @db.Text
+  // ΑΦΜ εκδότη, κανονικοποιημένο (μόνο ψηφία) από το `extractedData.vatNumber`, γραμμένο
+  // τη στιγμή της εξαγωγής. Υπάρχει ώστε οι ουρές να ρωτούν με index αντί για σάρωση JSON.
+  issuerAfm      String?
   // SoftOne supplier match (issuer ΑΦΜ → TRDR SODTYPE=12), filled on extraction.
   softoneTrdr    Int?                                    // matched supplier TRDR id
   softoneCode    String?                                 // matched supplier CODE
@@ -949,6 +952,7 @@ model OcrDocument {
   @@index([createdAt])
   @@index([batchId])
   @@index([companyId])
+  @@index([issuerAfm])
 }
 
 // A folder/batch of uploaded documents processed together.

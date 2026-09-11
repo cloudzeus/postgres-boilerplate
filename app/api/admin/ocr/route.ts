@@ -6,7 +6,7 @@ import { bunnyUploadPrivate } from '@/lib/bunny';
 import { extractDocument } from '@/lib/ocr/extract';
 import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
 import { ensureOcrThumbnail } from '@/lib/ocr/thumbnail';
-import { inferDocKind } from '@/lib/ocr/validate';
+import { inferDocKind, normalizeAfm } from '@/lib/ocr/validate';
 import { type DocType, type SupportedLang } from '@/lib/ocr/templates';
 import { runMatchingTemplate } from '@/lib/templates/run';
 import { classifyDocument } from '@/lib/ocr/doc-type';
@@ -142,6 +142,8 @@ export async function POST(req: Request) {
           status: 'COMPLETED',
           docType: resolvedDocType,
           extractedData: result.data,
+          // ΑΦΜ εκδότη ως στήλη με index — οι ουρές δεν σαρώνουν JSON (spec §2/§3).
+          issuerAfm: normalizeAfm(result.data?.vatNumber),
           rawText: result.rawText,
           model: result.model,
           tokensUsed: result.tokensUsed,

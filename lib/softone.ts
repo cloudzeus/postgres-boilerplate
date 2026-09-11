@@ -769,7 +769,7 @@ export async function softoneFetchLookups(): Promise<{ kind: string; code: strin
   const seen = new Set<string>();
   const add = (kind: string, code: string, name: string) => {
     if (!code || !name) return;
-    const key = `${kind} ${code}`;
+    const key = `${kind}\u0000${code}`;
     if (seen.has(key)) return;
     seen.add(key);
     out.push({ kind, code, name });
@@ -939,6 +939,8 @@ export interface CreateSupplierInput {
   address?: string | null;
   zip?: string | null;
   city?: string | null;
+  phone?: string | null;      // PHONE01
+  email?: string | null;      // EMAIL
 }
 /** Συναλλασσόμενος που εκδίδει παραστατικό προς εμάς: προμηθευτής (12) ή πιστωτής (16). */
 export type TraderKind = 'supplier' | 'creditor';
@@ -961,6 +963,8 @@ function traderRow(input: CreateTraderInput): Record<string, unknown> {
   if (input.address) row.ADDRESS = input.address;
   if (input.zip) row.ZIP = input.zip;
   if (input.city) row.CITY = input.city;
+  if (input.phone) row.PHONE01 = input.phone;
+  if (input.email) row.EMAIL = input.email;
   return row;
 }
 
@@ -984,8 +988,11 @@ export function buildSupplierPayload(input: CreateSupplierInput): { OBJECT: 'SUP
 /**
  * Creates a new trader in SoftOne (setData on object SUPPLIER/CREDITOR → TRDR; the
  * SODTYPE is set by the object). Required fields beyond CODE/NAME carry schema
- * defaults. Returns the new TRDR id + the assigned CODE (read back from TRDR,
- * because `success: true` alone does not prove the row persisted).
+ * defaults. Returns the new TRDR id + the assigned CODE.
+ *
+ * `success: true` ΔΕΝ αποδεικνύει ότι η γραμμή έμεινε: διαβάζουμε ΠΑΝΤΑ πίσω τη
+ * γραμμή του TRDR και επιβεβαιώνουμε ότι υπάρχει ΚΑΙ ότι το SODTYPE είναι αυτό που
+ * αντιστοιχεί στο object — αλλιώς πετάμε (ο καλών δεν πρέπει να καθρεφτίσει φάντασμα).
  */
 export async function softoneCreateTrader(
   kind: TraderKind,
@@ -999,15 +1006,16 @@ export async function softoneCreateTrader(
     throw new Error(res.error ?? `setData ${object} απέτυχε (code ${res.errorcode ?? '?'})`);
   }
   const trdr = Number(res.id);
-  // Read back the assigned CODE (auto-numbered when not supplied).
-  let code = input.code ?? '';
-  if (!code) {
-    try {
-      const back = await softoneGetTable('TRDR', ['TRDR', 'CODE'], `TRDR=${trdr}`);
-      code = back[0]?.CODE ?? '';
-    } catch { /* best-effort */ }
+  const back = await softoneGetTable('TRDR', ['TRDR', 'CODE', 'SODTYPE'], `TRDR=${trdr}`);
+  const row = back.find((r) => Number(r.TRDR) === trdr) ?? back[0];
+  const expected = TRADER_KIND_SODTYPE[kind];
+  if (!row || Number(row.SODTYPE) !== expected) {
+    throw new Error(
+      `Η εγγραφή δεν επιβεβαιώθηκε στο SoftOne (TRDR ${trdr}, SODTYPE ${row?.SODTYPE ?? '—'} ≠ ${expected}).`,
+    );
   }
-  return { trdr, code };
+  // Το CODE έρχεται από τη γραμμή (auto-numbering όταν δεν δόθηκε).
+  return { trdr, code: row.CODE || input.code || '' };
 }
 
 /** Creates a new supplier (SODTYPE=12). Thin wrapper over {@link softoneCreateTrader}. */
