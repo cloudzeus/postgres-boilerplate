@@ -930,6 +930,69 @@ export function matchTaxOffice(
   return contains ? contains.code : null;
 }
 
+/** Γραμμή του μητρώου χωρών του SoftOne (object/table COUNTRY). */
+export interface SoftoneCountry {
+  /** `COUNTRY.COUNTRY` — το αριθμητικό id που γράφεται στο `TRDR.COUNTRY`. */
+  id: string;
+  /** `SHORTCUT` — σύντμηση (συνήθως ο ISO-2 κωδικός). */
+  shortcut: string;
+  name: string;
+  /** `INTCODE` — κωδικός Intrastat (ISO-2 στις χώρες ΕΕ). */
+  intcode: string;
+  /** `INTERCODE` — «Διεθνής κωδικός». */
+  intercode: string;
+}
+
+/** Πεδία που ζητάμε από τον πίνακα COUNTRY (cached schema: EditMaster «Χώρες»). */
+const COUNTRY_FIELDS = ['COUNTRY', 'SHORTCUT', 'NAME', 'INTCODE', 'INTERCODE'];
+
+/** Το μητρώο χωρών αλλάζει ~ποτέ: το κρατάμε in-process για μια ημέρα. */
+const COUNTRY_TTL_MS = 24 * 60 * 60 * 1000;
+let countryCache: { at: number; rows: SoftoneCountry[] } | null = null;
+
+/** Καθαρίζει το cache χωρών (χρήσιμο σε δοκιμές / μετά από αλλαγή εγκατάστασης). */
+export function clearCountryCache(): void {
+  countryCache = null;
+}
+
+/**
+ * Διαβάζει το μητρώο χωρών του SoftOne (COUNTRY). Cached 24h στη διεργασία —
+ * μια δημιουργία συναλλασσομένου δεν πρέπει να κοστίζει έξτρα GetTable.
+ */
+export async function softoneFetchCountries(): Promise<SoftoneCountry[]> {
+  if (countryCache && Date.now() - countryCache.at < COUNTRY_TTL_MS) return countryCache.rows;
+  const rows = await softoneGetTable('COUNTRY', COUNTRY_FIELDS, '');
+  const mapped = rows
+    .map((r) => ({
+      id: str(r.COUNTRY),
+      shortcut: str(r.SHORTCUT).toUpperCase(),
+      name: cleanS1Label(r.NAME),
+      intcode: str(r.INTCODE).toUpperCase(),
+      intercode: str(r.INTERCODE).toUpperCase(),
+    }))
+    .filter((r) => r.id);
+  countryCache = { at: Date.now(), rows: mapped };
+  return mapped;
+}
+
+/**
+ * ISO-2 → `COUNTRY.COUNTRY` id. Δοκιμάζει με τη σειρά SHORTCUT, INTCODE και
+ * INTERCODE, γιατί η εγκατάσταση μπορεί να κρατά τον ISO κωδικό σε οποιοδήποτε
+ * από τα τρία. `null` όταν δεν βρεθεί (ο καλών παραλείπει το πεδίο).
+ */
+export function matchCountryId(
+  iso2: string | null | undefined,
+  countries: SoftoneCountry[],
+): string | null {
+  const target = String(iso2 ?? '').trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(target)) return null;
+  for (const key of ['shortcut', 'intcode', 'intercode'] as const) {
+    const hit = countries.find((c) => c[key] === target);
+    if (hit) return hit.id;
+  }
+  return null;
+}
+
 export interface CreateSupplierInput {
   name: string;
   afm: string;
@@ -941,6 +1004,13 @@ export interface CreateSupplierInput {
   city?: string | null;
   phone?: string | null;      // PHONE01
   email?: string | null;      // EMAIL
+  /**
+   * ISO-3166-1 alpha-2 της χώρας έδρας (π.χ. «CY»). Μεταφράζεται σε
+   * `TRDR.COUNTRY` (αριθμητικό FK στον πίνακα COUNTRY) με το μητρώο που περνά ο
+   * καλών — δες {@link softoneFetchCountries}. Άγνωστος κωδικός ⇒ το πεδίο
+   * παραλείπεται και ο καλών ειδοποιείται (`country_not_found`).
+   */
+  country?: string | null;
 }
 /** Συναλλασσόμενος που εκδίδει παραστατικό προς εμάς: προμηθευτής (12) ή πιστωτής (16). */
 export type TraderKind = 'supplier' | 'creditor';
@@ -951,12 +1021,16 @@ const TRADER_OBJECT: Record<TraderKind, 'SUPPLIER' | 'CREDITOR'> = { supplier: '
 /** SODTYPE που δίνει το κάθε object (για έλεγχο μετά την εγγραφή). */
 export const TRADER_KIND_SODTYPE: Record<TraderKind, number> = { supplier: 12, creditor: 16 };
 
-function traderRow(input: CreateTraderInput): Record<string, unknown> {
+function traderRow(input: CreateTraderInput, countries: SoftoneCountry[] = []): Record<string, unknown> {
   const row: Record<string, unknown> = {
     NAME: input.name,
     AFM: input.afm,
     ISACTIVE: 1,
   };
+  // `TRDR.COUNTRY` είναι αριθμητικό FK: γράφεται ΜΟΝΟ όταν ο ISO-2 βρεθεί στο
+  // μητρώο. Χωρίς μητρώο (κενή λίστα) το πεδίο μένει στην προεπιλογή του SoftOne.
+  const countryId = matchCountryId(input.country, countries);
+  if (countryId) row.COUNTRY = Number(countryId);
   if (input.code) row.CODE = input.code;
   if (input.doyCode) row.IRSDATA = input.doyCode;
   if (input.profession) row.JOBTYPETRD = input.profession;
@@ -972,12 +1046,12 @@ function traderRow(input: CreateTraderInput): Record<string, unknown> {
  * Builds the exact setData payload for a trader create (also used for dry-run preview).
  * Both objects write TRDR — SUPPLIER stamps SODTYPE=12, CREDITOR stamps 16.
  */
-export function buildTraderPayload(kind: 'supplier', input: CreateTraderInput): { OBJECT: 'SUPPLIER'; KEY: ''; DATA: { SUPPLIER: Record<string, unknown>[] } };
-export function buildTraderPayload(kind: 'creditor', input: CreateTraderInput): { OBJECT: 'CREDITOR'; KEY: ''; DATA: { CREDITOR: Record<string, unknown>[] } };
-export function buildTraderPayload(kind: TraderKind, input: CreateTraderInput): { OBJECT: 'SUPPLIER' | 'CREDITOR'; KEY: ''; DATA: Record<string, Record<string, unknown>[]> };
-export function buildTraderPayload(kind: TraderKind, input: CreateTraderInput) {
+export function buildTraderPayload(kind: 'supplier', input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: 'SUPPLIER'; KEY: ''; DATA: { SUPPLIER: Record<string, unknown>[] } };
+export function buildTraderPayload(kind: 'creditor', input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: 'CREDITOR'; KEY: ''; DATA: { CREDITOR: Record<string, unknown>[] } };
+export function buildTraderPayload(kind: TraderKind, input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: 'SUPPLIER' | 'CREDITOR'; KEY: ''; DATA: Record<string, Record<string, unknown>[]> };
+export function buildTraderPayload(kind: TraderKind, input: CreateTraderInput, countries: SoftoneCountry[] = []) {
   const object = TRADER_OBJECT[kind];
-  return { OBJECT: object, KEY: '' as const, DATA: { [object]: [traderRow(input)] } };
+  return { OBJECT: object, KEY: '' as const, DATA: { [object]: [traderRow(input, countries)] } };
 }
 
 /** Builds the exact setData payload for a supplier create (also used for dry-run preview). */
@@ -997,10 +1071,11 @@ export function buildSupplierPayload(input: CreateSupplierInput): { OBJECT: 'SUP
 export async function softoneCreateTrader(
   kind: TraderKind,
   input: CreateTraderInput,
+  countries: SoftoneCountry[] = [],
 ): Promise<{ trdr: number; code: string }> {
   const object = TRADER_OBJECT[kind];
   const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>(
-    'setData', buildTraderPayload(kind, input),
+    'setData', buildTraderPayload(kind, input, countries),
   );
   if (res.success === false || res.id == null) {
     throw new Error(res.error ?? `setData ${object} απέτυχε (code ${res.errorcode ?? '?'})`);
@@ -1019,13 +1094,19 @@ export async function softoneCreateTrader(
 }
 
 /** Creates a new supplier (SODTYPE=12). Thin wrapper over {@link softoneCreateTrader}. */
-export async function softoneCreateSupplier(input: CreateSupplierInput): Promise<{ trdr: number; code: string }> {
-  return softoneCreateTrader('supplier', input);
+export async function softoneCreateSupplier(
+  input: CreateSupplierInput,
+  countries: SoftoneCountry[] = [],
+): Promise<{ trdr: number; code: string }> {
+  return softoneCreateTrader('supplier', input, countries);
 }
 
 /** Creates a new creditor (SODTYPE=16) — object CREDITOR, ίδιο payload με SUPPLIER. */
-export async function softoneCreateCreditor(input: CreateTraderInput): Promise<{ trdr: number; code: string }> {
-  return softoneCreateTrader('creditor', input);
+export async function softoneCreateCreditor(
+  input: CreateTraderInput,
+  countries: SoftoneCountry[] = [],
+): Promise<{ trdr: number; code: string }> {
+  return softoneCreateTrader('creditor', input, countries);
 }
 
 export interface AfmLookupResult {
@@ -1077,11 +1158,17 @@ export interface TraderLookupRow {
  * pipeline to tag scanned documents with their SoftOne trader.
  */
 export async function softoneFindTraderByAfm(afm: string): Promise<TraderLookupRow | null> {
-  const clean = String(afm).replace(/[^0-9A-Za-z]/g, '');
+  const clean = String(afm).replace(/[^0-9A-Za-z]/g, '').toUpperCase();
   if (!clean) return null;
+  // Ένας ΞΕΝΟΣ εκδότης μπορεί να είναι ήδη καταχωρισμένος είτε με το πρόθεμα
+  // χώρας («CY10123456A») είτε χωρίς («10123456A»): ρωτάμε και για τις δύο μορφές
+  // και κρατάμε το πρώτο εύρημα.
+  const bare = /^[A-Z]{2}[A-Z0-9]+$/.test(clean) ? clean.slice(2) : null;
+  const variants = [clean, ...(bare ? [bare] : [])];
+  const inList = variants.map((v) => `'${v}'`).join(',');
   const rows = await softoneGetTable(
     'TRDR', ['TRDR', 'CODE', 'NAME', 'SODTYPE'],
-    `AFM='${clean}' AND SODTYPE IN (${SUPPLIER_SODTYPES.join(',')})`,
+    `AFM IN (${inList}) AND SODTYPE IN (${SUPPLIER_SODTYPES.join(',')})`,
   );
   const valid = rows.filter((o) => Number.isFinite(Number(o.TRDR)));
   if (valid.length === 0) return null;

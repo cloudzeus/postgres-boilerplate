@@ -4,7 +4,7 @@
 // τους φύλακες (permission, ΑΦΜ, SODTYPE) και ότι το dry-run δεν γράφει ΠΟΥΘΕΝΑ.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { db, rbac, s1, audit } = vi.hoisted(() => ({
+const { db, rbac, s1, audit, s1read } = vi.hoisted(() => ({
   db: {
     ocrDocument: { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
     purchaseDocType: { findFirst: vi.fn(), findUnique: vi.fn() },
@@ -25,6 +25,9 @@ const { db, rbac, s1, audit } = vi.hoisted(() => ({
     softoneLoadExpenseTemplate: vi.fn(),
   },
   audit: { logAudit: vi.fn() },
+  // Read-only SoftOne lookups: ΔΕΝ μπαίνουν στο `s1` (το `expectNoWrites` απαιτεί
+  // ότι κανένα από εκείνα δεν κλήθηκε — μια ανάγνωση όμως επιτρέπεται στο dry-run).
+  s1read: { softoneFetchCountries: vi.fn() },
 }));
 
 vi.mock('@/lib/db', () => ({ prisma: db }));
@@ -36,6 +39,7 @@ vi.mock('@/lib/audit', () => audit);
 vi.mock('@/lib/softone', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/softone')>()),
   ...s1,
+  ...s1read,
 }));
 
 import { POST as createTrader } from '@/app/api/admin/ocr/new-traders/[afm]/create/route';
@@ -80,6 +84,11 @@ beforeEach(() => {
   db.purchaseDocType.findFirst.mockResolvedValue(null);
   db.purchaseDocType.findUnique.mockResolvedValue(null);
   db.softoneDocSeries.findFirst.mockResolvedValue(null);
+  // Μητρώο χωρών SoftOne: μόνο όσα χρειάζονται οι δοκιμές (COUNTRY.COUNTRY = id).
+  s1read.softoneFetchCountries.mockResolvedValue([
+    { id: '1000', shortcut: 'GR', name: 'ΕΛΛΑΔΑ', intcode: 'GR', intercode: 'GR' },
+    { id: '1012', shortcut: 'CY', name: 'ΚΥΠΡΟΣ', intcode: 'CY', intercode: 'CY' },
+  ]);
 });
 
 describe('dry-run', () => {
@@ -129,6 +138,46 @@ describe('dry-run', () => {
 
     expect(body.dryRun).toBe(true);
     expect(body.payload.OBJECT).toBe('ITEM');
+    expectNoWrites();
+  });
+});
+
+describe('ξένος εκδότης', () => {
+  const CY = 'CY10123456A';
+
+  it('το ΑΦΜ με πρόθεμα χώρας γίνεται δεκτό και φεύγει αυτούσιο στο SoftOne', async () => {
+    const res = await createTrader(post({ kind: 'supplier', name: 'ALPHA LTD', dryRun: true }), ctx(CY));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    // Το πρόθεμα ΔΕΝ κόβεται: είναι μέρος της ταυτότητας του ξένου εκδότη.
+    expect(body.payload.DATA.SUPPLIER[0].AFM).toBe(CY);
+    // Η χώρα βγαίνει από το ίδιο το ΑΦΜ και γίνεται αριθμητικό FK COUNTRY.
+    expect(body.payload.DATA.SUPPLIER[0].COUNTRY).toBe(1012);
+    expect(body.warnings).toEqual([]);
+    expectNoWrites();
+  });
+
+  it('ελληνικός εκδότης παίρνει COUNTRY Ελλάδας χωρίς να το ζητήσει κανείς', async () => {
+    const res = await createTrader(post({ kind: 'supplier', name: 'ΑΛΦΑ ΑΕ', dryRun: true }), ctx(AFM));
+    expect((await res.json()).payload.DATA.SUPPLIER[0].COUNTRY).toBe(1000);
+  });
+
+  it('χώρα εκτός μητρώου: το πεδίο παραλείπεται και επιστρέφεται warning', async () => {
+    const res = await createTrader(
+      post({ kind: 'supplier', name: 'MUSTER GMBH', country: 'DE', dryRun: true }),
+      ctx('DE144960040'),
+    );
+    const body = await res.json();
+    expect(body.payload.DATA.SUPPLIER[0]).not.toHaveProperty('COUNTRY');
+    expect(body.warnings).toEqual(['country_not_found']);
+    expectNoWrites();
+  });
+
+  it.each(['ZZ12345678', 'EL094073495', 'C1234567890'])('άγνωστο πρόθεμα %j → 400', async (afm) => {
+    const res = await createTrader(post({ kind: 'supplier', name: 'X' }), ctx(afm));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('invalid_afm');
     expectNoWrites();
   });
 });
