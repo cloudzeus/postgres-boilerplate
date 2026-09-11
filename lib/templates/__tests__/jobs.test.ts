@@ -62,7 +62,7 @@ const job = (over: Record<string, unknown> = {}) => ({
 });
 
 /** Ό,τι γράφτηκε στη γραμμή ενός αρχείου, από την τελευταία `templateJobItem.update`. */
-const itemUpdate = () => db.templateJobItem.update.mock.calls.at(-1)![0] as { where: { id: string }; data: Record<string, any> };
+const itemUpdate = () => db.templateJobItem.updateMany.mock.calls.at(-1)![0] as { where: Record<string, any>; data: Record<string, any> };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -74,7 +74,7 @@ beforeEach(() => {
   db.templateJob.updateMany.mockResolvedValue({ count: 1 });
   db.templateJobItem.findUnique.mockResolvedValue(item());
   db.templateJobItem.update.mockResolvedValue({});
-  db.templateJobItem.updateMany.mockResolvedValue({ count: 0 });
+  db.templateJobItem.updateMany.mockResolvedValue({ count: 1 });
   db.templateJobItem.count.mockResolvedValue(0);
   db.templateJob.findMany.mockResolvedValue([]);
   db.$queryRaw.mockResolvedValue([]);
@@ -89,8 +89,12 @@ afterEach(() => stopJobWorker());
 
 // ---------------------------------------------------------------- createJob
 
+/** Ένα αρχείο προς ανέβασμα, όπως το δίνει το route: τα bytes ζητούνται όταν έρθει η σειρά του. */
+const upload = (fileName: string, buffer: Buffer = PDF, size = buffer.length) =>
+  ({ fileName, size, read: async () => buffer });
+
 describe('createJob', () => {
-  const files = [{ buffer: PDF, fileName: 'a.pdf' }, { buffer: PDF, fileName: 'b.pdf' }];
+  const files = [upload('a.pdf'), upload('b.pdf')];
 
   it('uploads under the job folder, writes ordered items and stores the metadata the user typed', async () => {
     const out = await createJob('t1', {
@@ -140,9 +144,32 @@ describe('createJob', () => {
   });
 
   it('refuses bytes it cannot recognise, whatever the file is called', async () => {
-    await expect(createJob('t1', { files: [{ buffer: Buffer.from('not a document'), fileName: 'x.pdf' }] }))
+    await expect(createJob('t1', { files: [upload('x.pdf', Buffer.from('not a document'))] }))
       .rejects.toMatchObject({ code: 'unsupported_type' });
     expect(db.templateJob.create).not.toHaveBeenCalled();
+  });
+
+  it('reads ONE file into memory at a time — a 200-file upload must not be 200 buffers', async () => {
+    let live = 0;
+    let peak = 0;
+    const watched = ['a.pdf', 'b.pdf', 'c.pdf'].map((n) => ({
+      fileName: n, size: PDF.length,
+      read: async () => { live += 1; peak = Math.max(peak, live); return PDF; },
+    }));
+    bunny.bunnyUploadPrivate.mockImplementation(async () => { live -= 1; return { key: 'k' }; });
+    await createJob('t1', { files: watched });
+    expect(peak).toBe(1);
+  });
+
+  it('refuses the upload on total size, before a single byte is read', async () => {
+    const huge = Array.from({ length: 20 }, (_, i) => upload(`${i}.pdf`, PDF, 20 * 1024 * 1024));
+    await expect(createJob('t1', { files: huge })).rejects.toMatchObject({ code: 'too_large_total' });
+    expect(bunny.bunnyUploadPrivate).not.toHaveBeenCalled();
+  });
+
+  it('refuses a single over-sized file on its declared size alone', async () => {
+    await expect(createJob('t1', { files: [upload('big.pdf', PDF, 26 * 1024 * 1024)] })).rejects.toMatchObject({ code: 'too_large' });
+    expect(bunny.bunnyUploadPrivate).not.toHaveBeenCalled();
   });
 });
 
@@ -248,10 +275,26 @@ describe('processJob', () => {
     expect(db.templateJob.updateMany).not.toHaveBeenCalled();
   });
 
-  it('a job whose template vanished fails instead of looping', async () => {
+  it('a job whose template vanished fails through the terminal guard, so it still mails once', async () => {
     db.templateJob.findUnique.mockResolvedValue(null);
     await processJob('job_1');
-    expect(db.templateJob.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'FAILED' }) }));
+    expect(db.templateJob.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'job_1', finishedAt: null },
+      data: expect.objectContaining({ status: 'FAILED' }),
+    }));
+  });
+
+  it('counts a file only when ITS OWN write landed — a recovered item is not counted twice', async () => {
+    queueItems('i1');
+    db.templateJobItem.updateMany.mockResolvedValue({ count: 0 });   // την πρόλαβε άλλος worker
+    db.templateJob.findUnique
+      .mockResolvedValueOnce({ template: TEMPLATE })
+      .mockResolvedValue({ status: 'RUNNING', total: 1, done: 1, failed: 0 });
+
+    await processJob('job_1');
+    expect(db.templateJob.update).not.toHaveBeenCalled();
+    // Και ο όρος που το εγγυάται είναι στη ΒΑΣΗ, όχι στη λογική του worker:
+    expect(itemUpdate().where).toMatchObject({ id: 'i1', status: 'RUNNING' });
   });
 });
 
@@ -354,14 +397,31 @@ describe('cancelJob', () => {
 describe('recoverStale', () => {
   it('returns abandoned RUNNING items to the queue and re-queues the jobs they stranded', async () => {
     db.templateJobItem.updateMany.mockResolvedValue({ count: 3 });
-    db.templateJob.findMany.mockResolvedValue([{ id: 'job_1' }]);
+    db.templateJob.findMany.mockResolvedValueOnce([{ id: 'job_1' }]).mockResolvedValueOnce([]);
     db.templateJob.updateMany.mockResolvedValue({ count: 1 });
 
-    expect(await recoverStale()).toEqual({ items: 3, jobs: 1 });
+    expect(await recoverStale()).toEqual({ items: 3, jobs: 1, finished: 0 });
     const where = db.templateJobItem.updateMany.mock.calls[0][0].where;
     expect(where.status).toBe('RUNNING');
     expect(where.OR[0]).toEqual({ startedAt: null });
+    // ΜΟΝΟ αρχεία εργασιών που κινούνται ακόμη: ένα αρχείο ακυρωμένης εργασίας δεν ξαναμπαίνει στην ουρά.
+    expect(where.job).toEqual({ status: { in: ['QUEUED', 'RUNNING'] } });
     expect(db.templateJobItem.updateMany.mock.calls[0][0].data).toEqual({ status: 'QUEUED', startedAt: null });
+  });
+
+  it('closes a job stranded between its last file and its own completion', async () => {
+    db.templateJob.findMany
+      .mockResolvedValueOnce([])                                                   // καμία προς επανουρά
+      .mockResolvedValueOnce([{ id: 'job_1', total: 2, done: 2, failed: 0 }]);     // κρεμασμένη RUNNING
+
+    expect(await recoverStale()).toMatchObject({ finished: 1 });
+    const where = db.templateJob.findMany.mock.calls[1][0].where;
+    expect(where.status).toBe('RUNNING');
+    expect(where.items).toEqual({ none: { status: { in: ['RUNNING', 'QUEUED'] } } });
+    expect(db.templateJob.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'job_1', finishedAt: null },
+      data: expect.objectContaining({ status: 'DONE' }),
+    }));
   });
 
   it('never resurrects a cancelled job', async () => {

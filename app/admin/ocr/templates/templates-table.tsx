@@ -62,7 +62,9 @@ export function TemplatesTable({ rows, canManage }: { rows: TemplateRow[]; canMa
         <DropdownMenuTrigger asChild><RowActionsTrigger /></DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => router.push(`/admin/ocr/templates/${row.original.id}`)}><FiEdit3 /> Άνοιγμα</DropdownMenuItem>
-          {canManage && row.original.fieldsCount > 0 && (
+          {/* Ίδιο κατώφλι με τον σχεδιαστή ΚΑΙ με τον `createJob`: χωρίς πεδίο με περιοχή η σάρωση
+              θα απαντούσε 422 αφού είχε ανέβει ολόκληρος ο φάκελος. */}
+          {canManage && row.original.regionFieldsCount > 0 && (
             <DropdownMenuItem onClick={() => setScanning(row.original)}><FiPlayCircle /> Σάρωση αρχείων</DropdownMenuItem>
           )}
           {canManage && <DropdownMenuItem onClick={() => remove(row.original)} className="text-dg-red-600"><FiTrash2 /> Διαγραφή</DropdownMenuItem>}
@@ -85,6 +87,7 @@ export function TemplatesTable({ rows, canManage }: { rows: TemplateRow[]; canMa
         <JobUploadDialog
           templateId={scanning.id}
           templateName={scanning.name}
+          defaultEmails={scanning.notifyEmails}
           open
           onOpenChange={(v) => { if (!v) setScanning(null); }}
         />

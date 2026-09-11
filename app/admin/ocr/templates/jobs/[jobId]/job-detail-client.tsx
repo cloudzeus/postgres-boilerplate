@@ -176,7 +176,7 @@ export function JobDetailClient({ initial, canManage }: { initial: JobDetail; ca
             </div>
             <RegionMarker
               pageImageUrl={(p) => templatesApi.jobs.pageImageUrl(job.id, open.id, p)}
-              pageCount={open.page ?? 1}
+              pageCount={open.pageCount ?? 1}
               page={page}
               onPageChange={setPage}
               savedRegions={regions}

@@ -25,7 +25,7 @@ import { jobCompletionHtml, jobCompletionSubject, type TerminalJobStatus } from 
 import { toConditionDto, toFieldDef, toMappingDto } from './serialize';
 import { sampleExt, SAMPLE_MAX_BYTES, samplePageCount, sniffSampleType } from './sample';
 import {
-  ACTIVE_JOB_STATUSES, finalJobStatus, isActive, jobToSheetInputs, MAX_JOB_FILES, progressOf, STALE_MS,
+  ACTIVE_JOB_STATUSES, finalJobStatus, isActive, jobToSheetInputs, MAX_JOB_FILES, MAX_JOB_TOTAL_BYTES, progressOf, STALE_MS,
   type JobItemStatus, type JobProgress, type JobStatus,
 } from './jobs-logic';
 import type { FieldValue, MappingRowExcel, MappingRowInvoice, TemplateFieldKind, TemplateValueType } from './schema';
@@ -35,7 +35,7 @@ import type { SheetInput } from './excel';
 const TICK_MS = 5_000;
 
 export class JobError extends Error {
-  constructor(public code: 'not_found' | 'no_files' | 'too_many' | 'not_ready' | 'too_large' | 'unsupported_type') { super(code); }
+  constructor(public code: 'not_found' | 'no_files' | 'too_many' | 'not_ready' | 'too_large' | 'too_large_total' | 'unsupported_type') { super(code); }
 }
 
 /** Μία HTTP απάντηση ανά αστοχία, ώστε κάθε route εργασιών να λέει το ίδιο για το ίδιο πρόβλημα. */
@@ -45,6 +45,7 @@ export const JOB_ERROR: Record<JobError['code'], { status: number; body: { error
   too_many: { status: 400, body: { error: 'too_many', message: `Έως ${MAX_JOB_FILES} αρχεία ανά εργασία` } },
   not_ready: { status: 422, body: { error: 'not_ready', message: 'Το πρότυπο δεν έχει πεδίο με περιοχή — σχεδίασε πρώτα τις περιοχές' } },
   too_large: { status: 413, body: { error: 'too_large', message: 'Μέγιστο 25 MB ανά αρχείο' } },
+  too_large_total: { status: 413, body: { error: 'too_large_total', message: `Μέγιστο ${Math.round(MAX_JOB_TOTAL_BYTES / (1024 * 1024))} MB συνολικά ανά εργασία — χώρισε τα αρχεία σε δεύτερη εργασία` } },
   unsupported_type: { status: 415, body: { error: 'unsupported_type', message: 'Δεκτά μόνο PDF, PNG, JPEG, WebP' } },
 };
 
@@ -73,8 +74,15 @@ function mappingRows(t: TemplateForJob): { invoice: MappingRowInvoice[]; excel: 
 
 // ─────────────────────────────────────────────────────────── δημιουργία
 
+/**
+ * Ένα αρχείο προς ανέβασμα. Τα bytes ζητούνται ΟΤΑΝ έρθει η σειρά του (`read`), όχι πριν: ένα
+ * αίτημα με 200 αρχεία δεν πρέπει να τα κρατά όλα ταυτόχρονα στη μνήμη — ένα OOM εδώ σκοτώνει τη
+ * διεργασία που τρέχει και τον worker των εργασιών.
+ */
+export type JobUpload = { fileName: string; size: number; read: () => Promise<Buffer> };
+
 export type CreateJobInput = {
-  files: { buffer: Buffer; fileName: string }[];
+  files: JobUpload[];
   userId?: string | null;
   title?: string | null;
   reference?: string | null;
@@ -93,20 +101,24 @@ export async function createJob(templateId: string, input: CreateJobInput): Prom
   if (!t) throw new JobError('not_found');
   if (input.files.length === 0) throw new JobError('no_files');
   if (input.files.length > MAX_JOB_FILES) throw new JobError('too_many');
+  if (input.files.some((f) => f.size > SAMPLE_MAX_BYTES)) throw new JobError('too_large');
+  if (input.files.reduce((sum, f) => sum + Math.max(0, f.size), 0) > MAX_JOB_TOTAL_BYTES) throw new JobError('too_large_total');
   // Χωρίς πεδίο με περιοχή ο εξαγωγέας δεν έχει τι να διαβάσει: η εργασία θα έβγαζε 200 άδειες γραμμές.
   if (readableFields(t).length === 0) throw new JobError('not_ready');
 
   const jobId = `job_${nanoid(16)}`;
   const uploaded: { order: number; fileName: string; storageKey: string; mimeType: string; size: number; page: number }[] = [];
   try {
+    // ΕΝΑ αρχείο στη μνήμη τη φορά: τα bytes ζητούνται εδώ και αφήνονται πριν ζητηθεί το επόμενο.
     for (const [order, f] of input.files.entries()) {
-      if (f.buffer.length > SAMPLE_MAX_BYTES) throw new JobError('too_large');
-      const mimeType = sniffSampleType(f.buffer);                 // πετά SampleError('unsupported_type')
+      const buffer = await f.read();
+      if (buffer.length > SAMPLE_MAX_BYTES) throw new JobError('too_large');
+      const mimeType = sniffSampleType(buffer);                   // πετά SampleError('unsupported_type')
       const key = `templates/${templateId}/jobs/${jobId}/${String(order).padStart(3, '0')}.${sampleExt(mimeType)}`;
-      await bunnyUploadPrivate({ key, body: f.buffer, contentType: mimeType });
+      await bunnyUploadPrivate({ key, body: buffer, contentType: mimeType });
       uploaded.push({
         order, fileName: f.fileName.slice(0, 255) || `file-${order}`, storageKey: key, mimeType,
-        size: f.buffer.length, page: await samplePageCount(f.buffer, mimeType),
+        size: buffer.length, page: await samplePageCount(buffer, mimeType),
       });
     }
   } catch (e) {
@@ -171,15 +183,25 @@ async function claimItem(jobId: string): Promise<string | null> {
 }
 
 /**
- * Ό,τι κόλλησε επιστρέφει στην ουρά:
- *  · αντικείμενα RUNNING παλαιότερα από `STALE_MS` (η διεργασία που τα κρατούσε δεν υπάρχει πια)·
- *  · εργασίες RUNNING χωρίς κανένα RUNNING αντικείμενο αλλά με QUEUED να περιμένουν.
+ * Ό,τι κόλλησε ξεκολλά:
+ *  · αντικείμενα RUNNING παλαιότερα από `STALE_MS` (η διεργασία που τα κρατούσε δεν υπάρχει πια)
+ *    και ΜΟΝΟ όσων εργασιών κινούνται ακόμη — ένα αντικείμενο ακυρωμένης ή τελειωμένης εργασίας που
+ *    ξαναγίνεται «Σε αναμονή» λέει ψέματα στη λίστα και δεν θα το πιάσει ποτέ κανείς·
+ *  · εργασίες RUNNING χωρίς κανένα RUNNING αντικείμενο αλλά με QUEUED να περιμένουν → πίσω στην ουρά·
+ *  · εργασίες RUNNING χωρίς ΚΑΝΕΝΑ αντικείμενο σε κίνηση ή σε αναμονή → κλείνουν. Αυτές είναι όσες
+ *    πέθαναν ανάμεσα στο τελευταίο αρχείο και το κλείσιμο: καμία από τις δύο προηγούμενες περιπτώσεις
+ *    δεν τις πιάνει, και χωρίς αυτό το κλαδί μένουν «Τρέχει» για πάντα — χωρίς email, με μόνιμο σήμα
+ *    στο μενού και μια σελίδα που κάνει polling στο διηνεκές.
  * Δεν αγγίζει ΠΟΤΕ CANCELLED: η ακύρωση είναι δήλωση του χρήστη, όχι κατάσταση προς ανάκτηση.
  */
-export async function recoverStale(): Promise<{ items: number; jobs: number }> {
+export async function recoverStale(): Promise<{ items: number; jobs: number; finished: number }> {
   const cutoff = new Date(Date.now() - STALE_MS);
   const items = await prisma.templateJobItem.updateMany({
-    where: { status: 'RUNNING', OR: [{ startedAt: null }, { startedAt: { lt: cutoff } }] },
+    where: {
+      status: 'RUNNING',
+      OR: [{ startedAt: null }, { startedAt: { lt: cutoff } }],
+      job: { status: { in: [...ACTIVE_JOB_STATUSES] } },
+    },
     data: { status: 'QUEUED', startedAt: null },
   });
 
@@ -187,9 +209,22 @@ export async function recoverStale(): Promise<{ items: number; jobs: number }> {
     where: { status: 'RUNNING', items: { none: { status: 'RUNNING' } }, AND: [{ items: { some: { status: 'QUEUED' } } }] },
     select: { id: true },
   });
-  if (stuck.length === 0) return { items: items.count, jobs: 0 };
-  const jobs = await prisma.templateJob.updateMany({ where: { id: { in: stuck.map((j) => j.id) }, status: 'RUNNING' }, data: { status: 'QUEUED' } });
-  return { items: items.count, jobs: jobs.count };
+  const jobs = stuck.length === 0
+    ? { count: 0 }
+    : await prisma.templateJob.updateMany({ where: { id: { in: stuck.map((j) => j.id) }, status: 'RUNNING' }, data: { status: 'QUEUED' } });
+
+  const stranded = await prisma.templateJob.findMany({
+    where: {
+      status: 'RUNNING',
+      OR: [{ startedAt: null }, { startedAt: { lt: cutoff } }],
+      items: { none: { status: { in: ['RUNNING', 'QUEUED'] } } },
+    },
+    select: { id: true, total: true, done: true, failed: true },
+  });
+  for (const j of stranded) {
+    await finishJob(j.id, finalJobStatus(j)).catch((e) => console.error('[templates] stranded job not closed', j.id, (e as Error).message));
+  }
+  return { items: items.count, jobs: jobs.count, finished: stranded.length };
 }
 
 // ─────────────────────────────────────────────────────────── επεξεργασία
@@ -201,14 +236,15 @@ export async function recoverStale(): Promise<{ items: number; jobs: number }> {
  * Μια εργασία ΔΕΝ αγγίζει `OcrDocument`: δεν προβάλλει τίποτα, δεν αναρτά τίποτα, δεν στέλνει
  * ειδοποιήσεις κανόνων. Είναι ανάγνωση σε πίνακα, όχι ροή εγγράφου (spec §12).
  */
-export async function processItem(itemId: string, template?: TemplateForJob): Promise<'DONE' | 'FAILED'> {
+export async function processItem(itemId: string, template?: TemplateForJob): Promise<'DONE' | 'FAILED' | null> {
   const started = Date.now();
   const item = await prisma.templateJobItem.findUnique({ where: { id: itemId } });
-  if (!item) return 'FAILED';
+  // `null` = «αυτό το αρχείο δεν ήταν δικό μας»: δεν υπάρχει, ή στο μεταξύ το τελείωσε άλλος. Ο
+  // καλών ΔΕΝ πρέπει να μετρήσει τίποτα — αλλιώς ένα αρχείο μετριέται δύο φορές.
+  if (!item) return null;
   const t = template ?? (await prisma.templateJob.findUnique({ where: { id: item.jobId }, select: { template: { include: TEMPLATE_FOR_JOB } } }))?.template;
   if (!t) {
-    await finishItem(itemId, 'FAILED', { error: 'template not found', durationMs: Date.now() - started });
-    return 'FAILED';
+    return (await finishItem(itemId, 'FAILED', { error: 'template not found', durationMs: Date.now() - started })) ? 'FAILED' : null;
   }
 
   try {
@@ -231,27 +267,38 @@ export async function processItem(itemId: string, template?: TemplateForJob): Pr
       fields: allFields(t), values, mode: t.mode, errors: ex.errors, adaptive: ex.adaptive ?? [], rules: applied.flags,
     });
 
-    await finishItem(itemId, 'DONE', {
+    const landed = await finishItem(itemId, 'DONE', {
       values: values as unknown as Prisma.InputJsonValue,
       matched: applied.matched as unknown as Prisma.InputJsonValue,
       flags: flags as unknown as Prisma.InputJsonValue,
       model: ex.model,
       tokensUsed: ex.tokensUsed,
-      page: ex.pageCount,
+      page: ex.pageCount,                                            // η στήλη κρατά ΠΛΗΘΟΣ σελίδων
       durationMs: Date.now() - started,
       error: null,
     });
-    return 'DONE';
+    return landed ? 'DONE' : null;
   } catch (e) {
     const error = String((e as Error)?.message ?? e).slice(0, 2000);
     console.error('[templates] job item failed', itemId, error);
-    await finishItem(itemId, 'FAILED', { error, durationMs: Date.now() - started }).catch(() => null);
-    return 'FAILED';
+    const landed = await finishItem(itemId, 'FAILED', { error, durationMs: Date.now() - started }).catch(() => false);
+    return landed ? 'FAILED' : null;
   }
 }
 
-async function finishItem(id: string, status: 'DONE' | 'FAILED', data: Prisma.TemplateJobItemUncheckedUpdateInput): Promise<void> {
-  await prisma.templateJobItem.update({ where: { id }, data: { ...data, status, finishedAt: new Date() } });
+/**
+ * Κλείνει τη γραμμή ενός αρχείου ΜΟΝΟ αν είναι ακόμη RUNNING, και λέει αν η εγγραφή έπιασε.
+ *
+ * Το `status: 'RUNNING'` στο `where` δεν είναι διακόσμηση: μετά από μια ανάκτηση (`recoverStale`)
+ * το ίδιο αρχείο μπορεί να το κρατά άλλος worker. Χωρίς τον όρο, και οι δύο θα έγραφαν «τελείωσα»
+ * και οι δύο θα αύξαναν το `done` — και η εργασία θα έλεγε ότι διάβασε 11 από τα 10 αρχεία.
+ */
+async function finishItem(id: string, status: 'DONE' | 'FAILED', data: Prisma.TemplateJobItemUncheckedUpdateInput): Promise<boolean> {
+  const out = await prisma.templateJobItem.updateMany({
+    where: { id, status: 'RUNNING' },
+    data: { ...data, status, finishedAt: new Date() },
+  });
+  return out.count === 1;
 }
 
 /**
@@ -263,7 +310,8 @@ export async function processJob(jobId: string): Promise<void> {
   const job = await prisma.templateJob.findUnique({ where: { id: jobId }, select: { template: { include: TEMPLATE_FOR_JOB } } });
   const t = job?.template;
   if (!t) {
-    await prisma.templateJob.update({ where: { id: jobId }, data: { status: 'FAILED', finishedAt: new Date() } }).catch(() => null);
+    // Μέσω `finishJob`: ίδιος φύλακας τελικής μετάβασης, ίδιο (ένα) email με κάθε άλλο τερματισμό.
+    await finishJob(jobId, 'FAILED').catch((e) => console.error('[templates] job not closed', jobId, (e as Error).message));
     return;
   }
 
@@ -275,6 +323,8 @@ export async function processJob(jobId: string): Promise<void> {
     if (itemId == null) break;
 
     const outcome = await processItem(itemId, t);
+    // `null` = η γραμμή δεν ήταν πια δική μας· ο μετρητής ανήκει σε όποιον την έκλεισε.
+    if (outcome == null) continue;
     await prisma.templateJob.update({
       where: { id: jobId },
       data: outcome === 'DONE' ? { done: { increment: 1 } } : { failed: { increment: 1 } },
@@ -412,7 +462,12 @@ export async function activeJobCount(): Promise<number> {
 }
 
 export type JobItemRow = {
-  id: string; order: number; fileName: string; status: JobItemStatus; page: number | null;
+  id: string; order: number; fileName: string; status: JobItemStatus;
+  /**
+   * ΠΟΣΕΣ σελίδες έχει το αρχείο — όχι ποια σελίδα. Η στήλη στη βάση λέγεται `page` από το plan 4
+   * και μένει έτσι· το DTO λέει την αλήθεια, ώστε το UI να μη νομίζει ποτέ ότι κρατά δείκτη σελίδας.
+   */
+  pageCount: number | null;
   values: Record<string, FieldValue> | null; flags: RunFlags | null;
   model: string | null; tokensUsed: number | null; durationMs: number | null; error: string | null;
 };
@@ -440,7 +495,7 @@ export async function getJob(jobId: string): Promise<JobDetail | null> {
     ...toJobListRow(j as unknown as JobListDbRow),
     fields: j.template.fields,
     items: j.items.map((i) => ({
-      id: i.id, order: i.order, fileName: i.fileName, status: i.status as JobItemStatus, page: i.page,
+      id: i.id, order: i.order, fileName: i.fileName, status: i.status as JobItemStatus, pageCount: i.page,
       values: (i.values as Record<string, FieldValue> | null) ?? null,
       flags: (i.flags as RunFlags | null) ?? null,
       model: i.model, tokensUsed: i.tokensUsed, durationMs: i.durationMs, error: i.error,

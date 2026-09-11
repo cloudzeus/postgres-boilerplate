@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { createJob, JobError, JOB_ERROR } from '@/lib/templates/jobs';
-import { MAX_JOB_FILES } from '@/lib/templates/jobs-logic';
+import { MAX_JOB_FILES, MAX_JOB_TOTAL_BYTES } from '@/lib/templates/jobs-logic';
 import { SAMPLE_MAX_BYTES } from '@/lib/templates/sample';
 
 export const runtime = 'nodejs';
@@ -20,7 +20,14 @@ const Meta = z.object({
   title: z.string().trim().max(120).optional(),
   reference: z.string().trim().max(60).optional(),
   // `YYYY-MM-DD` από το <input type="date"> — ημερομηνία ΑΝΑΦΟΡΑΣ, όχι στιγμή δημιουργίας.
-  docDate: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  //
+  // Το regex από μόνο του δέχεται «2026-99-99», που γίνεται Invalid Date και σκάει στο
+  // `templateJob.create` — ΜΕΤΑ το ανέβασμα, αφήνοντας τα αρχεία ορφανά στο Bunny. Άρα η
+  // ημερομηνία γίνεται Date εδώ, και ό,τι δεν είναι αληθινή ημερομηνία γυρίζει 400 πριν από όλα.
+  docDate: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/)
+    .transform((v) => new Date(`${v}T00:00:00.000Z`))
+    .refine((d) => !Number.isNaN(d.getTime()), 'Μη έγκυρη ημερομηνία')
+    .optional(),
   description: z.string().trim().max(500).optional(),
   notifyEmails: z.string().trim().max(500).optional(),
 });
@@ -28,6 +35,12 @@ const Meta = z.object({
 export async function POST(req: Request, { params }: Ctx) {
   const u = await requirePermission('ocr.categorize');
   const { id } = await params;
+
+  // Το σώμα ενός multipart αιτήματος περνά ΟΛΟΚΛΗΡΟ από τη μνήμη μέσα στο `formData()`: το πρώτο
+  // φράγμα είναι το Content-Length, πριν διαβαστεί οτιδήποτε.
+  if (Number(req.headers.get('content-length') ?? 0) > MAX_JOB_TOTAL_BYTES) {
+    return NextResponse.json(JOB_ERROR.too_large_total.body, { status: 413 });
+  }
 
   const form = await req.formData().catch(() => null);
   const files = (form?.getAll('files') ?? []).filter((f): f is File => f instanceof File);
@@ -45,14 +58,18 @@ export async function POST(req: Request, { params }: Ctx) {
   // περάσει καν από τη μνήμη για να απορριφθεί.
   const tooBig = files.find((f) => f.size > SAMPLE_MAX_BYTES);
   if (tooBig) return NextResponse.json({ ...JOB_ERROR.too_large.body, fileName: tooBig.name }, { status: 413 });
+  if (files.reduce((sum, f) => sum + f.size, 0) > MAX_JOB_TOTAL_BYTES) {
+    return NextResponse.json(JOB_ERROR.too_large_total.body, { status: 413 });
+  }
 
   try {
     const out = await createJob(id, {
-      files: await Promise.all(files.map(async (f) => ({ buffer: Buffer.from(await f.arrayBuffer()), fileName: f.name }))),
+      // Τεμπέλικα: τα bytes κάθε αρχείου διαβάζονται όταν έρθει η σειρά του να ανέβει, ένα τη φορά.
+      files: files.map((f) => ({ fileName: f.name, size: f.size, read: async () => Buffer.from(await f.arrayBuffer()) })),
       userId: u.id,
       title: meta.data.title ?? null,
       reference: meta.data.reference ?? null,
-      docDate: meta.data.docDate ? new Date(`${meta.data.docDate}T00:00:00.000Z`) : null,
+      docDate: meta.data.docDate ?? null,
       description: meta.data.description ?? null,
       notifyEmails: meta.data.notifyEmails ?? null,
     });

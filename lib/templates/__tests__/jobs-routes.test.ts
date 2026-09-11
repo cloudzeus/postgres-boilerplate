@@ -14,6 +14,7 @@ const { rbac, jobs, audit, excel } = vi.hoisted(() => ({
       too_many: { status: 400, body: { error: 'too_many' } },
       not_ready: { status: 422, body: { error: 'not_ready' } },
       too_large: { status: 413, body: { error: 'too_large' } },
+      too_large_total: { status: 413, body: { error: 'too_large_total' } },
       unsupported_type: { status: 415, body: { error: 'unsupported_type' } },
     },
   },
@@ -95,6 +96,30 @@ describe('POST templates/[id]/jobs', () => {
     const res = await createRoute(upload([pdf('a.pdf')], { docDate: '31/05/2026' }), ctx());
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe('invalid_body');
+  });
+
+  it('refuses a date that looks right but is not a date — before anything is uploaded', async () => {
+    const res = await createRoute(upload([pdf('a.pdf')], { docDate: '2026-99-99' }), ctx());
+    expect(res.status).toBe(400);
+    expect(jobs.createJob).not.toHaveBeenCalled();
+  });
+
+  it('refuses the request on Content-Length alone, without parsing the body', async () => {
+    const req = new Request('http://localhost/x', {
+      method: 'POST', body: 'x', headers: { 'content-length': String(400 * 1024 * 1024) },
+    });
+    const res = await createRoute(req, ctx());
+    expect(res.status).toBe(413);
+    expect((await res.json()).error).toBe('too_large_total');
+    expect(jobs.createJob).not.toHaveBeenCalled();
+  });
+
+  it('hands the library lazy files — nothing is read until the upload loop asks', async () => {
+    await createRoute(upload([pdf('a.pdf')]), ctx());
+    const file = jobs.createJob.mock.calls[0][1].files[0];
+    expect(typeof file.read).toBe('function');
+    expect(file.size).toBeGreaterThan(0);
+    expect(Buffer.isBuffer(await file.read())).toBe(true);
   });
 
   it('turns a JobError into the one status code that error always has', async () => {
