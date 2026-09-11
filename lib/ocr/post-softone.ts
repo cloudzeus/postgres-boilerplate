@@ -2,10 +2,23 @@
 import 'server-only';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
+import { getSetting } from '@/lib/settings';
+import { softoneCall, softoneGetData } from '@/lib/softone';
 import { buildReviewFlags } from '@/lib/templates/run-logic';
+import type { DocumentJson } from './canonical';
+import { loadDocumentJson } from './document';
+import {
+  buildPurdocPayload, postingBlockers,
+  type BlockerCode, type PurdocContext, type PurdocPayload,
+} from './purdoc-payload';
+
+/** Ο διακόπτης ασφαλείας. Κλειστός = καμία εγγραφή δεν φεύγει προς το SoftOne (μόνο dry-run). */
+export const POSTING_ENABLED_KEY = 'softone.postingEnabled';
+
+export type PostErrorCode = 'not_found' | 'posting_disabled' | BlockerCode;
 
 export class PostError extends Error {
-  constructor(public code: 'not_found' | 'not_completed' | 'no_category', message: string) {
+  constructor(public code: PostErrorCode, message: string) {
     super(message);
     this.name = 'PostError';
   }
@@ -13,14 +26,25 @@ export class PostError extends Error {
 
 /**
  * A precondition the poster refuses on, in Greek. Shared on purpose: the runner turns it into the
- * BLOCKED run's reason and the manual post route into the toast, so a user sees the same sentence
- * whichever way the posting was attempted.
+ * BLOCKED run's reason, the manual post route into the toast and the dry-run card into its blocker
+ * list, so a user sees the same sentence whichever way the posting was attempted.
  */
-export const POST_ERROR_TEXT: Record<PostError['code'], string> = {
-  no_category: 'Δεν έχει οριστεί κατηγορία εγγράφου',
-  not_completed: 'Το έγγραφο δεν έχει ολοκληρωθεί',
+export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   not_found: 'Το έγγραφο δεν βρέθηκε',
+  not_completed: 'Το έγγραφο δεν έχει ολοκληρωθεί',
+  no_category: 'Δεν έχει οριστεί κατηγορία εγγράφου',
+  no_trader: 'Δεν έχει αντιστοιχιστεί προμηθευτής στο SoftOne',
+  no_series: 'Δεν έχει επιλεγεί σειρά παραστατικού',
+  no_date: 'Λείπει η ημερομηνία του παραστατικού',
+  no_number: 'Λείπει ο αριθμός του παραστατικού',
+  no_lines: 'Το έγγραφο δεν έχει γραμμές',
+  unmatched_lines: 'Υπάρχουν γραμμές χωρίς αντιστοίχιση σε είδος ή έξοδο',
+  no_vat_category: 'Συντελεστής ΦΠΑ γραμμής χωρίς κωδικό στο μητρώο ΦΠΑ',
+  totals_mismatch: 'Το άθροισμα των γραμμών δεν συμφωνεί με την καθαρή αξία',
+  posting_disabled: 'Η καταχώριση είναι απενεργοποιημένη (Ρυθμίσεις → Διασυνδέσεις)',
 };
+
+export const blockerText = (code: BlockerCode): string => POST_ERROR_TEXT[code] ?? code;
 
 /**
  * A manual post settles the run the user was looking at: the latest run that still says «προς έλεγχο»
@@ -45,31 +69,153 @@ async function markLatestRunPosted(documentId: string): Promise<void> {
   ]);
 }
 
+type DocRow = {
+  id: string;
+  status: string;
+  category: string | null;
+  softoneTrdr: number | null;
+  softoneSeries: string | null;
+  softoneName: string | null;
+  seriesSource: number | null;
+};
+
+type Gathered = {
+  doc: DocRow;
+  document: DocumentJson;
+  ctx: PurdocContext;
+  blockers: BlockerCode[];
+  payload: PurdocPayload;
+};
+
 /**
- * Posts the document. Throws PostError for precondition failures; rethrows transport errors after marking FAILED.
- * `syncTemplateRun` is for the MANUAL post only — the runner posts BEFORE it writes its own run row,
- * so letting it sync here would stamp POSTED on the previous run instead of the one it is creating.
+ * Everything the posting decision needs, read once: the document row, the canonical JSON, the
+ * per-line SoftOne matches and the VAT registry. Pure from here on — the dry-run and the real post
+ * see EXACTLY the same payload and the same blockers, which is the whole point of the preview.
+ */
+async function gather(id: string): Promise<Gathered> {
+  const doc = await prisma.ocrDocument.findUnique({
+    where: { id },
+    select: { id: true, status: true, category: true, softoneTrdr: true, softoneSeries: true, softoneName: true, seriesSource: true },
+  });
+  if (!doc) throw new PostError('not_found', POST_ERROR_TEXT.not_found);
+
+  const [document, items, vats] = await Promise.all([
+    loadDocumentJson(id),
+    prisma.ocrInvoiceItem.findMany({
+      where: { documentId: id },
+      orderBy: { rowIndex: 'asc' },
+      select: { rowIndex: true, softoneMtrl: true, softoneExpn: true, softoneIsService: true },
+    }),
+    prisma.vatCategory.findMany({ where: { isActive: true }, select: { code: true, rate: true } }),
+  ]);
+
+  const vatIdByRate: Record<number, number> = {};
+  for (const v of vats) {
+    const rate = v.rate == null ? null : Number(v.rate);
+    const code = Number(v.code);
+    // Πρώτος κερδίζει: το μητρώο έρχεται ταξινομημένο, και δύο εγγραφές με τον ίδιο συντελεστή
+    // (π.χ. κανονικό / κανονικό νησιών) δεν πρέπει να αλλάζουν σιωπηλά τον κωδικό που στέλνουμε.
+    if (rate != null && Number.isFinite(rate) && Number.isFinite(code) && vatIdByRate[rate] == null) vatIdByRate[rate] = code;
+  }
+
+  const series = Number(doc.softoneSeries);
+  const seriesOk = Number.isFinite(series) && series > 0;
+  const ctx: PurdocContext = {
+    series: seriesOk ? series : 0,
+    trdr: doc.softoneTrdr ?? 0,
+    lines: items.map((i) => ({ rowIndex: i.rowIndex, mtrl: i.softoneMtrl, expn: i.softoneExpn, isService: i.softoneIsService })),
+    vatIdByRate,
+    comments: document.notes,
+  };
+
+  const blockers = postingBlockers(document, {
+    status: doc.status,
+    category: doc.category,
+    softoneTrdr: doc.softoneTrdr,
+    softoneSeries: seriesOk ? doc.softoneSeries : null,
+    seriesSource: doc.seriesSource,
+  }, ctx);
+
+  return { doc, document, ctx, blockers, payload: buildPurdocPayload(document, ctx) };
+}
+
+export type PostingPreview = {
+  /** Ο διακόπτης `softone.postingEnabled`. */
+  enabled: boolean;
+  blockers: { code: BlockerCode; message: string }[];
+  /** Τι ΘΑ σταλεί — υπάρχει και όταν υπάρχουν εμπόδια, για να φαίνεται τι λείπει. */
+  payload: PurdocPayload;
+  /** Σύνοψη για την κάρτα: ό,τι δεν διαβάζεται εύκολα από το raw payload. */
+  summary: { series: string | null; trader: string | null; trdr: number | null; date: string | null; number: string | null; lines: number };
+};
+
+/**
+ * ΠΡΟΕΠΙΣΚΟΠΗΣΗ. Δεν καλεί SoftOne, δεν γράφει τίποτα — ούτε καν `postStatus`.
+ * Ό,τι επιστρέφει εδώ είναι ακριβώς ό,τι θα έστελνε το `postDocumentToSoftone`.
+ */
+export async function postingPreview(id: string): Promise<PostingPreview> {
+  const { doc, document, ctx, blockers, payload } = await gather(id);
+  const enabled = (await getSetting<boolean>(POSTING_ENABLED_KEY)) === true;
+  return {
+    enabled,
+    blockers: blockers.map((code) => ({ code, message: blockerText(code) })),
+    payload,
+    summary: {
+      series: doc.softoneSeries,
+      trader: doc.softoneName,
+      trdr: doc.softoneTrdr,
+      date: document.date,
+      number: document.type.number,
+      lines: ctx.lines.length,
+    },
+  };
+}
+
+const sameRef = (a: unknown, b: unknown): boolean =>
+  String(a ?? '').replace(/[^0-9A-Za-zΑ-Ωα-ω]/g, '').toUpperCase() === String(b ?? '').replace(/[^0-9A-Za-zΑ-Ωα-ω]/g, '').toUpperCase();
+
+/**
+ * Posts the document to SoftOne (setData on PURDOC) and PROVES it landed by reading the record back:
+ * SoftOne answers `success:true` even for writes it silently dropped, so the read-back is the only
+ * evidence. Throws PostError for precondition failures (the runner turns those into BLOCKED);
+ * a transport/verification failure marks the row FAILED and is rethrown as a plain Error.
  */
 export async function postDocumentToSoftone(id: string, opts: { syncTemplateRun?: boolean } = {}): Promise<{ ref: string }> {
-  const doc = await prisma.ocrDocument.findUnique({ where: { id }, select: { id: true, status: true, category: true } });
-  if (!doc) throw new PostError('not_found', 'not found');
-  if (doc.status !== 'COMPLETED') throw new PostError('not_completed', 'OCR document is not in COMPLETED state');
-  if (!doc.category) throw new PostError('no_category', 'Set a category before posting (EXPENSE / INVOICE_IN / …).');
+  const { doc, document, ctx, blockers, payload } = await gather(id);
+  if (blockers.length) {
+    throw new PostError(blockers[0], blockers.map(blockerText).join(' · '));
+  }
+  if ((await getSetting<boolean>(POSTING_ENABLED_KEY)) !== true) {
+    // Σκόπιμα ΠΡΙΝ από οποιαδήποτε εγγραφή: ένα κλειστό σύστημα δεν αλλάζει καν `postStatus`.
+    throw new PostError('posting_disabled', POST_ERROR_TEXT.posting_disabled);
+  }
 
   await prisma.ocrDocument.update({ where: { id }, data: { postStatus: 'PENDING' } });
   try {
-    // TODO: route by doc.category to the correct SoftOne object:
-    //   EXPENSE / INVOICE_IN  → setData on PURDOC
-    //   INVOICE_OUT / RECEIPT → setData on SODOC
-    //   CREDIT_NOTE           → PURDOC/SODOC with negative SERIES
-    // For now we mark it as POSTED with a synthetic ref so the UI is wired end-to-end.
-    const ref = `OCR-${doc.id.slice(0, 8).toUpperCase()}`;
+    const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>('setData', payload);
+    if (res.success === false || res.id == null) {
+      throw new Error(res.error ?? `setData PURDOC απέτυχε (code ${res.errorcode ?? '?'})`);
+    }
+    const ref = String(res.id);
+
+    const tables = await softoneGetData('PURDOC', ref);
+    const row = tables.PURDOC?.[0] ?? tables.FINDOC?.[0] ?? Object.values(tables).find((t) => t.length)?.[0];
+    if (!row) {
+      throw new Error(`Η καταχώριση δεν επιβεβαιώθηκε: το SoftOne δεν επέστρεψε το παραστατικό ${ref}`);
+    }
+    if (!sameRef(row.FINCODE, document.type.number) || Number(row.TRDR) !== ctx.trdr) {
+      throw new Error(
+        `Η καταχώριση δεν επιβεβαιώθηκε: το παραστατικό ${ref} στο SoftOne έχει αριθμό «${row.FINCODE ?? '—'}» και προμηθευτή ${row.TRDR ?? '—'}, ` +
+        `αντί για «${document.type.number ?? '—'}» / ${ctx.trdr}`,
+      );
+    }
+
     await prisma.ocrDocument.update({
       where: { id },
       data: { postStatus: 'POSTED', postedAt: new Date(), postedRef: ref, postError: null },
     });
     if (opts.syncTemplateRun) {
-      await markLatestRunPosted(id).catch((e) => console.error('[ocr] run status not synced after post', id, (e as Error).message));
+      await markLatestRunPosted(id).catch((e) => console.error('[ocr] run status not synced after post', doc.id, (e as Error).message));
     }
     return { ref };
   } catch (err) {

@@ -240,6 +240,32 @@ export async function softoneCall<T extends { success?: boolean; errorcode?: num
   return data;
 }
 
+/**
+ * Επίσημη υπηρεσία `getData`: διαβάζει ΕΝΑ record ενός business object (OBJECT + KEY) και επιστρέφει
+ * τους πίνακές του (`{ PURDOC: [...], ITELINES: [...] }`). Υπάρχει για το read-back μετά από `setData`:
+ * το SoftOne απαντά `success:true` και όταν δεν έχει γράψει, οπότε η μόνη απόδειξη είναι μια ανάγνωση.
+ * `locateInfo` περιορίζει τα πεδία (μορφή `ΠΙΝΑΚΑΣ:ΠΕΔΙΟ,ΠΕΔΙΟ`), όπως το ζητά η υπηρεσία.
+ */
+export async function softoneGetData(
+  object: string,
+  key: string | number,
+  locateInfo?: string,
+): Promise<Record<string, Record<string, unknown>[]>> {
+  const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; data?: Record<string, unknown> }>(
+    'getData',
+    { OBJECT: object, KEY: String(key), ...(locateInfo ? { LOCATEINFO: locateInfo } : {}) },
+  );
+  if (res.success === false) {
+    throw new Error(res.error ?? `getData ${object} ${key} απέτυχε (code ${res.errorcode ?? '?'})`);
+  }
+  const tables = (res.data ?? {}) as Record<string, unknown>;
+  const out: Record<string, Record<string, unknown>[]> = {};
+  for (const [name, rows] of Object.entries(tables)) {
+    if (Array.isArray(rows)) out[name] = rows.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object');
+  }
+  return out;
+}
+
 export interface VatCategoryRow {
   /** SoftOne VAT code (Smallint). */
   code: string;

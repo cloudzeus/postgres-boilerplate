@@ -90,6 +90,8 @@ export const SETTING_CATALOG: SettingDef[] = [
   { key: 'integrations.softoneModule',  category: 'integrations', label: 'SoftOne Module',   description: 'Κωδικός module (π.χ. 0 = Εμπορικό).', type: 'text', defaultValue: '0' },
   { key: 'integrations.softoneRefid',   category: 'integrations', label: 'SoftOne RefID',    description: 'Κωδικός χρήστη/δικαιωμάτων (refid) για το authenticate.', type: 'text' },
   { key: 'integrations.gemiApiKey',     category: 'integrations', label: 'ΓΕΜΗ API Key', description: 'API Key για το Γενικό Εμπορικό Μητρώο (Μητρώο Επιχειρήσεων).', type: 'password', isSecret: true },
+  // Διακόπτης ασφαλείας: όσο είναι κλειστός, ΚΑΜΙΑ εγγραφή παραστατικού δεν φεύγει προς το SoftOne.
+  { key: 'softone.postingEnabled',      category: 'integrations', label: 'Καταχώριση παραστατικών στο SoftOne', description: 'Όσο είναι κλειστό, η καταχώριση κάνει μόνο προεπισκόπηση (dry-run).', type: 'boolean', defaultValue: false },
 
   // Backups
   { key: 'backups.enabled',       category: 'backups', label: 'Ενεργό αυτόματο backup',  description: 'Ενεργοποιεί το ημερήσιο cron backup της βάσης.', type: 'boolean', defaultValue: true },
