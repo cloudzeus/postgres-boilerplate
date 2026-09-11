@@ -3,14 +3,8 @@ import { customAlphabet } from 'nanoid';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { bunnyUploadPrivate } from '@/lib/bunny';
-import { extractDocument } from '@/lib/ocr/extract';
-import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
-import { ensureOcrThumbnail } from '@/lib/ocr/thumbnail';
-import { saveDocumentJson } from '@/lib/ocr/document';
+import { extractAndPersist } from '@/lib/ocr/pipeline';
 import { isExtractDocType, type ExtractDocType, type SupportedLang } from '@/lib/ocr/templates';
-import { docTypeFromKind } from '@/lib/ocr/canonical';
-import { runMatchingTemplate } from '@/lib/templates/run';
-import { classifyDocument } from '@/lib/ocr/doc-type';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -117,62 +111,19 @@ export async function POST(req: Request) {
     },
   });
 
-  // 3) Run extraction.
+  // 3) Run extraction — η ΚΟΙΝΗ διαδρομή (ίδια για τα κομμάτια ενός διαχωρισμένου PDF).
   try {
-    const result = await extractDocument({
-      buffer, mimeType: file.type, docType, language,
-      pdfSource: file.type === 'application/pdf' ? pdfSource : undefined,
+    const { data, durationMs, templateRun } = await extractAndPersist({
+      documentId: doc.id,
+      buffer,
+      mimeType: file.type,
+      docType,
+      language,
+      pdfSource,
+      trigger: 'upload',
     });
 
-    // Το είδος το λέει ΤΟ ΙΔΙΟ ΤΟ ΕΓΓΡΑΦΟ (`document.kind`): στο «auto» είναι η απάντηση του
-    // μοντέλου, στις ρητές επιλογές το ίδιο `kind` που έχει ήδη επιβληθεί από το `coerceDocument`.
-    const resolvedDocType = docTypeFromKind(result.document.kind);
-
-    // Tag with the SoftOne supplier (issuer ΑΦΜ → TRDR SODTYPE=12). Best-effort.
-    const softone = await buildSoftoneMatch(result.document.issuer.vat);
-
-    // Το κανονικό έγγραφο και ΟΛΑ τα παράγωγά του (`extractedData`, `issuerAfm`, γραμμές) σε ένα
-    // transaction, από τον έναν γραφέα. Πρώτα τα δεδομένα και μετά το `COMPLETED`: αν σκάσει το
-    // γράψιμο, το έγγραφο μένει PROCESSING και πιάνεται από το catch — ποτέ «ολοκληρωμένο κενό».
-    await saveDocumentJson(doc.id, result.document, { replaceItems: true });
-
-    await prisma.ocrDocument.update({
-      where: { id: doc.id },
-      data: {
-        status: 'COMPLETED',
-        docType: resolvedDocType,
-        rawText: result.rawText,
-        model: result.model,
-        tokensUsed: result.tokensUsed,
-        durationMs: result.durationMs,
-        completedAt: new Date(),
-        ...softone,
-        // Reflect the path actually taken: rawText present ⇒ digital, otherwise scanned.
-        pdfSource: file.type === 'application/pdf'
-          ? (result.rawText ? 'DIGITAL' : 'SCANNED')
-          : null,
-      },
-    });
-
-    // Auto-match invoice lines to SoftOne items (cheap local lookup; manual matches preserved).
-    await matchDocItems(doc.id).catch(() => null);
-
-    // PURDOC duplicate check (supplier + αριθμός παραστατικού + ημ/νία). Best-effort.
-    if (softone.softoneTrdr) {
-      const dup = await buildDuplicateCheck(softone.softoneTrdr, result.document.type.number, result.document.date);
-      await prisma.ocrDocument.update({ where: { id: doc.id }, data: dup }).catch(() => null);
-    }
-
-    // Σειρά παραστατικού από τις ενεργοποιημένες σειρές αγορών/πιστωτών (spec 2026-09-11 §1). Best-effort.
-    await classifyDocument(doc.id);
-
-    // Extraction template linked to this issuer (spec §15.1). Best-effort; failures become a FAILED run.
-    const templateRun = await runMatchingTemplate(doc.id, result.document.issuer.vat, 'upload');
-
-    // Best-effort thumbnail generation (don't fail the request if it errors).
-    ensureOcrThumbnail(doc.id).catch(() => null);
-
-    return NextResponse.json({ id: doc.id, data: result.data, durationMs: result.durationMs, templateRun });
+    return NextResponse.json({ id: doc.id, data, durationMs, templateRun });
   } catch (err: any) {
     await prisma.ocrDocument.update({
       where: { id: doc.id },

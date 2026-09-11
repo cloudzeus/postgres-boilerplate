@@ -24,10 +24,12 @@ export function sniffImageType(buf: Buffer): 'image/png' | 'image/jpeg' | 'image
 // these types String, Path" at paintChar). The WASM library is initialized once
 // and reused across requests.
 let _libPromise: Promise<Awaited<ReturnType<typeof PDFiumLibrary.init>>> | null = null;
-function getLibrary() {
+/** Η ΜΙΑ (lazy) PDFium instance της διεργασίας — τη μοιράζονται render και εξαγωγή κειμένου. */
+export function getPdfiumLibrary() {
   if (!_libPromise) _libPromise = PDFiumLibrary.init();
   return _libPromise;
 }
+const getLibrary = getPdfiumLibrary;
 
 /** Counts the pages of a PDF buffer. Returns 1 on failure (never throws). */
 export async function countPdfPages(buf: Buffer): Promise<number> {

@@ -974,6 +974,11 @@ model OcrBatch {
   createdById String?
   createdAt   DateTime      @default(now())
   documents   OcrDocument[]
+  // Πολυ-παραστατικό PDF: το ΠΡΩΤΟΤΥΠΟ αρχείο που κόπηκε σε αυτόν τον φάκελο. Null για φακέλους
+  // που φτιάχτηκαν από ανέβασμα φακέλου (εκεί κάθε αρχείο είναι ήδη ξεχωριστό έγγραφο).
+  sourceKey   String?                                   // Bunny path: ocr/batches/{id}/source.pdf
+  sourceName  String?                                   // το όνομα που ανέβασε ο χρήστης
+  sourcePages Int?                                      // σελίδες του πρωτοτύπου
 
   @@index([createdAt])
 }

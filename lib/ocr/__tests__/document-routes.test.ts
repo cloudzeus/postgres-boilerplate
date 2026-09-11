@@ -44,6 +44,7 @@ vi.mock('@/lib/ocr/document', async (importOriginal) => ({
 
 import { POST as upload } from '@/app/api/admin/ocr/route';
 import { POST as reextract } from '@/app/api/admin/ocr/[id]/reextract/route';
+import { POST as extractOne } from '@/app/api/admin/ocr/[id]/extract/route';
 import { PATCH as patchDoc } from '@/app/api/admin/ocr/[id]/route';
 import { GET as getDocument } from '@/app/api/admin/ocr/[id]/document/route';
 import { fromLegacy, setPath, type DocumentJson } from '../canonical';
@@ -226,6 +227,42 @@ describe('POST /api/admin/ocr/[id]/reextract', () => {
     expect(writer.saveDocumentJson).toHaveBeenCalledWith('doc1', DOC, { replaceItems: true });
     expect(db.ocrInvoiceItem.deleteMany).not.toHaveBeenCalled();
     expectNoRawDerivedWrites();
+  });
+});
+
+// Η διαδρομή που διαβάζει ένα έγγραφο που ΥΠΑΡΧΕΙ ήδη ως αρχείο: τα παιδιά ενός διαχωρισμένου PDF.
+describe('POST /api/admin/ocr/[id]/extract', () => {
+  const pending = {
+    id: 'doc1', storageKey: 'ocr/batches/b1/1.pdf', mimeType: 'application/pdf', docType: 'INVOICE',
+    language: 'el', originalName: 'στοίβα.pdf', fileName: 'στοίβα — 1 (σελ. 1-2).pdf',
+    status: 'PENDING', issuerAfm: null, softoneSeries: null, seriesSource: null,
+  };
+
+  it('διαβάζει ένα PENDING έγγραφο με την ΙΔΙΑ διαδρομή του ανεβάσματος', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue(pending);
+    const res = await extractOne(new Request('http://localhost/x', { method: 'POST' }), ctx());
+    expect(res.status).toBe(200);
+    expect(ocr.extractDocument).toHaveBeenCalledWith(expect.objectContaining({ docType: 'auto' }));
+    expect(writer.saveDocumentJson).toHaveBeenCalledWith('doc1', DOC, { replaceItems: true });
+    const completed = db.ocrDocument.update.mock.calls.find((c) => c[0].data?.status === 'COMPLETED');
+    expect(completed?.[0].data.docType).toBe('RECEIPT');
+    expectNoRawDerivedWrites();
+  });
+
+  it('ένα ήδη διαβασμένο έγγραφο δεν ξαναδιαβάζεται από εδώ (409)', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ ...pending, status: 'COMPLETED' });
+    const res = await extractOne(new Request('http://localhost/x', { method: 'POST' }), ctx());
+    expect(res.status).toBe(409);
+    expect(ocr.extractDocument).not.toHaveBeenCalled();
+  });
+
+  it('αποτυχία ανάγνωσης → FAILED με το μήνυμα, όχι σιωπή', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue(pending);
+    ocr.extractDocument.mockRejectedValue(new Error('το μοντέλο δεν απάντησε'));
+    const res = await extractOne(new Request('http://localhost/x', { method: 'POST' }), ctx());
+    expect(res.status).toBe(422);
+    const failed = db.ocrDocument.update.mock.calls.find((c) => c[0].data?.status === 'FAILED');
+    expect(failed?.[0].data.errorMessage).toContain('το μοντέλο δεν απάντησε');
   });
 });
 

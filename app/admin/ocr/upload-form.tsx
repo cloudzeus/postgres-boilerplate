@@ -10,6 +10,7 @@ import {
   type ExtractDocType, type SupportedLang,
 } from '@/lib/ocr/templates';
 import { OcrResultModal } from './result-modal';
+import { OcrSplitPreview, type SplitPreviewData } from './split-preview';
 
 export function OcrUploadForm() {
   const router = useRouter();
@@ -22,8 +23,37 @@ export function OcrUploadForm() {
   const [dragOver, setDragOver] = useState(false);
   const [resultId, setResultId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  // Πολυ-παραστατικό PDF: ο σαρωτής βγάζει ΕΝΑ αρχείο με όλη τη στοίβα της ημέρας.
+  const [multiDoc, setMultiDoc] = useState(false);
+  const [split, setSplit] = useState<SplitPreviewData | null>(null);
+
+  async function handleSplitFile(file: File) {
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.set('file', file);
+      fd.set('language', language);
+      const res = await fetch('/api/admin/ocr/split-preview', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      setSplit({ ...json, fileName: file.name });
+    } catch (err: any) {
+      toast.error(`Αποτυχία προεπισκόπησης: ${err?.message ?? err}`);
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
 
   async function handleFile(file: File) {
+    // Το «πολλά παραστατικά» αφορά μόνο PDF· μια φωτογραφία είναι ένα παραστατικό.
+    if (multiDoc) {
+      if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+        await handleSplitFile(file);
+        return;
+      }
+      toast.info('Ο διαχωρισμός αφορά μόνο PDF — το αρχείο ανεβαίνει ως ένα παραστατικό.');
+    }
     setBusy(true);
     try {
       const fd = new FormData();
@@ -51,6 +81,12 @@ export function OcrUploadForm() {
     setDragOver(false);
     const f = e.dataTransfer.files?.[0];
     if (f) void handleFile(f);
+  }
+
+  // Όσο ο χρήστης ορίζει κοψίματα, η φόρμα παραχωρεί τη θέση της: δύο «πρωτεύουσες» ενέργειες
+  // στην ίδια οθόνη (ανέβασμα και διαχωρισμός) θα ήταν μόνο σύγχυση.
+  if (split) {
+    return <OcrSplitPreview data={split} onCancel={() => setSplit(null)} />;
   }
 
   return (
@@ -123,6 +159,27 @@ export function OcrUploadForm() {
           </Field>
         </div>
 
+        {/* Πολυ-παραστατικό PDF */}
+        <div className="px-5 pb-3">
+          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-input bg-neutral-6/40 px-3 py-2.5 transition hover:border-sisyphus-500/50">
+            <input
+              type="checkbox"
+              checked={multiDoc}
+              onChange={(e) => setMultiDoc(e.target.checked)}
+              disabled={busy}
+              className="mt-0.5 size-4 accent-[var(--sisyphus-500,#2563eb)]"
+            />
+            <span>
+              <span className="block text-[13px] font-medium text-foreground">
+                Το αρχείο περιέχει πολλά παραστατικά
+              </span>
+              <span className="block text-[11px] text-muted-foreground">
+                Μόνο για PDF. Θα δεις πρώτα τις σελίδες και θα ορίσεις πού κόβεται κάθε παραστατικό.
+              </span>
+            </span>
+          </label>
+        </div>
+
         {/* Drop zone */}
         <div className="px-5 pb-5">
           <label
@@ -150,7 +207,9 @@ export function OcrUploadForm() {
                 <span className="inline-flex size-12 items-center justify-center rounded-full bg-sisyphus-500/15">
                   <FiLoader className="size-5 animate-spin text-sisyphus-600" />
                 </span>
-                <p className="text-sm font-semibold text-sisyphus-600">Ανάλυση μέσω AI…</p>
+                <p className="text-sm font-semibold text-sisyphus-600">
+                  {multiDoc ? 'Προετοιμασία σελίδων…' : 'Ανάλυση μέσω AI…'}
+                </p>
                 <p className="text-[11px] text-muted-foreground">
                   Εξαγωγή πεδίων, line items, και σχηματισμός JSON. Διαρκεί 5-25 δευτερόλεπτα.
                 </p>
@@ -161,7 +220,7 @@ export function OcrUploadForm() {
                   <FiUploadCloud className="size-5" />
                 </span>
                 <p className="text-sm font-semibold text-foreground">
-                  Σύρε αρχείο εδώ ή κάνε κλικ για επιλογή
+                  {multiDoc ? 'Σύρε το PDF εδώ — συνέχεια στον διαχωρισμό' : 'Σύρε αρχείο εδώ ή κάνε κλικ για επιλογή'}
                 </p>
                 <p className="text-[11px] text-muted-foreground">
                   PDF, PNG, JPG, WebP, GIF, TIFF, BMP · έως 25 MB

@@ -1278,6 +1278,120 @@ export const openapiSpec = {
         },
       },
     },
+    '/api/admin/ocr/split-preview': {
+      post: {
+        tags: ['Invoice OCR'],
+        summary: 'Προεπισκόπηση διαχωρισμού πολυ-παραστατικού PDF',
+        description:
+          '**Απαιτεί `ocr.create`**. Ανεβάζει ΜΙΑ φορά το πρωτότυπο PDF, δημιουργεί τον φάκελο (`OcrBatch`), '
+          + 'μετράει σελίδες και προτείνει κοψίματα από το text layer. Καμία κλήση σε μοντέλο. '
+          + 'Άρνηση πάνω από 100 σελίδες.',
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object',
+                required: ['file'],
+                properties: {
+                  file: { type: 'string', format: 'binary' },
+                  language: { type: 'string', enum: ['el', 'en', 'de'], default: 'el' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Preview',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    batchId: { type: 'string' },
+                    pageCount: { type: 'integer' },
+                    hasTextLayer: { type: 'boolean' },
+                    suggested: { type: 'array', items: { type: 'integer' } },
+                    pages: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: { index: { type: 'integer' }, thumbUrl: { type: 'string' } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          415: { description: 'Not a PDF' },
+          422: { description: 'Unreadable or too many pages' },
+        },
+      },
+    },
+    '/api/admin/ocr/split': {
+      post: {
+        tags: ['Invoice OCR'],
+        summary: 'Διαχωρισμός PDF σε ξεχωριστά παραστατικά',
+        description:
+          '**Απαιτεί `ocr.create`**. Φτιάχνει ένα PDF ανά τμήμα (pdf-lib) και μία γραμμή `OcrDocument` σε '
+          + 'κατάσταση PENDING για το καθένα. ΔΕΝ διαβάζει: ο client καλεί μετά `POST /api/admin/ocr/{id}/extract` '
+          + 'ανά έγγραφο, ώστε να μην υπάρχει όριο χρόνου και να φαίνεται πρόοδος.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['batchId', 'cuts'],
+                properties: {
+                  batchId: { type: 'string' },
+                  cuts: {
+                    type: 'array', items: { type: 'integer' },
+                    description: 'Δείκτες σελίδων (0-based) όπου ΑΡΧΙΖΕΙ νέο παραστατικό. Το 0 μπαίνει πάντα.',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Created documents (PENDING)' },
+          400: { description: 'Invalid cuts' },
+          404: { description: 'Batch without source file' },
+          409: { description: 'Already split' },
+        },
+      },
+    },
+    '/api/admin/ocr/{id}/extract': {
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      post: {
+        tags: ['Invoice OCR'],
+        summary: 'Ανάγνωση εγγράφου που δεν έχει διαβαστεί ακόμη',
+        description:
+          '**Απαιτεί `ocr.create`**. Ίδια διαδρομή με το ανέβασμα, για έγγραφα PENDING/FAILED (π.χ. τα παιδιά '
+          + 'ενός διαχωρισμένου PDF). Ένα COMPLETED έγγραφο απαντά 409 — αυτό είναι δουλειά του `reextract`.',
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  docType: { type: 'string', enum: ['auto', 'invoice', 'receipt', 'general_text'], default: 'auto' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Extracted' },
+          409: { description: 'Already completed / in progress' },
+          422: { description: 'Extraction failed' },
+        },
+      },
+    },
     '/api/admin/ocr/{id}/reextract': {
       parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
       post: {
