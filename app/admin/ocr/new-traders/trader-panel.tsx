@@ -4,7 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import {
   FiAlertTriangle, FiCheck, FiCheckCircle, FiCopy, FiExternalLink, FiEyeOff,
-  FiLink2, FiLoader, FiRefreshCw, FiUploadCloud, FiX,
+  FiGlobe, FiLink2, FiLoader, FiMapPin, FiRefreshCw, FiUploadCloud, FiX,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Combobox } from '@/components/ui/combobox';
 import { TraderSearch } from '@/components/admin/trader-search';
 import { cn } from '@/lib/utils';
+import { COUNTRY_NAMES_EL, countryLabel } from '@/lib/countries';
+import { VAT_COUNTRY_CODES, viesPrefix } from '@/lib/ocr/validate';
 import type { TraderGroup } from '@/lib/ocr/queues';
 
 export interface TaxOffice { code: string; name: string }
@@ -30,7 +32,35 @@ interface AadePreview {
   isActive: boolean;
 }
 
+/** Ό,τι επιστρέφει το `GET /api/admin/vies` (ξένοι εκδότες — αντί ΑΑΔΕ). */
+interface ViesResult {
+  /** `true` έγκυρο, `false` άκυρο, `null` δεν απάντησε το VIES. */
+  valid: boolean | null;
+  name: string | null;
+  address: string | null;
+  error?: string;
+}
+
+/** Ό,τι επιστρέφει το `POST /api/admin/geocode`. */
+interface GeoParts {
+  countryCode: string;
+  country: string;
+  city: string | null;
+  zip: string | null;
+  formatted: string;
+}
+
 type TraderKind = 'supplier' | 'creditor';
+
+/** Επιλογές χώρας της φόρμας: όσες αναγνωρίζει το VAT normalization + «Άλλη». */
+const COUNTRY_ITEMS = [
+  { value: '', label: 'Άλλη / καμία' },
+  { value: 'GR', label: countryLabel('GR') },
+  // Το «XI» είναι πρόθεμα VAT, όχι χώρα: η Β. Ιρλανδία δηλώνεται ως GB.
+  ...[...VAT_COUNTRY_CODES].filter((c) => c !== 'XI')
+    .map((c) => ({ value: c as string, label: countryLabel(c) }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'el')),
+];
 
 const KIND_LABEL: Record<TraderKind, string> = { supplier: 'Προμηθευτής', creditor: 'Πιστωτής' };
 const KINDS: readonly TraderKind[] = ['supplier', 'creditor'];
@@ -41,10 +71,10 @@ export const KIND_COLORS: Record<TraderKind, { bg: string; fg: string }> = {
 };
 
 /** Σε ποια κατάσταση βρίσκεται η άντληση στοιχείων από την ΑΑΔΕ. */
-type AadeState = 'loading' | 'ready' | 'missing' | 'invalid' | 'forbidden' | 'error';
+type AadeState = 'loading' | 'ready' | 'missing' | 'invalid' | 'forbidden' | 'error' | 'foreign';
 
 /** Τι λέμε στον χρήστη ανά κατάσταση — μόνο το `error` έχει νόημα να ξαναδοκιμαστεί. */
-const AADE_MESSAGE: Record<Exclude<AadeState, 'loading' | 'ready'>, string> = {
+const AADE_MESSAGE: Record<Exclude<AadeState, 'loading' | 'ready' | 'foreign'>, string> = {
   missing: 'Το ΑΦΜ δεν βρέθηκε στην ΑΑΔΕ — συμπλήρωσε τα στοιχεία χειροκίνητα.',
   invalid: 'Μη έγκυρο ΑΦΜ (9 ψηφία) — συμπλήρωσε τα στοιχεία χειροκίνητα.',
   forbidden: 'Χρειάζεται δικαίωμα «ocr.categorize».',
@@ -85,6 +115,8 @@ interface FormState {
   kind: TraderKind;
   code: string;
   name: string;
+  /** ISO-2 χώρα έδρας· κενό = «Άλλη» (το SoftOne κρατά την προεπιλογή του). */
+  country: string;
   doyCode: string;
   profession: string;
   address: string;
@@ -105,7 +137,13 @@ function validate(f: FormState): Partial<Record<FieldKey, string>> {
   if (!f.name.trim()) e.name = 'Η επωνυμία είναι υποχρεωτική.';
   else if (f.name.trim().length > 200) e.name = 'Έως 200 χαρακτήρες.';
   if (f.code.trim().length > 30) e.code = 'Έως 30 χαρακτήρες.';
-  if (f.zip.trim() && !/^\d{5}$/.test(f.zip.trim())) e.zip = 'Ταχυδρομικός κώδικας 5 ψηφίων.';
+  // Ο κανόνας «5 ψηφία» είναι ΕΛΛΗΝΙΚΟΣ: ένας ξένος Τ.Κ. (π.χ. «EC1A 1BB») δεν τον περνά.
+  const zip = f.zip.trim();
+  if (zip) {
+    const greekZip = !f.country || f.country === 'GR';
+    if (greekZip && !/^\d{5}$/.test(zip)) e.zip = 'Ταχυδρομικός κώδικας 5 ψηφίων.';
+    else if (!greekZip && zip.length > 20) e.zip = 'Έως 20 χαρακτήρες.';
+  }
   if (f.email.trim() && !EMAIL_RE.test(f.email.trim())) e.email = 'Μη έγκυρη διεύθυνση email.';
   if (f.phone.trim() && !PHONE_RE.test(f.phone.trim())) e.phone = 'Μη έγκυρος αριθμός τηλεφώνου.';
   if (f.profession.trim().length > 200) e.profession = 'Έως 200 χαρακτήρες.';
@@ -143,6 +181,13 @@ export function TraderPanel({
   const [aade, setAade] = React.useState<AadePreview | null>(null);
   const [aadeState, setAadeState] = React.useState<AadeState>('loading');
   const [aadeReload, setAadeReload] = React.useState(0);
+
+  // Ξένος εκδότης: VIES αντί ΑΑΔΕ + ανάλυση διεύθυνσης.
+  const [vies, setVies] = React.useState<ViesResult | null>(null);
+  const [viesBusy, setViesBusy] = React.useState(false);
+  const [geo, setGeo] = React.useState<GeoParts | null>(null);
+  const [geoBusy, setGeoBusy] = React.useState(false);
+  const [geoMiss, setGeoMiss] = React.useState(false);
   const kindRefs = React.useRef<Partial<Record<TraderKind, HTMLButtonElement | null>>>({});
 
   const [showSearch, setShowSearch] = React.useState(false);
@@ -159,12 +204,16 @@ export function TraderPanel({
     setTouched({}); setSubmitted(false); setFailure(null); setBusy(null);
     setShowSearch(false); setIgnoring(false); setReason('');
     setDryOpen(false); setDryPayload(null); setDryError(null);
+    setVies(null); setViesBusy(false);
+    setGeo(null); setGeoBusy(false); setGeoMiss(false);
   }, [group, taxOffices]);
 
-  // Τα στοιχεία ΑΑΔΕ φορτώνονται αυτόματα για τον επιλεγμένο ΑΦΜ.
+  // Τα στοιχεία ΑΑΔΕ φορτώνονται αυτόματα για τον επιλεγμένο ΑΦΜ. ΟΧΙ όμως για
+  // εκδότη εκτός Ελλάδας: το ελληνικό μητρώο δεν τον ξέρει — εκεί ρωτάμε VIES.
   React.useEffect(() => {
     let ignore = false;
     setAade(null);
+    if (group.isForeign) { setAadeState('foreign'); return; }
     setAadeState('loading');
     fetch('/api/admin/ocr/supplier-preview', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -183,7 +232,7 @@ export function TraderPanel({
       })
       .catch(() => { if (!ignore) setAadeState('error'); });
     return () => { ignore = true; };
-  }, [group.afm, aadeReload]);
+  }, [group.afm, group.isForeign, aadeReload]);
 
   const errors = validate(form);
   const errorOf = (k: FieldKey) => ((touched[k] || submitted) ? errors[k] : undefined);
@@ -203,7 +252,9 @@ export function TraderPanel({
     kind: form.kind,
     name: form.name.trim(),
     code: form.code.trim() || null,
-    doyCode: form.doyCode || null,
+    country: form.country || null,
+    // Δ.Ο.Υ. δεν υπάρχει για εκδότη εκτός Ελλάδας — δεν τη στέλνουμε καν.
+    doyCode: (form.country && form.country !== 'GR' ? null : form.doyCode) || null,
     profession: form.profession.trim() || null,
     address: form.address.trim() || null,
     zip: form.zip.trim() || null,
@@ -290,6 +341,42 @@ export function TraderPanel({
     }
   };
 
+  /** VIES lookup για ξένο ΑΦΜ — χειροκίνητο: η υπηρεσία είναι αργή και συχνά κάτω. */
+  const runVies = async () => {
+    if (viesBusy) return;
+    setViesBusy(true);
+    setVies(null);
+    try {
+      const res = await fetch(`/api/admin/vies?vat=${encodeURIComponent(group.afm)}`);
+      const d = (await res.json().catch(() => null)) as ViesResult | null;
+      setVies(d ?? { valid: null, name: null, address: null, error: 'vies_unreachable' });
+    } catch {
+      setVies({ valid: null, name: null, address: null, error: 'vies_unreachable' });
+    } finally {
+      setViesBusy(false);
+    }
+  };
+
+  /** Διεύθυνση → χώρα / πόλη / Τ.Κ. Δεν γράφει ΤΙΠΟΤΑ μόνο του: προτείνει. */
+  const runGeocode = async () => {
+    const address = form.address.trim();
+    if (!address || geoBusy) return;
+    setGeoBusy(true); setGeo(null); setGeoMiss(false);
+    try {
+      const res = await fetch('/api/admin/geocode', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address, countryHint: form.country || group.country || null }),
+      });
+      const d = await res.json().catch(() => null);
+      if (res.ok && d?.found) setGeo(d as GeoParts);
+      else setGeoMiss(true);
+    } catch {
+      setGeoMiss(true);
+    } finally {
+      setGeoBusy(false);
+    }
+  };
+
   // Το dry-run δεν γράφει τίποτα: το ζητάμε κάθε φορά που ανοίγει η προεπισκόπηση.
   const loadDryRun = async () => {
     setDryPayload(null); setDryError(null);
@@ -326,6 +413,9 @@ export function TraderPanel({
     [taxOffices],
   );
   const kindColor = KIND_COLORS[form.kind];
+
+  const isForeign = group.isForeign;
+  const viesCountry = viesPrefix(group.afm);
 
   const rows: { key: FieldKey; label: string; ocr: string | null; aadeValue: string | null; apply?: () => void }[] = [
     { key: 'name', label: 'Επωνυμία', ocr: group.name, aadeValue: aade?.name || null, apply: () => aade?.name && set('name', aade.name) },
@@ -370,7 +460,105 @@ export function TraderPanel({
         </span>
       </header>
 
-      {/* 2 — Στοιχεία ΑΑΔΕ + σύγκριση */}
+      {/* 2 — Μητρώο: ΑΑΔΕ για την Ελλάδα, VIES για εκδότη εκτός Ελλάδας */}
+      {isForeign ? (
+        <section className="px-4 py-3" aria-label="Στοιχεία VIES">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
+              Μητρώο VIES
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                style={{ backgroundColor: '#EAF4FC', color: '#0078D4' }}
+              >
+                <FiGlobe aria-hidden className="size-3" />
+                Εκτός Ελλάδας · {group.country}
+              </span>
+            </h3>
+            {viesCountry && (
+              <Button
+                type="button" variant="outline" size="sm"
+                className="cursor-pointer"
+                disabled={viesBusy}
+                onClick={() => void runVies()}
+              >
+                {viesBusy
+                  ? <FiLoader aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" />
+                  : <FiRefreshCw aria-hidden className="size-3.5" />}
+                {vies ? 'Έλεγχος ξανά' : 'Έλεγχος στο VIES'}
+              </Button>
+            )}
+          </div>
+
+          <p className="mb-2 text-[12px] text-muted-foreground">
+            Δεν γίνεται αναζήτηση στην ΑΑΔΕ — ο εκδότης δεν είναι ελληνικός. Το ΑΦΜ
+            κρατά το πρόθεμα της χώρας ({countryLabel(group.country)}).
+          </p>
+
+          {!viesCountry && (
+            <div
+              className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-[12px]"
+              style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}
+              role="status"
+            >
+              <FiAlertTriangle aria-hidden className="size-4 shrink-0" />
+              <span>Το VIES καλύπτει μόνο χώρες της ΕΕ — συμπλήρωσε τα στοιχεία χειροκίνητα.</span>
+            </div>
+          )}
+
+          {vies && vies.valid === null && (
+            <p
+              className="rounded-lg border px-3 py-2 text-[12px]"
+              style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}
+              role="status"
+            >
+              Το VIES δεν απάντησε — δοκίμασε ξανά ή συμπλήρωσε χειροκίνητα.
+            </p>
+          )}
+
+          {vies && vies.valid === false && (
+            <p
+              className="rounded-lg border px-3 py-2 text-[12px]"
+              style={{ borderColor: '#F5C2C7', backgroundColor: '#FDF2F2', color: '#A4262C' }}
+              role="status"
+            >
+              Το ΑΦΜ {group.afm} ΔΕΝ είναι έγκυρο στο VIES.
+            </p>
+          )}
+
+          {vies && vies.valid === true && (
+            <div className="overflow-hidden rounded-lg border border-border">
+              <div className="grid grid-cols-[88px_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 border-b border-border bg-neutral-4 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                <span>Πεδίο</span><span>OCR</span><span>VIES</span><span className="sr-only">Ενέργεια</span>
+              </div>
+              <ul className="divide-y divide-border">
+                {([
+                  { key: 'name' as FieldKey, label: 'Επωνυμία', ocr: group.name, value: vies.name },
+                  { key: 'address' as FieldKey, label: 'Διεύθυνση', ocr: group.address, value: vies.address },
+                ]).map((r) => (
+                  <li
+                    key={r.key}
+                    className="grid grid-cols-[88px_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-[12px]"
+                  >
+                    <span className="text-muted-foreground">{r.label}</span>
+                    <span className="truncate text-muted-foreground" title={r.ocr ?? ''}>{r.ocr ?? '—'}</span>
+                    {/* Το VIES γράφει «---» όταν το κράτος-μέλος κρύβει το πεδίο. */}
+                    <span className="truncate text-foreground" title={r.value ?? ''}>{r.value ?? '— (κρυφό)'}</span>
+                    <Button
+                      type="button" variant="ghost" size="xs"
+                      className="cursor-pointer"
+                      disabled={!r.value}
+                      aria-label={`Χρήση τιμής VIES για «${r.label}»`}
+                      onClick={() => r.value && set(r.key, r.value)}
+                    >
+                      Χρήση
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      ) : (
       <section className="px-4 py-3" aria-label="Στοιχεία ΑΑΔΕ">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
@@ -412,7 +600,7 @@ export function TraderPanel({
             role="status"
           >
             <FiAlertTriangle aria-hidden className="size-4 shrink-0" />
-            <span>{AADE_MESSAGE[aadeState]}</span>
+            <span>{AADE_MESSAGE[aadeState as Exclude<AadeState, 'loading' | 'ready' | 'foreign'>]}</span>
             {aadeState === 'error' && (
               <Button
                 type="button" variant="outline" size="sm"
@@ -454,6 +642,7 @@ export function TraderPanel({
           </div>
         )}
       </section>
+      )}
 
       {/* 3 — Φόρμα */}
       <section className="px-4 py-3" aria-label="Στοιχεία συναλλασσομένου">
@@ -517,6 +706,21 @@ export function TraderPanel({
             <Input {...bind('code', 'tp-code')} className="h-8 text-[13px]" />
           </Field>
 
+          <Field
+            label="Χώρα" id="tp-country" plainLabel
+            hint={isForeign ? 'Από το πρόθεμα του ΑΦΜ — άλλαξέ την αν χρειάζεται.' : undefined}
+            className="sm:col-span-2"
+          >
+            <Combobox
+              value={form.country}
+              items={COUNTRY_ITEMS}
+              placeholder="Επίλεξε χώρα…"
+              onSelect={(v) => set('country', v)}
+            />
+          </Field>
+
+          {/* Δ.Ο.Υ. δεν υπάρχει εκτός Ελλάδας — το πεδίο κρύβεται τελείως. */}
+          {!isForeign && (
           <Field label="Δ.Ο.Υ." id="tp-doy" plainLabel={taxOffices.length > 0} className="sm:col-span-2">
             {taxOffices.length > 0 ? (
               <Combobox
@@ -533,14 +737,80 @@ export function TraderPanel({
               />
             )}
           </Field>
+          )}
 
           <Field label="Επάγγελμα" id="tp-prof" error={errorOf('profession')} className="sm:col-span-2">
             <Input {...bind('profession', 'tp-prof')} className="h-8 text-[13px]" />
           </Field>
 
           <Field label="Διεύθυνση" id="tp-addr" error={errorOf('address')} className="sm:col-span-2">
-            <Input {...bind('address', 'tp-addr')} className="h-8 text-[13px]" />
+            <div className="flex items-center gap-2">
+              <Input {...bind('address', 'tp-addr')} className="h-8 flex-1 text-[13px]" />
+              <Button
+                type="button" variant="outline" size="sm"
+                className="h-8 shrink-0 cursor-pointer"
+                disabled={!form.address.trim() || geoBusy}
+                onClick={() => void runGeocode()}
+              >
+                {geoBusy
+                  ? <FiLoader aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" />
+                  : <FiMapPin aria-hidden className="size-3.5" />}
+                Συμπλήρωση από διεύθυνση
+              </Button>
+            </div>
           </Field>
+
+          {/* Οι προτάσεις του geocoder ΔΕΝ γράφονται μόνες τους: ο χρήστης τις εφαρμόζει. */}
+          {geoMiss && (
+            <p className="text-[12px] text-muted-foreground sm:col-span-2" role="status">
+              Η διεύθυνση δεν αναγνωρίστηκε — συμπλήρωσε χώρα/πόλη/Τ.Κ. χειροκίνητα.
+            </p>
+          )}
+          {geo && (
+            <div className="rounded-lg border border-border sm:col-span-2" role="group" aria-label="Προτάσεις από τη διεύθυνση">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-neutral-4 px-2 py-1">
+                <span className="truncate text-[11px] text-muted-foreground" title={geo.formatted}>
+                  {geo.formatted}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForm((f) => ({
+                      ...f,
+                      country: COUNTRY_NAMES_EL[geo.countryCode] ? geo.countryCode : f.country,
+                      city: geo.city || f.city,
+                      zip: geo.zip || f.zip,
+                    }));
+                    toast.success('Συμπληρώθηκαν τα στοιχεία της διεύθυνσης');
+                  }}
+                  className="shrink-0 cursor-pointer rounded-sm text-[12px] font-medium text-sisyphus-700 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-sisyphus-500"
+                >
+                  Εφαρμογή όλων
+                </button>
+              </div>
+              <ul className="divide-y divide-border">
+                {([
+                  { key: 'country' as const, label: 'Χώρα', value: geo.countryCode, shown: countryLabel(geo.countryCode) },
+                  { key: 'city' as const, label: 'Πόλη', value: geo.city, shown: geo.city },
+                  { key: 'zip' as const, label: 'Τ.Κ.', value: geo.zip, shown: geo.zip },
+                ]).map((r) => (
+                  <li key={r.key} className="grid grid-cols-[88px_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-[12px]">
+                    <span className="text-muted-foreground">{r.label}</span>
+                    <span className="truncate text-foreground">{r.shown ?? '—'}</span>
+                    <Button
+                      type="button" variant="ghost" size="xs"
+                      className="cursor-pointer"
+                      disabled={!r.value}
+                      aria-label={`Εφαρμογή τιμής «${r.label}» από τη διεύθυνση`}
+                      onClick={() => r.value && set(r.key, r.value)}
+                    >
+                      Εφαρμογή
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <Field label="Τ.Κ." id="tp-zip" error={errorOf('zip')}>
             <Input {...bind('zip', 'tp-zip')} inputMode="numeric" className="h-8 text-[13px]" />
@@ -718,7 +988,9 @@ function seed(group: TraderGroup, offices: TaxOffice[]): FormState {
     kind: group.suggestedKind,
     code: '',
     name: group.name ?? '',
-    doyCode: matchDoy(group.doy, offices),
+    // Η χώρα βγαίνει από το ίδιο το ΑΦΜ· άγνωστη ⇒ Ελλάδα, όπως και σήμερα.
+    country: group.country ?? 'GR',
+    doyCode: group.isForeign ? '' : matchDoy(group.doy, offices),
     profession: group.profession ?? '',
     address: group.address ?? '',
     zip: '',
