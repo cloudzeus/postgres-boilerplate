@@ -38,6 +38,7 @@ vi.mock('../notify', () => ({ sendRuleNotifications: (...a: unknown[]) => notify
 vi.mock('@/lib/ocr/softone-match', () => ({ matchDocItems: (...a: unknown[]) => matchItems(...a) }));
 
 import { findTemplateForVat, finalizeRunEdit, rereadField, runMatchingTemplate, runTemplateOnDocument } from '../run';
+import { canPost } from '../run-logic';
 
 // ---------------------------------------------------------------- fixtures
 
@@ -868,6 +869,52 @@ describe('finalizeRunEdit', () => {
     const out = runUpdate().output;
     expect(out).toMatchObject({ template: 'promitheftis', version: 3, file: 'a.pdf', documentId: 'd1', extractedAt: '2026-09-10T10:00:00.000Z' });
     expect(out.document.totals.total).toBe(50);
+  });
+
+  // Το αδιέξοδο που έκλεισε: ο λόγος «διευρυμένη περιοχή» μπλοκάρει ένα AUTO πρότυπο, το κουμπί
+  // «Έγκριση → ανάρτηση» κρύβεται όσο το `blocked` δεν είναι άδειο, και μέχρι τώρα ΤΙΠΟΤΑ δεν τον
+  // έσβηνε — ούτε η διόρθωση του ίδιου του πεδίου. Τώρα ο λόγος κρέμεται από την τιμή, άρα φεύγει μαζί της.
+  it('an AUTO run blocked by a widened read becomes postable once the human corrects the field', async () => {
+    const reason = 'Διαβάστηκε σε διευρυμένη περιοχή «Σύνολο»';
+    const run = runRow({
+      template: template({ mode: 'AUTO', conditions: [] }),
+      status: 'BLOCKED',
+      values: { total: { ...value(229.4), confidence: 0.5, adaptive: true }, note: value('x') },
+      flags: { review: [reason], blocked: [reason], notified: [], fields: { total: 'blocked' } },
+    });
+    db.templateRun.update.mockResolvedValue(run);
+    db.ocrDocument.findUnique.mockResolvedValue({ fileName: 'a.pdf', extractedData: {} });
+    expect(canPost('AUTO', run.flags as never)).toBe(false);
+
+    await finalizeRunEdit({ run: run as never, values: { total: value(230, 'manual'), note: value('x') } });
+
+    const flags = runUpdate().flags;
+    expect(flags.blocked).toEqual([]);
+    expect(flags.review).toEqual([]);
+    expect(flags.fields).toEqual({});
+    expect(canPost('AUTO', flags)).toBe(true);
+    // …και ο ίδιος καθαρός λογαριασμός φτάνει στο banner του εγγράφου, από όπου το κουμπί ρωτά.
+    expect(docUpdates().at(-1)!.reviewFlags.blocked).toEqual([]);
+  });
+
+  it('keeps blocking while the widened value itself stands — a correction of ANOTHER field changes nothing', async () => {
+    const reason = 'Διαβάστηκε σε διευρυμένη περιοχή «Σύνολο»';
+    const run = runRow({
+      template: template({ mode: 'AUTO', conditions: [] }),
+      status: 'BLOCKED',
+      values: { total: { ...value(229.4), confidence: 0.5, adaptive: true }, note: value('x') },
+      flags: { review: [reason], blocked: [reason], notified: [], fields: { total: 'blocked' } },
+    });
+    db.templateRun.update.mockResolvedValue(run);
+    db.ocrDocument.findUnique.mockResolvedValue({ fileName: 'a.pdf', extractedData: {} });
+
+    await finalizeRunEdit({
+      run: run as never,
+      values: { total: { ...value(229.4), confidence: 0.5, adaptive: true } as never, note: value('άλλο', 'manual') },
+    });
+
+    expect(runUpdate().flags.blocked).toEqual([reason]);
+    expect(canPost('AUTO', runUpdate().flags)).toBe(false);
   });
 });
 

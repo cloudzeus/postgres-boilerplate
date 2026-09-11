@@ -22,7 +22,7 @@ import {
   mappingFellBack, pickMapping, requiredMissing, setDocumentPath, tableFellThrough,
   type FieldFlag, type RunFlags,
 } from './run-logic';
-import { recomputeFieldFlags, type StoredFlags } from './run-flags';
+import { ADAPTIVE_PREFIX, recomputeFieldFlags, type StoredFlags } from './run-flags';
 import { toLastGood, updateLastGood } from './adaptive';
 import { RUN_INCLUDE, type RunWithTemplate } from './run-dto';
 import { isValidBbox, type FieldValue, type MappingRowInvoice, type Region, type RunOutcome, type RunTrigger } from './schema';
@@ -33,8 +33,9 @@ export type { RunOutcome, RunTrigger };
 // Re-exported where it has always lived: every caller of the runner asks it this question too.
 export { findTemplateForVat };
 
-/** Prefix of the review reason a field read in the WIDENED box gets (spec §17.2). */
-export const ADAPTIVE_PREFIX = 'Διαβάστηκε σε διευρυμένη περιοχή «';
+// The widened-box reason itself lives in `run-flags.ts` — the recomputation owns it (a correction of
+// the field must lift it), and this module only re-exports it for the callers that already import it here.
+export { ADAPTIVE_PREFIX };
 
 /**
  * A reading worth learning from: produced by a READER (not typed by a human, not written by a rule),
@@ -397,19 +398,6 @@ export async function finalizeRunEdit(input: {
   return updated;
 }
 
-/**
- * Fold «Διαβάστηκε σε διευρυμένη περιοχή «X»» into a run's stored flags, without disturbing anything
- * else on them. `recomputeFieldFlags` only ever rewrites the missing/mismatch entries, so a reason
- * added here survives every later correction — as it should: the widened read happened.
- */
-function withAdaptiveReason(run: RunWithTemplate, label: string): RunWithTemplate {
-  const reason = `${ADAPTIVE_PREFIX}${label}»`;
-  const prev = (run.flags as StoredFlags | null) ?? {};
-  const review = [...new Set([...(prev.review ?? []), reason])];
-  const blocked = run.template.mode === 'AUTO' ? [...new Set([...(prev.blocked ?? []), reason])] : (prev.blocked ?? []);
-  return { ...run, flags: { ...prev, review, blocked } as unknown as typeof run.flags };
-}
-
 /** Why a re-read could not happen. The route turns each into its own status code. */
 export type RereadError = 'not_found' | 'not_latest' | 'posted' | 'unknown_field' | 'no_region' | 'bad_page' | 'read_failed';
 
@@ -496,10 +484,10 @@ export async function rereadField(input: { documentId: string; runId: string; fi
   if (!fresh || fresh.documentId !== input.documentId) return { ok: false, error: 'not_found' };
   const merged = { ...((fresh.values as unknown as Record<string, FieldValue>) ?? {}), [field.key]: value };
 
-  // Same verdict the runner writes for an adaptive read, for the same reason: the box was not the
-  // one on the template, so a human still has to look — and an AUTO template still must not post it.
-  const runForEdit = readAdaptively ? withAdaptiveReason(fresh, field.label) : fresh;
-  const updated = await finalizeRunEdit({ run: runForEdit, values: merged });
+  // The verdict the runner writes for an adaptive read needs no help here: `value.adaptive` travels
+  // with the value, and `finalizeRunEdit` → `recomputeFieldFlags` rebuilds the reason from it — which
+  // is also what makes the reason LIFT when the next re-read lands inside the drawn region.
+  const updated = await finalizeRunEdit({ run: fresh, values: merged });
   return { ok: true, run: updated, value, region, overridden: input.region != null, model: ex.model, tokensUsed: ex.tokensUsed };
 }
 
