@@ -3,14 +3,14 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FiCheckCircle, FiEyeOff, FiFile, FiUserPlus } from 'react-icons/fi';
+import { FiCheckCircle, FiEyeOff, FiFile, FiGlobe, FiUserPlus } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { QueueLayout, QueueEmpty, type QueueFilter, type QueueLayoutHandle } from '@/components/admin/queue-layout';
 import { Button } from '@/components/ui/button';
 import { TraderPanel, KIND_COLORS, fmtDate, fmtEuro, type TaxOffice } from './trader-panel';
 import type { IgnoredIssuerRow, TraderGroup } from '@/lib/ocr/queues';
 
-type FilterKey = 'all' | 'supplier' | 'creditor' | 'ignored';
+type FilterKey = 'all' | 'supplier' | 'creditor' | 'foreign' | 'ignored';
 
 /** Μια γραμμή της ουράς: εκκρεμής εκδότης ή αγνοημένος (φίλτρο «Αγνοημένοι»). */
 type Row =
@@ -62,7 +62,11 @@ export function NewTradersClient({ header, groups, ignored, truncated, taxOffice
         .map((r) => ({ type: 'ignored' as const, id: `i:${r.afm}`, row: r }));
     }
     return pending
-      .filter((g) => (filter === 'all' ? true : g.suggestedKind === filter))
+      .filter((g) => {
+        if (filter === 'all') return true;
+        if (filter === 'foreign') return g.isForeign;
+        return g.suggestedKind === filter;
+      })
       .filter((g) => matches(search, g.name, g.afm, g.profession, g.address))
       .map((g) => ({ type: 'group' as const, id: `g:${g.afm}`, group: g }));
   }, [filter, hidden, pending, search]);
@@ -131,6 +135,7 @@ export function NewTradersClient({ header, groups, ignored, truncated, taxOffice
     { key: 'all', label: 'Όλοι', count: pending.length },
     { key: 'supplier', label: 'Προμηθευτές', count: pending.filter((g) => g.suggestedKind === 'supplier').length },
     { key: 'creditor', label: 'Πιστωτές', count: pending.filter((g) => g.suggestedKind === 'creditor').length },
+    { key: 'foreign', label: 'Εκτός Ελλάδας', count: pending.filter((g) => g.isForeign).length },
     { key: 'ignored', label: 'Αγνοημένοι', count: hidden.length },
   ];
 
@@ -229,6 +234,16 @@ function GroupRow({ group }: { group: TraderGroup }) {
           >
             {KIND_LABEL[group.suggestedKind]}
           </span>
+          {/* Ξένος εκδότης: χωρίς ΑΑΔΕ/Δ.Ο.Υ. — φαίνεται ήδη από την ουρά. */}
+          {group.isForeign && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-medium"
+              style={{ backgroundColor: '#EAF4FC', color: '#0078D4' }}
+            >
+              <FiGlobe aria-hidden className="size-2.5" />
+              {group.country}
+            </span>
+          )}
           <span className="text-[10px] text-muted-foreground">{fmtDate(group.lastDate)}</span>
         </span>
       </span>

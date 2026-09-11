@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/rbac';
 import { softoneFetchTaxOffices, matchTaxOffice } from '@/lib/softone';
+import { parseAfm2Info } from '@/lib/aade-parse';
 
 export const runtime = 'nodejs';
 
@@ -16,7 +17,7 @@ export async function POST(req: Request) {
   }
 
   // 1) AADE
-  let raw: { basic_rec?: Record<string, unknown>; firm_act_tab?: { item?: unknown } } | null = null;
+  let raw: unknown = null;
   try {
     const r = await fetch('https://vat.wwa.gr/afm2info', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -27,36 +28,17 @@ export async function POST(req: Request) {
   } catch (e) {
     return NextResponse.json({ error: 'aade_unreachable', message: (e as Error).message }, { status: 502 });
   }
-  const b = raw?.basic_rec as Record<string, unknown> | undefined;
-  if (!b || !b.afm) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-
-  const s = (v: unknown): string | null => (v == null ? null : (String(v).trim() || null));
-  const doyDescr = s(b.doy_descr);
-  const addressParts = [s(b.postal_address), s(b.postal_address_no)].filter(Boolean);
-
-  // Primary activity (ΚΑΔ) description → profession (JOBTYPETRD).
-  const acts = raw?.firm_act_tab?.item;
-  const actList = Array.isArray(acts) ? acts : acts ? [acts] : [];
-  const primary = actList.find((a) => (a as Record<string, unknown>)?.firm_act_kind === '1') as Record<string, unknown> | undefined;
-  const profession = s(primary?.firm_act_descr) ?? s((actList[0] as Record<string, unknown>)?.firm_act_descr);
+  // Τα nil στοιχεία του proxy είναι ΑΝΤΙΚΕΙΜΕΝΑ, όχι null: χωρίς το
+  // `parseAfm2Info` κάθε πεδίο θα γινόταν «[object Object]».
+  const rec = parseAfm2Info(raw);
+  if (!rec) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
   // 2) Δ.Ο.Υ. description → SoftOne IRSDATA code (best-effort; null when no match)
   let doyCode: string | null = null;
   try {
     const offices = await softoneFetchTaxOffices();
-    doyCode = matchTaxOffice(doyDescr, offices);
+    doyCode = matchTaxOffice(rec.doyDescr, offices);
   } catch { /* leave null — supplier is still created without Δ.Ο.Υ. */ }
 
-  return NextResponse.json({
-    afm: s(b.afm),
-    name: s(b.onomasia) ?? '',
-    doyDescr,
-    doyCode,
-    profession,
-    address: addressParts.join(' ') || null,
-    zip: s(b.postal_zip_code),
-    city: s(b.postal_area_description),
-    legalForm: s(b.legal_status_descr),
-    isActive: s(b.deactivation_flag) === '1',
-  });
+  return NextResponse.json({ ...rec, doyCode });
 }

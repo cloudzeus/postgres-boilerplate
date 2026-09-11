@@ -1,7 +1,8 @@
 import 'server-only';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
-import { normalizeAfm } from '@/lib/ocr/validate';
+import { normalizeAfm, vatCountry } from '@/lib/ocr/validate';
+import { splitGluedAddress } from '@/lib/ocr/address';
 import { refreshDocTallies } from '@/lib/ocr/softone-match';
 import { SODTYPE_LABEL, TRADER_KIND_SODTYPE } from '@/lib/softone';
 import {
@@ -91,6 +92,14 @@ export interface TraderQueueDoc {
 }
 export interface TraderGroup {
   afm: string;
+  /**
+   * ISO-2 χώρα του εκδότη από το ίδιο το ΑΦΜ/VAT id — `null` όταν είναι άγνωστη
+   * (σκέτα ψηφία που δεν περνούν τον ελληνικό έλεγχο). Το `null` το χειριζόμαστε
+   * ως ελληνικό: η ΑΑΔΕ απλώς θα αστοχήσει, όπως και σήμερα.
+   */
+  country: string | null;
+  /** Γνωστή χώρα ≠ GR: χωρίς ΑΑΔΕ/Δ.Ο.Υ., με VIES αντ' αυτής. */
+  isForeign: boolean;
   name: string | null;
   doy: string | null;
   profession: string | null;
@@ -184,7 +193,9 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
     // Τα έγγραφα έρχονται από το νεότερο προς το παλαιότερο: κρατάμε το πρώτο μη κενό.
     g.doy ??= str(ed.companyDoy);
     g.profession ??= str(ed.companyProfession);
-    g.address ??= str(ed.companyAddress);
+    // Οι κολλημένες γραμμές του OCR σπάνε εδώ, ώστε η κάρτα και το geocoding
+    // να δουν κανονική διεύθυνση.
+    g.address ??= splitGluedAddress(str(ed.companyAddress) ?? '') || null;
     g.phone ??= str(ed.companyPhone);
     g.email ??= str(ed.companyEmail);
     g.thumbUrl ??= doc.thumbUrl ?? null;
@@ -210,8 +221,11 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
       ignored.push({ afm: g.afm, name: topName(g.names), reason: ignoredReason.get(g.afm) ?? null });
       continue;
     }
+    const country = vatCountry(g.afm);
     groups.push({
       afm: g.afm,
+      country,
+      isForeign: country != null && country !== 'GR',
       name: topName(g.names),
       doy: g.doy, profession: g.profession, address: g.address, phone: g.phone, email: g.email,
       docCount: g.docCount,
@@ -243,22 +257,60 @@ export interface TraderLink {
  * Γράφει τον συναλλασσόμενο σε ΟΛΑ τα έγγραφα του ΑΦΜ που δεν έχουν ήδη
  * αντιστοίχιση (spec §2: μία δημιουργία/σύνδεση ξεμπλοκάρει όλη την ομάδα).
  * Επιστρέφει πόσα ενημερώθηκαν.
+ *
+ * `opts.vatId`: το ΤΕΛΙΚΟ ΑΦΜ του εκδότη όταν ο χρήστης του πρόσθεσε πρόθεμα
+ * χώρας (π.χ. ο geocoder βρήκε Γερμανία ⇒ «144960040» → «DE144960040»). Τότε τα
+ * έγγραφα ΞΑΝΑΓΡΑΦΟΝΤΑΙ με τη νέα τιμή — και στη στήλη `issuerAfm` και στο
+ * `extractedData.vatNumber` — ώστε το κλειδί της ουράς να μείνει συνεπές. Χωρίς
+ * αυτό, το ίδιο τιμολόγιο θα ξαναεμφανιζόταν στην ουρά με το παλιό, γυμνό ΑΦΜ.
  */
-export async function applyTraderToDocs(afm: string, trader: TraderLink): Promise<number> {
+export async function applyTraderToDocs(
+  afm: string,
+  trader: TraderLink,
+  opts: { vatId?: string | null } = {},
+): Promise<number> {
   const target = normalizeAfm(afm);
   if (!target) return 0;
-  // Ένα `updateMany` πάνω στο indexed `issuerAfm` — καμία ανάγνωση/σάρωση JSON.
-  const res = await prisma.ocrDocument.updateMany({
-    where: { status: 'COMPLETED', softoneTrdr: null, issuerAfm: target },
-    data: {
-      softoneTrdr: trader.trdr,
-      softoneCode: trader.code ?? null,
-      softoneName: trader.name,
-      softoneKind: trader.kind,
-      softoneChecked: new Date(),
-    },
-  });
-  return res.count;
+  const rewritten = opts.vatId ? normalizeAfm(opts.vatId) : null;
+  const next = rewritten && rewritten !== target ? rewritten : null;
+
+  const where = { status: 'COMPLETED', softoneTrdr: null, issuerAfm: target } as const;
+  const stamp = {
+    softoneTrdr: trader.trdr,
+    softoneCode: trader.code ?? null,
+    softoneName: trader.name,
+    softoneKind: trader.kind,
+    softoneChecked: new Date(),
+  };
+
+  // Κοινή περίπτωση: ένα `updateMany` πάνω στο indexed `issuerAfm` — καμία
+  // ανάγνωση/σάρωση JSON.
+  if (!next) {
+    const res = await prisma.ocrDocument.updateMany({ where, data: stamp });
+    return res.count;
+  }
+
+  // Αλλαγή ΑΦΜ: το `extractedData` είναι JSON, οπότε χρειάζεται read-modify-write
+  // ανά έγγραφο. Όλα μαζί σε μία συναλλαγή — είτε αλλάζει το κλειδί παντού είτε πουθενά.
+  const docs = await prisma.ocrDocument.findMany({ where, select: { id: true, extractedData: true } });
+  if (docs.length === 0) return 0;
+  await prisma.$transaction(
+    docs.map((d) => prisma.ocrDocument.update({
+      where: { id: d.id },
+      data: {
+        ...stamp,
+        issuerAfm: next,
+        extractedData: withVatNumber(d.extractedData, next),
+      },
+    })),
+  );
+  return docs.length;
+}
+
+/** Αντικαθιστά ΜΟΝΟ το `vatNumber` του payload, αφήνοντας ό,τι άλλο διάβασε το OCR. */
+function withVatNumber(data: unknown, vatNumber: string): Prisma.InputJsonValue {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return { vatNumber };
+  return { ...(data as Record<string, unknown>), vatNumber } as Prisma.InputJsonValue;
 }
 
 // ============================================================
