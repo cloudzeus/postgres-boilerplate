@@ -63,10 +63,15 @@ describe('updateLastGood', () => {
   it('starts the average at n = 1', () => {
     expect(updateLastGood(null, 0, [0.4, 0.4, 0.2, 0.1], 'T')).toEqual({ page: 0, bbox: [0.4, 0.4, 0.2, 0.1], at: 'T', n: 1 });
   });
-  it('is a moving average weighted by n, and takes the latest page', () => {
+  it('is a moving average weighted by n, on the same page', () => {
     const prev = { page: 0, bbox: [0.4, 0.4, 0.2, 0.1] as Bbox, at: 'T0', n: 1 };
     // (0.4*1 + 0.6)/2 = 0.5 on x; the rest is unchanged.
-    expect(updateLastGood(prev, 1, [0.6, 0.4, 0.2, 0.1], 'T1')).toEqual({ page: 1, bbox: [0.5, 0.4, 0.2, 0.1], at: 'T1', n: 2 });
+    expect(updateLastGood(prev, 0, [0.6, 0.4, 0.2, 0.1], 'T1')).toEqual({ page: 0, bbox: [0.5, 0.4, 0.2, 0.1], at: 'T1', n: 2 });
+  });
+  it('starts over when the field moved to another PAGE — never blends two sheets of paper', () => {
+    const prev = { page: 0, bbox: [0.4, 0.4, 0.2, 0.1] as Bbox, at: 'T0', n: 7 };
+    expect(updateLastGood(prev, 1, [0.6, 0.2, 0.2, 0.1], 'T1'))
+      .toEqual({ page: 1, bbox: [0.6, 0.2, 0.2, 0.1], at: 'T1', n: 1 });
   });
   it('caps the weight and the count at 10 so the average never freezes solid', () => {
     let lg = updateLastGood(null, 0, [0.4, 0.4, 0.2, 0.1], 'T');

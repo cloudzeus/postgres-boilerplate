@@ -70,6 +70,10 @@ const sameBbox = (a: Bbox, b: Bbox) => a.every((n, i) => n === b[i]);
  */
 export function updateLastGood(prev: LastGood | null, page: number, bbox: Bbox, at: string): LastGood {
   if (!prev) return { page, bbox: clampBbox(bbox), at, n: 1 };
+  // A different PAGE is a different piece of paper: averaging the box found on page 3 with the boxes
+  // learned on page 1 produces coordinates that describe neither, and the widened read would then
+  // search a place the value has never been. The move starts the average over instead.
+  if (prev.page !== page) return { page, bbox: clampBbox(bbox), at, n: 1 };
   const n = Math.min(Math.max(1, prev.n), LAST_GOOD_MAX_N);
   const avg = prev.bbox.map((v, i) => (v * n + bbox[i]) / (n + 1)) as Bbox;
   return { page, bbox: clampBbox(avg), at, n: Math.min(prev.n + 1, LAST_GOOD_MAX_N) };

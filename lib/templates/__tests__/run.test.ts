@@ -662,6 +662,36 @@ describe('rereadField', () => {
     expect(out.ok && out.overridden).toBe(false);
   });
 
+  it('keeps the box the WIDENED read found, instead of the region that was asked for', async () => {
+    loadRun();
+    // Ο εξαγωγέας βρήκε την τιμή αλλού μέσα στη διευρυμένη περιοχή και το λέει.
+    extract.mockResolvedValue(extractResult(
+      { total: { ...value(229.4), page: 0, bbox: [0.62, 0.31, 0.18, 0.04], adaptive: true } },
+      { adaptive: ['total'] },
+    ));
+
+    const out = await rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total', region: { page: 0, bbox: [0.3, 0.4, 0.2, 0.05] } });
+
+    expect(out.ok).toBe(true);
+    // Η θέση του ΜΟΝΤΕΛΟΥ αποθηκεύεται — όχι το κουτί που ζητήσαμε και δεν είχε τίποτα μέσα.
+    expect(runUpdate().values.total).toMatchObject({ page: 0, bbox: [0.62, 0.31, 0.18, 0.04], adaptive: true });
+    // …και ο ίδιος λόγος ελέγχου που θα έγραφε και ο runner.
+    expect(runUpdate().flags.review).toContain('Διαβάστηκε σε διευρυμένη περιοχή «Σύνολο»');
+    expect(runUpdate().flags.blocked).not.toContain('Διαβάστηκε σε διευρυμένη περιοχή «Σύνολο»');
+  });
+
+  it('an AUTO template is blocked by an adaptive re-read too', async () => {
+    loadRun(runRow({ template: template({ mode: 'AUTO' }) }));
+    extract.mockResolvedValue(extractResult(
+      { total: { ...value(229.4), page: 0, bbox: [0.62, 0.31, 0.18, 0.04], adaptive: true } },
+      { adaptive: ['total'] },
+    ));
+
+    await rereadField({ documentId: 'd1', runId: 'r1', fieldKey: 'total' });
+
+    expect(runUpdate().flags.blocked).toContain('Διαβάστηκε σε διευρυμένη περιοχή «Σύνολο»');
+  });
+
   it('falls back to the template region when the run has no box for the field', async () => {
     loadRun(runRow({ values: { note: value('x') } }));
     extract.mockResolvedValue(extractResult({ total: value(20) }));
@@ -860,6 +890,23 @@ describe('learning the last good position (spec §17.2)', () => {
     expect(out.flags.review).toContain('Διαβάστηκε σε διευρυμένη περιοχή «Σύνολο»');
     expect(out.flags.blocked).toEqual([]);
     expect(runData().flags.fields.total).toBe('review');
+  });
+
+  it('AUTO does not post a value only the widened box could find — it blocks and waits for a human', async () => {
+    load(template({ mode: 'AUTO' }));
+    extract.mockResolvedValue(extractResult(
+      { total: { ...value(150), adaptive: true, confidence: 0.5 }, note: value('x') },
+      { adaptive: ['total'] },
+    ));
+
+    const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'upload' });
+
+    expect(out.status).toBe('BLOCKED');
+    expect(out.flags.blocked).toContain('Διαβάστηκε σε διευρυμένη περιοχή «Σύνολο»');
+    expect(runData().flags.fields.total).toBe('blocked');
+    expect(post).not.toHaveBeenCalled();
+    // Ένα μπλοκαρισμένο τρέξιμο δεν έμαθε τίποτα: κανείς δεν επιβεβαίωσε τη θέση.
+    expect(db.templateField.update).not.toHaveBeenCalled();
   });
 
   it('a run that finished on its own teaches the template where it actually found the value', async () => {

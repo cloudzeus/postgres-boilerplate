@@ -145,14 +145,19 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
     // A value only the widened box could find was NOT read where the designer drew the region — say
     // so, so a human glances at it (and so an AUTO template's own «Ασυμφωνία» list is not the only
     // thing that ever mentions a field the template is slowly drifting away from).
+    //
+    // In AUTO mode «glance at it» is not enough: the value carries ADAPTIVE_CONFIDENCE (0.5) and came
+    // out of a box nobody drew, so posting it to the ERP unseen is exactly the mistake the widened
+    // read exists to survive, not to commit. AUTO therefore BLOCKS on it and waits for a human;
+    // SEMI_AUTO stops for review anyway, and MANUAL posts nothing.
     const adaptiveKeys = ex.adaptive ?? [];
     const adaptiveLabels = adaptiveKeys.map((k) => `${ADAPTIVE_PREFIX}${labelOf(k)}»`);
 
-    const blocked = [...applied.flags.blocked, ...(t.mode === 'AUTO' ? missingLabels : [])];
+    const blocked = [...applied.flags.blocked, ...(t.mode === 'AUTO' ? [...missingLabels, ...adaptiveLabels] : [])];
     // Everything that blocks is also worth a human's eyes, so the blocked reasons are mirrored into
     // `review` (deduped — a missing required field would otherwise land in both lists twice).
     const flags: RunFlags = { review: [...new Set([...applied.flags.review, ...missingLabels, ...readErrors, ...adaptiveLabels, ...blocked])], blocked, fields: fieldFlags };
-    for (const k of adaptiveKeys) if (!fieldFlags[k]) fieldFlags[k] = 'review';
+    for (const k of adaptiveKeys) if (!fieldFlags[k] || fieldFlags[k] === 'review') fieldFlags[k] = t.mode === 'AUTO' ? 'blocked' : 'review';
     if (mappingFellBack(mappings, applied.mappingName)) {
       flags.review.push(`Ο κανόνας ζήτησε mapping «${applied.mappingName}» που δεν υπάρχει`);
     }
@@ -392,6 +397,19 @@ export async function finalizeRunEdit(input: {
   return updated;
 }
 
+/**
+ * Fold «Διαβάστηκε σε διευρυμένη περιοχή «X»» into a run's stored flags, without disturbing anything
+ * else on them. `recomputeFieldFlags` only ever rewrites the missing/mismatch entries, so a reason
+ * added here survives every later correction — as it should: the widened read happened.
+ */
+function withAdaptiveReason(run: RunWithTemplate, label: string): RunWithTemplate {
+  const reason = `${ADAPTIVE_PREFIX}${label}»`;
+  const prev = (run.flags as StoredFlags | null) ?? {};
+  const review = [...new Set([...(prev.review ?? []), reason])];
+  const blocked = run.template.mode === 'AUTO' ? [...new Set([...(prev.blocked ?? []), reason])] : (prev.blocked ?? []);
+  return { ...run, flags: { ...prev, review, blocked } as unknown as typeof run.flags };
+}
+
 /** Why a re-read could not happen. The route turns each into its own status code. */
 export type RereadError = 'not_found' | 'not_latest' | 'posted' | 'unknown_field' | 'no_region' | 'bad_page' | 'read_failed';
 
@@ -455,7 +473,16 @@ export async function rereadField(input: { documentId: string; runId: string; fi
 
   // The value carries the box it was read from, so the next re-read starts where this one left off
   // and the canvas keeps drawing the region the value actually came from.
-  const value: FieldValue = { ...ex.values[field.key], page: region.page, bbox: region.bbox };
+  //
+  // …EXCEPT when only the widened second look found it: then the box that produced the value is the
+  // one the MODEL located, not the one we asked for. Overwriting it with the requested region would
+  // draw the canvas box around empty paper, and — worse — teach `lastGood` a position the value was
+  // demonstrably NOT at. The adaptive read's own coordinates win.
+  const readAdaptively = (ex.adaptive ?? []).includes(field.key);
+  const read = ex.values[field.key];
+  const value: FieldValue = readAdaptively && isValidBbox(read.bbox) && read.page != null
+    ? read
+    : { ...read, page: region.page, bbox: region.bbox };
 
   // The vision call takes seconds, and a re-run of the template can land in the middle of it. Ask
   // again, now: `finalizeRunEdit` projects onto the document and moves its banner, so committing
@@ -469,7 +496,10 @@ export async function rereadField(input: { documentId: string; runId: string; fi
   if (!fresh || fresh.documentId !== input.documentId) return { ok: false, error: 'not_found' };
   const merged = { ...((fresh.values as unknown as Record<string, FieldValue>) ?? {}), [field.key]: value };
 
-  const updated = await finalizeRunEdit({ run: fresh, values: merged });
+  // Same verdict the runner writes for an adaptive read, for the same reason: the box was not the
+  // one on the template, so a human still has to look — and an AUTO template still must not post it.
+  const runForEdit = readAdaptively ? withAdaptiveReason(fresh, field.label) : fresh;
+  const updated = await finalizeRunEdit({ run: runForEdit, values: merged });
   return { ok: true, run: updated, value, region, overridden: input.region != null, model: ex.model, tokensUsed: ex.tokensUsed };
 }
 
