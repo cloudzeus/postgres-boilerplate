@@ -5,6 +5,7 @@ import { bunnyUploadPrivate } from '@/lib/bunny';
 import { extractPageTexts } from '@/lib/ocr/pdf-text';
 import { pdfPageCount } from '@/lib/ocr/split-pdf';
 import { suggestSplits, MAX_SPLIT_PAGES } from '@/lib/ocr/split';
+import { MAX_SPLIT_BYTES, MAX_SPLIT_MB } from '@/lib/ocr/limits';
 import { isPdfBuffer } from '@/lib/ocr/rasterize';
 
 export const runtime = 'nodejs';
@@ -12,10 +13,6 @@ export const dynamic = 'force-dynamic';
 // Ανέβασμα + καταμέτρηση σελίδων + εξαγωγή κειμένου· καμία κλήση σε μοντέλο, αλλά ένα PDF 100
 // σελίδων θέλει χρόνο.
 export const maxDuration = 300;
-
-// ΤΟ ΙΔΙΟ όριο με το κανονικό ανέβασμα (`app/api/admin/ocr/route.ts`) — και το ίδιο που λέει η
-// περιοχή drop. Δύο διαφορετικά όρια στην ίδια οθόνη είναι απλώς μια υπόσχεση που δεν τηρείται.
-const MAX_SPLIT_BYTES = 25 * 1024 * 1024;
 
 /**
  * ΒΗΜΑ 1 του διαχωρισμού: ανεβάζει ΜΙΑ φορά το πρωτότυπο PDF, μετράει σελίδες και προτείνει
@@ -30,6 +27,14 @@ const MAX_SPLIT_BYTES = 25 * 1024 * 1024;
 export async function POST(req: Request) {
   const user = await requirePermission('ocr.create');
 
+  // ΠΡΙΝ διαβαστεί το σώμα: ένα αρχείο 300 MB δεν έχει λόγο να ταξιδέψει ολόκληρο και να μπει
+  // στη μνήμη μόνο για να απορριφθεί. Το `content-length` μπορεί να λείπει (chunked) — τότε
+  // πέφτουμε στον έλεγχο μεγέθους του ίδιου του αρχείου παρακάτω.
+  const declared = Number(req.headers.get('content-length') ?? 0);
+  if (declared > MAX_SPLIT_BYTES * 1.05) {
+    return NextResponse.json({ error: `Το αρχείο ξεπερνά τα ${MAX_SPLIT_MB} MB.` }, { status: 413 });
+  }
+
   const form = await req.formData();
   const file = form.get('file');
   const language = String(form.get('language') ?? 'el');
@@ -38,10 +43,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'file is required (multipart/form-data)' }, { status: 400 });
   }
   if (file.size > MAX_SPLIT_BYTES) {
-    return NextResponse.json(
-      { error: `Το αρχείο ξεπερνά τα ${MAX_SPLIT_BYTES / (1024 * 1024)} MB.` },
-      { status: 413 },
-    );
+    return NextResponse.json({ error: `Το αρχείο ξεπερνά τα ${MAX_SPLIT_MB} MB.` }, { status: 413 });
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());

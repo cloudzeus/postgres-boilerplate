@@ -5,6 +5,7 @@ import { requirePermission } from '@/lib/rbac';
 import { bunnyUploadPrivate } from '@/lib/bunny';
 import { extractAndPersist } from '@/lib/ocr/pipeline';
 import { isExtractDocType, type ExtractDocType, type SupportedLang } from '@/lib/ocr/templates';
+import { MAX_OCR_BYTES, MAX_OCR_MB } from '@/lib/ocr/limits';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,6 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const slug = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 8);
-const MAX_OCR_BYTES = 25 * 1024 * 1024; // 25 MB
 
 const ALLOWED_MIMES = new Set([
   'application/pdf',
@@ -75,7 +75,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Unsupported file type: ${file.type}` }, { status: 415 });
   }
   if (file.size > MAX_OCR_BYTES) {
-    return NextResponse.json({ error: `File exceeds ${MAX_OCR_BYTES / (1024 * 1024)} MB limit` }, { status: 413 });
+    return NextResponse.json({ error: `File exceeds ${MAX_OCR_MB} MB limit` }, { status: 413 });
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());

@@ -9,6 +9,7 @@ import {
   SUPPORTED_LANGUAGES, UPLOAD_DOC_TYPES, UPLOAD_DOC_TYPE_LABELS, AUTO_DOC_TYPE_HINT,
   type ExtractDocType, type SupportedLang,
 } from '@/lib/ocr/templates';
+import { MAX_OCR_MB, MAX_SPLIT_MB } from '@/lib/ocr/limits';
 import { OcrResultModal } from './result-modal';
 import { OcrSplitPreview, type SplitPreviewData } from './split-preview';
 
@@ -174,7 +175,8 @@ export function OcrUploadForm() {
                 Το αρχείο περιέχει πολλά παραστατικά
               </span>
               <span className="block text-[11px] text-muted-foreground">
-                Μόνο για PDF. Θα δεις πρώτα τις σελίδες και θα ορίσεις πού κόβεται κάθε παραστατικό.
+                Μόνο για PDF, έως {MAX_SPLIT_MB} MB. Θα δεις πρώτα τις σελίδες και θα ορίσεις πού
+                κόβεται κάθε παραστατικό.
               </span>
             </span>
           </label>
@@ -223,7 +225,9 @@ export function OcrUploadForm() {
                   {multiDoc ? 'Σύρε το PDF εδώ — συνέχεια στον διαχωρισμό' : 'Σύρε αρχείο εδώ ή κάνε κλικ για επιλογή'}
                 </p>
                 <p className="text-[11px] text-muted-foreground">
-                  PDF, PNG, JPG, WebP, GIF, TIFF, BMP · έως 25 MB
+                  {multiDoc
+                    ? `PDF · έως ${MAX_SPLIT_MB} MB`
+                    : `PDF, PNG, JPG, WebP, GIF, TIFF, BMP · έως ${MAX_OCR_MB} MB`}
                 </p>
               </>
             )}

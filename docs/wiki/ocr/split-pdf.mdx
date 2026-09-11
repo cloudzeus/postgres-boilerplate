@@ -73,6 +73,14 @@ helpAnchors: [ocr-split, split-pdf]
 </Callout>
 
 <Callout type="warning">
-  Όριο: <strong>100 σελίδες</strong> ανά αρχείο. Μεγαλύτερες στοίβες πρέπει να χωριστούν σε μικρότερα PDF πριν ανέβουν.
+  Όρια: <strong>100 σελίδες</strong> και <strong>100 MB</strong> ανά αρχείο — αρκετά για μια σαρωμένη στοίβα ημέρας.
+  Μεγαλύτερες στοίβες πρέπει να χωριστούν σε μικρότερα PDF πριν ανέβουν. (Το μεμονωμένο ανέβασμα ενός
+  παραστατικού κρατάει το δικό του όριο, 25 MB.)
+</Callout>
+
+<Callout type="info">
+  Αν ένα μεγάλο αρχείο κόβεται με σφάλμα <strong>413</strong> ενώ είναι κάτω από τα 100 MB, το όριο δεν είναι της
+  εφαρμογής αλλά του <strong>reverse proxy</strong> μπροστά της (Coolify / Traefik / nginx). Το nginx ειδικά έχει
+  προεπιλογή <code>client_max_body_size 1m</code> και θέλει ρητή αύξηση.
 </Callout>
 
