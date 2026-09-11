@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { deepseekChat } from '@/lib/deepseek';
+import { classifyDocument } from '@/lib/ocr/doc-type';
 
 export const runtime = 'nodejs';
 
@@ -91,6 +92,10 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
   if (invoiceType !== 'unknown') {
     await prisma.ocrDocument.update({ where: { id }, data: { invoiceKind: invoiceType } });
+    // Το `invoiceKind` είναι είσοδος του ταξινομητή σειράς (spec §1.2): μόλις το μάθουμε εδώ,
+    // ξανατρέχουμε την ταξινόμηση ώστε η σειρά να μη μείνει με το μάντεμα του πρώτου περάσματος.
+    // Το `classifyDocument` σέβεται μόνο του τη χειροκίνητη επιλογή (`seriesBy === 'manual'`).
+    await classifyDocument(id);
   }
 
   const matchedCount = resultLines.filter((l) => l.match).length;

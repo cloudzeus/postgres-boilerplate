@@ -1198,11 +1198,13 @@ export async function softoneFetchExpenses(): Promise<ExpenseRow[]> {
  */
 export const EXPENSE_FLAG_FIELDS = [
   'CLCMD', 'INCLMD', 'VATMODE', 'ISSTOCK', 'STOCKMD', 'SOVAL', 'INVOICEFLAG', 'KEPYOFLAG',
+  'INTRASTATFLAG', 'TURNOVRFLAG', 'USEBYITEM', 'EFKFLAG', 'HANDMD', 'ISEXPN',
 ] as const;
 
 /** Σχεδιαστικές προεπιλογές του object EXPENSES — μόνο ως δίχτυ όταν λείπει πεδίο από το πρότυπο. */
 const EXPENSE_FLAG_DEFAULTS: Record<string, unknown> = {
   CLCMD: 0, INCLMD: 0, VATMODE: 0, ISSTOCK: 0, STOCKMD: 0, SOVAL: 0, INVOICEFLAG: 1, KEPYOFLAG: 1,
+  INTRASTATFLAG: 0, TURNOVRFLAG: 0, USEBYITEM: 0, EFKFLAG: 0, HANDMD: 0, ISEXPN: 0,
 };
 
 export interface ExpenseTemplate {

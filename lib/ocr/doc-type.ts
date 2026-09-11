@@ -1,6 +1,6 @@
 import 'server-only';
 import { prisma } from '@/lib/db';
-import { classifySeries, type ClassifyResult, type SeriesCandidate } from './doc-type-classify';
+import { classifySeries, inferInvoiceKind, type ClassifyResult, type SeriesCandidate } from './doc-type-classify';
 import { callTextLLM, resolveCfg } from './extract';
 
 /**
@@ -50,7 +50,9 @@ export async function classifyDocument(docId: string): Promise<{ code: string; c
         documentTypeLabel: typeof d.documentTypeLabel === 'string' ? d.documentTypeLabel : null,
         issuerKind: issuerKindOf(doc.softoneKind),
         totalAmount: typeof d.totalAmount === 'number' ? d.totalAmount : null,
-        invoiceKind: (doc.invoiceKind as 'service' | 'product' | 'mixed' | null) ?? null,
+        // Το `invoiceKind` το γράφει το correlate ΜΕΤΑ την ταξινόμηση: όσο λείπει, το μαντεύουμε
+        // από τις ίδιες τις γραμμές ώστε ο ταξινομητής να έχει side hint ήδη στο πρώτο πέρασμα.
+        invoiceKind: (doc.invoiceKind as 'service' | 'product' | 'mixed' | null) ?? inferInvoiceKind(d),
       },
       candidates,
     );

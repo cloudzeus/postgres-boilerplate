@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { type ColumnDef } from '@tanstack/react-table';
-import { FiMoreVertical, FiFile, FiExternalLink, FiSend, FiTrash2, FiEye, FiUserPlus, FiRefreshCw, FiSearch, FiCheck, FiChevronDown, FiChevronRight, FiAlertCircle, FiCheckCircle, FiSlash, FiRotateCcw } from 'react-icons/fi';
+import { FiMoreVertical, FiFile, FiExternalLink, FiSend, FiTrash2, FiEye, FiUserPlus, FiRefreshCw, FiSearch, FiCheck, FiChevronDown, FiChevronRight, FiAlertCircle, FiCheckCircle, FiAlertTriangle, FiSlash, FiRotateCcw } from 'react-icons/fi';
 import { SoftoneAfmDialog } from '@/components/admin/softone-afm-dialog';
 import { OcrDayProblemsModal } from '@/components/admin/ocr-day-problems-modal';
 import { DataTable } from '@/components/ui/data-table';
@@ -73,15 +73,21 @@ export interface SeriesOption {
   name: string;
   section: string | null;
   kind: 'purchase' | 'creditor';
+  /** SOSOURCE: 1251 αγορών, 1653 πιστωτών. Ταυτότητα της σειράς είναι το ζεύγος `sosource:code`. */
+  sosource: number;
   /** Ενεργοποιημένη στην εφαρμογή — μόνο αυτές βλέπει ο αυτόματος ταξινομητής. */
   enabled: boolean;
 }
 
-/** Κουκκίδα βεβαιότητας: πράσινο ≥ 0,8, πορτοκαλί χαμηλότερα, γκρι χωρίς μέτρηση. */
-export function seriesConfidenceTone(confidence: number | null): { color: string; label: string } {
-  if (confidence == null) return { color: '#94A3B8', label: 'χωρίς βεβαιότητα' };
-  if (confidence >= 0.8) return { color: '#047857', label: 'σίγουρο' };
-  return { color: '#B45309', label: 'να ελεγχθεί' };
+/**
+ * Κουκκίδα βεβαιότητας: πράσινο ≥ 0,8, πορτοκαλί χαμηλότερα, γκρι χωρίς μέτρηση.
+ * Το `word` είναι η ορατή ετικέτα δίπλα στην κουκκίδα (κενή όταν δεν υπάρχει μέτρηση) — μια
+ * κουκκίδα χωρίς λέξη δεν λέει τίποτα σε όποιον δεν ξέρει τον κώδικα χρωμάτων.
+ */
+export function seriesConfidenceTone(confidence: number | null): { color: string; label: string; word: string | null } {
+  if (confidence == null) return { color: '#94A3B8', label: 'χωρίς βεβαιότητα', word: null };
+  if (confidence >= 0.8) return { color: '#047857', label: 'σίγουρο', word: 'σίγουρο' };
+  return { color: '#B45309', label: 'να ελεγχθεί', word: 'έλεγχος' };
 }
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -313,11 +319,19 @@ export function OcrTable({
     router.refresh();
   }
 
-  // Σειρές ανά «είδος:κωδικός» — ο ίδιος κωδικός μπορεί να υπάρχει και στις δύο ενότητες.
+  // Σειρές ανά «SOSOURCE:κωδικός» — ο ίδιος κωδικός μπορεί να υπάρχει και στις δύο ενότητες,
+  // οπότε μόνο το ζεύγος με την ενότητα είναι ταυτότητα.
   const seriesByCode = React.useMemo(
-    () => new Map(seriesOptions.map((o) => [`${o.kind}:${o.code}`, o])),
+    () => new Map(seriesOptions.map((o) => [`${o.sosource}:${o.code}`, o])),
     [seriesOptions],
   );
+  // Παλιές εγγραφές (πριν αποθηκευτεί το `seriesSource`) έχουν μόνο κωδικό: τελευταία ευκαιρία
+  // να βρεθεί η σύντμηση αντί να δείχνουμε γυμνό κωδικό.
+  const seriesByBareCode = React.useMemo(() => {
+    const m = new Map<string, SeriesOption>();
+    for (const o of seriesOptions) if (!m.has(o.code)) m.set(o.code, o);
+    return m;
+  }, [seriesOptions]);
   const anyEnabledSeries = React.useMemo(() => seriesOptions.some((o) => o.enabled), [seriesOptions]);
 
   const columns: ColumnDef<OcrRow>[] = React.useMemo(() => [
@@ -437,21 +451,25 @@ export function OcrTable({
       id: 'series',
       // «Σειρά»: το αποτέλεσμα του αυτόματου ταξινομητή. Κλικ ανοίγει τη γραμμή, όπου βρίσκεται
       // ο επιλογέας σειράς (η αλλαγή γίνεται `manual` και δεν ξαναγράφεται αυτόματα).
+      // Χωρίς καμία ενεργοποιημένη σειρά (ούτε αγορών ούτε πιστωτών) η στήλη κρατά το όνομά της
+      // και δείχνει δίπλα τη διαδρομή ενεργοποίησης — ο τίτλος δεν εξαφανίζεται.
       header: () => (
-        anyEnabledSeries
-          ? <span>Σειρά</span>
-          : (
-            <Link href="/admin/doc-series" className="text-[12px] font-semibold text-sisyphus-600 underline underline-offset-2 cursor-pointer">
-              Ενεργοποίησε σειρές
-            </Link>
-          )
+        <span className="flex items-center gap-1.5">
+          <span>Σειρά</span>
+          {!anyEnabledSeries && (
+            <>
+              <span aria-hidden className="text-muted-foreground">·</span>
+              <Link href="/admin/doc-series" className="text-[12px] font-semibold text-sisyphus-600 underline underline-offset-2 cursor-pointer">
+                Ενεργοποίησε σειρές
+              </Link>
+            </>
+          )}
+        </span>
       ),
       cell: ({ row }) => {
         const r = row.original;
         if (!r.softoneSeries) return <span className="text-xs text-muted-foreground">—</span>;
-        const opt = seriesByCode.get(`${r.seriesSource === 1653 ? 'creditor' : 'purchase'}:${r.softoneSeries}`)
-          ?? seriesByCode.get(`purchase:${r.softoneSeries}`)
-          ?? seriesByCode.get(`creditor:${r.softoneSeries}`);
+        const opt = seriesByCode.get(`${r.seriesSource ?? 1251}:${r.softoneSeries}`) ?? seriesByBareCode.get(r.softoneSeries);
         const manual = r.seriesBy === 'manual';
         const tone = seriesConfidenceTone(manual ? 1 : r.seriesConfidence);
         const pct = r.seriesConfidence != null ? `${Math.round(r.seriesConfidence * 100)} %` : null;
@@ -467,9 +485,16 @@ export function OcrTable({
             <span className="flex items-center gap-1.5">
               <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: tone.color }} />
               <span className="text-[12px] font-semibold text-foreground">{opt?.abbrev ?? r.softoneSeries}</span>
+              {/* Λέξη + εικονίδιο αντί για σκέτο ποσοστό: το ακριβές % μένει στο title. */}
+              {tone.word && (
+                <span aria-hidden className="flex items-center gap-0.5 text-[10px] font-semibold" style={{ color: tone.color }}>
+                  {tone.word === 'σίγουρο' ? <FiCheckCircle className="size-3" /> : <FiAlertTriangle className="size-3" />}
+                  {tone.word}
+                </span>
+              )}
             </span>
             <span className="text-[10px] text-muted-foreground">
-              {r.seriesSource === 1653 ? 'Πιστωτών' : 'Αγορών'}{manual ? ' · χειροκίνητη' : pct ? ` · ${pct}` : ''}
+              {r.seriesSource === 1653 ? 'Πιστωτών' : 'Αγορών'}{manual ? ' · χειροκίνητη' : ''}
             </span>
           </button>
         );
@@ -679,7 +704,7 @@ export function OcrTable({
       },
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [busyId, canPost, canDelete, reextractingId, dupInfo, seriesByCode, anyEnabledSeries]);
+  ], [busyId, canPost, canDelete, reextractingId, dupInfo, seriesByCode, seriesByBareCode, anyEnabledSeries]);
 
   return (
     <>

@@ -18,8 +18,11 @@ const PatchSchema = z.object({
   items: z.array(ItemSchema).optional(),
   // Hybrid reconciliation lock: null = auto-derived, RESOLVED = ολοκληρώθηκε, IGNORED = αγνοήθηκε.
   reconOverride: z.enum(['RESOLVED', 'IGNORED']).nullable().optional(),
-  // Chosen SoftOne document SERIES (PurchaseDocType.code).
+  // Chosen SoftOne document SERIES. Ο κωδικός ΜΟΝΟΣ ΤΟΥ δεν είναι ταυτότητα: ο ίδιος κωδικός
+  // υπάρχει και στις αγορές (SOSOURCE 1251) και στους πιστωτές (1653) — γι' αυτό ο επιλογέας
+  // στέλνει μαζί και το `seriesSource`.
   softoneSeries: z.string().max(64).nullable().optional(),
+  seriesSource: z.number().int().nullable().optional(),
 });
 
 export const runtime = 'nodejs';
@@ -40,7 +43,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   await requirePermission('ocr.categorize');
   const { id } = await params;
   const body = PatchSchema.parse(await req.json());
-  const { items, ...scalar } = body;
+  const { items, seriesSource: _seriesSource, ...scalar } = body;
 
   // Χειροκίνητη επιλογή σειράς: κλειδώνει το έγγραφο απέναντι στον αυτόματο ταξινομητή
   // (`seriesBy: 'manual'`, spec 2026-09-11 §1.4). Καθάρισμα της σειράς ξεκλειδώνει.
@@ -48,7 +51,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     ? body.softoneSeries
       ? {
         seriesBy: 'manual', seriesConfidence: 1, seriesReason: 'χειροκίνητη επιλογή',
-        seriesSource: await sourceOfSeries(body.softoneSeries),
+        // Ο επιλογέας στέλνει την ενότητα μαζί με τον κωδικό· παλιοί clients (χωρίς
+        // `seriesSource`) πέφτουν στην αναζήτηση παρακάτω.
+        seriesSource: body.seriesSource ?? await sourceOfSeries(body.softoneSeries),
       }
       : { seriesBy: null, seriesConfidence: null, seriesReason: null, seriesSource: null }
     : {};
@@ -71,12 +76,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   return NextResponse.json(fresh ?? doc);
 }
 
-/** SOSOURCE της σειράς: 1251 όταν είναι σειρά αγορών, αλλιώς η ενότητα της `SoftoneDocSeries`. */
+/**
+ * Fallback όταν ο client δεν έστειλε `seriesSource`: αγορές πρώτα (SOSOURCE 1251) και μετά
+ * ΜΟΝΟ οι πιστωτές (1653) — οι δύο ενότητες που μπορεί να επιλέξει ο χρήστης. Χωρίς το φίλτρο
+ * η αναζήτηση θα κατέληγε σε άσχετη ενότητα που τυχαίνει να έχει τον ίδιο κωδικό σειράς.
+ */
 async function sourceOfSeries(code: string): Promise<number | null> {
   const purchase = await prisma.purchaseDocType.findUnique({ where: { code }, select: { id: true } });
   if (purchase) return 1251;
-  const other = await prisma.softoneDocSeries.findFirst({ where: { code }, select: { sosource: true }, orderBy: { sosource: 'asc' } });
-  return other?.sosource ?? null;
+  const creditor = await prisma.softoneDocSeries.findFirst({ where: { code, sosource: 1653 }, select: { sosource: true } });
+  return creditor?.sosource ?? null;
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {

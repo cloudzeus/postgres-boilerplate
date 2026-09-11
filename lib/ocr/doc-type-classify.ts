@@ -97,3 +97,44 @@ export function classifySeries(input: ClassifyInput, candidates: SeriesCandidate
   ].filter(Boolean).join(' · ');
   return { code: best.c.code, sosource: best.c.sosource, kind: best.c.kind, confidence: clamp01(confidence), reason, tie, alternatives: scored.slice(0, 5).map((s) => ({ code: s.c.code, abbrev: s.c.abbrev, name: s.c.name, score: Math.round(clamp01(s.score) * 100) / 100 })) };
 }
+
+/* ------------------------------------------------------------------ */
+/* invoiceKind πριν από τη συσχέτιση γραμμών                           */
+/* ------------------------------------------------------------------ */
+
+// Λέξεις που δείχνουν υπηρεσία μέσα στην περιγραφή της γραμμής.
+const SERVICE_WORDS = ['ΥΠΗΡΕΣ', 'ΠΑΡΟΧ', 'ΣΥΝΤΗΡΗΣ', 'ΜΕΤΑΦΟΡ', 'ΑΜΟΙΒ', 'ΣΥΜΒΟΥΛ', 'FEE', 'SERVICE'];
+// Μονάδες μέτρησης: δείχνουν εμπόρευμα. Ως αυτοτελείς λέξεις, αλλιώς το «LT» πιάνει το «ΑΛΤ».
+const UNIT_RE = new RegExp(`(${['KG', 'ΤΕΜ', 'LT', 'M3'].map(w).join('|')})`);
+
+type RawItem = { code?: unknown; name?: unknown; quantity?: unknown; unit?: unknown };
+
+/**
+ * Μαντεύει το `invoiceKind` ΜΟΝΟ από τα εξαγόμενα δεδομένα, για τη στιγμή της ταξινόμησης:
+ * το κανονικό `OcrDocument.invoiceKind` το γράφει αργότερα το correlate (συσχέτιση γραμμών με
+ * το μητρώο ειδών), οπότε στο πρώτο πέρασμα είναι πάντα `null`. Καθαρή συνάρτηση, χωρίς I/O.
+ *
+ * - χωρίς γραμμές → `null` (δεν μαντεύουμε από τον τύπο του εντύπου, αυτό το κάνει ήδη ο ταξινομητής)
+ * - όλες οι ποσότητες κενές ή 1 **και** περιγραφές με λέξεις υπηρεσίας → `'service'`
+ * - γραμμή με κωδικό είδους και ποσότητα > 1, ή μονάδα μέτρησης → `'product'`
+ * - αλλιώς `null` (άγνωστο· ο ταξινομητής δεν παίρνει side hint)
+ */
+export function inferInvoiceKind(data: unknown): 'service' | 'product' | null {
+  const raw = (data as { items?: unknown } | null | undefined)?.items;
+  const items: RawItem[] = Array.isArray(raw) ? (raw as RawItem[]) : [];
+  if (!items.length) return null;
+
+  const qtyOf = (it: RawItem): number | null => (typeof it?.quantity === 'number' && Number.isFinite(it.quantity) ? it.quantity : null);
+  const textOf = (it: RawItem): string => normalizeGreek(`${it?.name ?? ''} ${it?.unit ?? ''}`);
+
+  const allSingleQty = items.every((it) => { const q = qtyOf(it); return q == null || q === 1; });
+  const anyServiceWord = items.some((it) => { const t = textOf(it); return SERVICE_WORDS.some((word) => t.includes(word)); });
+  if (allSingleQty && anyServiceWord) return 'service';
+
+  const anyGoods = items.some((it) => {
+    const q = qtyOf(it);
+    const hasCode = typeof it?.code === 'string' && it.code.trim() !== '';
+    return (hasCode && q != null && q > 1) || UNIT_RE.test(textOf(it));
+  });
+  return anyGoods ? 'product' : null;
+}

@@ -75,7 +75,7 @@ describe('softoneCreateExpense', () => {
       // 1. ποιο έξοδο θα χρησιμοποιηθεί ως πρότυπο
       { success: true, data: [['7'], ['9']] },
       // 2. getData στο πρότυπο (KEPYOFLAG=0 ≠ default 1 → αποδεικνύει ότι αντιγράφηκε)
-      { success: true, data: { EXPN: [{ CLCMD: 2, INCLMD: 1, VATMODE: 1, ISSTOCK: 1, STOCKMD: 3, SOVAL: 0, INVOICEFLAG: 1, KEPYOFLAG: 0 }] } },
+      { success: true, data: { EXPN: [{ CLCMD: 2, INCLMD: 1, VATMODE: 1, ISSTOCK: 1, STOCKMD: 3, SOVAL: 0, INVOICEFLAG: 1, KEPYOFLAG: 0, INTRASTATFLAG: 1, USEBYITEM: 1 }] } },
       // 3. setData
       { success: true, id: '42' },
       // 4. read-back
@@ -88,6 +88,8 @@ describe('softoneCreateExpense', () => {
     expect(calls[1].body).toMatchObject({ OBJECT: 'EXPENSES', KEY: '7', LOCATEINFO: `EXPN:${EXPENSE_FLAG_FIELDS.join(',')}` });
     const row = (calls[2].body.DATA as { EXPENSES: Record<string, unknown>[] }).EXPENSES[0];
     expect(row).toMatchObject({ CODE: 'ΕΞ42', NAME: 'Μεταφορικά', ISACTIVE: 1, VAT: '1300', CLCMD: 2, KEPYOFLAG: 0, STOCKMD: 3 });
+    // Τα flags που επιστρέφει το πρότυπο αντιγράφονται· όσα λείπουν πέφτουν στο default 0.
+    expect(row).toMatchObject({ INTRASTATFLAG: 1, USEBYITEM: 1, TURNOVRFLAG: 0, EFKFLAG: 0, HANDMD: 0, ISEXPN: 0 });
     for (const f of EXPENSE_FLAG_FIELDS) expect(row).toHaveProperty(f);
     expect(calls[3].body).toMatchObject({ TABLE: 'EXPN', FILTER: 'EXPN=42' });
     expect(res).toEqual({ expn: 42, code: 'ΕΞ42', name: 'Μεταφορικά', templateExpn: 7 });

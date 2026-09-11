@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeGreek, familyOf, seriesFamily, classifySeries, type SeriesCandidate } from '../doc-type-classify';
+import { normalizeGreek, familyOf, seriesFamily, classifySeries, inferInvoiceKind, type SeriesCandidate } from '../doc-type-classify';
 const C = (code: string, abbrev: string | null, name: string, kind: 'purchase' | 'creditor', sosource = kind === 'purchase' ? 1251 : 1653): SeriesCandidate => ({ code, abbrev, name, kind, sosource });
 const purchases = [C('2061', 'ΤΙΜΑ', 'Τιμολόγιο Αγοράς', 'purchase'), C('2062', 'ΤΔΑΠ', 'Τιμολόγιο Αγοράς-Δελτίο Αποστολής', 'purchase'), C('2081', 'ΠΤΑ', 'Πιστωτικό Τιμολόγιο Αγοράς', 'purchase'), C('2041', 'ΔΕΑΠ', 'Δελτίο Αποστολής Προμηθευτή', 'purchase')];
 const creditors = [C('1001', 'ΤΠΥ', 'Τιμολόγιο Παροχής Υπηρεσιών', 'creditor'), C('1002', 'ΑΠΥ', 'Απόδειξη Παροχής Υπηρεσιών', 'creditor'), C('1003', 'ΠΤΠΥ', 'Πιστωτικό Παροχής Υπηρεσιών', 'creditor')];
@@ -92,5 +92,44 @@ describe('classifySeries', () => {
   });
   it('utility bills map to ΤΠΥ of a creditor', () => {
     expect(classifySeries({ documentTypeLabel: 'ΕΚΚΑΘΑΡΙΣΤΙΚΟΣ ΛΟΓΑΡΙΑΣΜΟΣ', issuerKind: null, totalAmount: 78298.47, invoiceKind: 'service' }, all)?.code).toBe('1001');
+  });
+});
+
+describe('inferInvoiceKind', () => {
+  it('returns null without line items', () => {
+    expect(inferInvoiceKind(null)).toBeNull();
+    expect(inferInvoiceKind({})).toBeNull();
+    expect(inferInvoiceKind({ items: [] })).toBeNull();
+    expect(inferInvoiceKind({ items: 'όχι πίνακας' })).toBeNull();
+  });
+
+  it('single-quantity service wording → service', () => {
+    expect(inferInvoiceKind({ items: [{ name: 'ΠΑΡΟΧΗ ΥΠΗΡΕΣΙΩΝ ΛΟΓΙΣΤΗ', quantity: 1 }] })).toBe('service');
+    // Ποσότητα που λείπει μετράει σαν μονάδα — τα τιμολόγια υπηρεσιών συχνά δεν τυπώνουν ποσότητα.
+    expect(inferInvoiceKind({ items: [{ name: 'Αμοιβή συμβούλου', quantity: null }, { name: 'Συντήρηση' }] })).toBe('service');
+    expect(inferInvoiceKind({ items: [{ name: 'MONTHLY SERVICE FEE', quantity: 1 }] })).toBe('service');
+  });
+
+  it('service wording with real quantities is NOT a service invoice', () => {
+    // 12 τεμάχια «μεταφορικών» δεν είναι πια γραμμή υπηρεσίας: πέφτει στον έλεγχο εμπορεύματος.
+    expect(inferInvoiceKind({ items: [{ code: 'Μ1', name: 'ΜΕΤΑΦΟΡΙΚΑ', quantity: 12 }] })).toBe('product');
+  });
+
+  it('coded lines with quantity > 1, or units, → product', () => {
+    expect(inferInvoiceKind({ items: [{ code: '7001', name: 'Βίδες', quantity: 50 }] })).toBe('product');
+    expect(inferInvoiceKind({ items: [{ name: 'Αλεύρι', quantity: 1, unit: 'KG' }] })).toBe('product');
+    expect(inferInvoiceKind({ items: [{ name: 'Χαρτί Α4 ΤΕΜ', quantity: 1 }] })).toBe('product');
+  });
+
+  it('a unit-looking substring inside a word does not count', () => {
+    // «ΑΛΤ» περιέχει «ΛΤ» αλλά όχι ως αυτοτελή λέξη· «M3» μόνο ως μονάδα.
+    expect(inferInvoiceKind({ items: [{ name: 'ΑΛΤΗΡΕΣ', quantity: 1 }] })).toBeNull();
+    expect(inferInvoiceKind({ items: [{ name: 'Σκυρόδεμα', quantity: 1, unit: 'M3' }] })).toBe('product');
+  });
+
+  it('returns null when nothing points either way', () => {
+    expect(inferInvoiceKind({ items: [{ name: 'Διάφορα', quantity: 1 }] })).toBeNull();
+    // Ποσότητα > 1 χωρίς κωδικό είδους δεν φτάνει από μόνη της.
+    expect(inferInvoiceKind({ items: [{ name: 'Διάφορα', quantity: 4 }] })).toBeNull();
   });
 });

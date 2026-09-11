@@ -225,14 +225,17 @@ export function OcrRowDetail({
   const [form, setForm] = React.useState<Record<string, string>>(initialForm);
   const [items, setItems] = React.useState<LineItem[]>(initialItems);
   const [category, setCategory] = React.useState(row.category ?? '');
-  const [softoneSeries, setSoftoneSeries] = React.useState(row.softoneSeries ?? '');
+  // Ταυτότητα σειράς = «SOSOURCE:κωδικός»: ο ίδιος κωδικός υπάρχει και στις αγορές (1251) και
+  // στους πιστωτές (1653), οπότε ο κωδικός μόνος του δεν διαλέγει γραμμή.
+  const initialSeriesKey = row.softoneSeries ? `${row.seriesSource ?? 1251}:${row.softoneSeries}` : '';
+  const [seriesKey, setSeriesKey] = React.useState(initialSeriesKey);
   const [saving, setSaving] = React.useState(false);
   const [posting, setPosting] = React.useState(false);
 
   const dirty =
     JSON.stringify(form) !== JSON.stringify(initialForm) ||
     JSON.stringify(items) !== JSON.stringify(initialItems) ||
-    category !== (row.category ?? '') || softoneSeries !== (row.softoneSeries ?? '') || docType !== row.docType;
+    category !== (row.category ?? '') || seriesKey !== initialSeriesKey || docType !== row.docType;
 
   const missing = specs.filter((s) => s.required && !String(form[s.key] ?? '').trim());
   const fileUrl = `/api/admin/ocr/${row.id}/file`;
@@ -258,7 +261,7 @@ export function OcrRowDetail({
   function addLine() { setItems((arr) => [...arr, { ...EMPTY_LINE }]); }
   function removeLine(idx: number) { setItems((arr) => arr.filter((_, i) => i !== idx)); }
   const [createLine, setCreateLine] = React.useState<{ code: string; name: string; service: boolean; vat: string } | null>(null);
-  function reset() { setForm(initialForm); setItems(initialItems); setCategory(row.category ?? ''); setSoftoneSeries(row.softoneSeries ?? ''); setDocType(row.docType); }
+  function reset() { setForm(initialForm); setItems(initialItems); setCategory(row.category ?? ''); setSeriesKey(initialSeriesKey); setDocType(row.docType); }
 
   function buildExtractedData() {
     const out: Record<string, any> = { ...data };
@@ -288,7 +291,14 @@ export function OcrRowDetail({
     setSaving(true);
     try {
       const extractedData = buildExtractedData();
-      const body: any = { category: category || null, softoneSeries: softoneSeries || null, extractedData, docType };
+      // Στέλνουμε ΚΑΙ την ενότητα: το API δεν χρειάζεται να μαντέψει σε ποιο μητρώο ανήκει ο κωδικός.
+      const sep = seriesKey.indexOf(':');
+      const body: any = {
+        category: category || null,
+        softoneSeries: seriesKey ? seriesKey.slice(sep + 1) : null,
+        seriesSource: seriesKey ? Number(seriesKey.slice(0, sep)) : null,
+        extractedData, docType,
+      };
       if (isInvoice) body.items = extractedData.items;
       const res = await fetch(`/api/admin/ocr/${row.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -617,7 +627,7 @@ export function OcrRowDetail({
             <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2 lg:max-w-xl">
               <label className="flex min-w-0 flex-col gap-0.5">
                 <span className={LABEL_CLS}>Τύπος παραστατικού (SoftOne)</span>
-                <select value={softoneSeries} disabled={ro} onChange={(e) => setSoftoneSeries(e.target.value)} className={cn(INPUT_CLS, 'w-full cursor-pointer')}>
+                <select value={seriesKey} disabled={ro} onChange={(e) => setSeriesKey(e.target.value)} className={cn(INPUT_CLS, 'w-full cursor-pointer')}>
                   <option value="">— Επιλογή σειράς —</option>
                   {/* Ομαδοποίηση όπως στο SoftOne: σειρές αγορών (1251) και σειρές πιστωτών (1653). */}
                   {(['purchase', 'creditor'] as const).map((kind) => {
@@ -626,8 +636,10 @@ export function OcrRowDetail({
                     return (
                       <optgroup key={kind} label={kind === 'purchase' ? 'Αγορών' : 'Πιστωτών'}>
                         {group.map((o) => (
-                          <option key={`${kind}-${o.code}`} value={o.code}>
-                            {o.abbrev ? `${o.abbrev} · ` : ''}{o.name}
+                          // Ανενεργή σειρά: μπαίνει μόνο επειδή τη δείχνει ήδη το παραστατικό —
+                          // φαίνεται, αλλά δεν ξαναεπιλέγεται.
+                          <option key={`${o.sosource}-${o.code}`} value={`${o.sosource}:${o.code}`} disabled={!o.enabled}>
+                            {o.abbrev ? `${o.abbrev} · ` : ''}{o.name}{o.enabled ? '' : ' (ανενεργή)'}
                           </option>
                         ))}
                       </optgroup>
