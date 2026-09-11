@@ -28,6 +28,8 @@ export default async function ReferenceDataPage() {
   const purdocLastSync = await getSetting<string>('integrations.softonePurdocLastSync');
   const docSeriesLastSync = await getSetting<string>('integrations.softoneDocSeriesLastSync');
   const docSeriesCount = await prisma.softoneDocSeries.count();
+  const expensesCount = await prisma.softoneExpense.count();
+  const expensesLastSync = await getSetting<string>('integrations.softoneExpensesLastSync');
   const tradersLastSync = await getSetting<string>('integrations.softoneTradersLastSync');
   const lookupsLastSync = await getSetting<string>('integrations.softoneLookupsLastSync');
 
@@ -50,6 +52,7 @@ export default async function ReferenceDataPage() {
           { key: 'purchaseDocTypes', label: 'Τύποι παραστατικών αγορών', count: purchaseDocTypes, lastUpdated: purdocLastSync ?? null, source: 'SoftOne', syncKind: 'purdoc' },
           { key: 'docSeries', label: 'Σειρές παραστατικών (έξοδα, εισπράξεις, πληρωμές…)', count: docSeriesCount, lastUpdated: docSeriesLastSync ?? null, source: 'SoftOne', syncKind: 'docseries', viewHref: '/admin/doc-series' },
           { key: 'traders', label: 'Συναλλασσόμενοι (πελάτες, προμηθευτές, χρεώστες, πιστωτές)', count: tradersCount, lastUpdated: tradersLastSync ?? null, source: 'SoftOne', syncKind: 'traders', viewHref: '/admin/traders' },
+          { key: 'expenses', label: 'Έξοδα SoftOne (EXPN)', count: expensesCount, lastUpdated: expensesLastSync ?? null, source: 'SoftOne', syncKind: 'expenses' },
           { key: 'lookups', label: 'Βοηθητικοί πίνακες (ΦΠΑ/μονάδες/ομάδες…)', count: lookupsCount, lastUpdated: lookupsLastSync ?? null, source: 'SoftOne', syncKind: 'lookups' },
           { key: 'kadCodes', label: 'Μητρώο ΚΑΔ', count: kadCount, lastUpdated: null, source: 'Auto (από lookups)', viewHref: '/admin/kad-codes' },
           { key: 'kadLicense', label: `ΚΑΔ με άδεια λειτουργίας (από ${kadLicenseRoots} ρίζες)`, count: kadLicenseTotal, lastUpdated: null, source: 'NF BUSNESS.xlsx', viewHref: '/admin/kad-codes' },

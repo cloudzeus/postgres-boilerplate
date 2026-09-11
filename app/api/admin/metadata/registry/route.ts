@@ -96,6 +96,25 @@ export async function GET(req: Request) {
       };
       break;
     }
+    case 'expenses': {
+      const rows = await prisma.softoneExpense.findMany({ orderBy: [{ name: 'asc' }] });
+      data = {
+        title: 'Έξοδα SoftOne',
+        columns: [
+          { key: 'code', label: 'Σύντμηση' },
+          { key: 'name', label: 'Περιγραφή' },
+          { key: 'vat', label: 'ΦΠΑ' },
+          { key: 'isActive', label: 'Ενεργό' },
+        ],
+        rows: rows.map((r) => ({
+          code: r.code,
+          name: r.name,
+          vat: r.vat ?? '',
+          isActive: r.isActive ? 'Ναι' : 'Όχι',
+        })),
+      };
+      break;
+    }
     case 'vatCategories': {
       const rows = await prisma.vatCategory.findMany({ orderBy: [{ order: 'asc' }, { code: 'asc' }] });
       data = {

@@ -11,7 +11,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
 
-type SyncKind = 'gemi' | 'vat' | 'purdoc' | 'docseries' | 'traders' | 'lookups';
+type SyncKind = 'gemi' | 'vat' | 'purdoc' | 'docseries' | 'traders' | 'lookups' | 'expenses';
 type Stat = {
   key: string;
   label: string;
@@ -27,7 +27,7 @@ type Stat = {
 // Registries that expose data through the generic /api/admin/metadata/registry feed
 // (i.e. those without a dedicated page → shown in a modal).
 // Customers/suppliers have dedicated pages (viewHref), so they are not modal keys.
-const MODAL_KEYS = new Set(['legalTypes', 'gemiOffices', 'companyStatuses', 'vatCategories', 'purchaseDocTypes', 'docSeries']);
+const MODAL_KEYS = new Set(['legalTypes', 'gemiOffices', 'companyStatuses', 'vatCategories', 'purchaseDocTypes', 'docSeries', 'expenses']);
 
 // Per-source badge colors (inline hex → guaranteed visible in light & dark themes).
 const SOURCE_STYLE: Record<string, { bg: string; fg: string; bd: string }> = {
@@ -152,6 +152,19 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
     else { const e = await res.json().catch(() => ({})); toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία'); }
   };
 
+  const syncExpenses = async () => {
+    const res = await fetch('/api/admin/metadata/sync-expenses-softone', { method: 'POST' });
+    if (res.ok) {
+      const d = await res.json();
+      const extra = d.deactivated ? ` · ${d.deactivated} απενεργοποιήσεις` : '';
+      toast.success(`Έξοδα: ${d.total.toLocaleString('el-GR')} (νέα ${d.created}, ενημερώσεις ${d.updated})${extra}`);
+      router.refresh();
+    } else {
+      const e = await res.json().catch(() => ({}));
+      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού εξόδων');
+    }
+  };
+
   const runSync = async (stat: Stat) => {
     if (!stat.syncKind) return;
     setSyncingKey(stat.key);
@@ -161,6 +174,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
       else if (stat.syncKind === 'docseries') await syncDocSeries();
       else if (stat.syncKind === 'lookups') await syncLookups();
       else if (stat.syncKind === 'traders') await syncTraders();
+      else if (stat.syncKind === 'expenses') await syncExpenses();
       else await syncGemi();
     } finally {
       setSyncingKey(null);

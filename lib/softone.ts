@@ -940,9 +940,16 @@ export interface CreateSupplierInput {
   zip?: string | null;
   city?: string | null;
 }
+/** Συναλλασσόμενος που εκδίδει παραστατικό προς εμάς: προμηθευτής (12) ή πιστωτής (16). */
+export type TraderKind = 'supplier' | 'creditor';
+/** Ίδια πεδία για SUPPLIER και CREDITOR — το SODTYPE το θέτει το ίδιο το object. */
+export type CreateTraderInput = CreateSupplierInput;
 
-/** Builds the exact setData payload for a supplier create (also used for dry-run preview). */
-export function buildSupplierPayload(input: CreateSupplierInput): { OBJECT: 'SUPPLIER'; KEY: ''; DATA: { SUPPLIER: Record<string, unknown>[] } } {
+const TRADER_OBJECT: Record<TraderKind, 'SUPPLIER' | 'CREDITOR'> = { supplier: 'SUPPLIER', creditor: 'CREDITOR' };
+/** SODTYPE που δίνει το κάθε object (για έλεγχο μετά την εγγραφή). */
+export const TRADER_KIND_SODTYPE: Record<TraderKind, number> = { supplier: 12, creditor: 16 };
+
+function traderRow(input: CreateTraderInput): Record<string, unknown> {
   const row: Record<string, unknown> = {
     NAME: input.name,
     AFM: input.afm,
@@ -954,20 +961,42 @@ export function buildSupplierPayload(input: CreateSupplierInput): { OBJECT: 'SUP
   if (input.address) row.ADDRESS = input.address;
   if (input.zip) row.ZIP = input.zip;
   if (input.city) row.CITY = input.city;
-  return { OBJECT: 'SUPPLIER', KEY: '', DATA: { SUPPLIER: [row] } };
+  return row;
 }
 
 /**
- * Creates a new supplier in SoftOne (setData on object SUPPLIER → TRDR; SODTYPE=12
- * is set by the object). Required fields beyond CODE/NAME carry schema defaults.
- * Returns the new TRDR id + the assigned CODE.
+ * Builds the exact setData payload for a trader create (also used for dry-run preview).
+ * Both objects write TRDR — SUPPLIER stamps SODTYPE=12, CREDITOR stamps 16.
  */
-export async function softoneCreateSupplier(input: CreateSupplierInput): Promise<{ trdr: number; code: string }> {
+export function buildTraderPayload(kind: 'supplier', input: CreateTraderInput): { OBJECT: 'SUPPLIER'; KEY: ''; DATA: { SUPPLIER: Record<string, unknown>[] } };
+export function buildTraderPayload(kind: 'creditor', input: CreateTraderInput): { OBJECT: 'CREDITOR'; KEY: ''; DATA: { CREDITOR: Record<string, unknown>[] } };
+export function buildTraderPayload(kind: TraderKind, input: CreateTraderInput): { OBJECT: 'SUPPLIER' | 'CREDITOR'; KEY: ''; DATA: Record<string, Record<string, unknown>[]> };
+export function buildTraderPayload(kind: TraderKind, input: CreateTraderInput) {
+  const object = TRADER_OBJECT[kind];
+  return { OBJECT: object, KEY: '' as const, DATA: { [object]: [traderRow(input)] } };
+}
+
+/** Builds the exact setData payload for a supplier create (also used for dry-run preview). */
+export function buildSupplierPayload(input: CreateSupplierInput): { OBJECT: 'SUPPLIER'; KEY: ''; DATA: { SUPPLIER: Record<string, unknown>[] } } {
+  return buildTraderPayload('supplier', input);
+}
+
+/**
+ * Creates a new trader in SoftOne (setData on object SUPPLIER/CREDITOR → TRDR; the
+ * SODTYPE is set by the object). Required fields beyond CODE/NAME carry schema
+ * defaults. Returns the new TRDR id + the assigned CODE (read back from TRDR,
+ * because `success: true` alone does not prove the row persisted).
+ */
+export async function softoneCreateTrader(
+  kind: TraderKind,
+  input: CreateTraderInput,
+): Promise<{ trdr: number; code: string }> {
+  const object = TRADER_OBJECT[kind];
   const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>(
-    'setData', buildSupplierPayload(input),
+    'setData', buildTraderPayload(kind, input),
   );
   if (res.success === false || res.id == null) {
-    throw new Error(res.error ?? `setData SUPPLIER απέτυχε (code ${res.errorcode ?? '?'})`);
+    throw new Error(res.error ?? `setData ${object} απέτυχε (code ${res.errorcode ?? '?'})`);
   }
   const trdr = Number(res.id);
   // Read back the assigned CODE (auto-numbered when not supplied).
@@ -979,6 +1008,16 @@ export async function softoneCreateSupplier(input: CreateSupplierInput): Promise
     } catch { /* best-effort */ }
   }
   return { trdr, code };
+}
+
+/** Creates a new supplier (SODTYPE=12). Thin wrapper over {@link softoneCreateTrader}. */
+export async function softoneCreateSupplier(input: CreateSupplierInput): Promise<{ trdr: number; code: string }> {
+  return softoneCreateTrader('supplier', input);
+}
+
+/** Creates a new creditor (SODTYPE=16) — object CREDITOR, ίδιο payload με SUPPLIER. */
+export async function softoneCreateCreditor(input: CreateTraderInput): Promise<{ trdr: number; code: string }> {
+  return softoneCreateTrader('creditor', input);
 }
 
 export interface AfmLookupResult {
@@ -1005,13 +1044,31 @@ export async function softoneFindByAfm(afm: string): Promise<AfmLookupResult> {
 }
 
 /**
- * Lean lookup of a single vendor by ΑΦΜ — used by the OCR pipeline to tag scanned
- * purchase invoices with their SoftOne supplier/creditor. Searches προμηθευτές (12)
- * and πιστωτές (16) and prefers a formal supplier. Returns the match or null.
+ * Lean lookup of a single vendor by ΑΦΜ, without the SODTYPE — kept for existing
+ * callers; new code should use {@link softoneFindTraderByAfm}.
  */
 export async function softoneFindSupplierByAfm(
   afm: string,
 ): Promise<{ trdr: number; code: string; name: string; kind: string } | null> {
+  const m = await softoneFindTraderByAfm(afm);
+  return m ? { trdr: m.trdr, code: m.code, name: m.name, kind: m.kind } : null;
+}
+
+export interface TraderLookupRow {
+  trdr: number;
+  code: string;
+  name: string;
+  /** Προμηθευτής / Πιστωτής (από το SODTYPE). */
+  kind: string;
+  sodtype: number;
+}
+
+/**
+ * Looks up a single issuer by ΑΦΜ across προμηθευτές (12) and πιστωτές (16),
+ * preferring a formal supplier when the ΑΦΜ exists as both. Used by the OCR
+ * pipeline to tag scanned documents with their SoftOne trader.
+ */
+export async function softoneFindTraderByAfm(afm: string): Promise<TraderLookupRow | null> {
   const clean = String(afm).replace(/[^0-9A-Za-z]/g, '');
   if (!clean) return null;
   const rows = await softoneGetTable(
@@ -1020,11 +1077,15 @@ export async function softoneFindSupplierByAfm(
   );
   const valid = rows.filter((o) => Number.isFinite(Number(o.TRDR)));
   if (valid.length === 0) return null;
+  // SUPPLIER_SODTYPES is ordered 12 → 16, so its index is the preference order.
   const pref: readonly number[] = SUPPLIER_SODTYPES;
   valid.sort((a, b) => pref.indexOf(Number(a.SODTYPE)) - pref.indexOf(Number(b.SODTYPE)));
   const r = valid[0];
   const sodtype = Number(r.SODTYPE);
-  return { trdr: Number(r.TRDR), code: r.CODE, name: r.NAME, kind: SODTYPE_LABEL[sodtype] ?? `Τύπος ${sodtype}` };
+  return {
+    trdr: Number(r.TRDR), code: r.CODE, name: r.NAME, sodtype,
+    kind: SODTYPE_LABEL[sodtype] ?? `Τύπος ${sodtype}`,
+  };
 }
 
 export interface SoftoneTestResult {
@@ -1093,4 +1154,142 @@ export async function softoneTestConnection(): Promise<SoftoneTestResult> {
   } catch (e) {
     return { ok: false, endpoint: cfg.endpoint, stage: 'login', authenticated: false, error: (e as Error).message };
   }
+}
+
+// ============================================================
+// Έξοδα — object EXPENSES (EditMaster) → πίνακας EXPN
+// ============================================================
+
+export interface ExpenseRow {
+  /** EXPN (Smallint) — το κλειδί του εξόδου. */
+  expn: number;
+  /** CODE — «Σύντμηση» (max 15 χαρακτήρες). */
+  code: string;
+  /** NAME — «Περιγραφή» (max 50 χαρακτήρες). */
+  name: string;
+  /** VAT — κωδικός κατηγορίας ΦΠΑ (προαιρετικό στο SoftOne). */
+  vat: string | null;
+  isActive: boolean;
+}
+
+// Πεδία του EXPN που καθρεφτίζουμε τοπικά (επαληθευμένα στο schema του object EXPENSES).
+const EXPN_FIELDS = ['EXPN', 'CODE', 'NAME', 'VAT', 'ISACTIVE'];
+
+function mapExpense(o: Record<string, string>): ExpenseRow {
+  return {
+    expn: Number(o.EXPN),
+    code: o.CODE,
+    name: o.NAME,
+    vat: idOrNull(o.VAT),
+    isActive: o.ISACTIVE !== '0',
+  };
+}
+
+/** Reads the active expenses registry from SoftOne (EXPN, ISACTIVE=1) via GetTable. */
+export async function softoneFetchExpenses(): Promise<ExpenseRow[]> {
+  const rows = await softoneGetTable('EXPN', EXPN_FIELDS, 'ISACTIVE=1');
+  return rows.map(mapExpense).filter((r) => Number.isFinite(r.expn));
+}
+
+/**
+ * Required flag fields of EXPN. SoftOne rejects an insert without them, and the
+ * correct values are installation-specific — so they are copied from an existing
+ * expense (read-before-write) instead of being guessed.
+ */
+export const EXPENSE_FLAG_FIELDS = [
+  'CLCMD', 'INCLMD', 'VATMODE', 'ISSTOCK', 'STOCKMD', 'SOVAL', 'INVOICEFLAG', 'KEPYOFLAG',
+] as const;
+
+/** Σχεδιαστικές προεπιλογές του object EXPENSES — μόνο ως δίχτυ όταν λείπει πεδίο από το πρότυπο. */
+const EXPENSE_FLAG_DEFAULTS: Record<string, unknown> = {
+  CLCMD: 0, INCLMD: 0, VATMODE: 0, ISSTOCK: 0, STOCKMD: 0, SOVAL: 0, INVOICEFLAG: 1, KEPYOFLAG: 1,
+};
+
+export interface ExpenseTemplate {
+  /** Το EXPN της εγγραφής από την οποία αντιγράφηκαν τα flags (για audit/log). */
+  expn: number | null;
+  flags: Record<string, unknown>;
+}
+
+/**
+ * Read-before-write: διαβάζει ένα υπάρχον ενεργό έξοδο (getData στο object EXPENSES)
+ * και επιστρέφει τα required flags του, ώστε η δημιουργία νέου εξόδου να κληρονομεί
+ * τις ρυθμίσεις της εγκατάστασης αντί για μαντεψιές.
+ */
+export async function softoneLoadExpenseTemplate(templateExpn?: number | null): Promise<ExpenseTemplate> {
+  let key = Number(templateExpn);
+  if (!Number.isFinite(key) || key <= 0) {
+    const rows = await softoneGetTable('EXPN', ['EXPN'], 'ISACTIVE=1');
+    const first = rows.map((r) => Number(r.EXPN)).filter((n) => Number.isFinite(n) && n > 0)[0];
+    if (!first) return { expn: null, flags: { ...EXPENSE_FLAG_DEFAULTS } };
+    key = first;
+  }
+  const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; data?: Record<string, unknown> }>(
+    'getData',
+    { OBJECT: 'EXPENSES', KEY: String(key), LOCATEINFO: `EXPN:${EXPENSE_FLAG_FIELDS.join(',')}` },
+  );
+  if (res.success === false) {
+    throw new Error(res.error ?? `getData EXPENSES ${key} απέτυχε (code ${res.errorcode ?? '?'})`);
+  }
+  // Η απάντηση έρχεται ως { data: { EXPN: [ {…} ] } } — κρατάμε τον πρώτο πίνακα με γραμμές.
+  const tables = (res.data ?? {}) as Record<string, unknown>;
+  const rows = (tables.EXPN ?? tables.EXPENSES ?? Object.values(tables).find(Array.isArray)) as
+    | Record<string, unknown>[]
+    | undefined;
+  const row = Array.isArray(rows) ? rows[0] : undefined;
+  const flags: Record<string, unknown> = { ...EXPENSE_FLAG_DEFAULTS };
+  for (const f of EXPENSE_FLAG_FIELDS) {
+    const v = row?.[f];
+    if (v != null && String(v).trim() !== '') flags[f] = v;
+  }
+  return { expn: key, flags };
+}
+
+export interface CreateExpenseInput {
+  code: string;
+  name: string;
+  vat?: string | null;
+  /** Προαιρετικό «πρότυπο» έξοδο από το οποίο αντιγράφονται τα flags. */
+  templateExpn?: number | null;
+}
+
+/** Builds the exact setData payload for an expense create (also used for dry-run preview). */
+export function buildExpensePayload(
+  input: CreateExpenseInput,
+  flags: Record<string, unknown>,
+): { OBJECT: 'EXPENSES'; KEY: ''; DATA: { EXPENSES: Record<string, unknown>[] } } {
+  const row: Record<string, unknown> = {
+    CODE: input.code,
+    NAME: input.name,
+    ISACTIVE: 1,
+    ...flags,
+  };
+  if (input.vat) row.VAT = input.vat;
+  return { OBJECT: 'EXPENSES', KEY: '', DATA: { EXPENSES: [row] } };
+}
+
+/**
+ * Creates a new expense in SoftOne (setData on object EXPENSES → EXPN). The
+ * required flag fields are copied from an existing expense first (read-before-write)
+ * and the new row is read back, because `success: true` alone does not prove it
+ * persisted. Returns the new EXPN + the template row that was copied.
+ */
+export async function softoneCreateExpense(
+  input: CreateExpenseInput,
+): Promise<{ expn: number; code: string; name: string; templateExpn: number | null }> {
+  const template = await softoneLoadExpenseTemplate(input.templateExpn);
+  const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>(
+    'setData', buildExpensePayload(input, template.flags),
+  );
+  if (res.success === false || res.id == null) {
+    throw new Error(res.error ?? `setData EXPENSES απέτυχε (code ${res.errorcode ?? '?'})`);
+  }
+  const expn = Number(res.id);
+  // Read back — «success: true» δεν σημαίνει ότι γράφτηκε.
+  const back = await softoneGetTable('EXPN', EXPN_FIELDS, `EXPN=${expn}`);
+  const row = back[0];
+  if (!row || !Number.isFinite(Number(row.EXPN))) {
+    throw new Error(`Το έξοδο ${expn} δεν βρέθηκε μετά τη δημιουργία (setData EXPENSES)`);
+  }
+  return { expn, code: row.CODE, name: row.NAME, templateExpn: template.expn };
 }

@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { softoneFindSupplierByAfm, softoneCheckPurchaseDoc } from '@/lib/softone';
+import { softoneFindTraderByAfm, softoneCheckPurchaseDoc } from '@/lib/softone';
 
 /**
  * PURDOC duplicate check fields for a scanned doc, given the matched supplier TRDR
@@ -29,8 +29,9 @@ export type SoftoneMatchFields = {
 };
 
 /**
- * Looks up the issuer ΑΦΜ of a scanned purchase invoice in SoftOne suppliers
- * (TRDR SODTYPE=12) and returns fields to persist on the OcrDocument. Best-effort:
+ * Looks up the issuer ΑΦΜ of a scanned document in SoftOne traders — προμηθευτές
+ * (SODTYPE 12) and πιστωτές (16), preferring a supplier — and returns fields to
+ * persist on the OcrDocument (`softoneKind` follows the SODTYPE). Best-effort:
  * never throws (SoftOne errors leave `softoneChecked = null` so a re-extract retries).
  */
 export async function buildSoftoneMatch(vatNumber: unknown): Promise<SoftoneMatchFields> {
@@ -38,7 +39,7 @@ export async function buildSoftoneMatch(vatNumber: unknown): Promise<SoftoneMatc
   const empty = { softoneTrdr: null, softoneCode: null, softoneName: null, softoneKind: null };
   if (!afm) return { ...empty, softoneChecked: new Date() };
   try {
-    const m = await softoneFindSupplierByAfm(afm);
+    const m = await softoneFindTraderByAfm(afm);
     return m
       ? { softoneTrdr: m.trdr, softoneCode: m.code, softoneName: m.name, softoneKind: m.kind, softoneChecked: new Date() }
       : { ...empty, softoneChecked: new Date() };
