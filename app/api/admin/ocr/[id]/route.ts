@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { bunnyDelete } from '@/lib/bunny';
 import { DocumentSchema, normalizeDocument, type DocumentJson } from '@/lib/ocr/canonical';
-import { loadDocumentJson, mergeLegacyPatch, saveDocumentJson } from '@/lib/ocr/document';
+import { docTypeOf, loadDocumentJson, mergeLegacyPatch, saveDocumentJson } from '@/lib/ocr/document';
 
 const ItemSchema = z.object({
   code: z.string().nullable().optional(), name: z.string(),
@@ -111,7 +111,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   // Όλα τα γραψίματα του εγγράφου — κανονικά ή legacy — καταλήγουν στον έναν γραφέα, που κρατάει
   // `document`, `extractedData`, `issuerAfm` και τις γραμμές συμφωνημένα στο ίδιο transaction.
   if (nextDocument || extractedData !== undefined || items !== undefined) {
-    const next = nextDocument ?? mergeLegacyPatch(await loadDocumentJson(id), extractedData ?? {}, items);
+    // Το `docType` του ΙΔΙΟΥ PATCH αποφασίζει το είδος του εγγράφου: αλλιώς ένα τιμολόγιο που μόλις
+    // έγινε «γενικό κείμενο» θα κρατούσε `kind: 'invoice'` μέχρι την επόμενη εξαγωγή.
+    const next = nextDocument
+      ?? mergeLegacyPatch(await loadDocumentJson(id), extractedData ?? {}, items, scalar.docType ? docTypeOf(scalar.docType) : null);
     await saveDocumentJson(id, next, { replaceItems: true });
   }
   const fresh = await prisma.ocrDocument.findUnique({ where: { id }, include: { items: { orderBy: { rowIndex: 'asc' } } } });

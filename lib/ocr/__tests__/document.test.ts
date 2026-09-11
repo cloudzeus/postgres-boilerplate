@@ -222,6 +222,17 @@ describe('mergeLegacyPatch', () => {
     expect(mergeLegacyPatch(general, { summary: 'Νέα περίληψη' }).kind).toBe('general');
   });
 
+  it('the docType of the SAME patch decides the kind, in both directions', () => {
+    // Ο χρήστης αλλάζει τον τύπο σε «γενικό κείμενο»: το έγγραφο δεν επιτρέπεται να μείνει τιμολόγιο
+    // μέχρι την επόμενη εξαγωγή.
+    expect(mergeLegacyPatch(existing, { title: 'Τ' }, null, 'general_text').kind).toBe('general');
+    const general = fromLegacy({ title: 'Τ' }, [], 'general_text');
+    expect(mergeLegacyPatch(general, { companyName: 'Κ' }, null, 'receipt').kind).toBe('receipt');
+    expect(mergeLegacyPatch(general, { companyName: 'Κ', customerName: 'Π' }, null, 'invoice').kind).toBe('invoice');
+    // Χωρίς `docType` στο PATCH τίποτα δεν αλλάζει στη σημερινή συμπεριφορά.
+    expect(mergeLegacyPatch(general, { summary: 'x' }, null, null).kind).toBe('general');
+  });
+
   it('returns the document (normalized) when there is nothing to patch', () => {
     const merged = mergeLegacyPatch(existing, null);
     expect(merged.totals.total).toBe(124);

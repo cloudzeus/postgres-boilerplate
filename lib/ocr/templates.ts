@@ -43,10 +43,12 @@ export const TEMPLATE_SCHEMAS: Record<DocType, TemplateSchema> = {
     "phone": "string or null (ΤΗΛ — only if printed)", "email": "string or null (only if printed)",
     "gemi": "string or null (ΓΕΜΗ)", "code": "string or null"
   },
-  "recipient": {                // ΠΑΡΑΛΗΠΤΗΣ / Πελάτης — the buyer. ALL null on a retail receipt.
-    "name": null, "vat": null, "doy": null, "profession": null,
-    "address": null, "city": null, "zip": null, "country": null,
-    "phone": null, "email": null, "gemi": null, "code": null
+  "recipient": {                // ΠΑΡΑΛΗΠΤΗΣ / Πελάτης — the buyer. Leave EVERY field null on a retail receipt.
+    "name": "string or null", "vat": "string or null (ΑΦΜ; keep the country prefix for foreign buyers)",
+    "doy": "string or null", "profession": "string or null (ΕΠΑΓΓΕΛΜΑ / activity)",
+    "address": "string or null", "city": "string or null", "zip": "string or null", "country": "string or null",
+    "phone": "string or null (only if printed)", "email": "string or null (only if printed)",
+    "gemi": "string or null (ΓΕΜΗ)", "code": "string or null"
   },
   "lines": [                    // one entry per printed line of goods/services; [] if the document has no line table
     {

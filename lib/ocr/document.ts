@@ -184,9 +184,12 @@ export function mergeLegacyPatch(
   existing: DocumentJson,
   extractedData: unknown,
   items?: unknown[] | null,
+  /** Ο τύπος που ορίζει το ΙΔΙΟ PATCH, όταν το αλλάζει (`docType: 'GENERAL_TEXT'`). */
+  nextDocType?: CanonicalDocType | null,
 ): DocumentJson {
   const flat = isObj(extractedData) ? extractedData : {};
-  const docType: CanonicalDocType = existing.kind === 'general' ? 'general_text' : existing.kind;
+  const docType: CanonicalDocType = nextDocType
+    ?? (existing.kind === 'general' ? 'general_text' : existing.kind);
   const patch = fromLegacy(flat, items, docType);
 
   let out = existing;
@@ -211,8 +214,10 @@ export function mergeLegacyPatch(
   if (Array.isArray(flat.bankAccounts)) out = setPath(out, 'payment.ibans', patch.payment.ibans);
   if (Array.isArray(items) || Array.isArray(flat.items)) out = { ...out, lines: patch.lines };
 
-  // Ο παραλήπτης είναι το σήμα τιμολόγιο/απόδειξη (όπως το `inferDocKind`)· ένα γενικό μένει γενικό.
-  const kind = out.kind === 'general'
+  // Ο παραλήπτης είναι το σήμα τιμολόγιο/απόδειξη (όπως το `inferDocKind`). Ένα γενικό μένει γενικό
+  // — εκτός αν το ίδιο το PATCH άλλαξε τον τύπο του εγγράφου, οπότε εκείνο έχει τον λόγο.
+  const general = nextDocType ? nextDocType === 'general_text' : out.kind === 'general';
+  const kind = general
     ? 'general'
     : has(out.recipient.name) || has(out.recipient.vat) ? 'invoice' : 'receipt';
 

@@ -404,17 +404,41 @@ describe('DOCUMENT_PATHS / LEGACY_KEY_TO_PATH', () => {
 });
 
 describe('parseNumber — δύο πηγές, δύο συμβάσεις', () => {
-  it('κείμενο: ελληνική σύμβαση — τελεία = χιλιάδες, κόμμα = δεκαδικό', () => {
+  it('ελληνικό τυπωμένο ποσό: τελεία = χιλιάδες, κόμμα = δεκαδικό', () => {
     expect(parseNumber('1.234,56')).toBe(1234.56);
     expect(parseNumber('1.556.540,27')).toBe(1556540.27);
-    // Η τελεία ΠΟΤΕ δεν είναι δεκαδικό σε τυπωμένο ελληνικό ποσό — ίδιος κανόνας με το
-    // `parseGreekNumber` που διαβάζει τις τιμές των προτύπων.
+    // Ομαδοποίηση χιλιάδων χωρίς δεκαδικά — η ελληνική σύμβαση, ίδια με το `parseGreekNumber`.
     expect(parseNumber('1.234')).toBe(1234);
+    expect(parseNumber('1.234.567')).toBe(1234567);
     expect(parseNumber('1.234')).toBe(parseGreekNumber('1.234'));
     expect(parseNumber('12,34')).toBe(parseGreekNumber('12,34'));
+    expect(parseNumber('1,5')).toBe(1.5);
     expect(parseNumber('24%')).toBe(24);
     expect(parseNumber('1.234,56 €')).toBe(1234.56);
     expect(parseNumber('-45,5')).toBe(-45.5);
+  });
+
+  it('ΜΗΧΑΝΙΚΗ μορφή: η τελεία είναι το δεκαδικό όταν δεν είναι ομαδοποίηση χιλιάδων', () => {
+    // Τα μοντέλα γράφουν συχνά «500.50», και τα παλιά `extractedData` το κρατούν αυτούσιο. Με τον
+    // κανόνα «η τελεία είναι πάντα χιλιάδες» αυτό θα γινόταν 50050 — δηλαδή το backfill θα
+    // κατέστρεφε ποσά.
+    expect(parseNumber('500.50')).toBe(500.5);
+    expect(parseNumber('12.5')).toBe(12.5);
+    expect(parseNumber('0.24')).toBe(0.24);
+    expect(parseNumber('1234.56')).toBe(1234.56);
+  });
+
+  it('αγγλική σύμβαση: το ΤΕΛΕΥΤΑΙΟ διαχωριστικό είναι το δεκαδικό', () => {
+    expect(parseNumber('1,234.56')).toBe(1234.56);
+    expect(parseNumber('1,234,567.89')).toBe(1234567.89);
+    // Καθαρή ομαδοποίηση με κόμμα, χωρίς δεκαδικά.
+    expect(parseNumber('1,234')).toBe(1234);
+    expect(parseNumber('12,345,678')).toBe(12345678);
+  });
+
+  it('λογιστική παρένθεση = αρνητικό ποσό', () => {
+    expect(parseNumber('(500,00)')).toBe(-500);
+    expect(parseNumber('(1.234,56 €)')).toBe(-1234.56);
   });
 
   it('αντικείμενο Decimal: μηχανική μορφή, όχι ελληνική', () => {

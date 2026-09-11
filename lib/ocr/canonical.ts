@@ -9,7 +9,6 @@
 // `toLegacy` ώστε λίστα / row-detail / ουρές / doc-type / softone-match να συνεχίσουν να δουλεύουν
 // αμετάβλητα, και διαβάζονται πίσω με `fromLegacy` για τα έγγραφα που γράφτηκαν πριν από το plan 5.
 import { z } from 'zod';
-import { parseGreekNumber } from '@/lib/greek-format';
 import { normalizeAfm } from '@/lib/ocr/validate';
 import { reconcileInvoice } from '@/lib/ocr/invoice-math';
 
@@ -32,16 +31,58 @@ const isObj = (v: unknown): v is Record<string, unknown> => v != null && typeof 
 const round2 = (x: number) => Math.round((x + Number.EPSILON) * 100) / 100;
 
 /**
- * Αριθμός από ό,τι κουβαλάει το πεδίο, με ΔΥΟ συμβάσεις — γιατί δύο είναι και οι πηγές:
+ * Αριθμός από κείμενο, με ΤΑ ΔΥΟ διαχωριστικά κρινόμενα κατά περίπτωση — γιατί δύο είναι και οι
+ * συμβάσεις που φτάνουν εδώ: το ελληνικό τυπωμένο «1.234,56» και η μηχανική μορφή «500.50» που
+ * γράφουν τα μοντέλα (και που κάθεται αυτούσια μέσα σε παλιά `extractedData`).
  *
- *   • κείμενο (OCR, prompt, πληκτρολόγηση) → ελληνική σύμβαση μέσω `parseGreekNumber`:
- *     η τελεία ΠΑΝΤΑ χωρίζει χιλιάδες, το κόμμα είναι το δεκαδικό («1.234,56» → 1234.56,
- *     «1.234» → 1234). Είναι ο ίδιος parser με τις τιμές των προτύπων (`coerceFinancialValue`)·
- *     αν οι δύο διαφωνούσαν, το ίδιο τυπωμένο ποσό θα αποθηκευόταν αλλιώς ανά διαδρομή.
- *   • αντικείμενο με `toNumber()` / αριθμητικό `toString()` (Prisma `Decimal` από τις γραμμές
- *     `OcrInvoiceItem`) → ΜΗΧΑΝΙΚΗ μορφή: εκεί η τελεία είναι το δεκαδικό, όπως τη γράφει η βάση.
+ *   • και τελεία ΚΑΙ κόμμα  → το ΤΕΛΕΥΤΑΙΟ είναι το δεκαδικό, το άλλο χωρίζει χιλιάδες
+ *     («1.234,56» → 1234.56, «1,234.56» → 1234.56)
+ *   • μόνο κόμμα            → δεκαδικό («1,5» → 1.5), εκτός αν είναι καθαρή ομαδοποίηση
+ *     χιλιάδων («1,234» → 1234)
+ *   • μόνο τελεία           → χιλιάδες ΜΟΝΟ στην ελληνική ομαδοποίηση «\d{1,3}(.\d{3})+»
+ *     («1.234» → 1234, «1.234.567» → 1234567)· σε κάθε άλλη περίπτωση δεκαδικό
+ *     («500.50» → 500.5, «12.5» → 12.5, «0.24» → 0.24)
+ *   • παρενθέσεις           → αρνητικό ποσό, όπως το τυπώνουν τα λογιστικά («(500,00)» → -500)
+ *
+ * Δεν αγγίζει το `lib/greek-format.ts`: εκεί η τελεία είναι ΠΑΝΤΑ χιλιάδες, που είναι σωστό για
+ * ελληνικό τυπωμένο κείμενο και λάθος για ό,τι γράφει μηχανή.
  *
  * Επιστρέφει null όταν δεν υπάρχει αριθμός — ΠΟΤΕ NaN.
+ */
+export function parseNumberText(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  // Λογιστική σύμβαση: ό,τι είναι σε παρένθεση είναι αρνητικό.
+  const parenthesised = /^\(.*\)$/.test(trimmed);
+  let s = trimmed.replace(/[^\d.,-]/g, '');
+  if (!s || /^[.,-]+$/.test(s)) return null;
+
+  const negative = parenthesised || s.startsWith('-');
+  s = s.replace(/-/g, '');
+
+  const lastDot = s.lastIndexOf('.');
+  const lastComma = s.lastIndexOf(',');
+
+  if (lastDot >= 0 && lastComma >= 0) {
+    // Και τα δύο παρόντα: το τελευταίο είναι το δεκαδικό.
+    const decimal = lastDot > lastComma ? '.' : ',';
+    const thousands = decimal === '.' ? ',' : '.';
+    s = s.split(thousands).join('').replace(decimal, '.');
+  } else if (lastComma >= 0) {
+    s = /^\d{1,3}(,\d{3})+$/.test(s) ? s.split(',').join('') : s.replace(/,/g, '.');
+  } else if (lastDot >= 0) {
+    if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.split('.').join('');
+  }
+
+  // Ένα δεύτερο δεκαδικό σημείο («1.2.3») δεν είναι αριθμός.
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  return negative ? -n : n;
+}
+
+/**
+ * Αριθμός από ό,τι κουβαλάει το πεδίο: αριθμός, κείμενο (→ `parseNumberText`) ή αντικείμενο με
+ * `toNumber()` / αριθμητικό `toString()` (Prisma `Decimal` από τις γραμμές `OcrInvoiceItem`).
  */
 export function parseNumber(v: unknown): number | null {
   if (v == null) return null;
@@ -56,11 +97,12 @@ export function parseNumber(v: unknown): number | null {
     }
     const s = String(v).trim();
     if (!s || s === '[object Object]') return null;
+    // Το `toString()` ενός Decimal είναι ΜΗΧΑΝΙΚΗ μορφή: η τελεία είναι το δεκαδικό, πάντα.
     const n = Number(s.replace(',', '.'));
     return Number.isFinite(n) ? n : null;
   }
   if (typeof v !== 'string') return null;
-  return parseGreekNumber(v);
+  return parseNumberText(v);
 }
 
 const prepStr = (v: unknown): string | null => {

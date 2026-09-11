@@ -403,19 +403,31 @@ export async function callVisionLLM(
  * (εικόνα, ψηφιακό PDF, native PDF της Gemini, ρασταροποιημένες σελίδες, εφεδρικά μοντέλα):
  *   coerce  — δέχεται και κανονικό σχήμα και παλιό flat, χωρίς ποτέ να πετάει,
  *   normalize — ΑΦΜ, ημερομηνίες, αριθμοί από κείμενο («1.234,56» → 1234.56),
- *   swap    — αν ο «εκδότης» έχει το δικό μας ΑΦΜ, οι δύο πλευρές είναι ανάποδα,
- *   reconcile — συμπληρώνει ό,τι λείπει από τα σύνολα με βάση τις γραμμές (ποτέ δεν σβήνει τυπωμένη τιμή).
+ *   swap    — αν ο «εκδότης» έχει το δικό μας ΑΦΜ, οι δύο πλευρές είναι ανάποδα.
+ *
+ * ΧΩΡΙΣ συμφωνία συνόλων: αυτή γίνεται ΜΙΑ φορά, στο τέλος κάθε διαδρομής (`settle`). Αν γινόταν
+ * εδώ, μια σελίδα-συνέχεια χωρίς τυπωμένα σύνολα θα έπαιρνε υπολογισμένα σύνολα από τις δικές της
+ * γραμμές — και επειδή στη συγχώνευση κερδίζει η ΤΕΛΕΥΤΑΙΑ σελίδα που έχει σύνολα, το τυπωμένο
+ * σύνολο της σελίδας 1 θα αντικαθιστούσε από ένα μερικό άθροισμα. Με τον ίδιο τρόπο, ένα ψηφιακό
+ * πέρασμα με «γεμάτα» υπολογισμένα σύνολα δεν θα άφηνε ποτέ το υβριδικό πέρασμα να συμπληρώσει τα
+ * σύνολα που διάβασε το vision, και το `missingRequired` θα μετρούσε λιγότερα κενά από όσα υπάρχουν
+ * — δηλαδή η επανάληψη με το ισχυρό μοντέλο δεν θα ενεργοποιούνταν ποτέ.
  */
 function toDocument(raw: unknown, docType: DocType, ownAfm: string | null): DocumentJson {
-  const swapped = fixSwappedPartiesDocument(
+  return fixSwappedPartiesDocument(
     normalizeDocument(coerceDocument(raw, docType)),
     docType === 'invoice' ? ownAfm : null,
   );
-  return reconcileDocument(swapped).document;
 }
 
-/** Ένα ήδη συγχωνευμένο έγγραφο ξαναπερνάει μόνο από τη συμφωνία συνόλων. */
+/** Η ΜΙΑ συμφωνία συνόλων στο τέλος μιας διαδρομής (μετά από κάθε συγχώνευση και κάθε επανάληψη). */
 const settle = (document: DocumentJson): DocumentJson => reconcileDocument(document).document;
+
+/** Το αποτέλεσμα μιας διαδρομής, με τα σύνολα συμφωνημένα και την προβολή `data` ξαναχτισμένη. */
+function settled(result: ExtractResult): ExtractResult {
+  const document = settle(result.document);
+  return { ...result, document, data: toLegacy(document) };
+}
 
 /**
  * Ποιο από δύο περάσματα κρατάμε (ΜΙΚΡΟΤΕΡΟ = καλύτερο). Το `qualityScore` ζυγίζει και τι λείπει
@@ -463,9 +475,10 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
       } catch { /* ignore — keep first-pass result */ }
     }
 
+    const final = settle(document);
     return {
-      document,
-      data: toLegacy(document),
+      document: final,
+      data: toLegacy(final),
       rawText: null,
       model,
       tokensUsed: tokens,
@@ -485,7 +498,7 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
 
       // Not enough selectable text → fully scanned path.
       if (probed.length < DIGITAL_MIN_CHARS) {
-        return await runScannedPdf(cfg, system, input.buffer, input.docType, started);
+        return settled(await runScannedPdf(cfg, system, input.buffer, input.docType, started));
       }
 
       // Selectable text exists. Try digital first (cheap, fast).
@@ -511,16 +524,21 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
           };
         } catch { /* keep digital result if vision crashes */ }
       }
-      return digital;
+      return settled(digital);
     }
 
-    if (mode === 'digital') return await runDigitalPdf(cfg, system, input.buffer, input.docType, started);
-    if (mode === 'scanned') return await runScannedPdf(cfg, system, input.buffer, input.docType, started);
+    if (mode === 'digital') return settled(await runDigitalPdf(cfg, system, input.buffer, input.docType, started));
+    if (mode === 'scanned') return settled(await runScannedPdf(cfg, system, input.buffer, input.docType, started));
   }
 
   throw new Error(`Unsupported mimeType for OCR: ${input.mimeType}`);
 }
 
+/**
+ * ΕΣΩΤΕΡΙΚΗ διαδρομή: το έγγραφο γυρνάει ΑΣΥΜΦΩΝΗΤΟ (χωρίς `reconcileDocument`), γιατί ο καλών
+ * μπορεί να θέλει να το συγχωνεύσει πρώτα (υβριδικό πέρασμα) και να μετρήσει τα πραγματικά κενά.
+ * Όποιος το επιστρέφει στον χρήστη το περνάει από το `settled(...)`.
+ */
 async function runDigitalPdf(
   cfg: DeepSeekCfg, system: string, buffer: Buffer, docType: DocType, started: number, preExtracted?: string,
 ): Promise<ExtractResult> {
@@ -539,6 +557,7 @@ async function runDigitalPdf(
   };
 }
 
+/** ΕΣΩΤΕΡΙΚΗ διαδρομή: γυρνάει ΑΣΥΜΦΩΝΗΤΟ έγγραφο — βλ. `runDigitalPdf`. */
 async function runScannedPdf(
   cfg: DeepSeekCfg, system: string, buffer: Buffer, docType: DocType, started: number,
 ): Promise<ExtractResult> {
@@ -582,7 +601,7 @@ async function runScannedPdf(
     enhanced.map((p) => callVisionLLM(cfg, system, p.buffer.toString('base64'), p.mimeType)),
   );
   const ownAfm = await resolveOwnAfm();
-  let merged = settle(mergeDocuments(perPage.map((p) => toDocument(parseJsonLoose(p.content), docType, ownAfm))));
+  let merged = mergeDocuments(perPage.map((p) => toDocument(parseJsonLoose(p.content), docType, ownAfm)));
   let model = perPage[0].model;
   let tokensUsed = perPage.reduce((sum, p) => sum + (p.tokens ?? 0), 0) || null;
   let passes = 1;
@@ -595,7 +614,7 @@ async function runScannedPdf(
       const retryPages = await Promise.all(
         enhanced.map((p) => callVisionLLM(cfg, system, p.buffer.toString('base64'), p.mimeType, UPGRADED_VISION_MODEL)),
       );
-      const retryMerged = settle(mergeDocuments(retryPages.map((p) => toDocument(parseJsonLoose(p.content), docType, ownAfm))));
+      const retryMerged = mergeDocuments(retryPages.map((p) => toDocument(parseJsonLoose(p.content), docType, ownAfm)));
       passes = 2;
       if (score(retryMerged, docType) < score(merged, docType)) {
         merged = retryMerged;

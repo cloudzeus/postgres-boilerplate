@@ -3,7 +3,7 @@
 // υβριδικό PDF ψηφιακό+όραση (`mergeHybridDocuments`) και το μέτρο «τι λείπει» που αποφασίζει
 // αν αξίζει δεύτερο πέρασμα με ακριβότερο μοντέλο (`missingRequired`).
 import { describe, it, expect } from 'vitest';
-import { coerceDocument, type DocumentJson } from '../canonical';
+import { coerceDocument, reconcileDocument, type DocumentJson } from '../canonical';
 import {
   fixSwappedPartiesDocument, mergeDocuments, mergeHybridDocuments, missingRequired,
 } from '../extract-merge';
@@ -33,6 +33,29 @@ describe('mergeDocuments — πολυσέλιδο', () => {
     const m = mergeDocuments([p1, p2, p3]);
     expect(m.totals.total).toBe(124);
     expect(m.totals.net).toBe(100);
+  });
+
+  it('μια σελίδα-συνέχεια ΔΕΝ κλέβει τα τυπωμένα σύνολα της πρώτης', () => {
+    // Η συμφωνία συνόλων (`reconcileDocument`) γίνεται ΜΙΑ φορά, ΜΕΤΑ τη συγχώνευση. Αν γινόταν ανά
+    // σελίδα, η σελίδα 2 θα αποκτούσε δικά της «σύνολα» 124 από τις δικές της γραμμές — και επειδή
+    // κερδίζει η τελευταία σελίδα με σύνολα, το τυπωμένο 1240 της σελίδας 1 θα χανόταν.
+    const p1 = doc({
+      lines: [{ code: 'A1', name: 'Είδος Α', net: 900, vatRate: 24 }],
+      totals: { net: 1000, vatAmount: 240, total: 1240 },
+    });
+    const p2 = doc({ lines: [{ code: 'B2', name: 'Είδος Β', net: 100, vatRate: 24 }] });
+
+    const { document: m } = reconcileDocument(mergeDocuments([p1, p2]));
+
+    expect([m.totals.net, m.totals.vatAmount, m.totals.total]).toEqual([1000, 240, 1240]);
+    expect(m.lines.map((l) => l.code)).toEqual(['A1', 'B2']);
+    // Η ανάλυση ΦΠΑ χτίζεται από ΟΛΕΣ τις γραμμές, όχι μόνο από τις μισές.
+    expect(m.vatBreakdown).toEqual([{ rate: 24, net: 1000, vat: 240 }]);
+
+    // Η ΑΝΤΙΣΤΡΟΦΗ σειρά — συμφωνία ανά σελίδα και μετά συγχώνευση — είναι ακριβώς το σφάλμα:
+    // η σελίδα 2 αποκτά δικά της «σύνολα» 124 και, ως τελευταία με σύνολα, τα επιβάλλει.
+    const perPageFirst = mergeDocuments([p1, p2].map((p) => reconcileDocument(p).document));
+    expect(perPageFirst.totals.total).toBe(124);
   });
 
   it('το vatBreakdown το δίνει η τελευταία σελίδα που το έχει', () => {
@@ -121,6 +144,17 @@ describe('missingRequired', () => {
   it('η απόδειξη δεν ζητάει ανάλυση ΦΠΑ', () => {
     const receipt = doc({ issuer: { name: 'ΑΕ', vat: '999863881' }, type: { number: '5' }, date: '2026-06-22', totals: { total: 12.4 } });
     expect(missingRequired(receipt, 'receipt')).toBe(0);
+  });
+
+  it('μια ανάγνωση με γραμμές αλλά χωρίς τυπωμένα σύνολα μετράει και τα τρία σύνολα ως κενά', () => {
+    // Ο μετρητής βλέπει το ΑΣΥΜΦΩΝΗΤΟ έγγραφο: αν είχε ήδη περάσει από τη συμφωνία συνόλων, τα
+    // υπολογισμένα σύνολα θα έκρυβαν τα κενά και η επανάληψη με το ισχυρό μοντέλο δεν θα έτρεχε ποτέ.
+    const linesOnly = doc({
+      issuer: { name: 'ΚΑΠΑΛΙΝΕ ΑΕ', vat: '999863881' }, type: { number: '17' }, date: '2026-06-22',
+      lines: [{ code: 'A1', name: 'Είδος Α', net: 100, vatRate: 24 }],
+    });
+    expect(missingRequired(linesOnly, 'invoice')).toBe(3);
+    expect(missingRequired(reconcileDocument(linesOnly).document, 'invoice')).toBe(0);
   });
 
   it('το γενικό κείμενο ζητάει τίτλο και κείμενο', () => {
