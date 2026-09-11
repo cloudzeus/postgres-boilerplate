@@ -16,11 +16,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { MAX_JOB_FILES } from '@/lib/templates/jobs-logic';
+import { MAX_JOB_FILES, MAX_JOB_TOTAL_BYTES } from '@/lib/templates/jobs-logic';
 import { templatesApi, errorMessage } from '@/components/templates/api';
 
 const ALLOWED = /\.(pdf|png|jpe?g|webp)$/i;
 const MAX_BYTES = 25 * 1024 * 1024;
+
+const MAX_TOTAL_MB = Math.round(MAX_JOB_TOTAL_BYTES / (1024 * 1024));
 
 const humanSize = (n: number) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -76,7 +78,7 @@ export function JobUploadDialog({ templateId, templateName, defaultEmails, open,
 
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (busy || files.length === 0 || !title.trim()) return;
+    if (busy || files.length === 0 || !title.trim() || totalBytes > MAX_JOB_TOTAL_BYTES) return;
     setBusy(true);
     try {
       const { jobId } = await templatesApi.jobs.create(templateId, files, {
@@ -98,6 +100,9 @@ export function JobUploadDialog({ templateId, templateName, defaultEmails, open,
   };
 
   const totalBytes = files.reduce((n, f) => n + f.size, 0);
+  // Το ίδιο ταβάνι που θα έβαζε ο server — αλλά ΠΡΙΝ ανέβει το πρώτο byte: ένα 413 μετά από πέντε
+  // λεπτά ανεβάσματος είναι η χειρότερη στιγμή για να μάθει κανείς ότι η παρτίδα ήταν μεγάλη.
+  const tooMuch = totalBytes > MAX_JOB_TOTAL_BYTES;
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!busy) onOpenChange(v); }}>
@@ -153,13 +158,16 @@ export function JobUploadDialog({ templateId, templateName, defaultEmails, open,
               ref={inputRef} type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.webp"
               onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }}
             />
-            <p className="mt-1 text-[10px] text-muted-foreground">PDF, PNG, JPEG, WebP · έως 25 MB το καθένα · έως {MAX_JOB_FILES} αρχεία</p>
+            <p className="mt-1 text-[10px] text-muted-foreground">PDF, PNG, JPEG, WebP · έως 25 MB το καθένα · έως {MAX_JOB_FILES} αρχεία · έως {MAX_TOTAL_MB} MB συνολικά</p>
           </div>
 
           {files.length > 0 && (
             <div>
               <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                <span>{files.length} αρχεία · {humanSize(totalBytes)}</span>
+                <span className={tooMuch ? 'font-medium text-dg-red-600' : undefined}>
+                  {files.length} αρχεία · {humanSize(totalBytes)}
+                  {tooMuch && ` — πάνω από το όριο των ${MAX_TOTAL_MB} MB ανά εργασία· αφαίρεσε αρχεία ή χώρισέ τα σε δεύτερη εργασία`}
+                </span>
                 <button type="button" className="hover:underline" onClick={() => setFiles([])} disabled={busy}>Καθαρισμός</button>
               </div>
               <ul className="max-h-40 space-y-0.5 overflow-auto rounded-md border border-border p-1.5">
@@ -183,7 +191,7 @@ export function JobUploadDialog({ templateId, templateName, defaultEmails, open,
 
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>Άκυρο</Button>
-            <Button type="submit" disabled={busy || files.length === 0 || !title.trim()}>
+            <Button type="submit" disabled={busy || files.length === 0 || !title.trim() || tooMuch}>
               <FiPlay className="mr-1.5 size-3.5" />
               {busy ? 'Ανέβασμα…' : `Έναρξη σάρωσης${files.length ? ` (${files.length})` : ''}`}
             </Button>

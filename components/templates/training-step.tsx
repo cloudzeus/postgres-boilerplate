@@ -8,7 +8,8 @@
 // που πρέπει να περάσει ένα πρότυπο πριν ενεργοποιηθεί.
 
 import * as React from 'react';
-import { FiCheckCircle, FiInfo, FiPlay, FiUploadCloud } from 'react-icons/fi';
+import Link from 'next/link';
+import { FiBookOpen, FiCheckCircle, FiInfo, FiPlay, FiUploadCloud } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { RegionMarker } from '@/components/ui/region-marker';
@@ -160,10 +161,14 @@ export function TrainingStep() {
     <div
       className="space-y-4"
       onKeyDown={(e) => {
-        // Enter πάνω στη γραμμή που κοιτά ο χρήστης = «Επιβεβαίωση». Μέσα σε input το Enter ανήκει
-        // στη διόρθωση του κελιού, όχι εδώ.
+        // Enter πάνω στη γραμμή που κοιτά ο χρήστης = «Επιβεβαίωση».
+        //
+        // ΜΟΝΟ όμως όταν η εστίαση ΔΕΝ είναι σε χειριστήριο: κάθε κελί, κάθε κουμπί γραμμής και η
+        // ίδια η «Επιβεβαίωση» είναι <button>, και το Enter πάνω τους τα ενεργοποιεί ήδη. Χωρίς
+        // αυτόν τον έλεγχο, ένα Enter στο «Διαγραφή» θα έσβηνε ΚΑΙ θα επιβεβαίωνε το ανοιχτό δείγμα
+        // — δηλαδή θα έγραφε VERIFIED και θα κουνούσε τον βαθμό χωρίς να το ζητήσει κανείς.
         if (e.key !== 'Enter' || !openId) return;
-        if ((e.target as HTMLElement).tagName === 'INPUT') return;
+        if ((e.target as HTMLElement).closest('button, input, textarea, select, a')) return;
         e.preventDefault();
         void verify(openId);
       }}
@@ -173,7 +178,10 @@ export function TrainingStep() {
           <h2 className="text-[16px] font-semibold">Εκπαίδευση</h2>
           <p className="text-[12px] text-muted-foreground">
             Ανέβασε δείγματα του ίδιου εντύπου, βάλε το πρότυπο να τα διαβάσει και επιβεβαίωσε τις σωστές τιμές.
-            Η συμφωνία των δύο είναι ο βαθμός εκπαίδευσης.
+            Η συμφωνία των δύο είναι ο βαθμός εκπαίδευσης.{' '}
+            <Link href="/wiki/ocr/template-training" className="inline-flex items-center gap-1 text-sisyphus-700 hover:underline">
+              <FiBookOpen className="size-3" aria-hidden /> Οδηγός
+            </Link>
           </p>
         </div>
         <div className="flex items-center gap-3 rounded-md border border-border bg-neutral-4 px-3 py-2">
@@ -194,7 +202,7 @@ export function TrainingStep() {
         {gate.ok ? <FiCheckCircle className="mt-0.5 size-4 shrink-0" /> : <FiInfo className="mt-0.5 size-4 shrink-0" />}
         <div>
           {gate.ok
-            ? <span>Έτοιμο για ενεργοποίηση — {dto.minTrainingSamples === 0 ? 'η πύλη εκπαίδευσης είναι κλειστή για αυτό το πρότυπο' : `${verified} επιβεβαιωμένα δείγματα, βαθμός ${pctText(overall)}`}.</span>
+            ? <span>Έτοιμο για ενεργοποίηση — {dto.minTrainingSamples === 0 ? 'η πύλη εκπαίδευσης είναι ανενεργή για αυτό το πρότυπο' : `${verified} επιβεβαιωμένα δείγματα, βαθμός ${pctText(overall)}`}.</span>
             : <span>{activationMessage({ ok: false, error: 'training_gate', reason: gate.reason }, { minTrainingScore: dto.minTrainingScore, minTrainingSamples: dto.minTrainingSamples, trainingScore: dto.trainingScore, verifiedSamples: verified })}.</span>}
           <span className="text-muted-foreground"> Τα κατώφλια αλλάζουν στο βήμα «Στοιχεία».</span>
         </div>
