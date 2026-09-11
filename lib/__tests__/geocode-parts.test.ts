@@ -105,6 +105,13 @@ describe('geocodeAddressParts — MapTiler (με κλειδί)', () => {
     });
   });
 
+  it('σπάει τις κολλημένες γραμμές του OCR πριν ρωτήσει τον πάροχο', async () => {
+    fetchMock.mockResolvedValue(jsonRes(MAPTILER_OK));
+    await geocodeAddressParts('VelascoClanwilliam PlaceDublin 2Ireland');
+    expect(decodeURIComponent(String(fetchMock.mock.calls[0][0])))
+      .toContain('Velasco, Clanwilliam Place, Dublin 2, Ireland');
+  });
+
   it('κανένα feature → null', async () => {
     fetchMock.mockResolvedValue(jsonRes({ features: [] }));
     await expect(geocodeAddressParts('—')).resolves.toBeNull();

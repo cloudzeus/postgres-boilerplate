@@ -2,6 +2,7 @@ import 'server-only';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { normalizeAfm, vatCountry } from '@/lib/ocr/validate';
+import { splitGluedAddress } from '@/lib/ocr/address';
 import { refreshDocTallies } from '@/lib/ocr/softone-match';
 import { SODTYPE_LABEL, TRADER_KIND_SODTYPE } from '@/lib/softone';
 import {
@@ -192,7 +193,9 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
     // Τα έγγραφα έρχονται από το νεότερο προς το παλαιότερο: κρατάμε το πρώτο μη κενό.
     g.doy ??= str(ed.companyDoy);
     g.profession ??= str(ed.companyProfession);
-    g.address ??= str(ed.companyAddress);
+    // Οι κολλημένες γραμμές του OCR σπάνε εδώ, ώστε η κάρτα και το geocoding
+    // να δουν κανονική διεύθυνση.
+    g.address ??= splitGluedAddress(str(ed.companyAddress) ?? '') || null;
     g.phone ??= str(ed.companyPhone);
     g.email ??= str(ed.companyEmail);
     g.thumbUrl ??= doc.thumbUrl ?? null;

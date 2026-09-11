@@ -1,6 +1,7 @@
 // MapTiler geocoding helpers. Uses MAPTILER_API_KEY from env.
 // Docs: https://docs.maptiler.com/cloud/api/geocoding/
 import { COUNTRY_NAMES_EL } from './countries';
+import { splitGluedAddress } from './ocr/address';
 
 const MAPTILER_KEY = process.env.MAPTILER_API_KEY ?? '';
 
@@ -247,7 +248,9 @@ export async function geocodeAddressParts(
   q: string,
   opts: { countryHint?: string } = {},
 ): Promise<AddressParts | null> {
-  const query = String(q ?? '').trim();
+  // Το OCR ενώνει συχνά τις γραμμές της διεύθυνσης χωρίς διαχωριστικό
+  // («…PlaceDublin 2Ireland»): κανένας πάροχος δεν το αναγνωρίζει έτσι.
+  const query = splitGluedAddress(String(q ?? ''));
   if (!query) return null;
   // Διαβάζεται εδώ (όχι module-level) ώστε να ακολουθεί το περιβάλλον εκτέλεσης.
   const key = process.env.MAPTILER_API_KEY ?? '';
