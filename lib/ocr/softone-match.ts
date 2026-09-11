@@ -49,6 +49,38 @@ export async function buildSoftoneMatch(vatNumber: unknown): Promise<SoftoneMatc
   }
 }
 
+/**
+ * Γράφει το σύνολο/αντιστοιχισμένες γραμμές ενός παραστατικού. Best-effort: το
+ * tally είναι παράγωγο (βλ. `lib/ocr/recon-status.ts`), δεν αξίζει να ρίξει τη ροή.
+ */
+function writeDocTally(docId: string, total: number, matched: number): Promise<unknown> {
+  return prisma.ocrDocument
+    .update({ where: { id: docId }, data: { itemsTotal: total, itemsMatched: matched } })
+    .catch(() => {});
+}
+
+/**
+ * Ξαναϋπολογίζει `itemsTotal/itemsMatched` για τα δοθέντα παραστατικά διαβάζοντας
+ * τις γραμμές τους (αντιστοιχισμένη = έχει `softoneMtrl` ή `softoneExpn`). Το
+ * χρησιμοποιούν οι ουρές (`lib/ocr/queues.ts`) μετά από ομαδική αντιστοίχιση.
+ */
+export async function refreshDocTallies(docIds: string[]): Promise<void> {
+  const ids = Array.from(new Set(docIds.filter(Boolean)));
+  if (ids.length === 0) return;
+  const lines = await prisma.ocrInvoiceItem.findMany({
+    where: { documentId: { in: ids } },
+    select: { documentId: true, softoneMtrl: true, softoneExpn: true },
+  });
+  const tally = new Map(ids.map((id) => [id, { total: 0, matched: 0 }]));
+  for (const l of lines) {
+    const t = tally.get(l.documentId);
+    if (!t) continue;
+    t.total++;
+    if (l.softoneMtrl != null || l.softoneExpn != null) t.matched++;
+  }
+  await Promise.all(Array.from(tally.entries()).map(([id, t]) => writeDocTally(id, t.total, t.matched)));
+}
+
 /** Τα πεδία αντιστοίχισης μιας γραμμής — γράφονται μαζί, ποτέ μισά. */
 type LineMatchUpdate = {
   softoneMtrl: number | null;
@@ -82,7 +114,7 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     select: { id: true, code: true, name: true, softoneMatchedBy: true },
   });
   if (items.length === 0) {
-    await prisma.ocrDocument.update({ where: { id: docId }, data: { itemsTotal: 0, itemsMatched: 0 } }).catch(() => {});
+    await writeDocTally(docId, 0, 0);
     return { matched: 0, total: 0 };
   }
 
@@ -195,10 +227,7 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
   ));
 
   // Persist the line-match tally so the reconciliation status can be derived cheaply.
-  await prisma.ocrDocument.update({
-    where: { id: docId },
-    data: { itemsTotal: items.length, itemsMatched: matched },
-  }).catch(() => {});
+  await writeDocTally(docId, items.length, matched);
 
   return { matched, total: items.length };
 }
