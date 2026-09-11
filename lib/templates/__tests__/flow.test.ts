@@ -38,6 +38,13 @@ describe('buildFlow', () => {
     expect(f.data).toMatchObject({ label: 'Αριθμός', color: '#0078D4', kind: 'SINGLE', page: 0 });
     expect(nodes.find((n) => n.id === 'output')!.data).toMatchObject({ mode: 'SEMI_AUTO' });
   });
+  it('hangs the training score on the field node that has one', () => {
+    const { nodes } = buildFlow(tpl, undefined, { no: { ok: 9, total: 10, score: 0.9 }, lines: { ok: 0, total: 0, score: 0 } });
+    expect(nodes.find((n) => n.id === 'field:no')!.data).toMatchObject({ score: 0.9, scoreOk: 9, scoreTotal: 10 });
+    // Πεδίο που κανείς δεν επιβεβαίωσε δεν φοράει βαθμό — το 0 θα διαβαζόταν ως «διαβάζει λάθος».
+    expect(nodes.find((n) => n.id === 'field:lines')!.data).not.toHaveProperty('score');
+    expect(nodes.find((n) => n.id === 'field:no')!.data).toMatchObject({ label: 'Αριθμός' });
+  });
   it('lays nodes out in columns left to right', () => {
     const { nodes } = buildFlow(tpl);
     const x = (id: string) => nodes.find((n) => n.id === id)!.position.x;

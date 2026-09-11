@@ -11,7 +11,7 @@ export const SAMPLE_MAX_BYTES = 25 * 1024 * 1024;
 const ALLOWED = new Set(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']);
 
 export class SampleError extends Error {
-  constructor(public code: 'not_found' | 'too_large' | 'unsupported_type' | 'primary' | 'too_many') { super(code); }
+  constructor(public code: 'not_found' | 'too_large' | 'unsupported_type' | 'primary' | 'too_many' | 'no_sample') { super(code); }
 }
 
 /** One HTTP answer per sample failure, so every sample route says the same thing about the same problem. */
@@ -21,6 +21,7 @@ export const SAMPLE_ERROR: Record<SampleError['code'], { status: number; body: {
   unsupported_type: { status: 415, body: { error: 'unsupported_type', message: 'Δεκτά μόνο PDF, PNG, JPEG, WebP' } },
   primary: { status: 409, body: { error: 'primary', message: 'Το κύριο δείγμα δεν διαγράφεται — αντικατέστησέ το ανεβάζοντας νέο' } },
   too_many: { status: 409, body: { error: 'too_many', message: 'Το πρότυπο έχει ήδη τον μέγιστο αριθμό δειγμάτων — σβήσε κάποια πρώτα' } },
+  no_sample: { status: 409, body: { error: 'no_sample', message: 'Το πρότυπο δεν έχει ακόμη κύριο δείγμα' } },
 };
 
 /**

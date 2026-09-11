@@ -50,6 +50,7 @@ const ERROR_TEXT: Record<string, string> = {
   too_many: 'Πολλά αρχεία σε ένα αίτημα.',
   primary: 'Το κύριο δείγμα δεν διαγράφεται — αντικατέστησέ το ανεβάζοντας νέο.',
   copy_failed: 'Το αρχείο του εγγράφου δεν ήταν διαθέσιμο.',
+  no_sample_row: 'Το πρότυπο δεν έχει ακόμη κύριο δείγμα — ανέβασέ το στο βήμα «Δείγμα».',
   training_gate: 'Το πρότυπο δεν έχει εκπαιδευτεί αρκετά για ενεργοποίηση.',
   no_files: 'Επίλεξε τουλάχιστον ένα αρχείο.',
   empty: 'Καμία ολοκληρωμένη ανάγνωση ακόμη — δεν υπάρχει τίποτα να εξαχθεί.',
@@ -76,7 +77,7 @@ export const templatesApi = {
   create: (b: { name: string; slug?: string; department?: string | null; vatNumber?: string | null; traderTrdr?: number | null; supplierName?: string | null }) =>
     fetch('/api/admin/ocr/templates', json(b)).then((r) => handle<{ ok: true; id: string; slug: string }>(r)),
   get: (id: string) => fetch(base(id), { cache: 'no-store' }).then((r) => handle<TemplateDto>(r)),
-  patch: (id: string, b: Partial<{ name: string; slug: string; department: string | null; vatNumber: string | null; traderTrdr: number | null; supplierName: string | null; mode: TemplateDto['mode']; status: TemplateDto['status']; notifyEmails: string | null }>) =>
+  patch: (id: string, b: Partial<{ name: string; slug: string; department: string | null; vatNumber: string | null; traderTrdr: number | null; supplierName: string | null; mode: TemplateDto['mode']; status: TemplateDto['status']; notifyEmails: string | null; minTrainingScore: number; minTrainingSamples: number }>) =>
     fetch(base(id), json(b, 'PATCH')).then((r) => handle<TemplateDto>(r)),
   remove: (id: string) => fetch(base(id), { method: 'DELETE' }).then((r) => handle<{ ok: true }>(r)),
   uploadSample: (id: string, file: File) => { const fd = new FormData(); fd.append('file', file); return fetch(`${base(id)}/sample`, { method: 'POST', body: fd }).then((r) => handle<{ ok: true; mimeType: string; pageCount: number }>(r)); },
@@ -106,6 +107,8 @@ export const templatesApi = {
     readAll: (id: string) => fetch(`${base(id)}/samples/read-all`, json({})).then((r) => handle<{ read: number; failed: number; remaining: number; training: TrainingSummary }>(r)),
     verify: (id: string, sampleId: string, expected: Record<string, unknown>) => fetch(`${base(id)}/samples/${sampleId}`, json({ expected }, 'PATCH')).then((r) => handle<{ sample: SampleDto; training: TrainingSummary }>(r)),
     remove: (id: string, sampleId: string) => fetch(`${base(id)}/samples/${sampleId}`, { method: 'DELETE' }).then((r) => handle<{ ok: true; training: TrainingSummary }>(r)),
+    /** Κάνει το κύριο δείγμα (αυτό με τις περιοχές) και δείγμα εκπαίδευσης — για τα παλιά πρότυπα. */
+    adoptPrimary: (id: string) => fetch(`${base(id)}/samples/primary`, json({})).then((r) => handle<{ sample: SampleDto; training: TrainingSummary }>(r)),
     /** Κάνει ένα ήδη σαρωμένο έγγραφο δείγμα αυτού του προτύπου (§14.7 — «Άγνωστο έντυπο»). */
     fromDocument: (id: string, documentId: string) => fetch(`${base(id)}/samples/from-document`, json({ documentId })).then((r) => handle<{ sample: SampleDto; training: TrainingSummary }>(r)),
     pageImageUrl: (id: string, sampleId: string, page: number, scale = 3) => `${base(id)}/samples/${sampleId}/page-image?page=${page}&scale=${scale}`,

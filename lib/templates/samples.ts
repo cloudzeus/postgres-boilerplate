@@ -86,6 +86,8 @@ export type TrainingSummary = {
 type TemplateForTraining = {
   id: string; supplierName: string | null; vatNumber: string | null;
   minTrainingScore: number; minTrainingSamples: number;
+  sampleStorageKey: string | null; sampleMimeType: string | null; samplePageCount: number | null;
+  fingerprint: unknown;
   fields: Parameters<typeof toFieldDef>[0][];
 };
 
@@ -187,6 +189,53 @@ export async function sampleFromDocument(templateId: string, documentId: string,
     aspect: null,
   });
   return storeSampleRow(t, buffer, mimeType, doc.fileName, userId ?? null, fp);
+}
+
+/**
+ * Κάνει το ΚΥΡΙΟ δείγμα — αυτό πάνω στο οποίο σχεδιάστηκαν οι περιοχές — και δείγμα εκπαίδευσης.
+ *
+ * Χρειάζεται για κάθε πρότυπο που υπήρχε πριν από την εκπαίδευση: το αρχείο του είναι στο Bunny,
+ * αλλά γραμμή `TemplateSample` δεν έγραψε ποτέ κανείς, οπότε ο πίνακας εκπαίδευσης ανοίγει άδειος
+ * ενώ υπάρχει ήδη ένα τέλειο πρώτο δείγμα. Το αρχείο ΔΕΝ ξαναανεβαίνει: η γραμμή δείχνει στο ίδιο
+ * κλειδί (και γι' αυτό το `deleteSample` αρνείται να σβήσει ένα `isPrimary` — θα έπαιρνε μαζί του
+ * τον καμβά του σχεδιαστή).
+ *
+ * Ιδεμποτεντική: αν η γραμμή υπάρχει ήδη, επιστρέφεται όπως είναι.
+ */
+export async function adoptPrimarySample(templateId: string, userId?: string | null): Promise<SampleDto> {
+  const t = await loadTemplate(templateId);
+  const existing = await prisma.templateSample.findFirst({ where: { templateId, isPrimary: true }, select: SAMPLE_SELECT });
+  if (existing) return toSampleDto(existing);
+  if (!t.sampleStorageKey) throw new SampleError('no_sample');
+  const count = await prisma.templateSample.count({ where: { templateId } });
+  if (count >= MAX_SAMPLES_PER_TEMPLATE) throw new SampleError('too_many');
+
+  // Το αποτύπωμα του προτύπου ΕΙΝΑΙ το αποτύπωμα αυτού του αρχείου (`storeSample`). Όταν λείπει —
+  // πρότυπο παλαιότερο από τον αναγνωριστή — το χτίζουμε από τα bytes· αν ούτε αυτό γίνεται, το
+  // δείγμα μπαίνει χωρίς αποτύπωμα, που είναι απλώς ένα δείγμα λιγότερο για την αναγνώριση.
+  const mimeType = t.sampleMimeType ?? 'application/pdf';
+  let fp = toFingerprint(t.fingerprint);
+  if (!fp) {
+    fp = await bunnyDownload(t.sampleStorageKey)
+      .then((buf) => fingerprintOfSample(buf, mimeType, { issuerName: t.supplierName, afm: t.vatNumber }))
+      .catch((e) => { console.warn('[templates] primary fingerprint failed', templateId, (e as Error).message); return null; });
+  }
+
+  const row = await prisma.templateSample.create({
+    data: {
+      templateId,
+      fileName: t.sampleStorageKey.split('/').pop() ?? 'sample',
+      storageKey: t.sampleStorageKey,
+      mimeType,
+      pageCount: t.samplePageCount ?? 1,
+      status: 'PENDING',
+      isPrimary: true,
+      createdById: userId ?? null,
+      fingerprint: (fp ?? null) as unknown as Prisma.InputJsonValue,
+    },
+    select: SAMPLE_SELECT,
+  });
+  return toSampleDto(row);
 }
 
 // ─────────────────────────────────────────────────────────────── ανάγνωση

@@ -9,7 +9,8 @@ import * as React from 'react';
 import { ReactFlow, Background, Controls, Handle, Position, useReactFlow, type Node, type Edge, type NodeProps } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { FiCpu, FiFileText, FiGitBranch, FiImage, FiUploadCloud } from 'react-icons/fi';
-import { buildFlow, layoutFlow, toFlowTemplate, type FlowOrientation, type FlowRun, type FlowTemplateSource } from '@/lib/templates/flow';
+import { buildFlow, layoutFlow, toFlowTemplate, type FlowOrientation, type FlowRun, type FlowScores, type FlowTemplateSource } from '@/lib/templates/flow';
+import { pctText, SCORE_STYLE, scoreTone } from '@/lib/templates/training-view';
 
 type D = Record<string, unknown>;
 const card = 'rounded-md border bg-white px-2.5 py-2 text-[11px] shadow-fluent-2 min-w-[150px] max-w-[170px]';
@@ -32,14 +33,32 @@ function SampleNode({ data }: NodeProps<Node<D>>) {
       <div className="text-muted-foreground truncate">{Number(data.pageCount)} σελίδ{Number(data.pageCount) === 1 ? 'α' : 'ες'}</div>
     </div>);
 }
+/** Ο βαθμός εκπαίδευσης του πεδίου (spec §11) — μικρό chip, με τίτλο που λέει σε πόσα δείγματα. */
+function ScoreBadge({ score, ok, total }: { score: number; ok: number; total: number }) {
+  const tone = SCORE_STYLE[scoreTone(score)];
+  return (
+    <span
+      className="shrink-0 rounded-full px-1.5 text-[9px] font-semibold"
+      style={{ backgroundColor: tone.bg, color: tone.fg }}
+      title={`Βαθμός εκπαίδευσης ${pctText(score)} — σωστό σε ${ok} από ${total} επιβεβαιωμένα δείγματα`}
+    >
+      {pctText(score)}
+    </span>
+  );
+}
+
 function FieldNode({ data }: NodeProps<Node<D>>) {
   const h = useHandles();
   const color = String(data.color); const status = data.status as string | undefined;
+  const score = typeof data.score === 'number' ? data.score : null;
   return (
     <div className={`${card} ${data.focused ? 'border-sisyphus-500' : 'border-border'}`} style={{ borderLeft: `4px solid ${color}` }}>
       <Handle type="target" position={h.target} /><Handle type="source" position={h.source} />
       <div className="flex items-center gap-1.5 font-semibold truncate" style={{ color }}><span className="truncate">{String(data.label)}</span>{status && <span className={`ml-auto shrink-0 rounded-full px-1.5 text-[9px] ${status === 'ok' ? 'bg-[#E8F7F0] text-[#047857]' : 'bg-[#FFF1E6] text-[#C2410C]'}`}>{status === 'ok' ? 'ok' : 'κενό'}</span>}</div>
-      <div className="text-muted-foreground truncate">{data.kind === 'TABLE' ? 'πίνακας' : 'τιμή'}{data.hasRegion ? ` · σ.${Number(data.page) + 1}` : ' · χωρίς περιοχή'}</div>
+      <div className="flex items-center gap-1">
+        <span className="text-muted-foreground truncate">{data.kind === 'TABLE' ? 'πίνακας' : 'τιμή'}{data.hasRegion ? ` · σ.${Number(data.page) + 1}` : ' · χωρίς περιοχή'}</span>
+        {score != null && <ScoreBadge score={score} ok={Number(data.scoreOk)} total={Number(data.scoreTotal)} />}
+      </div>
       {data.value != null && <div className="mt-0.5 truncate font-mono text-[10px]">{String(data.value)}</div>}
     </div>);
 }
@@ -88,6 +107,8 @@ export type FlowCanvasProps = {
   template: FlowTemplateSource;
   /** Live run overlay — values, matched conditions, active mapping, status. */
   run?: FlowRun;
+  /** Βαθμοί εκπαίδευσης ανά πεδίο (spec §11) — ένα chip πάνω στον κόμβο του πεδίου. */
+  scores?: FlowScores;
   orientation: FlowOrientation;
   onNodeClick?: (node: { id: string; type: string; data: Record<string, unknown> }) => void;
   /** Field key to highlight (designer list ⇄ canvas ⇄ flow). */
@@ -101,8 +122,8 @@ export type FlowCanvasProps = {
   className?: string;
 };
 
-export function FlowCanvas({ template, run, orientation, onNodeClick, focusKey, refitOnChange = false, className }: FlowCanvasProps) {
-  const { nodes, edges } = React.useMemo(() => buildFlow(toFlowTemplate(template), run), [template, run]);
+export function FlowCanvas({ template, run, scores, orientation, onNodeClick, focusKey, refitOnChange = false, className }: FlowCanvasProps) {
+  const { nodes, edges } = React.useMemo(() => buildFlow(toFlowTemplate(template), run, scores), [template, run, scores]);
   const rfNodes = React.useMemo<Node<D>[]>(
     () => layoutFlow(nodes, orientation).map((n) => ({
       id: n.id,

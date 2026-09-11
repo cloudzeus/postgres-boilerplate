@@ -10,6 +10,9 @@ import { Switch } from '@/components/ui/switch';
 import type { TemplateDto } from '@/lib/templates/serialize';
 import type { Action, Clause, ClauseOp, TemplateMode } from '@/lib/templates/schema';
 import { ACTION_LABEL, EXTRA_VARS, MODE_HELP, MODE_LABEL, OP_LABEL, OPS_WITHOUT_VALUE } from '@/lib/templates/labels';
+import { trainingGate } from '@/lib/templates/training';
+import { activationMessage } from '@/lib/templates/readiness';
+import { pctText } from '@/lib/templates/training-view';
 import { useDesigner } from './designer-context';
 import { templatesApi, errorMessage } from './api';
 import { useServerDraft } from './use-server-draft';
@@ -38,7 +41,7 @@ function ActionEditor({ a, onChange, onRemove, fields, mappings, canManage }: {
 }
 
 export function ConditionsStep() {
-  const { dto, setDto, canManage, canPost, setDirty } = useDesigner();
+  const { dto, setDto, canManage, canPost, setDirty, goToStep } = useDesigner();
   // Three drafts synced on CONTENT, not identity: «Ενεργοποίηση» and «Αποθήκευση
   // λειτουργίας» both return a fresh DTO whose `conditions` are unchanged, and an
   // identity-keyed sync would wipe the rule edits the user has not saved yet.
@@ -49,6 +52,14 @@ export function ConditionsStep() {
   const dirtyMode = mode !== dto.mode || emails.trim() !== (dto.notifyEmails ?? '').trim();
   const dirty = dirtyRules || dirtyMode;
   React.useEffect(() => { setDirty(dirty); return () => setDirty(false); }, [dirty, setDirty]);
+
+  // Η πύλη εκπαίδευσης (§11) κρίνεται ΕΔΩ, όπου πατιέται η «Ενεργοποίηση» — και φαίνεται ΠΡΙΝ
+  // πατηθεί: ένα κουμπί που απαντά 422 χωρίς να έχει προειδοποιήσει είναι απλώς παγίδα.
+  const gateInput = {
+    minTrainingScore: dto.minTrainingScore, minTrainingSamples: dto.minTrainingSamples,
+    trainingScore: dto.trainingScore, verifiedSamples: dto.verifiedSamples,
+  };
+  const gate = trainingGate(gateInput);
 
   const fieldOptions = [...dto.fields.map((f) => ({ key: f.key, label: f.label, color: f.color })), ...EXTRA_VARS.map((v) => ({ key: v.key, label: v.label, color: '#5C5C5C' }))];
   const setC = (i: number, patch: Partial<Cond>) => setConds((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
@@ -116,11 +127,25 @@ export function ConditionsStep() {
         {canManage && <Button size="sm" onClick={saveMode} disabled={!dirtyMode || busy}><FiSave className="mr-1 size-3.5" /> Αποθήκευση λειτουργίας</Button>}
       </section>
 
-      <section className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-neutral-4 p-3">
-        <div className="flex-1 text-[12px]"><span className="font-semibold">Κατάσταση:</span> {dto.status === 'ACTIVE' ? 'Ενεργό — εφαρμόζεται αυτόματα σε νέα έγγραφα του προμηθευτή.' : 'Πρόχειρο — δεν εφαρμόζεται. Χρειάζεται δείγμα, πεδίο με περιοχή και mapping.'}</div>
-        {canManage && (dto.status === 'ACTIVE'
-          ? <Button size="sm" variant="secondary" onClick={() => setStatus('DRAFT')} disabled={busy}>Απενεργοποίηση</Button>
-          : <Button size="sm" onClick={() => setStatus('ACTIVE')} disabled={busy}><FiZap className="mr-1 size-3.5" /> Ενεργοποίηση</Button>)}
+      <section className="space-y-2 rounded-md border border-border bg-neutral-4 p-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex-1 text-[12px]"><span className="font-semibold">Κατάσταση:</span> {dto.status === 'ACTIVE' ? 'Ενεργό — εφαρμόζεται αυτόματα σε νέα έγγραφα του προμηθευτή.' : 'Πρόχειρο — δεν εφαρμόζεται. Χρειάζεται δείγμα, πεδίο με περιοχή και mapping.'}</div>
+          {canManage && (dto.status === 'ACTIVE'
+            ? <Button size="sm" variant="secondary" onClick={() => setStatus('DRAFT')} disabled={busy}>Απενεργοποίηση</Button>
+            : <Button size="sm" onClick={() => setStatus('ACTIVE')} disabled={busy}><FiZap className="mr-1 size-3.5" /> Ενεργοποίηση</Button>)}
+        </div>
+        {/* Η εκπαίδευση φράζει ΜΟΝΟ την ενεργοποίηση: ένα ήδη ενεργό πρότυπο δεν κλειδώνει επειδή
+            δεν το επιβεβαίωσε ποτέ κανείς. */}
+        {dto.status !== 'ACTIVE' && (
+          gate.ok
+            ? <p className="text-[11px] text-[#047857]">
+                Πύλη εκπαίδευσης: εντάξει{dto.minTrainingSamples > 0 && ` — ${dto.verifiedSamples} επιβεβαιωμένα δείγματα, βαθμός ${pctText(dto.trainingScore)}`}.
+              </p>
+            : <p className="text-[11px] text-[#B45309]">
+                {activationMessage({ ok: false, error: 'training_gate', reason: gate.reason }, gateInput)}.{' '}
+                <button type="button" onClick={() => goToStep(5)} className="cursor-pointer font-medium underline">Άνοιγμα της εκπαίδευσης</button>
+              </p>
+        )}
       </section>
     </div>
   );

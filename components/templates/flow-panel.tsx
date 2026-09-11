@@ -8,7 +8,7 @@ import { FlowCanvas } from './flow-canvas';
 import { useDesigner } from './designer-context';
 
 export function FlowPanel() {
-  const { dto, focusKey, setFocusKey, goToStep } = useDesigner();
+  const { dto, focusKey, setFocusKey, goToStep, scores } = useDesigner();
 
   const onNodeClick = React.useCallback((node: { id: string }) => {
     if (node.id === 'sample') goToStep(1);
@@ -19,7 +19,7 @@ export function FlowPanel() {
 
   return (
     <div className="h-full w-full" data-testid="flow-panel">
-      <FlowCanvas template={dto} orientation="vertical" onNodeClick={onNodeClick} focusKey={focusKey} />
+      <FlowCanvas template={dto} scores={scores} orientation="vertical" onNodeClick={onNodeClick} focusKey={focusKey} />
     </div>
   );
 }

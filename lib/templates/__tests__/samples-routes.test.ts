@@ -11,7 +11,7 @@ const { db, rbac, samples, audit } = vi.hoisted(() => ({
   samples: {
     addSample: vi.fn(), listSamples: vi.fn(), readSample: vi.fn(), readAllSamples: vi.fn(),
     refreshTrainingScore: vi.fn(), sampleFromDocument: vi.fn(), verifySample: vi.fn(),
-    deleteSample: vi.fn(), toSampleDto: vi.fn((s: unknown) => s), SAMPLES_PER_REQUEST: 20,
+    deleteSample: vi.fn(), adoptPrimarySample: vi.fn(), toSampleDto: vi.fn((s: unknown) => s), SAMPLES_PER_REQUEST: 20,
   },
   audit: { logAudit: vi.fn() },
 }));
@@ -24,6 +24,7 @@ vi.mock('@/lib/templates/samples', () => samples);
 import { GET as listRoute, POST as uploadRoute } from '@/app/api/admin/ocr/templates/[id]/samples/route';
 import { DELETE as deleteRoute, PATCH as verifyRoute } from '@/app/api/admin/ocr/templates/[id]/samples/[sampleId]/route';
 import { POST as fromDocRoute } from '@/app/api/admin/ocr/templates/[id]/samples/from-document/route';
+import { POST as primaryRoute } from '@/app/api/admin/ocr/templates/[id]/samples/primary/route';
 import { PATCH as patchTemplate } from '@/app/api/admin/ocr/templates/[id]/route';
 import { SampleError } from '../sample';
 
@@ -61,6 +62,7 @@ beforeEach(() => {
   samples.verifySample.mockResolvedValue({ sample: { id: 's1', score: 1 }, training: TRAINING });
   samples.deleteSample.mockResolvedValue({ training: TRAINING });
   samples.sampleFromDocument.mockResolvedValue({ id: 's9' });
+  samples.adoptPrimarySample.mockResolvedValue({ id: 'sp', isPrimary: true });
   db.templateSample.findUnique.mockResolvedValue({ id: 's1', templateId: 't1', isPrimary: false });
   db.extractionTemplate.findUnique.mockResolvedValue(TEMPLATE);
   db.extractionTemplate.update.mockResolvedValue(TEMPLATE);
@@ -150,6 +152,23 @@ describe('POST samples/from-document', () => {
     samples.sampleFromDocument.mockRejectedValue(new SampleError('not_found'));
     const res = await fromDocRoute(new Request('http://localhost/x', { method: 'POST', body: JSON.stringify({ documentId: 'nope' }) }), ctx());
     expect(res.status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------- το κύριο δείγμα ως δείγμα
+
+describe('POST samples/primary', () => {
+  it('adopts the design sample and refreshes the score', async () => {
+    const res = await primaryRoute(new Request('http://localhost/x', { method: 'POST' }), ctx());
+    expect(await res.json()).toEqual({ sample: { id: 'sp', isPrimary: true }, training: TRAINING });
+    expect(samples.adoptPrimarySample).toHaveBeenCalledWith('t1', 'u1');
+  });
+
+  it('answers 409 when the template has no design sample yet', async () => {
+    samples.adoptPrimarySample.mockRejectedValue(new SampleError('no_sample'));
+    const res = await primaryRoute(new Request('http://localhost/x', { method: 'POST' }), ctx());
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'no_sample' });
   });
 });
 

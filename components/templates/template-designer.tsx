@@ -2,17 +2,22 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { FiArrowLeft, FiCheckCircle, FiChevronRight, FiCpu, FiFileText, FiGitBranch, FiImage, FiLayers, FiPlayCircle } from 'react-icons/fi';
+import { FiArrowLeft, FiAward, FiCheckCircle, FiChevronRight, FiCpu, FiFileText, FiGitBranch, FiImage, FiLayers, FiPlayCircle } from 'react-icons/fi';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { TemplateDto } from '@/lib/templates/serialize';
 import { MODE_LABEL, STATUS_LABEL } from '@/lib/templates/labels';
+import { scoreSamples } from '@/lib/templates/training';
+import { pctText } from '@/lib/templates/training-view';
+import type { SampleDto } from '@/lib/templates/samples';
 import { DesignerContext } from './designer-context';
 import { DetailsStep } from './details-step';
 import { SampleStep } from './sample-step';
 import { RegionsStep } from './regions-step';
 import { MappingStep } from './mapping-step';
 import { ConditionsStep } from './conditions-step';
+import { TrainingStep } from './training-step';
+import { templatesApi } from './api';
 import { FlowPanel } from './flow-panel';
 import { JobUploadDialog } from './job-upload-dialog';
 
@@ -22,6 +27,7 @@ const STEPS = [
   { key: 'regions', label: 'Περιοχές & πεδία', icon: FiLayers },
   { key: 'mapping', label: 'Mapping (προαιρετικό)', icon: FiGitBranch },
   { key: 'conditions', label: 'Conditions & λειτουργία', icon: FiCpu },
+  { key: 'training', label: 'Εκπαίδευση', icon: FiAward },
 ] as const;
 
 const LEAVE_MSG = 'Υπάρχουν μη αποθηκευμένες αλλαγές. Να συνεχίσεις χωρίς αποθήκευση;';
@@ -34,6 +40,8 @@ function stepDone(dto: TemplateDto, i: number): boolean {
     case 2: return dto.fields.some((f) => f.region);
     case 3: return dto.mode === 'MANUAL' || dto.mappings.length > 0;
     case 4: return dto.status === 'ACTIVE';
+    // Εκπαιδευμένο = έχει περάσει το δικό του κατώφλι δειγμάτων (spec §11).
+    case 5: return dto.minTrainingSamples > 0 && dto.verifiedSamples >= dto.minTrainingSamples && (dto.trainingScore ?? 0) >= dto.minTrainingScore;
     default: return false;
   }
 }
@@ -50,6 +58,16 @@ export function TemplateDesigner({ initial, canManage, canPost }: { initial: Tem
   // The mounted step reports its unsaved state here; leaving a step drops its draft,
   // so navigation (stepper buttons and flow-node clicks alike) asks first.
   const [dirty, setDirty] = React.useState(false);
+  // Τα δείγματα εκπαίδευσης φορτώνονται ΜΙΑ φορά, εδώ: τα θέλει και το βήμα «Εκπαίδευση» και το
+  // διάγραμμα (badge βαθμού ανά πεδίο), και δύο ανεξάρτητα fetch θα έδιναν δύο διαφορετικές αλήθειες.
+  const [samples, setSamples] = React.useState<SampleDto[] | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    templatesApi.samples.list(initial.id)
+      .then(({ samples: s }) => { if (!cancelled) setSamples(s); })
+      .catch(() => { if (!cancelled) setSamples([]); });
+    return () => { cancelled = true; };
+  }, [initial.id]);
 
   const goToStep = React.useCallback((next: number) => {
     if (next === step) return;
@@ -66,8 +84,18 @@ export function TemplateDesigner({ initial, canManage, canPost }: { initial: Tem
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [dirty]);
 
-  const ctx = React.useMemo(() => ({ dto, setDto, canManage, canPost, focusKey, setFocusKey, goToStep, dirty, setDirty }), [dto, canManage, canPost, focusKey, goToStep, dirty]);
-  const Current = [DetailsStep, SampleStep, RegionsStep, MappingStep, ConditionsStep][step];
+  // Ο ίδιος υπολογισμός με τον server (`scoreSamples`), στον browser: τα chips και το διάγραμμα
+  // κινούνται τη στιγμή που κάποιος επιβεβαιώνει, χωρίς να ξαναφορτωθεί το πρότυπο.
+  const scores = React.useMemo(
+    () => scoreSamples(dto.fields.map((f) => ({ key: f.key, valueType: f.valueType, required: f.required })), samples ?? []).perField,
+    [dto.fields, samples],
+  );
+
+  const ctx = React.useMemo(
+    () => ({ dto, setDto, canManage, canPost, focusKey, setFocusKey, goToStep, dirty, setDirty, samples, setSamples, scores }),
+    [dto, canManage, canPost, focusKey, goToStep, dirty, samples, scores],
+  );
+  const Current = [DetailsStep, SampleStep, RegionsStep, MappingStep, ConditionsStep, TrainingStep][step];
 
   return (
     <DesignerContext.Provider value={ctx}>
@@ -87,6 +115,9 @@ export function TemplateDesigner({ initial, canManage, canPost }: { initial: Tem
                   </span>
                   <s.icon className="size-3.5 shrink-0 opacity-70" />
                   <span className="flex-1 truncate">{s.label}</span>
+                  {s.key === 'training' && dto.trainingScore != null && !active && (
+                    <span className="shrink-0 text-[10px] text-muted-foreground">{pctText(dto.trainingScore)}</span>
+                  )}
                   {active && dirty && <span aria-label="Μη αποθηκευμένες αλλαγές" title="Μη αποθηκευμένες αλλαγές" className="size-1.5 shrink-0 rounded-full bg-[#B45309]" />}
                   {active && <FiChevronRight className="size-3.5 opacity-60" />}
                 </button>

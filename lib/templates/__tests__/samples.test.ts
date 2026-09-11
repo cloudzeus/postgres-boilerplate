@@ -22,7 +22,7 @@ vi.mock('@/lib/ocr/rasterize', () => raster);
 vi.mock('../extract', () => ({ extractTemplateFields: (...a: unknown[]) => extract(...a) }));
 
 import {
-  addSample, deleteSample, listSamples, primaryFingerprint, readAllSamples, readSample,
+  addSample, adoptPrimarySample, deleteSample, listSamples, primaryFingerprint, readAllSamples, readSample,
   refreshTrainingScore, sampleFromDocument, verifySample,
   MAX_SAMPLES_PER_TEMPLATE, READ_ALL_LIMIT,
 } from '../samples';
@@ -38,6 +38,7 @@ const FIELDS = [
 const TEMPLATE = {
   id: 't1', slug: 'kapaline', supplierName: 'ΚΑΠΑΛΙΝΕ ΑΕ', vatNumber: '999863881',
   minTrainingScore: 0.9, minTrainingSamples: 3, trainingScore: null, verifiedSamples: 0,
+  sampleStorageKey: 'templates/t1/sample-abc.pdf', sampleMimeType: 'application/pdf', samplePageCount: 2,
   fingerprint: { afm: '999863881', issuer: 'ΚΑΠΑΛΙΝΕ ΑΕ', words: ['ΜΕΤΑΦΟΡΙΚΗ'], aspect: 1.41 },
   fields: FIELDS,
 };
@@ -249,5 +250,52 @@ describe('listSamples / primaryFingerprint', () => {
     expect(await primaryFingerprint('t1')).toMatchObject({ issuer: 'ΚΑΠΑΛΙΝΕ ΑΕ' });
     db.extractionTemplate.findUnique.mockResolvedValueOnce({ fingerprint: null });
     expect(await primaryFingerprint('t1')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- το κύριο δείγμα ως δείγμα εκπαίδευσης
+
+describe('adoptPrimarySample', () => {
+  it('γράφει γραμμή που δείχνει στο ΙΔΙΟ αρχείο — δεν ξαναανεβάζει τίποτα', async () => {
+    db.templateSample.findFirst.mockResolvedValue(null);
+    const row = await adoptPrimarySample('t1', 'u1');
+
+    expect(bunny.bunnyUploadPrivate).not.toHaveBeenCalled();
+    const data = db.templateSample.create.mock.calls[0][0].data;
+    expect(data).toMatchObject({
+      templateId: 't1', storageKey: 'templates/t1/sample-abc.pdf', mimeType: 'application/pdf',
+      pageCount: 2, status: 'PENDING', isPrimary: true, createdById: 'u1',
+    });
+    // Το αποτύπωμα του προτύπου είναι ήδη αυτού του αρχείου — καμία νέα ανάγνωση.
+    expect(data.fingerprint).toMatchObject({ issuer: 'ΚΑΠΑΛΙΝΕ ΑΕ' });
+    expect(bunny.bunnyDownload).not.toHaveBeenCalled();
+    expect(row.isPrimary).toBe(true);
+  });
+
+  it('είναι ιδεμποτεντική: δεύτερο πάτημα δεν φτιάχνει δεύτερη γραμμή', async () => {
+    db.templateSample.findFirst.mockResolvedValue(sample({ id: 'sp', isPrimary: true }));
+    const row = await adoptPrimarySample('t1');
+    expect(db.templateSample.create).not.toHaveBeenCalled();
+    expect(row.id).toBe('sp');
+  });
+
+  it('χτίζει το αποτύπωμα από τα bytes όταν το πρότυπο δεν έχει', async () => {
+    db.templateSample.findFirst.mockResolvedValue(null);
+    db.extractionTemplate.findUnique.mockResolvedValue({ ...TEMPLATE, fingerprint: null });
+    await adoptPrimarySample('t1');
+    expect(bunny.bunnyDownload).toHaveBeenCalledWith('templates/t1/sample-abc.pdf');
+    expect(db.templateSample.create.mock.calls[0][0].data.fingerprint).toMatchObject({ words: expect.any(Array) });
+  });
+
+  it('αρνείται όταν δεν υπάρχει κύριο δείγμα', async () => {
+    db.templateSample.findFirst.mockResolvedValue(null);
+    db.extractionTemplate.findUnique.mockResolvedValue({ ...TEMPLATE, sampleStorageKey: null });
+    await expect(adoptPrimarySample('t1')).rejects.toMatchObject({ code: 'no_sample' } satisfies Partial<SampleError>);
+  });
+
+  it('σέβεται το ταβάνι δειγμάτων', async () => {
+    db.templateSample.findFirst.mockResolvedValue(null);
+    db.templateSample.count.mockResolvedValue(MAX_SAMPLES_PER_TEMPLATE);
+    await expect(adoptPrimarySample('t1')).rejects.toMatchObject({ code: 'too_many' } satisfies Partial<SampleError>);
   });
 });
