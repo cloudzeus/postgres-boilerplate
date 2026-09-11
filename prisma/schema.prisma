@@ -887,7 +887,10 @@ model OcrDocument {
   language      String        @default("el")          // ISO code: el / en / de ...
   status        OcrStatus     @default(PENDING)
   rawText       String?       @db.Text                // pdf-parse output (DIGITAL path)
-  extractedData Json?                                 // full structured payload returned by LLM
+  extractedData Json?                                 // full structured payload returned by LLM (παράγωγο του `document`)
+  // Κανονικό JSON εγγράφου (spec §17.1): kind/type/issuer/recipient/lines/totals/vatBreakdown/
+  // digital/payment/references/notes/handwritten/custom. Πηγή αλήθειας για Excel και SoftOne posting.
+  document      Json?
   errorMessage  String?       @db.Text
   model         String?                               // which DeepSeek model was used
   tokensUsed    Int?
@@ -1726,6 +1729,8 @@ model TemplateRun {
   trigger         String             @default("upload")   // upload | manual | reextract
   error           String?            @db.Text
   values          Json                              // { key: FieldValue }
+  // Φάκελος εξόδου v3: { template, version, extractedAt, file, documentId, document } (spec §17.1).
+  output          Json?
   matched         Json                              // [{ id, name, actions }]
   // { review: string[], blocked: string[], fields: Record<string, 'review'|'blocked'>, notified: string[],
   //   baseOcr: Record<string, unknown> }

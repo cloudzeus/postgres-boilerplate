@@ -8,6 +8,8 @@ import { prisma } from '@/lib/db';
 import { bunnyDownload } from '@/lib/bunny';
 import { POST_ERROR_TEXT, PostError, postDocumentToSoftone } from '@/lib/ocr/post-softone';
 import { matchDocItems } from '@/lib/ocr/softone-match';
+// Η μεταφορά του SoftOne match ζει πλέον στον έναν γραφέα του εγγράφου (`lib/ocr/document.ts`).
+import { CARRY_SELECT, carryForward, type SoftoneColumns } from '@/lib/ocr/document';
 import { extractTemplateFields } from './extract';
 import { applyRules, type RuleDef } from './conditions';
 import { projectToInvoice } from './mapping';
@@ -34,33 +36,6 @@ const APP_URL = () => process.env.APP_URL ?? '';
  * `previousItems` is the `items` array the projection started from — `projectToInvoice` returns the
  * same reference when the mapping has no line rows, which is how "the lines changed" is detected.
  */
-/** The SoftOne match on an invoice line — expensive to compute, and sometimes made BY HAND. */
-type SoftoneCarry = Pick<SoftoneColumns, 'softoneMtrl' | 'softoneCode' | 'softoneName' | 'softoneIsService' | 'softoneMatchedBy'>;
-type SoftoneColumns = { rowIndex: number; code: string | null; softoneMtrl: number | null; softoneCode: string | null; softoneName: string | null; softoneIsService: boolean | null; softoneMatchedBy: string | null };
-
-const CARRY_SELECT = { rowIndex: true, code: true, softoneMtrl: true, softoneCode: true, softoneName: true, softoneIsService: true, softoneMatchedBy: true } as const;
-const carryOf = (o: SoftoneColumns): SoftoneCarry =>
-  ({ softoneMtrl: o.softoneMtrl, softoneCode: o.softoneCode, softoneName: o.softoneName, softoneIsService: o.softoneIsService, softoneMatchedBy: o.softoneMatchedBy });
-
-/**
- * Pairs each rebuilt line with the row it replaces, so the SoftOne match survives the rebuild.
- * Same `rowIndex` first (a re-run of the same template on the same document produces the same lines
- * in the same order) — but only when the codes do not actively contradict each other, because
- * carrying an MTRL onto a line that is now a DIFFERENT article would post the wrong item. Otherwise
- * the row that carries the same `code`, wherever it moved to.
- */
-function carryForward(rows: ItemRow[], old: SoftoneColumns[]): SoftoneCarry[] {
-  const byIndex = new Map(old.map((o) => [o.rowIndex, o]));
-  const byCode = new Map(old.filter((o) => (o.code ?? '').trim()).map((o) => [(o.code ?? '').trim(), o]));
-  return rows.map((r) => {
-    const code = (r.code ?? '').trim();
-    const sameIndex = byIndex.get(r.rowIndex);
-    const oldCode = (sameIndex?.code ?? '').trim();
-    const hit = sameIndex && (!code || !oldCode || code === oldCode) ? sameIndex : (code ? byCode.get(code) : undefined);
-    return hit ? carryOf(hit) : { softoneMtrl: null, softoneCode: null, softoneName: null, softoneIsService: null, softoneMatchedBy: null };
-  });
-}
-
 export async function applyProjectionToDocument(documentId: string, nextData: Record<string, unknown> | null, previousItems: unknown): Promise<void> {
   const itemsChanged = nextData != null && nextData.items !== previousItems && Array.isArray(nextData.items);
   const docUpdate: Prisma.OcrDocumentUpdateInput = {};
