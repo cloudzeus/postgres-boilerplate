@@ -254,22 +254,60 @@ export interface TraderLink {
  * Γράφει τον συναλλασσόμενο σε ΟΛΑ τα έγγραφα του ΑΦΜ που δεν έχουν ήδη
  * αντιστοίχιση (spec §2: μία δημιουργία/σύνδεση ξεμπλοκάρει όλη την ομάδα).
  * Επιστρέφει πόσα ενημερώθηκαν.
+ *
+ * `opts.vatId`: το ΤΕΛΙΚΟ ΑΦΜ του εκδότη όταν ο χρήστης του πρόσθεσε πρόθεμα
+ * χώρας (π.χ. ο geocoder βρήκε Γερμανία ⇒ «144960040» → «DE144960040»). Τότε τα
+ * έγγραφα ΞΑΝΑΓΡΑΦΟΝΤΑΙ με τη νέα τιμή — και στη στήλη `issuerAfm` και στο
+ * `extractedData.vatNumber` — ώστε το κλειδί της ουράς να μείνει συνεπές. Χωρίς
+ * αυτό, το ίδιο τιμολόγιο θα ξαναεμφανιζόταν στην ουρά με το παλιό, γυμνό ΑΦΜ.
  */
-export async function applyTraderToDocs(afm: string, trader: TraderLink): Promise<number> {
+export async function applyTraderToDocs(
+  afm: string,
+  trader: TraderLink,
+  opts: { vatId?: string | null } = {},
+): Promise<number> {
   const target = normalizeAfm(afm);
   if (!target) return 0;
-  // Ένα `updateMany` πάνω στο indexed `issuerAfm` — καμία ανάγνωση/σάρωση JSON.
-  const res = await prisma.ocrDocument.updateMany({
-    where: { status: 'COMPLETED', softoneTrdr: null, issuerAfm: target },
-    data: {
-      softoneTrdr: trader.trdr,
-      softoneCode: trader.code ?? null,
-      softoneName: trader.name,
-      softoneKind: trader.kind,
-      softoneChecked: new Date(),
-    },
-  });
-  return res.count;
+  const rewritten = opts.vatId ? normalizeAfm(opts.vatId) : null;
+  const next = rewritten && rewritten !== target ? rewritten : null;
+
+  const where = { status: 'COMPLETED', softoneTrdr: null, issuerAfm: target } as const;
+  const stamp = {
+    softoneTrdr: trader.trdr,
+    softoneCode: trader.code ?? null,
+    softoneName: trader.name,
+    softoneKind: trader.kind,
+    softoneChecked: new Date(),
+  };
+
+  // Κοινή περίπτωση: ένα `updateMany` πάνω στο indexed `issuerAfm` — καμία
+  // ανάγνωση/σάρωση JSON.
+  if (!next) {
+    const res = await prisma.ocrDocument.updateMany({ where, data: stamp });
+    return res.count;
+  }
+
+  // Αλλαγή ΑΦΜ: το `extractedData` είναι JSON, οπότε χρειάζεται read-modify-write
+  // ανά έγγραφο. Όλα μαζί σε μία συναλλαγή — είτε αλλάζει το κλειδί παντού είτε πουθενά.
+  const docs = await prisma.ocrDocument.findMany({ where, select: { id: true, extractedData: true } });
+  if (docs.length === 0) return 0;
+  await prisma.$transaction(
+    docs.map((d) => prisma.ocrDocument.update({
+      where: { id: d.id },
+      data: {
+        ...stamp,
+        issuerAfm: next,
+        extractedData: withVatNumber(d.extractedData, next),
+      },
+    })),
+  );
+  return docs.length;
+}
+
+/** Αντικαθιστά ΜΟΝΟ το `vatNumber` του payload, αφήνοντας ό,τι άλλο διάβασε το OCR. */
+function withVatNumber(data: unknown, vatNumber: string): Prisma.InputJsonValue {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return { vatNumber };
+  return { ...(data as Record<string, unknown>), vatNumber } as Prisma.InputJsonValue;
 }
 
 // ============================================================

@@ -4,13 +4,21 @@ import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { parseAfmParam } from '@/lib/ocr/validate';
+import { applyVatPrefix } from '@/lib/ocr/vat-prefix';
 import { applyTraderToDocs } from '@/lib/ocr/queues';
 import { SUPPLIER_SODTYPES } from '@/lib/softone';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const Body = z.object({ trdr: z.number().int().positive() });
+const Body = z.object({
+  trdr: z.number().int().positive(),
+  /**
+   * ISO-2 χώρα που επέλεξε/βρήκε ο χρήστης. Όταν δεν είναι η Ελλάδα και το ΑΦΜ
+   * της ομάδας είναι γυμνό, τα έγγραφα ξαναγράφονται με το πρόθεμα της χώρας.
+   */
+  country: z.string().trim().regex(/^[A-Za-z]{2}$/).nullable().optional(),
+});
 
 // POST — «Είναι υπάρχων…»: συνδέει όλα τα έγγραφα του ΑΦΜ με υπάρχοντα
 // προμηθευτή/πιστωτή (SODTYPE 12/16) του τοπικού μητρώου (spec 2026-09-11 §2).
@@ -35,17 +43,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
     );
   }
 
-  const docsUpdated = await applyTraderToDocs(afm, {
-    trdr: trader.trdr, code: trader.code, name: trader.name, kind: trader.kind,
-  });
+  const vatId = parsed.data.country ? applyVatPrefix(afm, parsed.data.country) : afm;
+  const docsUpdated = await applyTraderToDocs(
+    afm,
+    { trdr: trader.trdr, code: trader.code, name: trader.name, kind: trader.kind },
+    { vatId },
+  );
 
   await logAudit({
     userId: u.id, userEmail: u.email,
     action: 'ocr.trader.link', resource: 'softone_trader', resourceId: String(trader.trdr),
-    metadata: { afm, code: trader.code, name: trader.name, sodtype: trader.sodtype, docsUpdated },
+    metadata: { afm, vatId, code: trader.code, name: trader.name, sodtype: trader.sodtype, docsUpdated },
   }).catch(() => null);
 
   return NextResponse.json({
-    ok: true, trdr: trader.trdr, code: trader.code, name: trader.name, kind: trader.kind, docsUpdated,
+    ok: true, trdr: trader.trdr, code: trader.code, name: trader.name, kind: trader.kind, afm: vatId, docsUpdated,
   });
 }

@@ -38,13 +38,13 @@ export function inferDocKind(data: any): 'invoice' | 'receipt' {
 export const VAT_COUNTRY_CODES = [
   'AT', 'BE', 'BG', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'HR', 'HU',
   'IE', 'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PL', 'PT', 'RO', 'SE', 'SI', 'SK',
-  'XI', 'GB', 'CH', 'NO',
+  'XI', 'GB', 'CH', 'NO', 'IS', 'LI', 'SM',
 ] as const;
 export type VatCountryCode = (typeof VAT_COUNTRY_CODES)[number];
 
 const VAT_PREFIXES = new Set<string>(VAT_COUNTRY_CODES);
 /** Χώρες που ΔΕΝ είναι μέλη του VIES (το lookup δεν έχει νόημα). */
-const NON_VIES = new Set(['CH', 'NO', 'GB']);
+const NON_VIES = new Set(['CH', 'NO', 'GB', 'IS', 'LI', 'SM']);
 
 /** `XI` (Β. Ιρλανδία) είναι ξεχωριστό VAT prefix αλλά η χώρα είναι το Ηνωμένο Βασίλειο. */
 const countryOfPrefix = (p: string): string => (p === 'XI' ? 'GB' : p);

@@ -14,6 +14,7 @@ import { TraderSearch } from '@/components/admin/trader-search';
 import { cn } from '@/lib/utils';
 import { COUNTRY_NAMES_EL, countryLabel } from '@/lib/countries';
 import { VAT_COUNTRY_CODES, viesPrefix } from '@/lib/ocr/validate';
+import { applyVatPrefix, vatPrefixFor } from '@/lib/ocr/vat-prefix';
 import type { TraderGroup } from '@/lib/ocr/queues';
 
 export interface TaxOffice { code: string; name: string }
@@ -308,7 +309,7 @@ export function TraderPanel({
     try {
       const res = await fetch(`/api/admin/ocr/new-traders/${group.afm}/link`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trdr }),
+        body: JSON.stringify({ trdr, country: form.country || null }),
       });
       const d = await res.json().catch(() => null);
       if (!res.ok || !d?.ok) {
@@ -416,6 +417,12 @@ export function TraderPanel({
 
   const isForeign = group.isForeign;
   const viesCountry = viesPrefix(group.afm);
+  // Το ΑΦΜ όπως θα αποθηκευτεί: αν το OCR διάβασε γυμνά ψηφία αλλά η χώρα (από τη
+  // διεύθυνση, το VIES ή την επιλογή του χρήστη) δεν είναι η Ελλάδα, μπαίνει το
+  // πρόθεμά της. Ελληνικό ΑΦΜ δεν προθεματίζεται ποτέ.
+  const activeCountry = form.country || group.country || 'GR';
+  const effectiveAfm = applyVatPrefix(group.afm, activeCountry);
+  const addedPrefix = effectiveAfm !== group.afm ? vatPrefixFor(activeCountry) : null;
 
   const rows: { key: FieldKey; label: string; ocr: string | null; aadeValue: string | null; apply?: () => void }[] = [
     { key: 'name', label: 'Επωνυμία', ocr: group.name, aadeValue: aade?.name || null, apply: () => aade?.name && set('name', aade.name) },
@@ -694,10 +701,15 @@ export function TraderPanel({
             <Input {...bind('name', 'tp-name')} className="h-8 text-[13px]" />
           </Field>
 
-          <Field label="ΑΦΜ" id="tp-afm" hint="Κλειδωμένο — προέρχεται από τα παραστατικά.">
+          <Field
+            label="ΑΦΜ" id="tp-afm"
+            hint={addedPrefix
+              ? `Προστέθηκε πρόθεμα ${addedPrefix} — ${countryLabel(activeCountry)}.`
+              : 'Κλειδωμένο — προέρχεται από τα παραστατικά.'}
+          >
             {/* `readOnly` (όχι `disabled`): το πεδίο μένει εστιάσιμο και αναγνώσιμο από screen reader. */}
             <Input
-              id="tp-afm" value={group.afm} readOnly aria-readonly
+              id="tp-afm" value={effectiveAfm} readOnly aria-readonly
               className="h-8 bg-neutral-4 font-mono text-[13px]"
             />
           </Field>

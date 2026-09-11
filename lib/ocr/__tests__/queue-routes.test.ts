@@ -15,6 +15,7 @@ const { db, rbac, s1, audit, s1read } = vi.hoisted(() => ({
     softoneItem: { findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
     softoneExpense: { findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
     lineMatchRule: { findMany: vi.fn(), upsert: vi.fn() },
+    $transaction: vi.fn(),
   },
   rbac: { requirePermission: vi.fn() },
   s1: {
@@ -72,6 +73,8 @@ beforeEach(() => {
   rbac.requirePermission.mockResolvedValue(USER);
   audit.logAudit.mockResolvedValue(undefined);
   db.ocrDocument.findMany.mockResolvedValue([]);
+  // Οι δοκιμές δεν χρειάζονται πραγματική συναλλαγή: εκτελούμε ό,τι μας δοθεί.
+  db.$transaction.mockImplementation((ops: unknown) => Promise.resolve(ops));
   db.ocrDocument.updateMany.mockResolvedValue({ count: 0 });
   db.ocrDocument.groupBy.mockResolvedValue([]);
   db.ocrInvoiceItem.findMany.mockResolvedValue([]);
@@ -172,6 +175,68 @@ describe('ξένος εκδότης', () => {
     expect(body.payload.DATA.SUPPLIER[0]).not.toHaveProperty('COUNTRY');
     expect(body.warnings).toEqual(['country_not_found']);
     expectNoWrites();
+  });
+
+  it('χώρα από τη διεύθυνση: το γυμνό ΑΦΜ παίρνει πρόθεμα σε SoftOne ΚΑΙ στα έγγραφα', async () => {
+    s1.softoneCreateSupplier.mockResolvedValue({ trdr: 7001, code: 'Π.0007' });
+    db.ocrDocument.findMany.mockResolvedValue([
+      { id: 'd1', extractedData: { vatNumber: '144960040', companyName: 'MUSTER GMBH' } },
+      { id: 'd2', extractedData: null },
+    ]);
+    db.softoneTrader.upsert.mockResolvedValue({});
+
+    const res = await createTrader(
+      post({ kind: 'supplier', name: 'MUSTER GMBH', country: 'DE' }),
+      ctx('144960040'),
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, afm: 'DE144960040', docsUpdated: 2 });
+    // SoftOne παίρνει το προθεματισμένο ΑΦΜ…
+    expect(s1.softoneCreateSupplier.mock.calls[0][0]).toMatchObject({ afm: 'DE144960040' });
+    // …και τα έγγραφα ξαναγράφονται, ώστε το κλειδί της ουράς να μείνει συνεπές.
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    expect(db.ocrDocument.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'd1' },
+      data: expect.objectContaining({
+        issuerAfm: 'DE144960040',
+        extractedData: { vatNumber: 'DE144960040', companyName: 'MUSTER GMBH' },
+      }),
+    }));
+    // Έγγραφο χωρίς extractedData δεν σκάει — παίρνει μόνο το vatNumber.
+    expect(db.ocrDocument.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'd2' },
+      data: expect.objectContaining({ extractedData: { vatNumber: 'DE144960040' } }),
+    }));
+    expect(db.ocrDocument.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('ελληνικός εκδότης ΔΕΝ παίρνει ποτέ πρόθεμα — ένα updateMany, καμία JSON εγγραφή', async () => {
+    s1.softoneCreateSupplier.mockResolvedValue({ trdr: 7002, code: 'Π.0008' });
+    db.ocrDocument.updateMany.mockResolvedValue({ count: 4 });
+    db.softoneTrader.upsert.mockResolvedValue({});
+
+    const res = await createTrader(post({ kind: 'supplier', name: 'ΑΛΦΑ ΑΕ', country: 'GR' }), ctx(AFM));
+
+    expect(await res.json()).toMatchObject({ ok: true, afm: AFM, docsUpdated: 4 });
+    expect(s1.softoneCreateSupplier.mock.calls[0][0]).toMatchObject({ afm: AFM });
+    expect(db.ocrDocument.updateMany).toHaveBeenCalledTimes(1);
+    expect(db.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('«Είναι υπάρχων…» με χώρα: το κλειδί των εγγράφων διορθώνεται κι εκεί', async () => {
+    db.softoneTrader.findUnique.mockResolvedValue({
+      trdr: 8001, code: 'Π.1', name: 'MUSTER GMBH', kind: 'Προμηθευτής', sodtype: 12,
+    });
+    db.ocrDocument.findMany.mockResolvedValue([{ id: 'd9', extractedData: { vatNumber: '144960040' } }]);
+
+    const res = await linkTrader(post({ trdr: 8001, country: 'DE' }), ctx('144960040'));
+
+    expect(await res.json()).toMatchObject({ ok: true, afm: 'DE144960040', docsUpdated: 1 });
+    expect(db.ocrDocument.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ issuerAfm: 'DE144960040' }),
+    }));
   });
 
   it.each(['ZZ12345678', 'EL094073495', 'C1234567890'])('άγνωστο πρόθεμα %j → 400', async (afm) => {

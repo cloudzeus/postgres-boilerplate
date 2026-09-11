@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { parseAfmParam, vatCountry } from '@/lib/ocr/validate';
+import { applyVatPrefix } from '@/lib/ocr/vat-prefix';
 import { applyTraderToDocs, TRADER_KIND_LABEL } from '@/lib/ocr/queues';
 import {
   buildTraderPayload, softoneCreateSupplier, softoneCreateCreditor, softoneFetchCountries,
@@ -45,10 +46,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
   // Η χώρα του εκδότη: ό,τι επέλεξε ο χρήστης, αλλιώς αυτή που λέει το ίδιο το
   // ΑΦΜ (ξένο πρόθεμα → η χώρα του, σκέτα ψηφία → Ελλάδα).
   const country = (b.country ?? vatCountry(afm) ?? 'GR').toUpperCase();
+  // Ο εκδότης είναι ξένος αλλά το OCR διάβασε γυμνά ψηφία: προσθέτουμε το πρόθεμα
+  // της χώρας ΜΙΑ φορά, εδώ, και το χρησιμοποιούμε παντού (SoftOne + έγγραφα).
+  const vatId = applyVatPrefix(afm, country);
 
   const input = {
     name: b.name,
-    afm,
+    afm: vatId,
     code: b.code ?? null,
     doyCode: b.doyCode ?? null,
     profession: b.profession ?? null,
@@ -69,6 +73,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
   if (b.dryRun) {
     return NextResponse.json({
       dryRun: true, warnings,
+      vatId,
       payload: { service: 'setData', ...buildTraderPayload(b.kind, input, countries) },
     });
   }
@@ -88,20 +93,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
   // Καθρέφτης: ο νέος συναλλασσόμενος γίνεται αμέσως αναζητήσιμος/αντιστοιχίσιμος.
   // Τηλέφωνο/email γράφονται και στο SoftOne (PHONE01/EMAIL) και εδώ.
   const mirror = {
-    code, name: b.name, afm, sodtype, kind, isActive: true,
+    code, name: b.name, afm: vatId, sodtype, kind, isActive: true,
     doy: b.doyCode ?? null, profession: b.profession ?? null,
     address: b.address ?? null, zip: b.zip ?? null, city: b.city ?? null,
     phone: b.phone ?? null, email: b.email ?? null,
   };
   await prisma.softoneTrader.upsert({ where: { trdr }, update: mirror, create: { trdr, ...mirror } }).catch(() => null);
 
-  const docsUpdated = await applyTraderToDocs(afm, { trdr, code, name: b.name, kind });
+  // Το `afm` του path είναι το ΤΡΕΧΟΝ κλειδί της ομάδας· το `vatId` είναι η τελική
+  // μορφή. Αν διαφέρουν, τα έγγραφα ξαναγράφονται με τη νέα τιμή.
+  const docsUpdated = await applyTraderToDocs(afm, { trdr, code, name: b.name, kind }, { vatId });
 
   await logAudit({
     userId: u.id, userEmail: u.email,
     action: 'ocr.trader.create', resource: 'softone_trader', resourceId: String(trdr),
-    metadata: { afm, kind: b.kind, code, name: b.name, country, docsUpdated, warnings },
+    metadata: { afm, vatId, kind: b.kind, code, name: b.name, country, docsUpdated, warnings },
   }).catch(() => null);
 
-  return NextResponse.json({ ok: true, trdr, code, name: b.name, kind, country, docsUpdated, warnings });
+  return NextResponse.json({ ok: true, trdr, code, name: b.name, afm: vatId, kind, country, docsUpdated, warnings });
 }
