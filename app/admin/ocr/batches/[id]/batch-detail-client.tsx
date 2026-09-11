@@ -155,7 +155,7 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
       </div>
 
       <p className="text-[11px] text-muted-foreground">
-        Όσα δεν βρέθηκαν → <Link href="/admin/ocr/matching" className="text-[#0078D4] hover:underline">Αντιστοιχίσεις SoftOne</Link> για χειροκίνητη ταύτιση.
+        Όσα δεν βρέθηκαν → <Link href="/admin/ocr/new-items" className="text-[#0078D4] hover:underline">Είδη & έξοδα</Link> για χειροκίνητη ταύτιση.
       </p>
     </div>
   );
