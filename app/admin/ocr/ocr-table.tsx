@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { type ColumnDef } from '@tanstack/react-table';
-import { FiMoreVertical, FiFile, FiExternalLink, FiSend, FiTrash2, FiEye, FiUserPlus, FiRefreshCw, FiSearch, FiCheck, FiChevronDown, FiChevronRight, FiAlertCircle, FiCheckCircle, FiAlertTriangle, FiSlash, FiRotateCcw } from 'react-icons/fi';
+import { FiMoreVertical, FiFile, FiExternalLink, FiSend, FiTrash2, FiEye, FiUserPlus, FiRefreshCw, FiSearch, FiCheck, FiChevronDown, FiChevronRight, FiAlertCircle, FiCheckCircle, FiAlertTriangle, FiSlash, FiRotateCcw, FiPlay } from 'react-icons/fi';
 import { SoftoneAfmDialog } from '@/components/admin/softone-afm-dialog';
 import { OcrDayProblemsModal } from '@/components/admin/ocr-day-problems-modal';
 import { DataTable } from '@/components/ui/data-table';
@@ -222,6 +222,29 @@ export function OcrTable({
       toast.error(`Αποτυχία ανάρτησης: ${err?.message ?? err}`);
     } finally {
       setBusyId(null);
+    }
+  }
+
+  /**
+   * Η ΦΘΗΝΗ ανάγνωση ενός εγγράφου που δεν διαβάστηκε ποτέ (παιδί διαχωρισμένου PDF που έμεινε
+   * PENDING, ή αποτυχημένη ανάγνωση). Χρησιμοποιεί το κανονικό μοντέλο του ανεβάσματος — το
+   * «Επανασκανάρισμα» δίπλα του ανεβάζει σε gemini-2.5-pro, που κοστίζει ~8× και δεν χρειάζεται
+   * όταν το έγγραφο απλώς δεν έχει διαβαστεί ακόμη.
+   */
+  async function handleExtractNow(row: OcrRow) {
+    setReextractingId(row.id);
+    router.refresh();
+    try {
+      const res = await fetch(`/api/admin/ocr/${row.id}/extract`, { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      toast.success('Η ανάγνωση ολοκληρώθηκε');
+      router.refresh();
+    } catch (err: any) {
+      toast.error(`Αποτυχία ανάγνωσης: ${err?.message ?? err}`);
+      router.refresh();
+    } finally {
+      setReextractingId(null);
     }
   }
 
@@ -650,6 +673,11 @@ export function OcrTable({
               <DropdownMenuItem onClick={() => row.toggleExpanded()}>
                 <FiEye className="size-4" /> Προβολή / Κατηγοριοποίηση
               </DropdownMenuItem>
+              {(r.status === 'PENDING' || r.status === 'FAILED') && (
+                <DropdownMenuItem onClick={() => handleExtractNow(r)}>
+                  <FiPlay className="size-4" /> Διάβασε τώρα
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={() => setReextractRow(r)}
                 disabled={r.status === 'PROCESSING'}

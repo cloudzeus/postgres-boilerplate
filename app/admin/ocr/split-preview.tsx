@@ -12,6 +12,7 @@ import { FiScissors, FiCheck, FiLoader, FiAlertTriangle, FiX } from 'react-icons
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { segmentsOf } from '@/lib/ocr/split';
+import { UPLOAD_DOC_TYPE_LABELS, type ExtractDocType } from '@/lib/ocr/templates';
 
 export interface SplitPreviewData {
   batchId: string;
@@ -20,6 +21,8 @@ export interface SplitPreviewData {
   suggested: number[];
   pages: { index: number; thumbUrl: string }[];
   fileName: string;
+  /** Ο τύπος που διάλεξε ο χρήστης στη φόρμα — ισχύει για κάθε παραστατικό της στοίβας. */
+  docType: ExtractDocType;
 }
 
 type Phase = 'editing' | 'splitting' | 'reading';
@@ -52,7 +55,7 @@ export function OcrSplitPreview({ data, onCancel }: { data: SplitPreviewData; on
       const res = await fetch('/api/admin/ocr/split', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batchId: data.batchId, cuts }),
+        body: JSON.stringify({ batchId: data.batchId, cuts, docType: data.docType }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
@@ -67,7 +70,11 @@ export function OcrSplitPreview({ data, onCancel }: { data: SplitPreviewData; on
       // χρόνου και ο χρήστης να βλέπει πρόοδο αντί για έναν φορτωτή που δεν λέει τίποτα.
       for (const doc of docs) {
         try {
-          const r = await fetch(`/api/admin/ocr/${doc.id}/extract`, { method: 'POST' });
+          const r = await fetch(`/api/admin/ocr/${doc.id}/extract`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ docType: data.docType }),
+          });
           if (!r.ok) errors += 1;
         } catch {
           errors += 1;
@@ -77,7 +84,7 @@ export function OcrSplitPreview({ data, onCancel }: { data: SplitPreviewData; on
       }
 
       if (errors > 0) {
-        toast.warning(`Ολοκληρώθηκε με ${errors} αποτυχίες — δοκίμασε επανασκανάρισμα σε αυτά.`);
+        toast.warning(`Ολοκληρώθηκε με ${errors} αποτυχίες — διάβασέ τα από τον φάκελο («Διάβασε τα υπόλοιπα»).`);
       } else {
         toast.success(`Δημιουργήθηκαν ${docs.length} παραστατικά`);
       }
@@ -100,6 +107,7 @@ export function OcrSplitPreview({ data, onCancel }: { data: SplitPreviewData; on
             <h3 className="text-[14px] font-semibold tracking-tight text-foreground">Διαχωρισμός σε παραστατικά</h3>
             <p className="text-[11px] text-muted-foreground">
               {data.fileName} · {data.pageCount} σελίδες · {segments.length} παραστατικά
+              {' · '}{UPLOAD_DOC_TYPE_LABELS[data.docType]}
             </p>
           </div>
         </div>

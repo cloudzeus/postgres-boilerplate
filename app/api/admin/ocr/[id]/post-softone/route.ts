@@ -45,7 +45,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
  * the same `canPost` predicate the runner uses, so the two can never drift apart.
  */
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  await requirePermission('ocr.post');
+  const user = await requirePermission('ocr.post');
   const { id } = await params;
 
   const doc = await prisma.ocrDocument.findUnique({ where: { id }, select: { reviewFlags: true } });
@@ -55,7 +55,11 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   }
 
   try {
-    const { ref } = await postDocumentToSoftone(id, { syncTemplateRun: true });
+    // ΕΔΩ — και μόνο εδώ — η ανάρτηση είναι ανθρώπινη επιβεβαίωση της ανάγνωσης: κάποιος πάτησε το
+    // κουμπί. Ο εκτελεστής προτύπων περνάει από την ίδια συνάρτηση χωρίς αυτή τη σημαία.
+    const { ref } = await postDocumentToSoftone(id, {
+      syncTemplateRun: true, verified: true, verifiedById: user.id,
+    });
     return NextResponse.json({ ok: true, ref });
   } catch (err) {
     if (err instanceof PostError) {

@@ -32,17 +32,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const doc = await prisma.ocrDocument.findUnique({ where: { id } });
   if (!doc) return NextResponse.json({ error: 'not found' }, { status: 404 });
-  if (doc.status === 'COMPLETED') {
-    return NextResponse.json({ error: 'Το έγγραφο έχει ήδη διαβαστεί.' }, { status: 409 });
-  }
-  if (doc.status === 'PROCESSING') {
-    return NextResponse.json({ error: 'Η ανάγνωση είναι ήδη σε εξέλιξη.' }, { status: 409 });
-  }
 
-  await prisma.ocrDocument.update({
-    where: { id },
+  // ΔΕΣΜΕΥΣΗ ΜΕ ΜΙΑ ΕΓΓΡΑΦΗ: ο έλεγχος κατάστασης και η σήμανση PROCESSING γίνονται στο ΙΔΙΟ
+  // update. Με χωριστό «διάβασε μετά γράψε», δύο ταυτόχρονα αιτήματα (διπλό κλικ, δύο καρτέλες,
+  // επανάληψη δικτύου) περνούσαν και τα δύο τον έλεγχο και πλήρωναν δύο αναγνώσεις.
+  const claimed = await prisma.ocrDocument.updateMany({
+    where: { id, status: { in: ['PENDING', 'FAILED'] } },
     data: { status: 'PROCESSING', errorMessage: null },
   });
+  if (claimed.count !== 1) {
+    return NextResponse.json(
+      {
+        error: doc.status === 'COMPLETED'
+          ? 'Το έγγραφο έχει ήδη διαβαστεί.'
+          : 'Η ανάγνωση είναι ήδη σε εξέλιξη.',
+      },
+      { status: 409 },
+    );
+  }
 
   try {
     const buffer = await bunnyDownload(doc.storageKey);

@@ -36,7 +36,7 @@ export function OcrUploadForm() {
       const res = await fetch('/api/admin/ocr/split-preview', { method: 'POST', body: fd });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
-      setSplit({ ...json, fileName: file.name });
+      setSplit({ ...json, fileName: file.name, docType });
     } catch (err: any) {
       toast.error(`Αποτυχία προεπισκόπησης: ${err?.message ?? err}`);
     } finally {

@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const { db, rbac, bunny, ocr, sm, tpl, dt, thumb, writer, ex } = vi.hoisted(() => ({
   db: {
-    ocrDocument: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    ocrDocument: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     ocrInvoiceItem: { deleteMany: vi.fn(), createMany: vi.fn(), findMany: vi.fn() },
     templateRun: { findFirst: vi.fn() },
     appSetting: { upsert: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
@@ -66,6 +66,7 @@ beforeEach(() => {
   rbac.requirePermission.mockResolvedValue(USER);
   db.ocrDocument.create.mockResolvedValue({ id: 'doc1' });
   db.ocrDocument.update.mockResolvedValue({ id: 'doc1' });
+  db.ocrDocument.updateMany.mockResolvedValue({ count: 1 });
   db.ocrDocument.findUnique.mockResolvedValue({
     id: 'doc1', storageKey: 'ocr/x.pdf', mimeType: 'application/pdf', docType: 'INVOICE',
     language: 'el', originalName: 'ΤΙΜΟΛΟΓΙΟ 17.pdf', fileName: 'timologio-17.pdf',
@@ -249,8 +250,26 @@ describe('POST /api/admin/ocr/[id]/extract', () => {
     expectNoRawDerivedWrites();
   });
 
+  it('δεσμεύει το έγγραφο με ΜΙΑ εγγραφή — μόνο από PENDING/FAILED', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue(pending);
+    await extractOne(new Request('http://localhost/x', { method: 'POST' }), ctx());
+    expect(db.ocrDocument.updateMany).toHaveBeenCalledWith({
+      where: { id: 'doc1', status: { in: ['PENDING', 'FAILED'] } },
+      data: { status: 'PROCESSING', errorMessage: null },
+    });
+  });
+
   it('ένα ήδη διαβασμένο έγγραφο δεν ξαναδιαβάζεται από εδώ (409)', async () => {
     db.ocrDocument.findUnique.mockResolvedValue({ ...pending, status: 'COMPLETED' });
+    db.ocrDocument.updateMany.mockResolvedValue({ count: 0 });
+    const res = await extractOne(new Request('http://localhost/x', { method: 'POST' }), ctx());
+    expect(res.status).toBe(409);
+    expect(ocr.extractDocument).not.toHaveBeenCalled();
+  });
+
+  it('δεύτερο ταυτόχρονο αίτημα χάνει τη δέσμευση και ΔΕΝ πληρώνει δεύτερη ανάγνωση', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue(pending);      // η ανάγνωση κατάστασης λέει «PENDING»
+    db.ocrDocument.updateMany.mockResolvedValue({ count: 0 }); // …αλλά το πρόλαβε άλλο αίτημα
     const res = await extractOne(new Request('http://localhost/x', { method: 'POST' }), ctx());
     expect(res.status).toBe(409);
     expect(ocr.extractDocument).not.toHaveBeenCalled();

@@ -1351,6 +1351,12 @@ export const openapiSpec = {
                     type: 'array', items: { type: 'integer' },
                     description: 'Δείκτες σελίδων (0-based) όπου ΑΡΧΙΖΕΙ νέο παραστατικό. Το 0 μπαίνει πάντα.',
                   },
+                  docType: {
+                    type: 'string',
+                    enum: ['auto', 'invoice', 'receipt', 'general_text'],
+                    default: 'auto',
+                    description: 'Ο τύπος που επέλεξε ο χρήστης· ισχύει για κάθε παιδί της στοίβας.',
+                  },
                 },
               },
             },

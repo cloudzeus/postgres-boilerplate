@@ -5,6 +5,7 @@ import { requirePermission } from '@/lib/rbac';
 import { bunnyDownload, bunnyUploadPrivate } from '@/lib/bunny';
 import { buildSegmentPdf, segmentFileName } from '@/lib/ocr/split-pdf';
 import { normalizeCuts, segmentsOf, MAX_SPLIT_PAGES } from '@/lib/ocr/split';
+import { isExtractDocType, type ExtractDocType } from '@/lib/ocr/templates';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,8 +28,16 @@ const slug = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 8);
 export async function POST(req: Request) {
   const user = await requirePermission('ocr.create');
 
-  const body = await req.json().catch(() => null) as { batchId?: unknown; cuts?: unknown } | null;
+  const body = await req.json().catch(() => null) as
+    { batchId?: unknown; cuts?: unknown; docType?: unknown } | null;
   const batchId = typeof body?.batchId === 'string' ? body.batchId : '';
+  // Ο τύπος που διάλεξε ο χρήστης στη φόρμα ισχύει για ΚΑΘΕ παιδί της στοίβας — αλλιώς ο επιλογέας
+  // θα έλεγε ψέματα σε αυτή τη διαδρομή.
+  const requestedType = body?.docType;
+  if (requestedType !== undefined && !isExtractDocType(requestedType)) {
+    return NextResponse.json({ error: `Invalid docType: ${String(requestedType)}` }, { status: 400 });
+  }
+  const docType: ExtractDocType = (requestedType as ExtractDocType | undefined) ?? 'auto';
   if (!batchId) {
     return NextResponse.json({ error: 'batchId is required' }, { status: 400 });
   }
@@ -36,7 +45,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'cuts must be an array of page indexes' }, { status: 400 });
   }
 
-  const batch = await prisma.ocrBatch.findUnique({ where: { id: batchId } });
+  // Ο φάκελος πρέπει να είναι ΑΥΤΟΥ που μόλις ανέβασε το πρωτότυπο: το `batchId` έρχεται από τον
+  // browser, και χωρίς τον περιορισμό ένας χρήστης θα μπορούσε να κόψει τη στοίβα κάποιου άλλου.
+  const batch = await prisma.ocrBatch.findFirst({ where: { id: batchId, createdById: user.id } });
   if (!batch?.sourceKey) {
     return NextResponse.json({ error: 'Ο φάκελος δεν έχει πρωτότυπο αρχείο.' }, { status: 404 });
   }
@@ -87,8 +98,9 @@ export async function POST(req: Request) {
         publicUrl: `bunny:${storageKey}`,
         mimeType: 'application/pdf',
         size: child.length,
-        // Προσωρινό είδος: το πραγματικό το αποφασίζει η ανάγνωση (`document.kind`).
-        docType: 'INVOICE',
+        // Προσωρινό είδος όσο το παιδί δεν έχει διαβαστεί· το πραγματικό το αποφασίζει η ανάγνωση
+        // (`document.kind`), όπως ακριβώς και στο ανέβασμα ενός μεμονωμένου αρχείου.
+        docType: docType === 'receipt' ? 'RECEIPT' : docType === 'general_text' ? 'GENERAL_TEXT' : 'INVOICE',
         language: batch.language,
         status: 'PENDING',
         batchId: batch.id,
@@ -98,5 +110,5 @@ export async function POST(req: Request) {
     created.push({ id: doc.id, fileName, from: seg.from, to: seg.to });
   }
 
-  return NextResponse.json({ batchId: batch.id, documents: created });
+  return NextResponse.json({ batchId: batch.id, docType, documents: created });
 }

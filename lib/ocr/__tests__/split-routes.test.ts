@@ -7,7 +7,7 @@ import { PDFDocument } from 'pdf-lib';
 
 const { db, rbac, bunny, text } = vi.hoisted(() => ({
   db: {
-    ocrBatch: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
+    ocrBatch: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
     ocrDocument: { create: vi.fn(), count: vi.fn() },
   },
   rbac: { requirePermission: vi.fn() },
@@ -106,7 +106,7 @@ describe('POST /api/admin/ocr/split', () => {
   });
 
   it('φτιάχνει ένα PDF ανά τμήμα, με τις ΣΩΣΤΕΣ σελίδες, και γραμμές PENDING', async () => {
-    db.ocrBatch.findUnique.mockResolvedValue(batch(5));
+    db.ocrBatch.findFirst.mockResolvedValue(batch(5));
     bunny.bunnyDownload.mockResolvedValue(await makePdf(5));
 
     const res = await split(splitReq({ batchId: 'batch1', cuts: [0, 3] }));
@@ -128,7 +128,7 @@ describe('POST /api/admin/ocr/split', () => {
   });
 
   it('χωρίς κοψίματα → ένα παραστατικό με όλες τις σελίδες', async () => {
-    db.ocrBatch.findUnique.mockResolvedValue(batch(4));
+    db.ocrBatch.findFirst.mockResolvedValue(batch(4));
     bunny.bunnyDownload.mockResolvedValue(await makePdf(4));
     const body = await (await split(splitReq({ batchId: 'batch1', cuts: [] }))).json();
     expect(body.documents).toHaveLength(1);
@@ -136,7 +136,7 @@ describe('POST /api/admin/ocr/split', () => {
   });
 
   it('κόψιμο εκτός ορίων → 400 και ΚΑΝΕΝΑ αρχείο', async () => {
-    db.ocrBatch.findUnique.mockResolvedValue(batch(3));
+    db.ocrBatch.findFirst.mockResolvedValue(batch(3));
     bunny.bunnyDownload.mockResolvedValue(await makePdf(3));
     const res = await split(splitReq({ batchId: 'batch1', cuts: [0, 7] }));
     expect(res.status).toBe(400);
@@ -150,13 +150,36 @@ describe('POST /api/admin/ocr/split', () => {
   });
 
   it('φάκελος χωρίς πρωτότυπο → 404', async () => {
-    db.ocrBatch.findUnique.mockResolvedValue({ ...batch(3), sourceKey: null });
+    db.ocrBatch.findFirst.mockResolvedValue({ ...batch(3), sourceKey: null });
     const res = await split(splitReq({ batchId: 'batch1', cuts: [0] }));
     expect(res.status).toBe(404);
   });
 
+  it('ο φάκελος αναζητείται ΜΟΝΟ ανάμεσα σε αυτούς που έφτιαξε ο ίδιος χρήστης', async () => {
+    db.ocrBatch.findFirst.mockResolvedValue(batch(3));
+    bunny.bunnyDownload.mockResolvedValue(await makePdf(3));
+    await split(splitReq({ batchId: 'batch1', cuts: [0] }));
+    expect(db.ocrBatch.findFirst).toHaveBeenCalledWith({ where: { id: 'batch1', createdById: 'u1' } });
+  });
+
+  it('περνάει τον τύπο εγγράφου της φόρμας — δεν είναι πάντα «auto»', async () => {
+    db.ocrBatch.findFirst.mockResolvedValue(batch(2));
+    bunny.bunnyDownload.mockResolvedValue(await makePdf(2));
+    const body = await (await split(splitReq({ batchId: 'batch1', cuts: [0, 1], docType: 'general_text' }))).json();
+    expect(body.docType).toBe('general_text');
+    const rows = db.ocrDocument.create.mock.calls.map((c) => c[0].data);
+    expect(rows.every((r) => r.docType === 'GENERAL_TEXT')).toBe(true);
+  });
+
+  it('άγνωστος τύπος εγγράφου → 400, χωρίς κανένα αρχείο', async () => {
+    db.ocrBatch.findFirst.mockResolvedValue(batch(2));
+    const res = await split(splitReq({ batchId: 'batch1', cuts: [0], docType: 'ό,τι νά ναι' }));
+    expect(res.status).toBe(400);
+    expect(bunny.bunnyUploadPrivate).not.toHaveBeenCalled();
+  });
+
   it('δεύτερος διαχωρισμός του ίδιου φακέλου → 409 (χωρίς διπλά έγγραφα)', async () => {
-    db.ocrBatch.findUnique.mockResolvedValue(batch(3));
+    db.ocrBatch.findFirst.mockResolvedValue(batch(3));
     db.ocrDocument.count.mockResolvedValue(2);
     const res = await split(splitReq({ batchId: 'batch1', cuts: [0] }));
     expect(res.status).toBe(409);
