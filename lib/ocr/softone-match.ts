@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db';
 import { softoneFindTraderByAfm, softoneCheckPurchaseDoc } from '@/lib/softone';
+import { normalizeLineText } from '@/lib/ocr/line-match';
 
 /**
  * PURDOC duplicate check fields for a scanned doc, given the matched supplier TRDR
@@ -48,16 +49,37 @@ export async function buildSoftoneMatch(vatNumber: unknown): Promise<SoftoneMatc
   }
 }
 
+/** Τα πεδία αντιστοίχισης μιας γραμμής — γράφονται μαζί, ποτέ μισά. */
+type LineMatchUpdate = {
+  softoneMtrl: number | null;
+  softoneExpn: number | null;
+  softoneCode: string | null;
+  softoneName: string | null;
+  softoneIsService: boolean | null;
+  softoneMatchedBy: string | null;
+};
+const NO_MATCH: LineMatchUpdate = {
+  softoneMtrl: null, softoneExpn: null, softoneCode: null, softoneName: null,
+  softoneIsService: null, softoneMatchedBy: null,
+};
+
 /**
- * Matches a document's invoice lines against the local SoftOne item mirror
- * (CODE2 factory → CODE1 EAN → CODE) and persists the match per line.
- * Cheap (one DB query, no AI) — safe to run automatically on every scan.
- * Manual matches (softoneMatchedBy='manual') are preserved.
+ * Matches a document's invoice lines against the local SoftOne registries and
+ * persists the match per line. Two passes, cheap (no AI) — safe to run on every scan:
+ *
+ *  1. κωδικός: CODE2 (εργοστασίου) → CODE1 (EAN) → CODE στο `SoftoneItem`.
+ *  2. μνήμη: `LineMatchRule` για το κανονικοποιημένο κείμενο της γραμμής, με τον
+ *     κανόνα του ίδιου εκδότη (ΑΦΜ) να υπερισχύει του γενικού (`afm = ''`) —
+ *     `softoneMatchedBy: 'memory'`, και το `timesUsed` του κανόνα αυξάνεται.
+ *
+ * Γραμμές αντιστοιχισμένες χειροκίνητα (`manual`) ή που ο χρήστης παρέλειψε ρητά
+ * (`skipped`) δεν ξαναγράφονται. Μια γραμμή μετράει ως αντιστοιχισμένη όταν έχει
+ * `softoneMtrl` ή `softoneExpn`.
  */
 export async function matchDocItems(docId: string): Promise<{ matched: number; total: number }> {
   const items = await prisma.ocrInvoiceItem.findMany({
     where: { documentId: docId },
-    select: { id: true, code: true, softoneMatchedBy: true },
+    select: { id: true, code: true, name: true, softoneMatchedBy: true },
   });
   if (items.length === 0) {
     await prisma.ocrDocument.update({ where: { id: docId }, data: { itemsTotal: 0, itemsMatched: 0 } }).catch(() => {});
@@ -76,9 +98,14 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
   const byCode2 = new Map(sItems.filter((m) => m.code2).map((m) => [m.code2!, m]));
   const byCode1 = new Map(sItems.filter((m) => m.code1).map((m) => [m.code1!, m]));
 
+  const updates = new Map<string, LineMatchUpdate>();
+  const unmatched: { id: string; pattern: string }[] = [];
   let matched = 0;
-  await Promise.all(items.map((it) => {
-    if (it.softoneMatchedBy === 'manual') { matched++; return Promise.resolve(); }
+
+  // ── 1. Πέρασμα κωδικού ──────────────────────────────────────────────
+  for (const it of items) {
+    if (it.softoneMatchedBy === 'manual') { matched++; continue; }
+    if (it.softoneMatchedBy === 'skipped') continue;
     const code = (it.code ?? '').trim();
     let m: (typeof sItems)[number] | undefined;
     let by: string | null = null;
@@ -87,14 +114,85 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
       else if (byCode1.has(code)) { m = byCode1.get(code); by = 'code1'; }
       else if (byCode.has(code)) { m = byCode.get(code); by = 'code'; }
     }
-    if (m) matched++;
-    return prisma.ocrInvoiceItem.update({
-      where: { id: it.id },
-      data: m
-        ? { softoneMtrl: m.mtrl, softoneCode: m.code, softoneName: m.name, softoneIsService: m.isService, softoneMatchedBy: by }
-        : { softoneMtrl: null, softoneCode: null, softoneName: null, softoneIsService: null, softoneMatchedBy: null },
+    if (m) {
+      matched++;
+      updates.set(it.id, {
+        softoneMtrl: m.mtrl, softoneExpn: null, softoneCode: m.code,
+        softoneName: m.name, softoneIsService: m.isService, softoneMatchedBy: by,
+      });
+      continue;
+    }
+    updates.set(it.id, { ...NO_MATCH });
+    const pattern = normalizeLineText(it.name);
+    if (pattern) unmatched.push({ id: it.id, pattern });
+  }
+
+  // ── 2. Πέρασμα μνήμης (LineMatchRule) ───────────────────────────────
+  if (unmatched.length > 0) {
+    const doc = await prisma.ocrDocument.findUnique({ where: { id: docId }, select: { extractedData: true } });
+    const ed = (doc?.extractedData ?? null) as { vatNumber?: unknown } | null;
+    const afm = String(ed?.vatNumber ?? '').replace(/\D+/g, '');
+    const patterns = Array.from(new Set(unmatched.map((u) => u.pattern)));
+    const rules = await prisma.lineMatchRule.findMany({
+      where: { pattern: { in: patterns }, afm: { in: afm ? [afm, ''] : [''] } },
+      select: { id: true, afm: true, pattern: true, mtrl: true, expn: true, isService: true },
     });
-  }));
+
+    if (rules.length > 0) {
+      // Ο κανόνας του εκδότη υπερισχύει του γενικού.
+      const byPattern = new Map<string, (typeof rules)[number]>();
+      for (const r of rules) {
+        const cur = byPattern.get(r.pattern);
+        if (!cur || (cur.afm === '' && r.afm !== '')) byPattern.set(r.pattern, r);
+      }
+      const mtrls = Array.from(new Set(rules.map((r) => r.mtrl).filter((v): v is number => v != null)));
+      const expns = Array.from(new Set(rules.map((r) => r.expn).filter((v): v is number => v != null)));
+      const [ruleItems, ruleExpenses] = await Promise.all([
+        mtrls.length
+          ? prisma.softoneItem.findMany({ where: { mtrl: { in: mtrls } }, select: { mtrl: true, code: true, name: true, isService: true } })
+          : Promise.resolve([]),
+        expns.length
+          ? prisma.softoneExpense.findMany({ where: { expn: { in: expns } }, select: { expn: true, code: true, name: true } })
+          : Promise.resolve([]),
+      ]);
+      const itemByMtrl = new Map(ruleItems.map((i) => [i.mtrl, i]));
+      const expenseByExpn = new Map(ruleExpenses.map((e) => [e.expn, e]));
+
+      const usage = new Map<string, number>();
+      for (const u of unmatched) {
+        const r = byPattern.get(u.pattern);
+        if (!r) continue;
+        let data: LineMatchUpdate | null = null;
+        if (r.mtrl != null) {
+          const i = itemByMtrl.get(r.mtrl);
+          data = {
+            softoneMtrl: r.mtrl, softoneExpn: null,
+            softoneCode: i?.code ?? null, softoneName: i?.name ?? null,
+            softoneIsService: i?.isService ?? r.isService, softoneMatchedBy: 'memory',
+          };
+        } else if (r.expn != null) {
+          const e = expenseByExpn.get(r.expn);
+          data = {
+            softoneMtrl: null, softoneExpn: r.expn,
+            softoneCode: e?.code ?? null, softoneName: e?.name ?? null,
+            softoneIsService: r.isService, softoneMatchedBy: 'memory',
+          };
+        }
+        if (!data) continue;
+        updates.set(u.id, data);
+        matched++;
+        usage.set(r.id, (usage.get(r.id) ?? 0) + 1);
+      }
+
+      await Promise.all(Array.from(usage.entries()).map(([id, n]) =>
+        prisma.lineMatchRule.update({ where: { id }, data: { timesUsed: { increment: n } } }).catch(() => {}),
+      ));
+    }
+  }
+
+  await Promise.all(Array.from(updates.entries()).map(([id, data]) =>
+    prisma.ocrInvoiceItem.update({ where: { id }, data }),
+  ));
 
   // Persist the line-match tally so the reconciliation status can be derived cheaply.
   await prisma.ocrDocument.update({
