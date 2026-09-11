@@ -1,6 +1,7 @@
 // lib/templates/run-logic.ts — PURE pieces of a template run (spec §15.3). No I/O.
+import { getPath, legacyKeyToPath, setPath, type DocumentJson } from '@/lib/ocr/canonical';
 import { coerceValue } from './coerce';
-import { invoiceKeyInfo, type FieldDef, type FieldValue, type MappingTarget, type RunStatus, type TemplateMode, type TemplateValueType } from './schema';
+import { documentKeyInfo, type FieldDef, type FieldValue, type MappingTarget, type RunStatus, type TemplateMode } from './schema';
 
 /** How badly one field is flagged. `blocked` implies `review` — a blocked field always wants eyes too. */
 export type FieldFlag = 'review' | 'blocked';
@@ -12,9 +13,6 @@ export type FieldFlag = 'review' | 'blocked';
 export type RunFlags = { review: string[]; blocked: string[]; fields: Record<string, FieldFlag> };
 export type MappingLike = { name: string; target: MappingTarget; isDefault: boolean };
 export type RunDecision = 'EXTRACTED' | 'REVIEW' | 'BLOCKED' | 'POST';
-
-/** Keys that must never be written through a user-supplied `customFields.<k>` path. */
-const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 /**
  * SET_FIELD actions that target a template field: coerce by the field's type and mark the value
@@ -73,37 +71,26 @@ export function canPost(mode: TemplateMode, flags: Pick<RunFlags, 'blocked'>): b
   return flags.blocked.length === 0;
 }
 
-export function extrasFrom(extracted: Record<string, unknown>, itemsCount: number, pageCount: number): Record<string, number | string | null> {
-  const t = extracted.totalAmount;
-  return { $total: typeof t === 'number' ? t : typeof t === 'string' && t.trim() ? t : null, $itemsCount: itemsCount, $pageCount: pageCount };
+/** Οι μεταβλητές `$…` που βλέπουν οι κανόνες: ό,τι ξέρει το έγγραφο, όχι το πρότυπο. */
+export function extrasFrom(document: DocumentJson, itemsCount: number, pageCount: number): Record<string, number | string | null> {
+  return { $total: document.totals.total, $itemsCount: itemsCount, $pageCount: pageCount };
 }
 
 /**
- * SET_FIELD actions that target an invoice key, applied after the projection. `items.*` cannot be
- * set as a whole — ignored. Returns whether anything was written: a typed key whose value does not
- * coerce (e.g. `totalAmount` ← "abc") is LEFT UNTOUCHED rather than overwritten with a string the
- * rest of the app would read as a number.
+ * SET_FIELD actions that target a document path, applied after the projection. A `lines.*` path
+ * cannot be set as a whole — ignored. Returns the NEW document, or null when nothing was written:
+ * a typed path whose value does not coerce (e.g. `totals.total` ← "abc") is LEFT UNTOUCHED rather
+ * than overwritten with a string the rest of the app would read as a number.
+ *
+ * Παλιά `invoiceKey` (`totalAmount`, `customFields.po`) περνούν μέσα από το `documentKeyInfo`.
  */
-export function setInvoicePath(data: Record<string, unknown>, invoiceKey: string, value: string): boolean {
-  const info = invoiceKeyInfo(invoiceKey);
-  if (!info || info.isLine) return false;
-  if (invoiceKey.startsWith('customFields.')) {
-    const key = invoiceKey.slice('customFields.'.length);
-    if (UNSAFE_KEYS.has(key)) return false;
-    const prev = data.customFields;
-    const cf = prev && typeof prev === 'object' && !Array.isArray(prev) ? { ...(prev as Record<string, unknown>) } : {};
-    cf[key] = value;
-    data.customFields = cf;
-    return true;
-  }
-  if (info.valueType === 'TEXT') {
-    data[invoiceKey] = value;
-    return true;
-  }
+export function setDocumentPath(document: DocumentJson, key: string, value: string): DocumentJson | null {
+  const info = documentKeyInfo(key);
+  if (!info || info.isLine) return null;
+  if (info.valueType === 'TEXT') return setPath(document, info.key, value);
   const coerced = coerceValue(value, info.valueType);
-  if (coerced == null) return false;
-  data[invoiceKey] = coerced;
-  return true;
+  if (coerced == null) return null;
+  return setPath(document, info.key, coerced);
 }
 
 // ─── Cross-checking the template against the base OCR ──────────────────────
@@ -112,10 +99,10 @@ export function setInvoicePath(data: Record<string, unknown>, invoiceKey: string
 // date, one of them is wrong and nobody can tell which from the outside. So: keep the template's
 // value, and say out loud that they disagree.
 
-/** Header keys worth cross-checking — the ones a wrong reading actually costs money on. */
-const CROSS_CHECK_KEYS = new Set(['totalAmount', 'subtotal', 'vatAmount', 'invoiceNumber', 'date']);
-/** Keys compared as numbers; the rest are compared as normalised text. */
-const CROSS_CHECK_NUMERIC = new Set(['totalAmount', 'subtotal', 'vatAmount']);
+/** Header paths worth cross-checking — the ones a wrong reading actually costs money on. */
+const CROSS_CHECK_PATHS = new Set(['totals.total', 'totals.net', 'totals.vatAmount', 'type.number', 'date']);
+/** Paths compared as numbers; the rest are compared as normalised text. */
+const CROSS_CHECK_NUMERIC = new Set(['totals.total', 'totals.net', 'totals.vatAmount']);
 /** Two amounts within half a cent of each other are the same amount. */
 const AMOUNT_TOLERANCE = 0.005;
 
@@ -127,15 +114,15 @@ const asAmount = (v: unknown): number | null => {
   return typeof c === 'number' ? c : null;
 };
 
-/** True when the two readings genuinely disagree about `invoiceKey`. */
-function disagrees(invoiceKey: string, mine: unknown, theirs: unknown): boolean {
-  if (CROSS_CHECK_NUMERIC.has(invoiceKey)) {
+/** True when the two readings genuinely disagree about `path`. */
+function disagrees(path: string, mine: unknown, theirs: unknown): boolean {
+  if (CROSS_CHECK_NUMERIC.has(path)) {
     const a = asAmount(mine); const b = asAmount(theirs);
     // A side that will not parse as a number cannot be compared numerically — fall back to text
     // rather than declaring a mismatch nobody can act on.
     if (a != null && b != null) return Math.abs(a - b) > AMOUNT_TOLERANCE;
   }
-  if (invoiceKey === 'date') {
+  if (path === 'date') {
     const a = coerceValue(mine, 'DATE'); const b = coerceValue(theirs, 'DATE');
     if (a != null && b != null) return a !== b;
   }
@@ -144,45 +131,63 @@ function disagrees(invoiceKey: string, mine: unknown, theirs: unknown): boolean 
 
 export type CrossCheck = { fieldKey: string; reason: string };
 
+/** Η διαδρομή που στοχεύει μια γραμμή mapping, με τα παλιά `invoiceKey` μεταφρασμένα. */
+const pathOfRow = (r: { invoiceKey: string }) => legacyKeyToPath(r.invoiceKey);
+
 /**
  * The field keys `crossCheckOcr` is able to have an opinion about — i.e. whose per-field verdict it
  * OWNS, and which a recomputation may therefore drop before asking it again (`run-flags.ts`).
  */
 export function crossCheckKeys(rows: { fieldKey: string; invoiceKey: string }[]): string[] {
-  return rows.filter((r) => CROSS_CHECK_KEYS.has(r.invoiceKey)).map((r) => r.fieldKey);
+  return rows.filter((r) => { const p = pathOfRow(r); return p != null && CROSS_CHECK_PATHS.has(p); }).map((r) => r.fieldKey);
 }
 
 /**
- * The base OCR's own reading of the cross-checked keys, taken BEFORE the run projects over it.
- * Without this snapshot the second opinion is lost: `OcrDocument.extractedData` now holds the
- * TEMPLATE's values, so a later re-check would compare the template against itself and conclude —
- * every single time — that the two readers agree. Stored on the run (`flags.baseOcr`) because that is
- * where the verdict it feeds lives; only the keys of `CROSS_CHECK_KEYS`, so it stays a few bytes.
+ * The base OCR's own reading of the cross-checked paths, taken BEFORE the run projects over it.
+ * Without this snapshot the second opinion is lost: the document now holds the TEMPLATE's values, so
+ * a later re-check would compare the template against itself and conclude — every single time — that
+ * the two readers agree. Stored on the run (`flags.baseOcr`), keyed by canonical path.
  */
-export function baseOcrSnapshot(extracted: Record<string, unknown>): Record<string, unknown> {
+export function baseOcrSnapshot(document: DocumentJson): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const k of CROSS_CHECK_KEYS) if (extracted[k] !== undefined) out[k] = extracted[k];
+  for (const p of CROSS_CHECK_PATHS) out[p] = getPath(document, p);
   return out;
 }
 
 /**
- * Every INVOICE mapping row whose target is one of `CROSS_CHECK_KEYS` and whose template value
+ * Το αποθηκευμένο `flags.baseOcr` με κλειδιά διαδρομές. Τα snapshots που γράφτηκαν πριν από το
+ * κανονικό JSON κρατούν παλιά flat κλειδιά (`totalAmount`) — μεταφράζονται εδώ, αλλιώς κάθε
+ * επανέλεγχος μιας παλιάς εκτέλεσης θα έβρισκε «τίποτα να συγκρίνω».
+ */
+function snapshotByPath(snapshot: Record<string, unknown>): Map<string, unknown> {
+  const out = new Map<string, unknown>();
+  for (const [k, v] of Object.entries(snapshot ?? {})) {
+    const p = legacyKeyToPath(k);
+    if (p != null && !out.has(p)) out.set(p, v);
+  }
+  return out;
+}
+
+/**
+ * Every INVOICE mapping row whose target is one of `CROSS_CHECK_PATHS` and whose template value
  * contradicts what the base OCR read. Blank on either side is not a contradiction — a value only
  * one of the two readers found is not evidence that either is wrong.
  */
 export function crossCheckOcr(
   rows: { fieldKey: string; invoiceKey: string }[],
   values: Record<string, FieldValue>,
-  extracted: Record<string, unknown>,
+  baseOcr: Record<string, unknown>,
   labelOf: (fieldKey: string) => string,
 ): CrossCheck[] {
+  const snapshot = snapshotByPath(baseOcr);
   const out: CrossCheck[] = [];
   for (const r of rows) {
-    if (!CROSS_CHECK_KEYS.has(r.invoiceKey)) continue;
+    const path = pathOfRow(r);
+    if (path == null || !CROSS_CHECK_PATHS.has(path)) continue;
     const mine = values[r.fieldKey]?.value ?? null;
-    const theirs = (extracted[r.invoiceKey] ?? null) as FieldValue['value'];
+    const theirs = (snapshot.get(path) ?? null) as FieldValue['value'];
     if (isBlank(mine) || isBlank(theirs)) continue;
-    if (!disagrees(r.invoiceKey, mine, theirs)) continue;
+    if (!disagrees(path, mine, theirs)) continue;
     out.push({ fieldKey: r.fieldKey, reason: `Ασυμφωνία «${labelOf(r.fieldKey)}»: πρότυπο ${String(mine)} · OCR ${String(theirs)}` });
   }
   return out;
@@ -196,44 +201,14 @@ export function crossCheckOcr(
 export function tableFellThrough(
   rows: { fieldKey: string; invoiceKey: string }[],
   values: Record<string, FieldValue>,
-  extracted: Record<string, unknown>,
+  document: DocumentJson,
 ): string | null {
-  const line = rows.find((r) => r.invoiceKey.startsWith('items.') && r.fieldKey.indexOf('.') > 0);
+  const line = rows.find((r) => pathOfRow(r)?.startsWith('lines.') && r.fieldKey.indexOf('.') > 0);
   if (!line) return null;
   const tableKey = line.fieldKey.slice(0, line.fieldKey.indexOf('.'));
   const read = values[tableKey]?.value;
   if (Array.isArray(read) && read.length > 0) return null;
-  const ocr = extracted.items;
-  return Array.isArray(ocr) && ocr.length > 0 ? tableKey : null;
-}
-
-export type ItemRow = { rowIndex: number; code: string | null; name: string; quantity: number | null; price: number | null; discount: number | null; vatRate: number | null; total: number | null };
-
-/** Numeric cell of an extracted item row: numbers pass through, strings go through the Greek-aware coercion. */
-const num = (x: unknown, type: TemplateValueType): number | null => {
-  if (x == null || x === '') return null;
-  const c = coerceValue(x, type);
-  return typeof c === 'number' ? c : null;
-};
-
-/** extractedData.items → OcrInvoiceItem rows (same shape the upload route writes). Null entries are dropped. */
-export function itemsToRows(items: unknown[]): ItemRow[] {
-  const rows: ItemRow[] = [];
-  for (const raw of items) {
-    if (raw == null) continue;
-    const it = raw as Record<string, unknown>;
-    rows.push({
-      rowIndex: rows.length,
-      code: it.code == null ? null : String(it.code),
-      name: String(it.name ?? ''),
-      quantity: num(it.quantity, 'NUMBER'),
-      price: num(it.price, 'CURRENCY'),
-      discount: num(it.discount, 'CURRENCY'),
-      vatRate: num(it.vatRate, 'NUMBER'),
-      total: num(it.total, 'CURRENCY'),
-    });
-  }
-  return rows;
+  return document.lines.length > 0 ? tableKey : null;
 }
 
 /**

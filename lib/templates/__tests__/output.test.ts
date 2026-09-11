@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { toOutputJson, toRunOutput } from '../output';
+import { emptyDocument, setPath } from '@/lib/ocr/canonical';
+import { asEnvelope, toOutputJson, toRunOutput } from '../output';
 import type { FieldValue } from '../schema';
 
 const fv = (value: FieldValue['value']): FieldValue => ({ raw: String(value), value, confidence: 1, source: 'text', page: 0, bbox: [0, 0, 0.1, 0.1], color: '#0078D4' });
@@ -21,24 +22,29 @@ describe('toOutputJson', () => {
 });
 
 describe('toRunOutput', () => {
-  it('merges classic invoice keys with template values, template wins', () => {
-    const out = toRunOutput({ slug: 's', version: 2, file: 'a.pdf', documentId: 'd1', createdAt: new Date('2026-09-10T10:00:00Z'), extractedData: { invoiceNumber: '1', totalAmount: 5, companyName: 'X', items: [{ name: 'n' }], rawJunk: 1 }, values: { totalAmount: fv(7), kwh: fv(3) } });
-    expect(out).toEqual({ template: 's', version: 2, extractedAt: '2026-09-10T10:00:00.000Z', file: 'a.pdf', documentId: 'd1', values: { invoiceNumber: '1', companyName: 'X', totalAmount: 7, kwh: 3 } });
+  const document = setPath(setPath(emptyDocument('invoice'), 'type.number', 'ΤΙΜ-1'), 'totals.total', 229.4);
+
+  it('wraps the canonical document in a v3 envelope stamped with the run time', () => {
+    const out = toRunOutput({ slug: 's', file: 'a.pdf', documentId: 'd1', createdAt: new Date('2026-09-10T10:00:00Z'), document });
+    expect(out).toEqual({ template: 's', version: 3, extractedAt: '2026-09-10T10:00:00.000Z', file: 'a.pdf', documentId: 'd1', document });
+    // The document goes in by reference — no copy that could drift from what was persisted.
+    expect(out.document).toBe(document);
   });
-  it('omits classic keys that are null/empty and skips items', () => {
-    expect(toRunOutput({ slug: 's', version: 1, file: 'f', documentId: 'd', createdAt: new Date(0), extractedData: { invoiceNumber: '', date: null, items: [] }, values: {} }).values).toEqual({});
+
+  it('a run with no template (a plain document export) has a null template slug', () => {
+    expect(toRunOutput({ slug: null, file: 'f', documentId: 'd', createdAt: new Date(0), document }).template).toBeNull();
   });
-  it('a document with no extractedData at all yields only the template values', () => {
-    const out = toRunOutput({ slug: 's', version: 1, file: 'f', documentId: 'd', createdAt: new Date(0), extractedData: null, values: { kwh: fv(3) } });
-    expect(out.values).toEqual({ kwh: 3 });
-  });
-  it('keeps a classic zero (0 is a value, not an absence) and skips a classic object', () => {
-    const out = toRunOutput({ slug: 's', version: 1, file: 'f', documentId: 'd', createdAt: new Date(0), extractedData: { totalAmount: 0, companyName: { nested: 'x' } }, values: {} });
-    expect(out.values).toEqual({ totalAmount: 0 });
-  });
-  it('keeps a NULL template value — the template declared the field, so «empty» is the answer', () => {
-    const out = toRunOutput({ slug: 's', version: 1, file: 'f', documentId: 'd', createdAt: new Date(0), extractedData: {}, values: { kwh: fv(null) } });
-    expect(out.values).toEqual({ kwh: null });
-    expect(Object.prototype.hasOwnProperty.call(out.values, 'kwh')).toBe(true);
+});
+
+describe('asEnvelope', () => {
+  it('recognises a stored envelope and rejects everything else', () => {
+    const env = toRunOutput({ slug: 's', file: 'f', documentId: 'd', createdAt: new Date(0), document: emptyDocument('invoice') });
+    expect(asEnvelope(env)).toBe(env);
+    expect(asEnvelope(JSON.parse(JSON.stringify(env)))).not.toBeNull();
+    // The pre-v3 shape carried `values`, not `document` — it must not be served as an envelope.
+    expect(asEnvelope({ template: 's', version: 2, values: {} })).toBeNull();
+    expect(asEnvelope(null)).toBeNull();
+    expect(asEnvelope([])).toBeNull();
+    expect(asEnvelope('x')).toBeNull();
   });
 });

@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
-import { invoiceKeyInfo } from '@/lib/templates/schema';
+import { documentKeyInfo } from '@/lib/templates/schema';
 import { MappingsBody } from '@/lib/templates/validate';
 import { TEMPLATE_INCLUDE, toTemplateDto } from '@/lib/templates/serialize';
 import { isReady } from '@/lib/templates/readiness';
@@ -30,29 +30,29 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   if (bad.length) return NextResponse.json({ error: 'unknown_field', message: `Άγνωστα πεδία: ${bad.join(', ')}` }, { status: 422 });
 
   // A source key produces line data when it is a whole TABLE field or one of its
-  // columns; a SINGLE field produces a header value. The invoice side is split the
-  // same way by invoiceKeyInfo().isLine (`items.*` vs everything else), and the two
-  // halves have to agree — projectToInvoice cannot fold a table into one header
+  // columns; a SINGLE field produces a header value. The document side is split the
+  // same way by documentKeyInfo().isLine (`lines.*` vs everything else), and the two
+  // halves have to agree — projectToDocument cannot fold a table into one header
   // cell, nor fan a single value across the line array.
   const tableKeys = new Set(t.fields.filter((f) => f.kind === 'TABLE').map((f) => f.key));
   const isLineSource = (fieldKey: string) => tableKeys.has(fieldKey) || tableKeys.has(fieldKey.split('.')[0]);
   for (const m of parsed.data.mappings) {
     if (m.target !== 'INVOICE') continue;
     for (const r of m.rows) {
-      const target = invoiceKeyInfo(r.invoiceKey);
+      const target = documentKeyInfo(r.invoiceKey);
       if (!target) continue; // already rejected by MappingsBody
       if (isLineSource(r.fieldKey) && !target.isLine) {
-        return NextResponse.json({ error: 'table_to_header', message: `Το «${r.fieldKey}» είναι πεδίο πίνακα και δεν μπορεί να χαρτογραφηθεί στην κεφαλίδα «${target.label}». Επίλεξε πεδίο γραμμής (items.*).` }, { status: 422 });
+        return NextResponse.json({ error: 'table_to_header', message: `Το «${r.fieldKey}» είναι πεδίο πίνακα και δεν μπορεί να χαρτογραφηθεί στην κεφαλίδα «${target.label}». Επίλεξε πεδίο γραμμής (lines.*).` }, { status: 422 });
       }
       if (!isLineSource(r.fieldKey) && target.isLine) {
         return NextResponse.json({ error: 'single_to_line', message: `Το «${r.fieldKey}» είναι απλό πεδίο και δεν μπορεί να χαρτογραφηθεί στη γραμμή «${target.label}». Επίλεξε στήλη πίνακα.` }, { status: 422 });
       }
     }
   }
-  // projectToInvoice rebuilds items[] from ONE table: reject INVOICE mappings whose line rows span two tables.
+  // projectToDocument rebuilds lines[] from ONE table: reject INVOICE mappings whose line rows span two tables.
   for (const m of parsed.data.mappings) {
     if (m.target !== 'INVOICE') continue;
-    const tables = new Set(m.rows.filter((r) => r.invoiceKey.startsWith('items.')).map((r) => r.fieldKey.split('.')[0]));
+    const tables = new Set(m.rows.filter((r) => documentKeyInfo(r.invoiceKey)?.isLine).map((r) => r.fieldKey.split('.')[0]));
     if (tables.size > 1) return NextResponse.json({ error: 'multiple_tables', message: `Το mapping «${m.name}» χαρτογραφεί γραμμές από δύο πίνακες (${[...tables].join(', ')}). Επίλεξε έναν.` }, { status: 422 });
   }
 

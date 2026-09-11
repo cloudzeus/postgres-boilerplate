@@ -19,7 +19,6 @@ import {
   setPath,
   toLegacy,
 } from '../canonical';
-import { INVOICE_SCHEMA } from '@/lib/templates/schema';
 import { parseGreekNumber } from '@/lib/greek-format';
 
 const LEGACY = {
@@ -375,11 +374,19 @@ describe('DOCUMENT_PATHS / LEGACY_KEY_TO_PATH', () => {
     expect(new Set(DOCUMENT_PATHS.map((p) => p.path)).size).toBe(DOCUMENT_PATHS.length);
   });
 
-  it('maps every legacy INVOICE_SCHEMA key onto a registered path', () => {
+  it('maps every legacy flat key onto a registered path', () => {
     const known = new Set(DOCUMENT_PATHS.map((p) => p.path));
-    for (const k of INVOICE_SCHEMA) {
-      const path = LEGACY_KEY_TO_PATH[k.key];
-      expect(path, `legacy key ${k.key}`).toBeTruthy();
+    // The 25 keys of the pre-canonical INVOICE schema, verbatim — a mapping saved against any of
+    // them must keep resolving after the switch to paths.
+    const legacy = [
+      'companyName', 'vatNumber', 'companyAddress', 'companyDoy', 'companyProfession', 'companyPhone',
+      'companyEmail', 'customerName', 'customerVatNumber', 'documentTypeLabel', 'invoiceNumber',
+      'aadeMark', 'date', 'time', 'itemsCount', 'subtotal', 'vatAmount', 'totalAmount',
+      'items.code', 'items.name', 'items.quantity', 'items.price', 'items.discount', 'items.vatRate', 'items.total',
+    ];
+    for (const k of legacy) {
+      const path = LEGACY_KEY_TO_PATH[k];
+      expect(path, `legacy key ${k}`).toBeTruthy();
       if (!path.startsWith('custom.')) expect(known.has(path), `path ${path}`).toBe(true);
     }
     expect(LEGACY_KEY_TO_PATH.subtotal).toBe('totals.net');

@@ -1,5 +1,6 @@
-// lib/templates/output.ts — ISOMORPHIC. The one JSON shape every extraction produces (spec §14.1-5).
-import { INVOICE_SCHEMA, type FieldValue } from './schema';
+// lib/templates/output.ts — ISOMORPHIC. The one JSON shape every extraction produces (spec §14.1-5, §17.1).
+import { DOCUMENT_VERSION, type DocumentEnvelope, type DocumentJson } from '@/lib/ocr/canonical';
+import type { FieldValue } from './schema';
 
 export type OutputJson = { template: string; version: number; extractedAt: string; values: Record<string, FieldValue['value']> };
 
@@ -9,27 +10,35 @@ export function toOutputJson(template: { slug: string; version: number }, values
   return { template: template.slug, version: template.version, extractedAt: at.toISOString(), values: out };
 }
 
-export type RunOutputJson = OutputJson & { file: string; documentId: string };
-
 /**
- * JSON for one run: classic invoice keys present in the base OCR result, then the template's values
- * (template wins). Spec §14.8.
+ * Ο φάκελος εξόδου μιας εκτέλεσης (spec §17.1), όπως αποθηκεύεται στο `TemplateRun.output` και όπως
+ * τον κατεβάζει ο χρήστης. ΕΝΑ κανονικό έγγραφο, όχι δύο μισά: ό,τι διάβασε το πρότυπο έχει ήδη
+ * προβληθεί πάνω στο έγγραφο (διαδρομή ή `custom.<πεδίο>`), άρα δεν υπάρχει δεύτερη λίστα τιμών
+ * που θα μπορούσε να διαφωνεί με την πρώτη.
  *
- * The two halves treat null differently on purpose: a classic key that is null/empty is OMITTED (the
- * base OCR simply did not read it), while a template value that is null is KEPT — the template
- * declares that field, so «read and empty» is itself the answer. Classic values that are plain
- * objects are skipped: only scalars, arrays and `null` fit `FieldValue['value']`.
+ * Το `version` είναι η έκδοση του ΣΧΗΜΑΤΟΣ (3), όχι του προτύπου: η έκδοση του προτύπου ζει στη
+ * στήλη `TemplateRun.templateVersion`, όπου και ανήκει.
  */
-export function toRunOutput(input: { slug: string; version: number; file: string; documentId: string; createdAt: Date; extractedData: Record<string, unknown> | null; values: Record<string, FieldValue> }): RunOutputJson {
-  const values: OutputJson['values'] = {};
-  const data = input.extractedData ?? {};
-  for (const k of INVOICE_SCHEMA) {
-    if (k.isLine) continue;
-    const v = data[k.key];
-    if (v == null || v === '') continue;
-    if (typeof v === 'object' && !Array.isArray(v)) continue;
-    values[k.key] = v as FieldValue['value'];
-  }
-  for (const [key, v] of Object.entries(input.values)) values[key] = v.value;
-  return { template: input.slug, version: input.version, extractedAt: input.createdAt.toISOString(), file: input.file, documentId: input.documentId, values };
+export function toRunOutput(input: {
+  slug: string | null;
+  file: string;
+  documentId: string;
+  createdAt: Date;
+  document: DocumentJson;
+}): DocumentEnvelope {
+  return {
+    template: input.slug,
+    version: DOCUMENT_VERSION,
+    extractedAt: input.createdAt.toISOString(),
+    file: input.file,
+    documentId: input.documentId,
+    document: input.document,
+  };
+}
+
+/** Ό,τι έχει σχήμα φακέλου v3 — ένα `TemplateRun.output` γραμμένο από προηγούμενη εκτέλεση. */
+export function asEnvelope(raw: unknown): DocumentEnvelope | null {
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  return o.document != null && typeof o.document === 'object' ? (o as unknown as DocumentEnvelope) : null;
 }

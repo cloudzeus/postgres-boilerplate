@@ -126,7 +126,7 @@ describe('runTemplateOnDocument', () => {
     expect(db.extractionTemplate.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { timesUsed: { increment: 1 } } });
   });
 
-  it('SEMI_AUTO: REVIEW, projects the mapping onto extractedData, flags the matched rule and notifies once per rule', async () => {
+  it('SEMI_AUTO: REVIEW, projects the mapping onto the document, flags the matched rule and notifies once per rule', async () => {
     load(template({ mode: 'SEMI_AUTO' }));
     extract.mockResolvedValue(extractResult({ total: value(150), note: value('x') }));
     db.templateRun.findMany.mockResolvedValue([{ flags: { notified: ['cX'] } }, { flags: null }]);
@@ -135,9 +135,12 @@ describe('runTemplateOnDocument', () => {
 
     expect(out.status).toBe('REVIEW');
     expect(out.flags.review).toContain('μεγάλο ποσό');
-    const projected = docUpdates().find((d) => 'extractedData' in d)!.extractedData;
-    expect(projected.totalAmount).toBe(150);
-    expect(projected.invoiceNumber).toBe('7'); // untouched keys survive the merge
+    const saved = docUpdates().find((d) => 'document' in d)!;
+    expect(saved.document.totals.total).toBe(150);
+    expect(saved.document.type.number).toBe('7');       // untouched paths survive the projection
+    // The legacy projection is written from the same document, in the same transaction.
+    expect(saved.extractedData.totalAmount).toBe(150);
+    expect(saved.extractedData.invoiceNumber).toBe('7');
     // No line mapping → items are not rebuilt.
     expect(db.ocrInvoiceItem.deleteMany).not.toHaveBeenCalled();
     // NOTIFY throttling looks at every previous run of the document.
@@ -148,6 +151,29 @@ describe('runTemplateOnDocument', () => {
       alreadyNotified: ['cX'],
     });
     expect(runData().flags).toMatchObject({ review: ['μεγάλο ποσό'], notified: [] });
+  });
+
+  it('persists the run output envelope (v3) with the projected document', async () => {
+    load(template({ mode: 'SEMI_AUTO', conditions: [] }));
+    extract.mockResolvedValue(extractResult({ total: value(150), note: value('x') }));
+
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'upload' });
+
+    const output = runData().output;
+    expect(output).toMatchObject({ template: 'promitheftis', version: 3, file: 'a.pdf', documentId: 'd1' });
+    expect(output.document.totals.total).toBe(150);
+    // One instant for both, so the downloaded JSON and the run card cannot claim different times.
+    expect(output.extractedAt).toBe((runData().createdAt as Date).toISOString());
+  });
+
+  it('MANUAL stores the untouched document in the envelope — the run still has an output', async () => {
+    load(template({ mode: 'MANUAL', conditions: [] }), doc({ extractedData: { invoiceNumber: '7', totalAmount: 11 } }));
+    extract.mockResolvedValue(extractResult({ total: value(150), note: value('x') }));
+
+    await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'upload' });
+
+    expect(runData().output.document.totals.total).toBe(11);
+    expect(docUpdates().some((d) => 'document' in d)).toBe(false);
   });
 
   it('AUTO: a missing required field blocks the run and nothing is posted', async () => {
@@ -215,7 +241,7 @@ describe('runTemplateOnDocument', () => {
     expect(runData().status).toBe('BLOCKED');
   });
 
-  it('SET_FIELD writes the template value as `rule` and the invoice key into extractedData', async () => {
+  it('SET_FIELD writes the template value as `rule` and the document path into the document', async () => {
     load(template({
       mode: 'SEMI_AUTO',
       conditions: [{
@@ -231,8 +257,11 @@ describe('runTemplateOnDocument', () => {
     await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
 
     expect(runData().values.note).toMatchObject({ value: 'από κανόνα', source: 'rule' });
-    const projected = docUpdates().find((d) => 'extractedData' in d)!.extractedData;
-    expect(projected.customFields).toEqual({ po: 'PO-9' });
+    const projected = docUpdates().find((d) => 'document' in d)!.document;
+    // `po` comes from the rule; `note` is a SINGLE field no mapping row claims, so the projection
+    // keeps it under its own field key rather than dropping what the template read.
+    expect(projected.custom).toEqual({ po: 'PO-9', note: 'από κανόνα' });
+    expect(docUpdates().find((d) => 'extractedData' in d)!.extractedData.customFields).toMatchObject({ po: 'PO-9' });
   });
 
   it('SWITCH_MAPPING picks the named mapping', async () => {
@@ -492,8 +521,8 @@ describe('cross-check against the base OCR', () => {
     await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
 
     // `vendorName` is not worth cross-checking, so it is not carried; the OCR's own 22.94 is, even
-    // though the document now says 229.4.
-    expect(runData().flags.baseOcr).toEqual({ totalAmount: 22.94, invoiceNumber: '7' });
+    // though the document now says 229.4. Keyed by canonical path.
+    expect(runData().flags.baseOcr).toEqual({ 'totals.total': 22.94, 'totals.net': null, 'totals.vatAmount': null, 'type.number': '7', date: null });
     expect(docUpdates().find((d) => 'extractedData' in d)!.extractedData.totalAmount).toBe(229.4);
   });
 
@@ -524,7 +553,7 @@ describe('table fallback', () => {
     const out = await runTemplateOnDocument({ documentId: 'd1', templateId: 't1', trigger: 'manual' });
 
     expect(out.flags.review).toContain('Ο πίνακας «Γραμμές» δεν διαβάστηκε — κρατήθηκαν οι γραμμές του OCR');
-    expect(docUpdates().find((d) => 'extractedData' in d)!.extractedData.items).toEqual([{ code: 'A1', name: 'Α' }]);
+    expect(docUpdates().find((d) => 'document' in d)!.document.lines).toMatchObject([{ code: 'A1', name: 'Α' }]);
     // Same array reference → the rows are left exactly as the OCR wrote them.
     expect(db.ocrInvoiceItem.deleteMany).not.toHaveBeenCalled();
     expect(matchItems).not.toHaveBeenCalled();
@@ -538,7 +567,7 @@ describe('table fallback', () => {
 
     expect(out.flags.review).toEqual([]);
     expect(db.ocrInvoiceItem.deleteMany).toHaveBeenCalled();
-    expect(docUpdates().find((d) => 'extractedData' in d)!.extractedData.items).toEqual([{ code: 'B2', name: 'Β' }]);
+    expect(docUpdates().find((d) => 'document' in d)!.document.lines).toMatchObject([{ code: 'B2', name: 'Β' }]);
   });
 
   it('an empty table with no OCR lines to keep is just an empty table', async () => {
@@ -554,6 +583,7 @@ describe('table fallback', () => {
 /** A TemplateRun row as `RUN_INCLUDE` returns it. */
 const runRow = (over: Record<string, unknown> = {}) => ({
   id: 'r1', documentId: 'd1', status: 'REVIEW', mappingName: 'default', templateVersion: 2,
+  createdAt: new Date('2026-09-10T10:00:00Z'),
   values: { total: value(20), note: value('x') },
   flags: { review: [], blocked: [], notified: [], fields: {} },
   template: template({ mode: 'SEMI_AUTO', conditions: [] }),
@@ -757,14 +787,28 @@ describe('finalizeRunEdit', () => {
     expect(docUpdates().at(-1)!.reviewFlags).toMatchObject({ runStatus: 'EXTRACTED', runId: 'r1', templateSlug: 'promitheftis' });
   });
 
-  it('reads the document\'s extractedData itself when the caller did not hand it over', async () => {
+  it('loads the canonical document itself and projects the correction onto it', async () => {
     const run = runRow();
     db.templateRun.update.mockResolvedValue(run);
-    db.ocrDocument.findUnique.mockResolvedValue({ extractedData: { invoiceNumber: '7' } });
+    db.ocrDocument.findUnique.mockResolvedValue({ fileName: 'a.pdf', extractedData: { invoiceNumber: '7' } });
 
     await finalizeRunEdit({ run: run as never, values: { total: value(50), note: value('x') } });
 
-    expect(db.ocrDocument.findUnique).toHaveBeenCalledWith({ where: { id: 'd1' }, select: { extractedData: true } });
-    expect(docUpdates().find((d) => 'extractedData' in d)!.extractedData).toMatchObject({ totalAmount: 50, invoiceNumber: '7' });
+    const saved = docUpdates().find((d) => 'document' in d)!;
+    expect(saved.document.totals.total).toBe(50);
+    expect(saved.document.type.number).toBe('7');            // untouched by the mapping, kept
+    expect(saved.extractedData).toMatchObject({ totalAmount: 50, invoiceNumber: '7' });
+  });
+
+  it('rewrites the run output envelope from the corrected document', async () => {
+    const run = runRow();
+    db.templateRun.update.mockResolvedValue(run);
+    db.ocrDocument.findUnique.mockResolvedValue({ fileName: 'a.pdf', extractedData: { invoiceNumber: '7' } });
+
+    await finalizeRunEdit({ run: run as never, values: { total: value(50), note: value('x') } });
+
+    const out = runUpdate().output;
+    expect(out).toMatchObject({ template: 'promitheftis', version: 3, file: 'a.pdf', documentId: 'd1', extractedAt: '2026-09-10T10:00:00.000Z' });
+    expect(out.document.totals.total).toBe(50);
   });
 });

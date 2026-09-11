@@ -1,5 +1,5 @@
 // lib/templates/labels.ts — ISOMORPHIC Greek labels for template enums (designer + run views).
-import { INVOICE_SCHEMA, type ActionType, type ClauseOp, type FieldValue, type RunStatus, type RunTrigger, type TemplateFieldKind, type TemplateMode, type TemplateValueType } from './schema';
+import { DOCUMENT_SCHEMA, type DocumentKeyInfo, type ActionType, type ClauseOp, type FieldValue, type RunStatus, type RunTrigger, type TemplateFieldKind, type TemplateMode, type TemplateValueType } from './schema';
 
 export const MODE_LABEL: Record<TemplateMode, string> = { AUTO: 'Αυτόματο', SEMI_AUTO: 'Ημιαυτόματο', MANUAL: 'Χειροκίνητο' };
 export const MODE_HELP: Record<TemplateMode, string> = {
@@ -23,11 +23,39 @@ export const EXTRA_VARS = [
   { key: '$itemsCount', label: 'Πλήθος γραμμών (OCR)' },
   { key: '$pageCount', label: 'Πλήθος σελίδων' },
 ];
-/** Invoice keys grouped for the mapping select. */
-export const INVOICE_KEY_GROUPS = [
-  { label: 'Κεφαλίδα', keys: INVOICE_SCHEMA.filter((k) => !k.isLine) },
-  { label: 'Γραμμές', keys: INVOICE_SCHEMA.filter((k) => k.isLine) },
+/**
+ * Οι διαδρομές του κανονικού εγγράφου ομαδοποιημένες για το select του mapping. Ένα `<optgroup>` ανά
+ * ομάδα: 60+ διαδρομές σε μια ενιαία λίστα είναι αδύνατο να διαβαστούν.
+ * Η σειρά των προθεμάτων ΕΙΝΑΙ η σειρά των ομάδων· ό,τι δεν ταιριάζει πουθενά πάει στα «Λοιπά».
+ */
+const KEY_GROUP_PREFIXES: { label: string; prefixes: string[] }[] = [
+  { label: 'Τύπος & ημερομηνία', prefixes: ['type.', 'date', 'dueDate', 'currency'] },
+  { label: 'Εκδότης', prefixes: ['issuer.'] },
+  { label: 'Παραλήπτης', prefixes: ['recipient.'] },
+  { label: 'Σύνολα', prefixes: ['totals.'] },
+  { label: 'Γραμμές', prefixes: ['lines.'] },
+  { label: 'Ψηφιακή σήμανση', prefixes: ['digital.'] },
+  { label: 'Πληρωμή', prefixes: ['payment.'] },
+  { label: 'Αναφορές', prefixes: ['references.'] },
+  { label: 'Χειρόγραφα & σημειώσεις', prefixes: ['handwritten.', 'notes'] },
 ];
+
+export type DocumentKeyGroup = { label: string; keys: DocumentKeyInfo[] };
+
+export const DOCUMENT_KEY_GROUPS: DocumentKeyGroup[] = (() => {
+  const groups: DocumentKeyGroup[] = KEY_GROUP_PREFIXES.map((g) => ({ label: g.label, keys: [] }));
+  const rest: DocumentKeyInfo[] = [];
+  for (const k of DOCUMENT_SCHEMA) {
+    const i = KEY_GROUP_PREFIXES.findIndex((g) => g.prefixes.some((p) => (p.endsWith('.') ? k.key.startsWith(p) : k.key === p)));
+    if (i >= 0) groups[i].keys.push(k);
+    else rest.push(k);
+  }
+  if (rest.length) groups.push({ label: 'Λοιπά', keys: rest });
+  return groups.filter((g) => g.keys.length > 0);
+})();
+
+/** @deprecated Χρησιμοποίησε `DOCUMENT_KEY_GROUPS`. */
+export const INVOICE_KEY_GROUPS = DOCUMENT_KEY_GROUPS;
 export const RUN_STATUS_LABEL: Record<RunStatus, string> = { EXTRACTED: 'Εξήχθη', REVIEW: 'Προς έλεγχο', BLOCKED: 'Μπλοκαρισμένο', POSTED: 'Αναρτήθηκε', FAILED: 'Απέτυχε' };
 export const TRIGGER_LABEL: Record<RunTrigger, string> = { upload: 'στο upload', manual: 'χειροκίνητα', reextract: 'στην επανεξαγωγή' };
 /** How a stored value was produced (TemplateRun.values[key].source). */

@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { TemplateDto } from '@/lib/templates/serialize';
 import type { MappingRowExcel, MappingRowInvoice } from '@/lib/templates/schema';
-import { INVOICE_KEY_GROUPS } from '@/lib/templates/labels';
+import { DOCUMENT_KEY_GROUPS } from '@/lib/templates/labels';
+import { documentKeyInfo } from '@/lib/templates/schema';
 import { useDesigner } from './designer-context';
 import { templatesApi, errorMessage } from './api';
 import { useServerDraft } from './use-server-draft';
@@ -17,7 +18,14 @@ type Mapping = TemplateDto['mappings'][number];
 type Source = { key: string; label: string; color: string; line: boolean };
 
 const sel = 'h-9 w-full rounded-sm border border-input bg-background px-2 text-[12px]';
-const KNOWN_INVOICE_KEYS = new Set(INVOICE_KEY_GROUPS.flatMap((g) => g.keys.map((k) => k.key)));
+const KNOWN_DOCUMENT_KEYS = new Set(DOCUMENT_KEY_GROUPS.flatMap((g) => g.keys.map((k) => k.key)));
+
+/**
+ * Ένα mapping αποθηκευμένο πριν από το κανονικό JSON κρατάει παλιά flat κλειδιά (`totalAmount`).
+ * Δείχνονται ως η ΚΑΝΟΝΙΚΗ τους διαδρομή — αλλιώς το select θα εμφάνιζε την πρώτη επιλογή ενώ η
+ * γραμμή κρατάει κάτι άλλο, και η επόμενη αποθήκευση θα την άλλαζε σιωπηλά.
+ */
+const canonicalKey = (stored: string) => documentKeyInfo(stored)?.key ?? stored;
 
 /** Module scope on purpose: declared inside MappingStep these would be a fresh component
  *  type each render, remounting every row and dropping focus after each keystroke. */
@@ -28,15 +36,16 @@ function SourceSelect({ value, onChange, sources, disabled }: { value: string; o
     </select>);
 }
 
-function InvoiceKeySelect({ value, fieldKey, isLine, onChange, disabled }: { value: string; fieldKey: string; isLine: boolean; onChange: (v: string) => void; disabled: boolean }) {
-  // A line source can only feed `items.*`, so offer the custom header key only for
+function DocumentKeySelect({ value, fieldKey, isLine, onChange, disabled }: { value: string; fieldKey: string; isLine: boolean; onChange: (v: string) => void; disabled: boolean }) {
+  // A line source can only feed `lines.*`, so offer the custom header key only for
   // simple fields — and always render whatever is stored, or the select would show
   // the first option while the row actually holds something else.
-  const custom = isLine ? null : `customFields.${fieldKey.replace(/\./g, '_')}`;
-  const stored = value && value !== custom && !KNOWN_INVOICE_KEYS.has(value) ? value : null;
+  const custom = isLine ? null : `custom.${fieldKey.replace(/\./g, '_')}`;
+  const shown = canonicalKey(value);
+  const stored = shown && shown !== custom && !KNOWN_DOCUMENT_KEYS.has(shown) ? shown : null;
   return (
-    <select value={value} className={sel} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
-      {INVOICE_KEY_GROUPS.map((g) => <optgroup key={g.label} label={g.label}>{g.keys.map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}</optgroup>)}
+    <select value={shown} className={sel} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
+      {DOCUMENT_KEY_GROUPS.map((g) => <optgroup key={g.label} label={g.label}>{g.keys.map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}</optgroup>)}
       {custom && <option value={custom}>Ειδικό πεδίο: {fieldKey}</option>}
       {stored && <option value={stored}>{stored}</option>}
     </select>);
@@ -62,9 +71,9 @@ export function MappingStep() {
   const removeMapping = () => { setMappings((ms) => ms.filter((_, i) => i !== active)); setActive(0); };
 
   const setRow = (i: number, row: MappingRowInvoice | MappingRowExcel) => setM({ rows: (m.rows as (MappingRowInvoice | MappingRowExcel)[]).map((r, j) => (j === i ? row : r)) as Mapping['rows'] });
-  // A line source (table column) can only feed `items.*`, so a header key would be an
+  // A line source (table column) can only feed `lines.*`, so a header key would be an
   // invalid row the moment it is added.
-  const addRow = () => { const s0 = sources[0]; return setM({ rows: [...m.rows, m.target === 'INVOICE' ? { fieldKey: s0?.key ?? '', invoiceKey: s0?.line ? 'items.name' : 'invoiceNumber' } : { fieldKey: s0?.key ?? '', column: '', order: m.rows.length + 1 }] as Mapping['rows'] }); };
+  const addRow = () => { const s0 = sources[0]; return setM({ rows: [...m.rows, m.target === 'INVOICE' ? { fieldKey: s0?.key ?? '', invoiceKey: s0?.line ? 'lines.name' : 'type.number' } : { fieldKey: s0?.key ?? '', column: '', order: m.rows.length + 1 }] as Mapping['rows'] }); };
   const delRow = (i: number) => setM({ rows: (m.rows as unknown[]).filter((_, j) => j !== i) as Mapping['rows'] });
 
   const save = async () => {
@@ -107,7 +116,7 @@ export function MappingStep() {
                 <tr key={`${r.fieldKey}-${i}`} className="border-t border-border">
                   <td className="py-1.5 pr-2"><SourceSelect value={r.fieldKey} sources={sources} disabled={!canManage} onChange={(v) => setRow(i, { ...r, fieldKey: v } as MappingRowInvoice | MappingRowExcel)} /></td>
                   <td className="py-1.5 pr-2">{m.target === 'INVOICE'
-                    ? <InvoiceKeySelect value={(r as MappingRowInvoice).invoiceKey} fieldKey={r.fieldKey} isLine={!!sources.find((s) => s.key === r.fieldKey)?.line} disabled={!canManage} onChange={(v) => setRow(i, { ...r, invoiceKey: v } as MappingRowInvoice)} />
+                    ? <DocumentKeySelect value={(r as MappingRowInvoice).invoiceKey} fieldKey={r.fieldKey} isLine={!!sources.find((s) => s.key === r.fieldKey)?.line} disabled={!canManage} onChange={(v) => setRow(i, { ...r, invoiceKey: v } as MappingRowInvoice)} />
                     : <Input value={(r as MappingRowExcel).column} placeholder="Όνομα στήλης" disabled={!canManage} onChange={(e) => setRow(i, { ...r, column: e.target.value } as MappingRowExcel)} />}</td>
                   {m.target === 'EXCEL' && <td className="py-1.5 pr-2"><Input type="number" min={0} value={(r as MappingRowExcel).order} disabled={!canManage} onChange={(e) => setRow(i, { ...r, order: Number(e.target.value) || 0 } as MappingRowExcel)} /></td>}
                   <td className="py-1.5">{canManage && <button type="button" aria-label="Αφαίρεση" onClick={() => delRow(i)} className="grid size-7 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:bg-[var(--cx-hover)] hover:text-dg-red-600"><FiTrash2 className="size-3.5" /></button>}</td>
@@ -116,7 +125,7 @@ export function MappingStep() {
             </tbody>
           </table>
           {canManage && <Button size="sm" variant="secondary" className="mt-2" onClick={addRow} disabled={sources.length === 0}><FiPlus className="mr-1 size-3.5" /> Γραμμή</Button>}
-          {m.target === 'INVOICE' && <p className="mt-2 text-[11px] text-muted-foreground">Στήλες πίνακα → «Γραμμές». Απλά πεδία → «Κεφαλίδα» ή «Ειδικό πεδίο».</p>}
+          {m.target === 'INVOICE' && <p className="mt-2 text-[11px] text-muted-foreground">Στήλες πίνακα → «Γραμμές». Απλά πεδία → μια διαδρομή του εγγράφου ή «Ειδικό πεδίο». Ό,τι απλό πεδίο μείνει αχαρτογράφητο αποθηκεύεται αυτόματα στα ειδικά πεδία του εγγράφου.</p>}
         </div>
       )}
     </div>

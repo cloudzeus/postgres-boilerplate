@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  COLOR_PALETTE, nextColor, slugKey, isValidBbox, INVOICE_SCHEMA, invoiceKeyInfo, uniqueKey, templateSlug, slugDraft, SLUG_RE, normalizeVat, padBbox,
+  COLOR_PALETTE, nextColor, slugKey, isValidBbox, DOCUMENT_SCHEMA, documentKeyInfo, uniqueKey, templateSlug, slugDraft, SLUG_RE, normalizeVat, padBbox,
 } from '../schema';
 
 describe('COLOR_PALETTE / nextColor', () => {
@@ -51,19 +51,30 @@ describe('isValidBbox', () => {
   });
 });
 
-describe('INVOICE_SCHEMA', () => {
-  it('contains header keys and line keys with isLine flag', () => {
-    expect(invoiceKeyInfo('invoiceNumber')?.isLine).toBe(false);
-    expect(invoiceKeyInfo('items.quantity')?.isLine).toBe(true);
-    expect(invoiceKeyInfo('nope')).toBeNull();
-    expect(invoiceKeyInfo('totalAmount')?.valueType).toBe('CURRENCY');
-    expect(invoiceKeyInfo('netTotal')).toBeNull();
+describe('DOCUMENT_SCHEMA', () => {
+  it('contains header paths and line paths with the isLine flag', () => {
+    expect(documentKeyInfo('type.number')?.isLine).toBe(false);
+    expect(documentKeyInfo('lines.quantity')?.isLine).toBe(true);
+    expect(documentKeyInfo('nope')).toBeNull();
+    expect(documentKeyInfo('totals.total')?.valueType).toBe('CURRENCY');
+    expect(documentKeyInfo('totals.nope')).toBeNull();
   });
-  it('treats any customFields.* key as a valid TEXT header key', () => {
-    expect(invoiceKeyInfo('customFields.order_no')).toEqual({ key: 'customFields.order_no', label: 'order_no', valueType: 'TEXT', isLine: false });
+  it('translates a legacy invoice key into its canonical path', () => {
+    expect(documentKeyInfo('invoiceNumber')).toEqual({ key: 'type.number', label: 'Αριθμός παραστατικού', valueType: 'TEXT', isLine: false });
+    expect(documentKeyInfo('totalAmount')?.key).toBe('totals.total');
+    expect(documentKeyInfo('items.price')).toEqual({ key: 'lines.unitPrice', label: 'Γραμμή: τιμή μονάδας', valueType: 'CURRENCY', isLine: true });
+    expect(documentKeyInfo('items.total')?.key).toBe('lines.net');
+  });
+  it('treats any custom.* key — and its legacy customFields.* spelling — as a TEXT header key', () => {
+    expect(documentKeyInfo('custom.order_no')).toEqual({ key: 'custom.order_no', label: 'order_no', valueType: 'TEXT', isLine: false });
+    expect(documentKeyInfo('customFields.order_no')).toEqual({ key: 'custom.order_no', label: 'order_no', valueType: 'TEXT', isLine: false });
+  });
+  it('refuses a custom key that would pollute the prototype', () => {
+    // `JSON.parse('{"__proto__":…}')` makes a REAL key of that name, and `setPath` would throw on it.
+    for (const k of ['custom.__proto__', 'customFields.constructor', 'custom.prototype']) expect(documentKeyInfo(k)).toBeNull();
   });
   it('has unique keys', () => {
-    expect(new Set(INVOICE_SCHEMA.map((k) => k.key)).size).toBe(INVOICE_SCHEMA.length);
+    expect(new Set(DOCUMENT_SCHEMA.map((k) => k.key)).size).toBe(DOCUMENT_SCHEMA.length);
   });
 });
 

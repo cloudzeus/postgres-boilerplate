@@ -1,4 +1,5 @@
 // lib/templates/schema.ts — ISOMORPHIC (no prisma, no React). Shared by client + server.
+import { DOCUMENT_PATHS, legacyKeyToPath, UNSAFE_SEGMENTS } from '@/lib/ocr/canonical';
 import { slugifyFieldKey } from './slug';
 
 export type Bbox = [number, number, number, number];           // x, y, w, h normalized 0-1
@@ -160,44 +161,41 @@ export function isValidBbox(b: unknown): b is Bbox {
   return x >= 0 && y >= 0 && w > 0 && h > 0 && x + w <= 1.0001 && y + h <= 1.0001;
 }
 
-export type InvoiceKeyInfo = { key: string; label: string; valueType: TemplateValueType; isLine: boolean };
+/** Πληροφορία για ένα κλειδί-στόχο ενός mapping: ΠΑΝΤΑ διαδρομή του κανονικού εγγράφου. */
+export type DocumentKeyInfo = { key: string; label: string; valueType: TemplateValueType; isLine: boolean };
 
-/** The app's invoice schema keys a template can map onto (OcrDocument.extractedData). */
-export const INVOICE_SCHEMA: InvoiceKeyInfo[] = [
-  // Header keys — exactly the names the OCR pipeline writes into OcrDocument.extractedData
-  // (see lib/ocr/templates.ts TEMPLATE_SCHEMAS.invoice.jsonStructure).
-  { key: 'companyName',        label: 'Επωνυμία εκδότη',            valueType: 'TEXT',     isLine: false },
-  { key: 'vatNumber',          label: 'ΑΦΜ εκδότη',                 valueType: 'TEXT',     isLine: false },
-  { key: 'companyAddress',     label: 'Διεύθυνση εκδότη',           valueType: 'TEXT',     isLine: false },
-  { key: 'companyDoy',         label: 'ΔΟΥ εκδότη',                 valueType: 'TEXT',     isLine: false },
-  { key: 'companyProfession',  label: 'Επάγγελμα εκδότη',           valueType: 'TEXT',     isLine: false },
-  { key: 'companyPhone',       label: 'Τηλέφωνο εκδότη',            valueType: 'TEXT',     isLine: false },
-  { key: 'companyEmail',       label: 'Email εκδότη',               valueType: 'TEXT',     isLine: false },
-  { key: 'customerName',       label: 'Επωνυμία παραλήπτη',         valueType: 'TEXT',     isLine: false },
-  { key: 'customerVatNumber',  label: 'ΑΦΜ παραλήπτη',              valueType: 'TEXT',     isLine: false },
-  { key: 'documentTypeLabel',  label: 'Τύπος παραστατικού',         valueType: 'TEXT',     isLine: false },
-  { key: 'invoiceNumber',      label: 'Αριθμός παραστατικού',       valueType: 'TEXT',     isLine: false },
-  { key: 'aadeMark',           label: 'ΜΑΡΚ ΑΑΔΕ',                  valueType: 'TEXT',     isLine: false },
-  { key: 'date',               label: 'Ημερομηνία',                 valueType: 'DATE',     isLine: false },
-  { key: 'time',               label: 'Ώρα',                        valueType: 'TEXT',     isLine: false },
-  { key: 'itemsCount',         label: 'Πλήθος ειδών',               valueType: 'NUMBER',   isLine: false },
-  { key: 'subtotal',           label: 'Καθαρή αξία',                valueType: 'CURRENCY', isLine: false },
-  { key: 'vatAmount',          label: 'ΦΠΑ',                        valueType: 'CURRENCY', isLine: false },
-  { key: 'totalAmount',        label: 'Γενικό σύνολο',              valueType: 'CURRENCY', isLine: false },
-  { key: 'items.code',         label: 'Γραμμή: κωδικός',            valueType: 'TEXT',     isLine: true },
-  { key: 'items.name',         label: 'Γραμμή: περιγραφή',          valueType: 'TEXT',     isLine: true },
-  { key: 'items.quantity',     label: 'Γραμμή: ποσότητα',           valueType: 'NUMBER',   isLine: true },
-  { key: 'items.price',        label: 'Γραμμή: τιμή μονάδας',       valueType: 'CURRENCY', isLine: true },
-  { key: 'items.discount',     label: 'Γραμμή: έκπτωση',            valueType: 'NUMBER',   isLine: true },
-  { key: 'items.vatRate',      label: 'Γραμμή: ΦΠΑ %',              valueType: 'NUMBER',   isLine: true },
-  { key: 'items.total',        label: 'Γραμμή: αξία',               valueType: 'CURRENCY', isLine: true },
-];
+/**
+ * Οι διαδρομές του κανονικού εγγράφου (`lib/ocr/canonical.ts` → `DOCUMENT_PATHS`) που μπορεί να
+ * στοχεύσει ένα πεδίο προτύπου. Ένα μητρώο, όχι δύο: αν η λίστα ζούσε και εδώ, το mapping θα
+ * πρόσφερε διαδρομές που το `setPath` δεν ξέρει να γράψει.
+ */
+export const DOCUMENT_SCHEMA: DocumentKeyInfo[] = DOCUMENT_PATHS.map((p) => ({
+  key: p.path, label: p.label, valueType: p.valueType, isLine: p.isLine,
+}));
 
-/** Info for a mapping target key. `customFields.<anything>` is always accepted as a TEXT header key. */
-export function invoiceKeyInfo(key: string): InvoiceKeyInfo | null {
-  const found = INVOICE_SCHEMA.find((k) => k.key === key);
-  if (found) return found;
-  const m = /^customFields\.([a-z0-9_]+)$/.exec(key); // slugKey output charset
-  if (m) return { key, label: m[1], valueType: 'TEXT', isLine: false };
+const BY_PATH = new Map(DOCUMENT_SCHEMA.map((k) => [k.key, k]));
+
+/**
+ * Info για ένα κλειδί-στόχο. Δέχεται κανονική διαδρομή, `custom.<slug>` (πάντα TEXT) ΚΑΙ τα παλιά
+ * flat κλειδιά (`totalAmount`, `items.price`, `customFields.<slug>`) — τα mappings που σώθηκαν πριν
+ * από το κανονικό JSON συνεχίζουν να δουλεύουν, γυρνώντας το `key` της ΚΑΝΟΝΙΚΗΣ διαδρομής.
+ */
+export function documentKeyInfo(key: string): DocumentKeyInfo | null {
+  const path = legacyKeyToPath(key);
+  if (!path) return null;
+  // `custom.__proto__` περνάει το regex του `legacyKeyToPath` (το JSON.parse φτιάχνει ΚΑΝΟΝΙΚΟ
+  // κλειδί με αυτό το όνομα) — και το `setPath` θα πετούσε αντί να το αγνοήσει.
+  if (path.split('.').some((s) => UNSAFE_SEGMENTS.has(s))) return null;
+  const hit = BY_PATH.get(path);
+  if (hit) return hit;
+  const m = /^custom\.([a-z0-9_]+)$/.exec(path);
+  if (m) return { key: path, label: m[1], valueType: 'TEXT', isLine: false };
   return null;
 }
+
+/** @deprecated Χρησιμοποίησε `DocumentKeyInfo`. */
+export type InvoiceKeyInfo = DocumentKeyInfo;
+/** @deprecated Χρησιμοποίησε `DOCUMENT_SCHEMA` — επιστρέφει πλέον κανονικές διαδρομές. */
+export const INVOICE_SCHEMA = DOCUMENT_SCHEMA;
+/** @deprecated Χρησιμοποίησε `documentKeyInfo` — επιστρέφει πλέον κανονικές διαδρομές. */
+export const invoiceKeyInfo = documentKeyInfo;

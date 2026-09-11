@@ -1,11 +1,12 @@
-// GET → the run's output JSON (spec §14.8, `?download=1` for a file). PATCH { values } → manual corrections on the run.
+// GET → the run's output envelope (spec §17.1, `?download=1` for a file). PATCH { values } → manual corrections on the run.
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { coerceValue } from '@/lib/templates/coerce';
-import { toRunOutput } from '@/lib/templates/output';
+import { asEnvelope, toRunOutput } from '@/lib/templates/output';
+import { loadDocumentJson } from '@/lib/ocr/document';
 import { finalizeRunEdit, isLatestRun } from '@/lib/templates/run';
 import { RUN_INCLUDE, toRunDto } from '@/lib/templates/run-dto';
 import { toFieldDef } from '@/lib/templates/serialize';
@@ -23,17 +24,17 @@ export async function GET(req: Request, { params }: Ctx) {
   const { id, runId } = await params;
   const run = await prisma.templateRun.findUnique({ where: { id: runId }, include: RUN_INCLUDE });
   if (!run || run.documentId !== id) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  const doc = await prisma.ocrDocument.findUnique({ where: { id }, select: { fileName: true, extractedData: true } });
+  const doc = await prisma.ocrDocument.findUnique({ where: { id }, select: { fileName: true } });
   if (!doc) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
-  const json = toRunOutput({
+  // Runs made before the canonical envelope existed stored no `output`: rebuild one from the
+  // document as it stands now, so an old run still downloads as a v3 file.
+  const json = asEnvelope(run.output) ?? toRunOutput({
     slug: run.template.slug,
-    version: run.templateVersion,
     file: doc.fileName,
     documentId: id,
     createdAt: run.createdAt,
-    extractedData: (doc.extractedData as Record<string, unknown> | null) ?? null,
-    values: (run.values as unknown as Record<string, FieldValue>) ?? {},
+    document: await loadDocumentJson(id),
   });
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };

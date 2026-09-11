@@ -1,6 +1,6 @@
 // lib/templates/validate.ts — ISOMORPHIC zod schemas for the bulk endpoints (and plan-2 forms).
 import { z } from 'zod';
-import { invoiceKeyInfo, isValidBbox, slugKey } from './schema';
+import { documentKeyInfo, isValidBbox, slugKey } from './schema';
 
 const hex = z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Χρώμα hex');
 const norm = z.number().min(0).max(1);
@@ -34,7 +34,7 @@ export const FieldsBody = z.object({ fields: z.array(FieldSchema).max(100) })
   // route uppercases on write, but the payload can arrive either way.
   .refine((b) => new Set(b.fields.map((f) => f.color.toUpperCase())).size === b.fields.length, { message: 'Διπλό χρώμα πεδίου', path: ['fields'] });
 
-const InvoiceRow = z.object({ fieldKey: z.string().min(1), invoiceKey: z.string().min(1).refine((k) => invoiceKeyInfo(k) != null, 'Άγνωστο πεδίο παραστατικού') });
+const InvoiceRow = z.object({ fieldKey: z.string().min(1), invoiceKey: z.string().min(1).refine((k) => documentKeyInfo(k) != null, 'Άγνωστο πεδίο παραστατικού') });
 const ExcelRow = z.object({ fieldKey: z.string().min(1), column: z.string().trim().min(1).max(80), order: z.number().int().min(0) });
 export const MappingSchema = z.discriminatedUnion('target', [
   z.object({ name: z.string().trim().min(1).max(60), target: z.literal('INVOICE'), isDefault: z.boolean().default(false), rows: z.array(InvoiceRow).max(200) }),

@@ -8,17 +8,19 @@ import { prisma } from '@/lib/db';
 import { bunnyDownload } from '@/lib/bunny';
 import { POST_ERROR_TEXT, PostError, postDocumentToSoftone } from '@/lib/ocr/post-softone';
 import { matchDocItems } from '@/lib/ocr/softone-match';
-// Η μεταφορά του SoftOne match ζει πλέον στον έναν γραφέα του εγγράφου (`lib/ocr/document.ts`).
-import { CARRY_SELECT, carryForward, type SoftoneColumns } from '@/lib/ocr/document';
+// Το κανονικό έγγραφο και ο ΕΝΑΣ γραφέας του (μαζί με τα παράγωγα: extractedData, γραμμές, issuerAfm).
+import { loadDocumentJson, saveDocumentJson } from '@/lib/ocr/document';
+import type { DocumentJson } from '@/lib/ocr/canonical';
 import { extractTemplateFields } from './extract';
 import { applyRules, type RuleDef } from './conditions';
-import { projectToInvoice } from './mapping';
+import { projectToDocument } from './mapping';
+import { toRunOutput } from './output';
 import { TEMPLATE_INCLUDE, toConditionDto, toFieldDef, toMappingDto } from './serialize';
 import { sendRuleNotifications } from './notify';
 import {
-  applySetFields, baseOcrSnapshot, buildReviewFlags, canPost, crossCheckOcr, decideOutcome, extrasFrom, itemsToRows,
-  mappingFellBack, pickMapping, requiredMissing, setInvoicePath, tableFellThrough,
-  type FieldFlag, type ItemRow, type RunFlags,
+  applySetFields, baseOcrSnapshot, buildReviewFlags, canPost, crossCheckOcr, decideOutcome, extrasFrom,
+  mappingFellBack, pickMapping, requiredMissing, setDocumentPath, tableFellThrough,
+  type FieldFlag, type RunFlags,
 } from './run-logic';
 import { recomputeFieldFlags, type StoredFlags } from './run-flags';
 import { RUN_INCLUDE, type RunWithTemplate } from './run-dto';
@@ -30,35 +32,20 @@ export type { RunOutcome, RunTrigger };
 const APP_URL = () => process.env.APP_URL ?? '';
 
 /**
- * Persist a projection onto the document: the mapped `extractedData` and, when the mapping rebuilt
- * `items`, the `OcrInvoiceItem` rows that mirror it. Shared by the runner and by a manual correction
- * of a run (`PATCH /template-runs/[runId]`) so both apply the projection by exactly the same rule.
- * `previousItems` is the `items` array the projection started from — `projectToInvoice` returns the
- * same reference when the mapping has no line rows, which is how "the lines changed" is detected.
+ * Persist a projection onto the document: the canonical `document` and — when the projection
+ * rebuilt the lines — the `OcrInvoiceItem` rows that mirror it. Shared by the runner and by a manual
+ * correction of a run (`PATCH /template-runs/[runId]`) so both apply the projection by exactly the
+ * same rule. `previous` is the document the projection started from: `projectToDocument` hands back
+ * the SAME `lines` reference when the mapping has no line rows, which is how "the lines changed" is
+ * detected without comparing every cell.
  */
-export async function applyProjectionToDocument(documentId: string, nextData: Record<string, unknown> | null, previousItems: unknown): Promise<void> {
-  const itemsChanged = nextData != null && nextData.items !== previousItems && Array.isArray(nextData.items);
-  const docUpdate: Prisma.OcrDocumentUpdateInput = {};
-  if (nextData) docUpdate.extractedData = nextData as Prisma.InputJsonValue;
-  const ops: Prisma.PrismaPromise<unknown>[] = [];
-  if (itemsChanged) {
-    // The rows are replaced wholesale, so anything not in `itemsToRows` is lost unless it is read
-    // first — including a match a human made by hand in the matching UI.
-    const old = (await prisma.ocrInvoiceItem
-      .findMany({ where: { documentId }, select: CARRY_SELECT })
-      .catch(() => [])) as SoftoneColumns[];
-    const rows = itemsToRows(nextData!.items as unknown[]);
-    const carried = carryForward(rows, old);
-    ops.push(prisma.ocrInvoiceItem.deleteMany({ where: { documentId } }));
-    ops.push(prisma.ocrInvoiceItem.createMany({ data: rows.map((r, i) => ({ ...r, ...carried[i], documentId })) }));
-  }
-  if (Object.keys(docUpdate).length || ops.length) {
-    await prisma.$transaction([prisma.ocrDocument.update({ where: { id: documentId }, data: docUpdate }), ...ops]);
-  }
+export async function persistProjection(documentId: string, projected: DocumentJson, previous: DocumentJson): Promise<void> {
+  const linesChanged = projected.lines !== previous.lines;
+  await saveDocumentJson(documentId, projected, { replaceItems: linesChanged });
   // The lines moved underneath the document: auto-match the new codes and recompute
   // `itemsTotal`/`itemsMatched`, which would otherwise still describe the rows we just deleted.
-  // (`matchDocItems` preserves the manual matches carried above.) Bookkeeping — never fatal.
-  if (itemsChanged) await matchDocItems(documentId).catch(() => null);
+  // (`saveDocumentJson` carries the manual matches over.) Bookkeeping — never fatal.
+  if (linesChanged) await matchDocItems(documentId).catch(() => null);
 }
 
 /** The ACTIVE template linked to this issuer ΑΦΜ (most recently updated wins). */
@@ -86,11 +73,12 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
   const rules: RuleDef[] = [...t.conditions].sort((a, b) => a.order - b.order).map(toConditionDto);
   const mappings = t.mappings.map(toMappingDto);
   const base = { templateId: t.id, templateVersion: t.version, documentId: doc.id, trigger: input.trigger };
-  const extracted = (doc.extractedData ?? {}) as Record<string, unknown>;
-  // What the base OCR read, captured NOW — the projection below overwrites `extractedData` with the
+  // Το κανονικό έγγραφο, όπως το άφησε το βασικό OCR. Ό,τι διαβάσει το πρότυπο γράφεται ΠΑΝΩ του.
+  const document = await loadDocumentJson(doc.id);
+  // What the base OCR read, captured NOW — the projection below overwrites the document with the
   // template's own values, and every later re-check of «Ασυμφωνία …» (a correction, a re-read) needs
   // the independent reading to compare against. Stored on the run; see `baseOcrSnapshot`.
-  const baseOcr = baseOcrSnapshot(extracted);
+  const baseOcr = baseOcrSnapshot(document);
 
   try {
     const buffer = await bunnyDownload(doc.storageKey);
@@ -98,7 +86,7 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
     const applied = applyRules(rules, {
       values: ex.values,
       valueTypes: Object.fromEntries(fields.map((f) => [f.key, f.valueType])),
-      extras: extrasFrom(extracted, doc._count.items, ex.pageCount),
+      extras: extrasFrom(document, doc._count.items, ex.pageCount),
     });
     const values = applySetFields(ex.values, fields, applied.setFields);
     const missing = requiredMissing(fields, values);
@@ -122,30 +110,34 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
 
     // Projection — MANUAL runs never rewrite the document.
     const mapping = t.mode === 'MANUAL' ? null : pickMapping(mappings, applied.mappingName);
-    let nextData: Record<string, unknown> | null = null;
+    let projected = document;
     if (mapping) {
       const rows = mapping.rows as MappingRowInvoice[];
-      nextData = projectToInvoice(values, rows, extracted);
-      for (const s of applied.setFields) if (s.invoiceKey) setInvoicePath(nextData, s.invoiceKey, s.value);
+      projected = projectToDocument(values, rows, document, fields);
+      for (const s of applied.setFields) {
+        if (!s.invoiceKey) continue;
+        const next = setDocumentPath(projected, s.invoiceKey, s.value);
+        if (next) projected = next;
+      }
 
       // The template still wins the projection — but where it contradicts the base OCR on an amount,
       // a number or the date, say so instead of silently preferring one reader over the other.
-      for (const c of crossCheckOcr(rows, values, extracted, labelOf)) {
+      for (const c of crossCheckOcr(rows, values, baseOcr, labelOf)) {
         if (!flags.review.includes(c.reason)) flags.review.push(c.reason);
         if (!fieldFlags[c.fieldKey]) fieldFlags[c.fieldKey] = 'review';
       }
 
       // A table the model could not read must not replace real invoice lines with an empty list:
       // keep the OCR's lines (same array reference → the rows are left alone) and flag it.
-      const keptTable = tableFellThrough(rows, values, extracted);
+      const keptTable = tableFellThrough(rows, values, document);
       if (keptTable) {
-        nextData.items = extracted.items;
+        projected = { ...projected, lines: document.lines };
         const reason = `Ο πίνακας «${labelOf(keptTable)}» δεν διαβάστηκε — κρατήθηκαν οι γραμμές του OCR`;
         if (!flags.review.includes(reason)) flags.review.push(reason);
       }
+      // Persist the document changes BEFORE posting, so the poster sees the mapped data.
+      await persistProjection(doc.id, projected, document);
     }
-    // Persist the document changes BEFORE posting, so the poster sees the mapped data.
-    await applyProjectionToDocument(doc.id, nextData, extracted.items);
 
     const decision = decideOutcome(t.mode, flags);
     let status: TemplateRunStatus = decision === 'POST' ? 'POSTED' : decision;
@@ -177,13 +169,20 @@ export async function runTemplateOnDocument(input: { documentId: string; templat
 
     // The run row is written BEFORE the emails go out: a send that hangs or crashes the process must
     // not cost us the run itself. The ids that were actually notified are folded in afterwards.
+    // `createdAt` is set explicitly so the envelope's `extractedAt` and the run's own timestamp are
+    // the SAME instant — the JSON the user downloads must not claim a different moment than the card.
+    const createdAt = new Date();
     const run = await prisma.templateRun.create({
       data: {
         ...base,
         status,
+        createdAt,
         values: values as unknown as Prisma.InputJsonValue,
         matched: applied.matched as unknown as Prisma.InputJsonValue,
         flags: { ...flags, notified: [] as string[], baseOcr } as unknown as Prisma.InputJsonValue,
+        // The canonical document this run produced (spec §17.1) — the whole output of the run, frozen
+        // at the moment it ran. A later re-run of the same template writes its own row.
+        output: toRunOutput({ slug: t.slug, file: doc.fileName, documentId: doc.id, createdAt, document: projected }) as unknown as Prisma.InputJsonValue,
         mappingName: mapping?.name ?? '',
         model: ex.model,
         tokensUsed: ex.tokensUsed,
@@ -268,14 +267,13 @@ export async function isLatestRun(documentId: string, runId: string): Promise<bo
 
 /**
  * Persist edited values on a run: recompute the flags the values own, re-project onto the document
- * (never in MANUAL mode, same rule as the runner) and refresh the document's banner. The caller has
- * already refused a run that is not the document's latest, which is what makes moving the banner safe.
- * `extracted` is the document's `extractedData` when the caller already holds it.
+ * (never in MANUAL mode, same rule as the runner), refresh the run's output envelope and the
+ * document's banner. The caller has already refused a run that is not the document's latest, which
+ * is what makes moving the banner safe.
  */
 export async function finalizeRunEdit(input: {
   run: RunWithTemplate;
   values: Record<string, FieldValue>;
-  extracted?: Record<string, unknown>;
 }): Promise<RunWithTemplate> {
   const { run, values } = input;
   const t = run.template;
@@ -283,28 +281,35 @@ export async function finalizeRunEdit(input: {
   const mapping = t.mode === 'MANUAL' ? null : pickMapping(t.mappings.map(toMappingDto), run.mappingName || null);
   const rows = (mapping?.rows ?? []) as MappingRowInvoice[];
 
-  let extracted = input.extracted;
-  if (!extracted) {
-    const doc = await prisma.ocrDocument.findUnique({ where: { id: run.documentId }, select: { extractedData: true } });
-    extracted = (doc?.extractedData ?? {}) as Record<string, unknown>;
-  }
+  const [document, docRow] = await Promise.all([
+    loadDocumentJson(run.documentId),
+    prisma.ocrDocument.findUnique({ where: { id: run.documentId }, select: { fileName: true } }),
+  ]);
 
   // The cross-check compares against `flags.baseOcr` (the pre-projection snapshot the run stored),
-  // NOT against `extracted` — by now that is this run's own projection.
+  // NOT against the live document — by now that is this run's own projection.
   const flags = recomputeFieldFlags({ flags: run.flags as StoredFlags | null, fields, values, mode: t.mode, rows });
-
-  const updated = await prisma.templateRun.update({
-    where: { id: run.id },
-    data: { values: values as unknown as Prisma.InputJsonValue, flags: flags as unknown as Prisma.InputJsonValue },
-    include: RUN_INCLUDE,
-  });
 
   // A correction is only worth anything if it reaches the document the ERP posts from — but a
   // template with no INVOICE mapping has nothing to project.
-  if (mapping) {
-    const nextData = projectToInvoice(values, rows, extracted);
-    await applyProjectionToDocument(run.documentId, nextData, extracted.items);
-  }
+  const projected = mapping ? projectToDocument(values, rows, document, fields) : document;
+
+  const updated = await prisma.templateRun.update({
+    where: { id: run.id },
+    data: {
+      values: values as unknown as Prisma.InputJsonValue,
+      flags: flags as unknown as Prisma.InputJsonValue,
+      // The envelope is rewritten from the corrected document — a downloaded JSON that still showed
+      // the pre-correction value would be the very thing the correction was made to fix.
+      output: toRunOutput({
+        slug: t.slug, file: docRow?.fileName ?? '', documentId: run.documentId,
+        createdAt: run.createdAt, document: projected,
+      }) as unknown as Prisma.InputJsonValue,
+    },
+    include: RUN_INCLUDE,
+  });
+
+  if (mapping) await persistProjection(run.documentId, projected, document);
 
   await prisma.ocrDocument
     .update({ where: { id: run.documentId }, data: { reviewFlags: buildReviewFlags(t, run.status, run.id, flags) as unknown as Prisma.InputJsonValue } })
@@ -337,7 +342,7 @@ export async function rereadField(input: { documentId: string; runId: string; fi
   // SoftOne was given, and nothing here can take that back.
   if (run.status === 'POSTED') return { ok: false, error: 'posted' };
 
-  const doc = await prisma.ocrDocument.findUnique({ where: { id: input.documentId }, select: { storageKey: true, mimeType: true, extractedData: true } });
+  const doc = await prisma.ocrDocument.findUnique({ where: { id: input.documentId }, select: { storageKey: true, mimeType: true } });
   if (!doc) return { ok: false, error: 'not_found' };
 
   const fields = [...run.template.fields].sort((a, b) => a.order - b.order).map(toFieldDef);
@@ -390,7 +395,7 @@ export async function rereadField(input: { documentId: string; runId: string; fi
   if (!fresh || fresh.documentId !== input.documentId) return { ok: false, error: 'not_found' };
   const merged = { ...((fresh.values as unknown as Record<string, FieldValue>) ?? {}), [field.key]: value };
 
-  const updated = await finalizeRunEdit({ run: fresh, values: merged, extracted: (doc.extractedData ?? {}) as Record<string, unknown> });
+  const updated = await finalizeRunEdit({ run: fresh, values: merged });
   return { ok: true, run: updated, value, region, overridden: input.region != null, model: ex.model, tokensUsed: ex.tokensUsed };
 }
 

@@ -1,10 +1,10 @@
-// GET ?download=1 → array of OutputJson, one per document of the folder (latest run each). Spec §14.8 / §15.6.
+// GET ?download=1 → array of DocumentEnvelope, one per document of the folder (latest run each). Spec §17.1 / §15.6.
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
-import { toRunOutput } from '@/lib/templates/output';
+import { asEnvelope, toRunOutput } from '@/lib/templates/output';
 import { latestPerDocument } from '@/lib/templates/excel-server';
-import type { FieldValue } from '@/lib/templates/schema';
+import { loadDocumentJson } from '@/lib/ocr/document';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,22 +28,24 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     take: 2000,
     include: {
       template: { select: { slug: true } },
-      document: { select: { id: true, fileName: true, extractedData: true } },
+      document: { select: { id: true, fileName: true } },
     },
   });
   const latest = latestPerDocument(runs);
   if (latest.length === 0) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
-  const out = latest.map((r) =>
-    toRunOutput({
-      slug: r.template.slug,
-      version: r.templateVersion,
-      file: r.document.fileName,
-      documentId: r.document.id,
-      createdAt: r.createdAt,
-      extractedData: (r.document.extractedData as Record<string, unknown> | null) ?? null,
-      values: (r.values as unknown as Record<string, FieldValue>) ?? {},
-    }),
+  // Runs made before the canonical envelope existed stored no `output`: only those pay for a
+  // document read, so a folder of new runs is still one query.
+  const out = await Promise.all(
+    latest.map(async (r) =>
+      asEnvelope(r.output) ?? toRunOutput({
+        slug: r.template.slug,
+        file: r.document.fileName,
+        documentId: r.document.id,
+        createdAt: r.createdAt,
+        document: await loadDocumentJson(r.document.id),
+      }),
+    ),
   );
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
