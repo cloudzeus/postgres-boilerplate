@@ -6,7 +6,7 @@ import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { bunnyDelete } from '@/lib/bunny';
 import { TEMPLATE_INCLUDE, toTemplateDto } from '@/lib/templates/serialize';
-import { isReady } from '@/lib/templates/readiness';
+import { activationMessage, canActivate } from '@/lib/templates/readiness';
 import { SLUG_RE } from '@/lib/templates/schema';
 
 export const runtime = 'nodejs';
@@ -32,6 +32,9 @@ const PatchBody = z.object({
   vatNumber: z.string().trim().regex(/^\d{9}$/, 'ΑΦΜ 9 ψηφίων').nullable().optional(),
   traderTrdr: z.number().int().positive().nullable().optional(),
   supplierName: z.string().trim().max(200).transform((v) => v || null).nullable().optional(),
+  // Κατώφλια εκπαίδευσης (§11). 0 δείγματα = χωρίς έλεγχο, για πρότυπα που δεν εκπαιδεύονται.
+  minTrainingScore: z.number().min(0).max(1).optional(),
+  minTrainingSamples: z.number().int().min(0).max(100).optional(),
 });
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -57,10 +60,23 @@ export async function PATCH(req: Request, { params }: Ctx) {
   // ACTIVE needs a sample and a field with a region; a mapping only when the mode posts to SoftOne (spec §14.1-4).
   // Only on an actual transition: a plain {name}/{notifyEmails} PATCH must not be blocked because an
   // already-ACTIVE template drifted out of readiness (e.g. its only mapping was deleted elsewhere).
+  // …and the template must have been trained enough to be trusted (spec §11). The thresholds are
+  // taken from THIS request when it changes them, so raising the bar and activating in one PATCH is
+  // judged by the new bar rather than the old one.
   const status = b.status ?? t.status;
   if (status === 'ACTIVE' && (b.status !== undefined || b.mode !== undefined)) {
-    if (!isReady({ ...t, mode })) {
-      return NextResponse.json({ error: 'not_ready', message: 'Για ενεργοποίηση χρειάζονται δείγμα και ένα πεδίο με περιοχή — και mapping για ημιαυτόματη/αυτόματη λειτουργία' }, { status: 422 });
+    const gateInput = {
+      minTrainingScore: b.minTrainingScore ?? t.minTrainingScore,
+      minTrainingSamples: b.minTrainingSamples ?? t.minTrainingSamples,
+      trainingScore: t.trainingScore,
+      verifiedSamples: t.verifiedSamples,
+    };
+    const check = canActivate({ ...t, ...gateInput, mode });
+    if (!check.ok) {
+      return NextResponse.json(
+        { error: check.error, message: activationMessage(check, gateInput), ...(check.error === 'training_gate' && { reason: check.reason }) },
+        { status: 422 },
+      );
     }
   }
 
@@ -78,6 +94,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
         ...(b.vatNumber !== undefined && { vatNumber: b.vatNumber }),
         ...(b.traderTrdr !== undefined && { traderTrdr: b.traderTrdr }),
         ...(b.supplierName !== undefined && { supplierName: b.supplierName }),
+        ...(b.minTrainingScore !== undefined && { minTrainingScore: b.minTrainingScore }),
+        ...(b.minTrainingSamples !== undefined && { minTrainingSamples: b.minTrainingSamples }),
         version: { increment: 1 },
       },
       include: TEMPLATE_INCLUDE,

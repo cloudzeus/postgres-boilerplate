@@ -45,6 +45,41 @@ export async function countPdfPages(buf: Buffer): Promise<number> {
   }
 }
 
+/**
+ * What a page looks like WITHOUT rasterising it: its printed text and its aspect ratio
+ * (height / width). Both are what a layout fingerprint is built from (spec §14.7), and both are
+ * cheap — pdfium reads them straight out of the page object, no bitmap, no vision call.
+ *
+ * Never throws: a page we cannot open simply has nothing to say about the layout.
+ */
+export async function pageOutline(buffer: Buffer, mimeType: string, page = 0): Promise<{ text: string; aspect: number | null }> {
+  const treatAsPdf = mimeType === 'application/pdf' || isPdfBuffer(buffer);
+  try {
+    if (!treatAsPdf) {
+      const meta = await sharp(buffer).metadata();
+      const w = meta.width ?? 0;
+      const h = meta.height ?? 0;
+      return { text: '', aspect: w > 0 && h > 0 ? h / w : null };
+    }
+    const library = await getLibrary();
+    const doc = await library.loadDocument(new Uint8Array(buffer));
+    try {
+      if (page < 0 || page >= doc.getPageCount()) return { text: '', aspect: null };
+      const p = doc.getPage(page);
+      const { originalWidth, originalHeight } = p.getOriginalSize();
+      return {
+        text: p.getText() ?? '',
+        aspect: originalWidth > 0 && originalHeight > 0 ? originalHeight / originalWidth : null,
+      };
+    } finally {
+      doc.destroy();
+    }
+  } catch (e) {
+    console.warn(`[rasterize] page outline unavailable: ${(e as Error).message}`);
+    return { text: '', aspect: null };
+  }
+}
+
 /** Renders a single PDF page to a full-resolution PNG (no resize) via pdfium. */
 async function renderPdfPagePng(buffer: Buffer, page: number, scale: number): Promise<Buffer> {
   const library = await getLibrary();

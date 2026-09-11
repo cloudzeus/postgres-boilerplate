@@ -1,16 +1,13 @@
 import { NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
-import { SampleError, SAMPLE_MAX_BYTES, storeSample } from '@/lib/templates/sample';
+import { SampleError, SAMPLE_ERROR, SAMPLE_MAX_BYTES, storeSample } from '@/lib/templates/sample';
+import { refreshTrainingScore } from '@/lib/templates/samples';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const ERRORS: Record<SampleError['code'], { status: number; body: Record<string, string> }> = {
-  not_found: { status: 404, body: { error: 'not_found' } },
-  too_large: { status: 413, body: { error: 'too_large', message: 'Μέγιστο 25 MB' } },
-  unsupported_type: { status: 415, body: { error: 'unsupported_type' } },
-};
+const ERRORS = SAMPLE_ERROR;
 
 // POST multipart { file } — αποθηκεύει το δείγμα στο private Bunny zone και μετρά σελίδες.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -28,6 +25,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   try {
     const { mimeType, pageCount } = await storeSample(id, Buffer.from(await file.arrayBuffer()));
+    // A new design sample resets the primary training row, so the template's score no longer
+    // describes the samples it has. Recount before anyone reads the gate. Never fatal.
+    await refreshTrainingScore(id).catch((e) => console.error('[templates] score refresh failed', id, (e as Error).message));
     await logAudit({ userId: u.id, userEmail: u.email, action: 'template.sample.upload', resource: 'extractionTemplate', resourceId: id, metadata: { mimeType, pageCount } });
     return NextResponse.json({ ok: true, mimeType, pageCount });
   } catch (e) {
