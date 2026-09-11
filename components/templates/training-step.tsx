@@ -140,6 +140,9 @@ export function TrainingStep() {
     } catch (e) { toast.error(errorMessage(e)); } finally { setBusyId(null); }
   };
 
+  // Το ανοιχτό δείγμα. Η προβολή της σελίδας του κάθεται ΔΙΠΛΑ στον πίνακα μόνο σε πολύ φαρδιά
+  // οθόνη (`xl`): η στήλη του σχεδιαστή μοιράζεται ήδη τον χώρο με το διάγραμμα, και ένα πάνελ
+  // 320px παρακάτω θα έστυβε τον πίνακα σε δύο στήλες. Παντού αλλού μπαίνει από κάτω.
   const open = rows.find((r) => r.id === openId) ?? null;
   // Τα κουτιά της ανοιχτής σελίδας, στα χρώματα των πεδίων — το ίδιο που δείχνει η καρτέλα εργασίας.
   const regions = React.useMemo(() => {
@@ -237,7 +240,7 @@ export function TrainingStep() {
           )}
         </div>
       ) : (
-        <div className={open ? 'grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px]' : ''}>
+        <div className={open ? 'grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px]' : ''}>
           <div className="min-w-0 space-y-2">
             <SampleTable
               fields={fields} samples={rows} perField={scores} drafts={drafts}
