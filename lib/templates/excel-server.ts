@@ -1,10 +1,23 @@
-// lib/templates/excel-server.ts — SERVER. Prisma runs → SheetInput, and sheets → an .xlsx buffer (exceljs).
+// lib/templates/excel-server.ts — SERVER. Prisma rows → SheetInput, and sheets → an .xlsx buffer (exceljs).
 import 'server-only';
 import ExcelJS from 'exceljs';
 import type { ExtractionTemplate, TemplateField, TemplateMapping, TemplateRun } from '@prisma/client';
+import { docTypeOf, fromLegacy, normalizeDocument, type DocumentJson } from '@/lib/ocr/canonical';
 import { buildSheets, type Sheet, type SheetInput } from './excel';
+import { asEnvelope } from './output';
 import { toFieldDef, toMappingDto } from './serialize';
 import type { FieldValue, MappingRowExcel } from './schema';
+
+const isObj = (v: unknown): v is Record<string, unknown> => v != null && typeof v === 'object' && !Array.isArray(v);
+
+/** The document columns the exporter needs to build a canonical document without a second query. */
+export const DOCUMENT_EXPORT_SELECT = {
+  id: true, fileName: true, document: true, extractedData: true, docType: true,
+  items: {
+    orderBy: { rowIndex: 'asc' },
+    select: { code: true, name: true, quantity: true, price: true, discount: true, vatRate: true, total: true },
+  },
+} as const;
 
 /**
  * Everything `runsToSheetInputs` needs from Prisma. `TemplateMapping` has no `createdAt` column, so
@@ -13,13 +26,37 @@ import type { FieldValue, MappingRowExcel } from './schema';
  */
 export const EXPORT_INCLUDE = {
   template: { include: { fields: true, mappings: { orderBy: { id: 'asc' } } } },
-  document: { select: { id: true, fileName: true } },
+  document: { select: DOCUMENT_EXPORT_SELECT },
 } as const;
+
+/** One `OcrDocument` as the exporter reads it (`DOCUMENT_EXPORT_SELECT`). */
+export type DocumentForExport = {
+  id: string;
+  fileName: string;
+  document: unknown;
+  extractedData: unknown;
+  docType: unknown;
+  items: { code: string | null; name: string | null; quantity: unknown; price: unknown; discount: unknown; vatRate: unknown; total: unknown }[];
+};
 
 export type RunForExport = TemplateRun & {
   template: ExtractionTemplate & { fields: TemplateField[]; mappings: TemplateMapping[] };
-  document: { id: string; fileName: string };
+  document: DocumentForExport;
 };
+
+/** The slug/name under which documents with no template run are exported. */
+export const PLAIN_DOCUMENT_SLUG = '_document';
+export const PLAIN_DOCUMENT_NAME = 'Έγγραφα';
+
+/**
+ * The canonical document of a row. `OcrDocument.document` is the truth; a row written before the
+ * canonical column existed is bridged from its flat `extractedData` + item rows, exactly as
+ * `loadDocumentJson` would — without a second round trip per document in a folder-sized export.
+ */
+export function documentOf(d: DocumentForExport): DocumentJson {
+  if (isObj(d.document)) return normalizeDocument(d.document);
+  return fromLegacy(isObj(d.extractedData) ? d.extractedData : {}, d.items, docTypeOf(d.docType));
+}
 
 /** The EXCEL mapping that drives the columns: the default one, else the first, else none (a column per SINGLE field). */
 function excelRowsOf(mappings: TemplateMapping[]): MappingRowExcel[] | null {
@@ -38,6 +75,26 @@ export function runsToSheetInputs(runs: RunForExport[]): SheetInput[] {
     fields: [...r.template.fields].sort((a, b) => a.order - b.order).map(toFieldDef),
     excelRows: excelRowsOf(r.template.mappings),
     values: ((r.values as unknown as Record<string, FieldValue>) ?? {}) as SheetInput['values'],
+    // The envelope the run FROZE is what that run produced; the document may have moved on since
+    // (a later run of another template, a manual correction), and an export of a run must show the
+    // run. Only a run written before the envelope existed falls back to the live document.
+    document: asEnvelope(r.output)?.document ?? documentOf(r.document),
+  }));
+}
+
+/**
+ * Documents with no template run at all. They still have a canonical document, so they still export —
+ * into one «Έγγραφα» sheet with the document columns and nothing template-specific.
+ */
+export function documentsToSheetInputs(docs: DocumentForExport[]): SheetInput[] {
+  return docs.map((d) => ({
+    templateSlug: PLAIN_DOCUMENT_SLUG,
+    templateName: PLAIN_DOCUMENT_NAME,
+    file: d.fileName,
+    fields: [],
+    excelRows: null,
+    values: {},
+    document: documentOf(d),
   }));
 }
 
@@ -54,9 +111,9 @@ export function latestPerDocument<T extends { documentId: string }>(runs: T[]): 
   return out;
 }
 
-/** Convenience for the routes: runs → the finished workbook. */
-export function runsToSheets(runs: RunForExport[]): Sheet[] {
-  return buildSheets(runsToSheetInputs(runs));
+/** Convenience for the routes: runs (and any template-less documents) → the finished workbook. */
+export function runsToSheets(runs: RunForExport[], docs: DocumentForExport[] = []): Sheet[] {
+  return buildSheets([...runsToSheetInputs(runs), ...documentsToSheetInputs(docs)]);
 }
 
 export async function sheetsToXlsx(sheets: Sheet[]): Promise<ArrayBuffer> {

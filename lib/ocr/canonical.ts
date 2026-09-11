@@ -20,6 +20,14 @@ export type DocumentKind = 'invoice' | 'receipt' | 'general';
 export type CanonicalDocType = 'invoice' | 'receipt' | 'general_text';
 export type DocumentValueType = 'TEXT' | 'NUMBER' | 'CURRENCY' | 'DATE' | 'LIST';
 
+/**
+ * Prisma `OcrDocType` → ο τύπος που καταλαβαίνει το κανονικό σχήμα. Εδώ, όχι στον γραφέα: το ίδιο
+ * ερώτημα κάνει και ο εξαγωγέας του Excel, που δεν θέλει (και δεν πρέπει) να φορτώσει τον Prisma.
+ */
+export function docTypeOf(docType: unknown): CanonicalDocType {
+  return docType === 'GENERAL_TEXT' ? 'general_text' : docType === 'RECEIPT' ? 'receipt' : 'invoice';
+}
+
 const isObj = (v: unknown): v is Record<string, unknown> => v != null && typeof v === 'object' && !Array.isArray(v);
 const round2 = (x: number) => Math.round((x + Number.EPSILON) * 100) / 100;
 

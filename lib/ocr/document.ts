@@ -11,17 +11,17 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { normalizeAfm } from '@/lib/ocr/validate';
 import {
-  fromLegacy, legacyKeyToPath, normalizeDocument, setPath, toLegacy, UNSAFE_SEGMENTS,
+  docTypeOf, fromLegacy, legacyKeyToPath, normalizeDocument, setPath, toLegacy, UNSAFE_SEGMENTS,
   type CanonicalDocType, type DocumentJson, type DocumentLine,
 } from '@/lib/ocr/canonical';
 
 const isObj = (v: unknown): v is Record<string, unknown> => v != null && typeof v === 'object' && !Array.isArray(v);
 const has = (v: unknown) => v != null && String(v).trim() !== '';
 
-/** Prisma `OcrDocType` → ο τύπος που καταλαβαίνει το κανονικό σχήμα. */
-export function docTypeOf(docType: unknown): CanonicalDocType {
-  return docType === 'GENERAL_TEXT' ? 'general_text' : docType === 'RECEIPT' ? 'receipt' : 'invoice';
-}
+// Ο μεταφραστής του τύπου εγγράφου ζει στο καθαρό `canonical.ts` (τον χρειάζεται και ο εξαγωγέας
+// του Excel, που δεν φορτώνει Prisma) — εδώ μόνο ξανα-εξάγεται, ώστε οι σημερινοί καλούντες να μην
+// χρειαστεί να αλλάξουν import.
+export { docTypeOf };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Γραμμές: κανονικό `lines[]` ↔ `OcrInvoiceItem`
