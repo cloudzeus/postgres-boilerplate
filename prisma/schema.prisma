@@ -1659,6 +1659,13 @@ model ExtractionTemplate {
   sampleMimeType   String?
   samplePageCount  Int?
   sampleThumbUrl   String?
+  // Αποτύπωμα διάταξης του κύριου δείγματος (§14.7) — { afm, issuer, words[], aspect }.
+  fingerprint      Json?
+  // Κατώφλια ενεργοποίησης (§11): 0 δείγματα = χωρίς έλεγχο εκπαίδευσης.
+  minTrainingScore   Float         @default(0.9)
+  minTrainingSamples Int           @default(3)
+  trainingScore      Float?                        // τελευταίος υπολογισμένος συνολικός βαθμός 0-1
+  verifiedSamples    Int           @default(0)     // πλήθος δειγμάτων σε status VERIFIED
   notifyEmails     String?                         // ";"-separated (NOTIFY)
   timesUsed        Int             @default(0)
   createdById      String?
@@ -1688,6 +1695,8 @@ model TemplateField {
   aiHint     String?            @db.Text
   required   Boolean            @default(false)
   order      Int                @default(0)
+  // §17.2 — τελευταία επιτυχημένη θέση: { page, bbox:[x,y,w,h], at, n } (κινητός μέσος όρος, n ≤ 10).
+  lastGood   Json?
 
   @@unique([templateId, key])
   @@index([templateId])
@@ -1765,6 +1774,8 @@ model TemplateSample {
   expected    Json?                                 // { fieldKey: value } επιβεβαιωμένο από χρήστη
   lastResult  Json?                                 // { fieldKey: { raw, value, source, match } }
   score       Float?                                // 0-1 ποσοστό πεδίων που ταιριάζουν
+  fingerprint Json?                                 // §14.7 — { afm, issuer, words[], aspect }
+  isPrimary   Boolean              @default(false)  // το δείγμα πάνω στο οποίο σχεδιάστηκαν οι περιοχές
   createdById String?
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
@@ -1802,6 +1813,7 @@ model TemplateJobItem {
   mimeType   String
   size       Int
   status     TemplateJobItemStatus @default(QUEUED)
+  page       Int?                                   // πλήθος σελίδων του αρχείου (για το page-image)
   values     Json?                                  // { fieldKey: FieldValue }
   matched    Json?
   flags      Json?
