@@ -10,6 +10,7 @@ import {
 import { resolveOwnAfm } from '@/lib/ocr/own-afm';
 import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
 import { buildModelChain, tryModels } from '@/lib/ocr/model-fallback';
+import { getPdfjs, primePdfjsWorker } from '@/lib/ocr/pdfjs';
 
 export type PdfSource = 'auto' | 'digital' | 'scanned';
 
@@ -141,16 +142,19 @@ export function parseJsonLoose(s: string): any {
   throw new Error('LLM did not return valid JSON');
 }
 
-async function extractDigitalPdfText(buffer: Buffer): Promise<string> {
+export async function extractDigitalPdfText(buffer: Buffer): Promise<string> {
   // Use pdfjs-dist directly — `pdf-parse` has a well-known issue where it tries
   // to read a test fixture at module load when bundled by Next.js/Turbopack,
   // and the auto-resolved worker path also breaks. pdfjs gives us full control.
+  //
+  // The worker path comes from lib/ocr/pdfjs.ts — resolving it here with
+  // `createRequire(import.meta.url)` was the bug: Turbopack rewrites that
+  // `require.resolve` into an internal module id (a "[project]/…" string in dev,
+  // a NUMBER in the production build), and `GlobalWorkerOptions.workerSrc`'s
+  // setter throws on anything that is not a string. Every digital PDF therefore
+  // failed here and was re-run through the PAID vision path.
   try {
-    const { createRequire } = await import('node:module');
-    const req = createRequire(import.meta.url);
-    const workerPath = req.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
-    const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    pdfjs.GlobalWorkerOptions.workerSrc = workerPath;
+    const pdfjs: any = await getPdfjs();
 
     const loadingTask = pdfjs.getDocument({
       data: new Uint8Array(buffer),
@@ -182,14 +186,9 @@ async function extractDigitalPdfText(buffer: Buffer): Promise<string> {
  * Returns base64 PNGs.
  */
 export async function rasterizePdf(buffer: Buffer, maxPages = 3, scale = 2): Promise<Buffer[]> {
-  // Force-set the pdfjs worker path BEFORE pdf-to-img loads.
-  try {
-    const { createRequire } = await import('node:module');
-    const req = createRequire(import.meta.url);
-    const workerPath = req.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    (pdfjs as any).GlobalWorkerOptions.workerSrc = workerPath;
-  } catch { /* pdf-to-img will try its own fallback */ }
+  // Force-set the pdfjs worker path BEFORE pdf-to-img loads. Same shared resolver
+  // as extractDigitalPdfText — never `createRequire(import.meta.url)` (see pdfjs.ts).
+  await primePdfjsWorker();
 
   const { pdf } = await import('pdf-to-img');
   let document;
@@ -494,10 +493,32 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
     // AUTO — probe for embedded text first, fall back to rasterize if not enough.
     if (mode === 'auto') {
       let probed = '';
-      try { probed = await extractDigitalPdfText(input.buffer); } catch { /* treat as scanned */ }
+      let textLayerError: string | null = null;
+      try {
+        probed = await extractDigitalPdfText(input.buffer);
+      } catch (err: any) {
+        // We could not READ the text layer. That is NOT the same thing as "this
+        // document is a scan" — a scan has no text to read, whereas this may be a
+        // document whose text was free and which we are about to pay a vision call
+        // for. Both end up on the same (legitimate) fallback below, so they must be
+        // told apart in the logs: one is expected, the other is money on fire.
+        textLayerError = err?.message ?? String(err);
+      }
 
       // Not enough selectable text → fully scanned path.
       if (probed.length < DIGITAL_MIN_CHARS) {
+        if (textLayerError) {
+          console.error(
+            '[ocr] PDF text layer could NOT be read — falling back to the PAID vision path. ' +
+            'This is NOT a detected scan; if it repeats, the text layer is broken or pdfjs is misconfigured. ' +
+            `Reason: ${textLayerError}`,
+          );
+        } else {
+          console.info(
+            `[ocr] PDF has only ${probed.length} selectable chars (< ${DIGITAL_MIN_CHARS}) — ` +
+            'treating it as a scan and running the vision path.',
+          );
+        }
         return settled(await runScannedPdf(cfg, system, input.buffer, input.docType, started));
       }
 

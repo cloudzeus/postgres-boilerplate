@@ -2,6 +2,7 @@ import sharp from 'sharp';
 import { customAlphabet } from 'nanoid';
 import { prisma } from '@/lib/db';
 import { bunnyUpload, bunnyDownload } from '@/lib/bunny';
+import { primePdfjsWorker } from '@/lib/ocr/pdfjs';
 
 const slug = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 8);
 const THUMB_SIZE = 320;
@@ -19,13 +20,8 @@ export async function ensureOcrThumbnail(documentId: string): Promise<string | n
 
   try {
     if (doc.mimeType === 'application/pdf') {
-      try {
-        const { createRequire } = await import('node:module');
-        const req = createRequire(import.meta.url);
-        const workerPath = req.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
-        const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-        (pdfjs as any).GlobalWorkerOptions.workerSrc = workerPath;
-      } catch { /* fallback to pdf-to-img defaults */ }
+      // Shared resolver — never `createRequire(import.meta.url)` (see lib/ocr/pdfjs.ts).
+      await primePdfjsWorker();
       const { pdf } = await import('pdf-to-img');
       const pages = await pdf(await bunnyDownload(doc.storageKey), { scale: 1.2 });
       for await (const p of pages) {

@@ -3,33 +3,12 @@
 import 'server-only';
 import type { TextItem } from '@/lib/ocr/region-text';
 
-// Import + configure pdfjs ONCE per process. Same worker-path setup as
-// lib/ocr/extract.ts::extractDigitalPdfText — avoids pdfjs falling back to a
-// "fake worker" (noisy warnings / unreliable in Node). The promise is cached so
-// repeated extractions don't re-resolve the worker path on every call.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _pdfjs: Promise<any> | null = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getPdfjs(): Promise<any> {
-  if (!_pdfjs) {
-    _pdfjs = (async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs');
-      try {
-        const { createRequire } = await import('node:module');
-        const req = createRequire(import.meta.url);
-        pdfjs.GlobalWorkerOptions.workerSrc = req.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
-      } catch { /* ignore — pdfjs will try its own fallback */ }
-      return pdfjs;
-    })().catch((e) => {
-      // Self-heal: a cached REJECTED promise would poison every later call for the
-      // life of the process (e.g. a transient module-load failure during boot).
-      _pdfjs = null;
-      throw e;
-    });
-  }
-  return _pdfjs;
-}
+// pdfjs is imported + configured ONCE per process by lib/ocr/pdfjs.ts. That module
+// is the single place the worker path is resolved: this file used to do its own
+// `createRequire(import.meta.url).resolve(...)` inside a `catch {}` that swallowed
+// everything, which meant a bad worker path was invisible here and pdfjs quietly
+// fell back to its in-process "fake worker".
+import { getPdfjs } from '@/lib/ocr/pdfjs';
 
 export async function extractPdfTextItems(buffer: Buffer, page: number): Promise<TextItem[]> {
   const pdfjs = await getPdfjs();
