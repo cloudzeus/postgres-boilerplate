@@ -1,8 +1,12 @@
 import sharp from 'sharp';
 import { getSetting } from '@/lib/settings';
-import { buildSystemPrompt, countMissingRequired, REQUIRED_FIELDS, type DocType, type SupportedLang } from '@/lib/ocr/templates';
+import { buildSystemPrompt, type DocType, type SupportedLang } from '@/lib/ocr/templates';
 import { logAiUsage, providerFromUrl, type AiScope } from '@/lib/ai/usage';
-import { qualityScore, fixSwappedParties, normalizeAfmFields } from '@/lib/ocr/validate';
+import { qualityScore } from '@/lib/ocr/validate';
+import { coerceDocument, normalizeDocument, reconcileDocument, toLegacy, type DocumentJson } from '@/lib/ocr/canonical';
+import {
+  fixSwappedPartiesDocument, mergeDocuments, mergeHybridDocuments, missingRequired,
+} from '@/lib/ocr/extract-merge';
 import { resolveOwnAfm } from '@/lib/ocr/own-afm';
 import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
 import { buildModelChain, tryModels } from '@/lib/ocr/model-fallback';
@@ -73,6 +77,12 @@ export interface ExtractInput {
 }
 
 export interface ExtractResult {
+  /** Το κανονικό έγγραφο (spec §17.1) — η ΜΙΑ αλήθεια κάθε εξαγωγής. */
+  document: DocumentJson;
+  /**
+   * Η προβολή του εγγράφου στα παλιά flat κλειδιά (`toLegacy`). Δεν είναι δεύτερη αλήθεια: κάθε
+   * consumer που δεν έχει ακόμη μεταφερθεί (λίστα, row-detail, ουρές, ταξινομητής) διαβάζει αυτήν.
+   */
   data: any;
   rawText: string | null;
   model: string;
@@ -389,87 +399,30 @@ export async function callVisionLLM(
 }
 
 /**
- * Merge per-page LLM outputs into a single document.
- * - invoice: keep header fields from the first page that has them; concatenate `items`;
- *            sum `totalAmount` if pages disagree and the last page looks like a footer.
- * - receipt: prefer the first non-empty page.
- * - general_text: concatenate fullText, merge keywords (dedup), join summaries.
+ * Ό,τι γύρισε το μοντέλο → κανονικό έγγραφο, με ΤΗΝ ΙΔΙΑ σειρά σε κάθε διαδρομή του pipeline
+ * (εικόνα, ψηφιακό PDF, native PDF της Gemini, ρασταροποιημένες σελίδες, εφεδρικά μοντέλα):
+ *   coerce  — δέχεται και κανονικό σχήμα και παλιό flat, χωρίς ποτέ να πετάει,
+ *   normalize — ΑΦΜ, ημερομηνίες, αριθμοί από κείμενο («1.234,56» → 1234.56),
+ *   swap    — αν ο «εκδότης» έχει το δικό μας ΑΦΜ, οι δύο πλευρές είναι ανάποδα,
+ *   reconcile — συμπληρώνει ό,τι λείπει από τα σύνολα με βάση τις γραμμές (ποτέ δεν σβήνει τυπωμένη τιμή).
  */
+function toDocument(raw: unknown, docType: DocType, ownAfm: string | null): DocumentJson {
+  const swapped = fixSwappedPartiesDocument(
+    normalizeDocument(coerceDocument(raw, docType)),
+    docType === 'invoice' ? ownAfm : null,
+  );
+  return reconcileDocument(swapped).document;
+}
+
+/** Ένα ήδη συγχωνευμένο έγγραφο ξαναπερνάει μόνο από τη συμφωνία συνόλων. */
+const settle = (document: DocumentJson): DocumentJson => reconcileDocument(document).document;
+
 /**
- * Merge two payloads (digital + vision) for hybrid PDFs (mixed selectable
- * text + scanned image regions). For each missing field on the primary
- * payload, fill from the secondary. Items arrays are union'd by code+name.
+ * Ποιο από δύο περάσματα κρατάμε (ΜΙΚΡΟΤΕΡΟ = καλύτερο). Το `qualityScore` ζυγίζει και τι λείπει
+ * και τι είναι παρόν αλλά λάθος (άκυρο ΑΦΜ, σύνολα που δεν βγαίνουν) — κρίνει πάνω στην προβολή
+ * `toLegacy`, όπου ζουν όλοι αυτοί οι έλεγχοι.
  */
-function mergeHybrid(primary: any, secondary: any, docType: DocType): any {
-  if (!primary) return secondary;
-  if (!secondary) return primary;
-  const out = { ...primary };
-  for (const k of REQUIRED_FIELDS[docType]) {
-    const v = out[k];
-    const missing = v == null || v === '' || (Array.isArray(v) && v.length === 0);
-    if (missing && secondary[k] != null && secondary[k] !== '') {
-      out[k] = secondary[k];
-    }
-  }
-  // For invoices, union the items list (de-duplicated by `code|name`).
-  if (docType === 'invoice' && (Array.isArray(primary.items) || Array.isArray(secondary.items))) {
-    const seen = new Set<string>();
-    const union: any[] = [];
-    for (const src of [primary.items, secondary.items]) {
-      if (!Array.isArray(src)) continue;
-      for (const it of src) {
-        const key = `${it?.code ?? ''}|${(it?.name ?? '').slice(0, 40)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        union.push(it);
-      }
-    }
-    out.items = union;
-  }
-  return out;
-}
-
-function mergePages(pages: any[], docType: DocType): any {
-  if (pages.length === 1) return pages[0];
-
-  if (docType === 'invoice') {
-    const merged: any = { items: [] };
-    const headerKeys = [
-      'companyName', 'vatNumber', 'companyAddress', 'companyDoy', 'companyProfession',
-      'customerName', 'customerVatNumber', 'customerAddress', 'customerDoy', 'customerProfession',
-      'invoiceNumber', 'aadeMark', 'date',
-    ];
-    for (const p of pages) {
-      for (const k of headerKeys) {
-        if (merged[k] == null && p?.[k] != null) merged[k] = p[k];
-      }
-      if (Array.isArray(p?.items)) merged.items.push(...p.items);
-    }
-    // Money totals: prefer the largest value across pages (footer usually carries final).
-    for (const k of ['subtotal', 'vatAmount', 'totalAmount']) {
-      const vals = pages
-        .map((p) => (p?.[k] != null ? Number(p[k]) : null))
-        .filter((n): n is number => n != null && !Number.isNaN(n));
-      if (vals.length) merged[k] = Math.max(...vals);
-    }
-    return merged;
-  }
-
-  if (docType === 'receipt') {
-    return pages.find((p) => p && (p.storeName || p.totalAmount)) ?? pages[0];
-  }
-
-  // general_text
-  const fullText = pages.map((p) => p?.fullText ?? '').filter(Boolean).join('\n\n');
-  const summaries = pages.map((p) => p?.summary).filter(Boolean);
-  const keywords = Array.from(new Set(pages.flatMap((p) => (Array.isArray(p?.keywords) ? p.keywords : []))));
-  return {
-    title: pages.find((p) => p?.title)?.title ?? null,
-    fullText,
-    summary: summaries.join(' '),
-    keywords,
-  };
-}
+const score = (document: DocumentJson, docType: DocType): number => qualityScore(toLegacy(document), docType);
 
 async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
   const cfg = await resolveCfg();
@@ -486,24 +439,23 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
     const enhanced = await enhanceForOcr(input.buffer);
     const b64 = enhanced.buffer.toString('base64');
     const out = await callVisionLLM(cfg, system, b64, enhanced.mimeType);
-    let data = parseJsonLoose(out.content);
     const ownAfm = await resolveOwnAfm();
-    data = fixSwappedParties(data, input.docType === 'invoice' ? ownAfm : null);
+    let document = toDocument(parseJsonLoose(out.content), input.docType, ownAfm);
     let model = out.model;
     let tokens = out.tokens;
     let passes = 1;
     let retried = false;
 
     // Auto-retry once with the upgraded model if too many required fields are missing.
-    if (countMissingRequired(data, input.docType) >= RETRY_MISSING_THRESHOLD
+    if (missingRequired(document, input.docType) >= RETRY_MISSING_THRESHOLD
         && cfg.visionModel !== UPGRADED_VISION_MODEL) {
       try {
         const retry = await callVisionLLM(cfg, system, b64, enhanced.mimeType, UPGRADED_VISION_MODEL);
-        const retryData = parseJsonLoose(retry.content);
+        const retryDoc = toDocument(parseJsonLoose(retry.content), input.docType, ownAfm);
         passes = 2;
-        // Keep whichever has fewer missing required fields.
-        if (qualityScore(retryData, input.docType) < qualityScore(data, input.docType)) {
-          data = retryData;
+        // Keep whichever reads better — το `qualityScore` κρίνει πάνω στην προβολή των flat κλειδιών.
+        if (score(retryDoc, input.docType) < score(document, input.docType)) {
+          document = retryDoc;
           model = retry.model;
           tokens = (tokens ?? 0) + (retry.tokens ?? 0);
           retried = true;
@@ -512,7 +464,8 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
     }
 
     return {
-      data,
+      document,
+      data: toLegacy(document),
       rawText: null,
       model,
       tokensUsed: tokens,
@@ -541,14 +494,15 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
       // HYBRID: if digital is missing required fields, the PDF is likely mixed
       // (text + scanned image regions). Run vision on the rasterized pages and
       // merge — vision fills only what digital missed.
-      const missing = countMissingRequired(digital.data, input.docType);
+      const missing = missingRequired(digital.document, input.docType);
       if (missing >= RETRY_MISSING_THRESHOLD) {
         try {
           const visionResult = await runScannedPdf(cfg, system, input.buffer, input.docType, started);
-          const merged = mergeHybrid(digital.data, visionResult.data, input.docType);
+          const merged = settle(mergeHybridDocuments(digital.document, visionResult.document));
           return {
             ...digital,
-            data: merged,
+            document: merged,
+            data: toLegacy(merged),
             model: `${digital.model} + ${visionResult.model}`,
             tokensUsed: (digital.tokensUsed ?? 0) + (visionResult.tokensUsed ?? 0),
             durationMs: Date.now() - started,
@@ -573,11 +527,11 @@ async function runDigitalPdf(
   const text = preExtracted ?? await extractDigitalPdfText(buffer);
   if (!text) throw new Error('No selectable text discovered in PDF. Use scanned/auto mode.');
   const out = await callTextLLM(cfg, system, `Here is the digital text payload extracted from the document:\n\n${text}`);
-  let data = parseJsonLoose(out.content);
   const ownAfm = await resolveOwnAfm();
-  data = fixSwappedParties(data, docType === 'invoice' ? ownAfm : null);
+  const document = toDocument(parseJsonLoose(out.content), docType, ownAfm);
   return {
-    data,
+    document,
+    data: toLegacy(document),
     rawText: text,
     model: out.model,
     tokensUsed: out.tokens,
@@ -591,28 +545,27 @@ async function runScannedPdf(
   // Fast path: Gemini accepts PDFs natively (text + images) — skip rasterization.
   if (cfg.visionUrl.includes('generativelanguage.googleapis.com')) {
     const out = await callGeminiPdfNative(cfg, system, buffer);
-    let data = parseJsonLoose(out.content);
     const ownAfm = await resolveOwnAfm();
-    data = fixSwappedParties(data, docType === 'invoice' ? ownAfm : null);
+    let document = toDocument(parseJsonLoose(out.content), docType, ownAfm);
     let model = out.model;
     let tokens = out.tokens;
     let passes = 1;
     let retried = false;
-    if (countMissingRequired(data, docType) >= RETRY_MISSING_THRESHOLD
+    if (missingRequired(document, docType) >= RETRY_MISSING_THRESHOLD
         && cfg.visionModel !== UPGRADED_VISION_MODEL) {
       try {
         const r = await callGeminiPdfNative(cfg, system, buffer, UPGRADED_VISION_MODEL);
-        const retryData = parseJsonLoose(r.content);
+        const retryDoc = toDocument(parseJsonLoose(r.content), docType, ownAfm);
         passes = 2;
-        if (qualityScore(retryData, docType) < qualityScore(data, docType)) {
-          data = retryData; model = r.model;
+        if (score(retryDoc, docType) < score(document, docType)) {
+          document = retryDoc; model = r.model;
           tokens = (tokens ?? 0) + (r.tokens ?? 0);
           retried = true;
         }
       } catch { /* keep first-pass */ }
     }
     return {
-      data, rawText: null, model,
+      document, data: toLegacy(document), rawText: null, model,
       tokensUsed: tokens, durationMs: Date.now() - started,
       passes, retried,
     };
@@ -628,28 +581,24 @@ async function runScannedPdf(
   const perPage = await Promise.all(
     enhanced.map((p) => callVisionLLM(cfg, system, p.buffer.toString('base64'), p.mimeType)),
   );
-  let parsed = perPage.map((p) => parseJsonLoose(p.content));
-  let merged = mergePages(parsed, docType);
   const ownAfm = await resolveOwnAfm();
-  merged = fixSwappedParties(merged, docType === 'invoice' ? ownAfm : null) as any;
+  let merged = settle(mergeDocuments(perPage.map((p) => toDocument(parseJsonLoose(p.content), docType, ownAfm))));
   let model = perPage[0].model;
   let tokensUsed = perPage.reduce((sum, p) => sum + (p.tokens ?? 0), 0) || null;
   let passes = 1;
   let retried = false;
 
   // Auto-retry only the pages we actually need, with the upgraded model.
-  if (countMissingRequired(merged, docType) >= RETRY_MISSING_THRESHOLD
+  if (missingRequired(merged, docType) >= RETRY_MISSING_THRESHOLD
       && cfg.visionModel !== UPGRADED_VISION_MODEL) {
     try {
       const retryPages = await Promise.all(
         enhanced.map((p) => callVisionLLM(cfg, system, p.buffer.toString('base64'), p.mimeType, UPGRADED_VISION_MODEL)),
       );
-      const retryParsed = retryPages.map((p) => parseJsonLoose(p.content));
-      const retryMerged = mergePages(retryParsed, docType);
+      const retryMerged = settle(mergeDocuments(retryPages.map((p) => toDocument(parseJsonLoose(p.content), docType, ownAfm))));
       passes = 2;
-      if (qualityScore(retryMerged, docType) < qualityScore(merged, docType)) {
+      if (score(retryMerged, docType) < score(merged, docType)) {
         merged = retryMerged;
-        parsed = retryParsed;
         model = retryPages[0].model;
         tokensUsed = (tokensUsed ?? 0) + (retryPages.reduce((s, p) => s + (p.tokens ?? 0), 0));
         retried = true;
@@ -658,7 +607,8 @@ async function runScannedPdf(
   }
 
   return {
-    data: merged,
+    document: merged,
+    data: toLegacy(merged),
     rawText: null,
     model,
     tokensUsed,
@@ -669,10 +619,8 @@ async function runScannedPdf(
 }
 
 export async function extractDocument(input: ExtractInput): Promise<ExtractResult> {
-  const base = await extractDocumentRaw(input);
-  // Strip country prefixes (EL999863881 → 999863881) so the stored ΑΦΜ is what
-  // AADE / SoftOne searches expect — everything downstream reads this value, including
-  // the extraction-template runner that picks a template by issuer ΑΦΜ.
-  if (base.data) normalizeAfmFields(base.data);
-  return base;
+  // Τα ΑΦΜ έχουν ήδη καθαριστεί από το `normalizeDocument` μέσα στο `toDocument` (EL999863881 →
+  // 999863881), άρα και η προβολή `data` που διαβάζουν τα υπόλοιπα — SoftOne, ΑΑΔΕ και ο
+  // εντοπισμός προτύπου ανά ΑΦΜ εκδότη βλέπουν τον ίδιο σκέτο αριθμό.
+  return extractDocumentRaw(input);
 }
