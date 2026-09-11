@@ -48,12 +48,29 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   // Χειροκίνητη επιλογή σειράς: κλειδώνει το έγγραφο απέναντι στον αυτόματο ταξινομητή
   // (`seriesBy: 'manual'`, spec 2026-09-11 §1.4). Καθάρισμα της σειράς ξεκλειδώνει.
+  //
+  // ΜΟΝΟ όμως όταν η σειρά ΟΝΤΩΣ άλλαξε: κάθε άλλη αποθήκευση της καρτέλας (π.χ. διόρθωση
+  // συνόλου) στέλνει μαζί και την τρέχουσα σειρά· αν τη σφραγίζαμε ως «χειροκίνητη», το
+  // έγγραφο θα κλείδωνε άδικα έξω από τον ταξινομητή. Ίδιο ζεύγος ⇒ ούτε σφραγίδα ούτε
+  // έλεγχος ενεργοποίησης, ώστε να μένει αποθηκεύσιμο κι ένα έγγραφο με σειρά που
+  // απενεργοποιήθηκε στο μεταξύ.
   let seriesPatch: Record<string, unknown> = {};
   if ('softoneSeries' in body) {
-    if (body.softoneSeries) {
-      // Ο επιλογέας στέλνει την ενότητα μαζί με τον κωδικό· παλιοί clients (χωρίς
-      // `seriesSource`) πέφτουν στην αναζήτηση παρακάτω.
-      const seriesSource = body.seriesSource ?? await sourceOfSeries(body.softoneSeries);
+    const current = await prisma.ocrDocument.findUnique({
+      where: { id }, select: { softoneSeries: true, seriesSource: true },
+    }) as { softoneSeries: string | null; seriesSource: number | null } | null;
+    // Ο επιλογέας στέλνει την ενότητα μαζί με τον κωδικό· παλιοί clients (χωρίς
+    // `seriesSource`) πέφτουν στην αναζήτηση παρακάτω.
+    const seriesSource = body.softoneSeries
+      ? body.seriesSource ?? await sourceOfSeries(body.softoneSeries)
+      : null;
+    const unchanged =
+      (current?.softoneSeries ?? null) === (body.softoneSeries ?? null) &&
+      (current?.seriesSource ?? null) === seriesSource;
+
+    if (unchanged) {
+      // Ούτε 422, ούτε `seriesBy: 'manual'`· το `scalar.softoneSeries` ξαναγράφει την ίδια τιμή.
+    } else if (body.softoneSeries) {
       // Ταυτότητα σειράς = το ΖΕΥΓΟΣ (ενότητα, κωδικός): δεχόμαστε μόνο ενεργοποιημένες
       // σειρές — ο ίδιος κωδικός υπάρχει και στις δύο ενότητες.
       if (!(await seriesIsEnabled(body.softoneSeries, seriesSource))) {

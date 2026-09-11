@@ -6,7 +6,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const { db, rbac, s1, audit } = vi.hoisted(() => ({
   db: {
-    ocrDocument: { findMany: vi.fn(), updateMany: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
+    ocrDocument: { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
+    purchaseDocType: { findFirst: vi.fn(), findUnique: vi.fn() },
+    softoneDocSeries: { findFirst: vi.fn() },
     ocrInvoiceItem: { findMany: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     ignoredIssuer: { findMany: vi.fn(), upsert: vi.fn(), delete: vi.fn() },
     softoneTrader: { findUnique: vi.fn(), upsert: vi.fn() },
@@ -26,6 +28,7 @@ const { db, rbac, s1, audit } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/db', () => ({ prisma: db }));
+vi.mock('@/lib/bunny', () => ({ bunnyDelete: vi.fn() }));
 vi.mock('@/lib/rbac', () => rbac);
 vi.mock('@/lib/audit', () => audit);
 // Οι καθαροί payload builders μένουν ΑΛΗΘΙΝΟΙ (το dry-run τους επιστρέφει αυτούσιους)·
@@ -40,6 +43,7 @@ import { POST as linkTrader } from '@/app/api/admin/ocr/new-traders/[afm]/link/r
 import { POST as ignoreTrader, DELETE as unignoreTrader } from '@/app/api/admin/ocr/new-traders/[afm]/ignore/route';
 import { POST as createItem } from '@/app/api/admin/ocr/new-items/create/route';
 import { GET as itemQueue } from '@/app/api/admin/ocr/new-items/route';
+import { PATCH as patchDoc } from '@/app/api/admin/ocr/[id]/route';
 
 const USER = { id: 'u1', email: 'a@b.gr' };
 const AFM = '094073495';
@@ -71,6 +75,11 @@ beforeEach(() => {
   db.ignoredIssuer.findMany.mockResolvedValue([]);
   db.lineMatchRule.findMany.mockResolvedValue([]);
   s1.softoneLoadExpenseTemplate.mockResolvedValue({ flags: { CLCMD: 1 }, expn: 7 });
+  db.ocrDocument.findUnique.mockResolvedValue(null);
+  db.ocrDocument.update.mockResolvedValue({ id: 'doc1' });
+  db.purchaseDocType.findFirst.mockResolvedValue(null);
+  db.purchaseDocType.findUnique.mockResolvedValue(null);
+  db.softoneDocSeries.findFirst.mockResolvedValue(null);
 });
 
 describe('dry-run', () => {
@@ -239,5 +248,100 @@ describe('permissions', () => {
     const e = denied();
     await expect(itemQueue(new Request('http://localhost/api'))).rejects.toBe(e);
     expect(db.ocrInvoiceItem.findMany).not.toHaveBeenCalled();
+  });
+});
+
+
+/**
+ * PATCH καρτέλας: η «χειροκίνητη» σφραγίδα σειράς (`seriesBy: 'manual'`) κλειδώνει το
+ * έγγραφο έξω από τον αυτόματο ταξινομητή — άρα πρέπει να μπαίνει ΜΟΝΟ όταν το ζεύγος
+ * (ενότητα, κωδικός) όντως άλλαξε, όχι σε κάθε αποθήκευση της καρτέλας.
+ */
+describe('PATCH σειρά παραστατικού', () => {
+  const DOC = 'doc1';
+  const patch = (body: unknown) =>
+    patchDoc(new Request('http://localhost/api', { method: 'PATCH', body: JSON.stringify(body) }), {
+      params: Promise.resolve({ id: DOC }),
+    });
+  /** Ό,τι γράφτηκε τελικά στο `ocrDocument.update`. */
+  const written = () => db.ocrDocument.update.mock.calls[0]?.[0]?.data ?? {};
+
+  it('ίδιο ζεύγος: καμία σφραγίδα «manual», ούτε καν έλεγχος ενεργοποίησης', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ softoneSeries: '7021', seriesSource: 1251 });
+
+    const res = await patch({ softoneSeries: '7021', seriesSource: 1251, category: 'EXPENSE' });
+
+    expect(res.status).toBe(200);
+    expect(written()).not.toHaveProperty('seriesBy');
+    expect(written()).not.toHaveProperty('seriesConfidence');
+    expect(written()).not.toHaveProperty('seriesReason');
+    expect(written()).toMatchObject({ category: 'EXPENSE' });
+    // Ο έλεγχος «ενεργοποιημένης σειράς» ούτε τρέχει.
+    expect(db.purchaseDocType.findFirst).not.toHaveBeenCalled();
+    expect(db.softoneDocSeries.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('ίδιο ζεύγος με σειρά που απενεργοποιήθηκε: σώζεται κανονικά (όχι 422)', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ softoneSeries: '7021', seriesSource: 1251 });
+    // Καμία ενεργοποιημένη γραμμή στο μητρώο — παλιά θα έσκαγε με `unknown_series`.
+    db.purchaseDocType.findFirst.mockResolvedValue(null);
+
+    const res = await patch({ softoneSeries: '7021', seriesSource: 1251, notes: 'διόρθωση συνόλου' });
+
+    expect(res.status).toBe(200);
+    expect(written()).not.toHaveProperty('seriesBy');
+  });
+
+  it('αλλαγή ζεύγους: σφραγίζεται «manual» αφού περάσει ο έλεγχος', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ softoneSeries: '7021', seriesSource: 1251 });
+    db.softoneDocSeries.findFirst.mockResolvedValue({ id: 9 });
+
+    const res = await patch({ softoneSeries: '7021', seriesSource: 1653 });
+
+    expect(res.status).toBe(200);
+    expect(db.softoneDocSeries.findFirst).toHaveBeenCalled();
+    expect(written()).toMatchObject({
+      seriesBy: 'manual', seriesConfidence: 1, seriesReason: 'χειροκίνητη επιλογή', seriesSource: 1653,
+    });
+  });
+
+  it('αλλαγή ζεύγους σε ανενεργή σειρά → 422 unknown_series, καμία εγγραφή', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ softoneSeries: '7021', seriesSource: 1251 });
+    db.purchaseDocType.findFirst.mockResolvedValue(null);
+
+    const res = await patch({ softoneSeries: '7030', seriesSource: 1251 });
+
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toBe('unknown_series');
+    expect(db.ocrDocument.update).not.toHaveBeenCalled();
+  });
+
+  it('καθάρισμα σειράς: ξεκλειδώνει (όλα τα series πεδία null)', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ softoneSeries: '7021', seriesSource: 1251 });
+
+    const res = await patch({ softoneSeries: null, seriesSource: null });
+
+    expect(res.status).toBe(200);
+    expect(written()).toMatchObject({
+      seriesBy: null, seriesConfidence: null, seriesReason: null, seriesSource: null,
+    });
+  });
+
+  it('ήδη κενή σειρά + αποθήκευση χωρίς αλλαγή: κανένα series πεδίο στο update', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ softoneSeries: null, seriesSource: null });
+
+    const res = await patch({ softoneSeries: null, seriesSource: null, category: 'EXPENSE' });
+
+    expect(res.status).toBe(200);
+    expect(written()).not.toHaveProperty('seriesBy');
+    expect(written()).not.toHaveProperty('seriesSource');
+  });
+
+  it('χωρίς `softoneSeries` στο σώμα: η σειρά δεν αγγίζεται καθόλου', async () => {
+    const res = await patch({ category: 'EXPENSE' });
+
+    expect(res.status).toBe(200);
+    expect(db.ocrDocument.findUnique).toHaveBeenCalledTimes(1); // μόνο το τελικό re-read
+    expect(written()).not.toHaveProperty('seriesBy');
   });
 });

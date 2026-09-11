@@ -296,19 +296,24 @@ export function OcrRowDetail({
     setSaving(true);
     try {
       const extractedData = buildExtractedData();
-      // Στέλνουμε ΚΑΙ την ενότητα: το API δεν χρειάζεται να μαντέψει σε ποιο μητρώο ανήκει ο κωδικός.
-      const sep = seriesKey.indexOf(':');
-      const body: any = {
-        category: category || null,
-        softoneSeries: seriesKey ? seriesKey.slice(sep + 1) : null,
-        seriesSource: seriesKey ? Number(seriesKey.slice(0, sep)) : null,
-        extractedData, docType,
-      };
+      const body: any = { category: category || null, extractedData, docType };
+      // Η σειρά μπαίνει στο PATCH ΜΟΝΟ όταν ο χρήστης την άλλαξε: το API σφραγίζει κάθε
+      // `softoneSeries` ως «χειροκίνητη επιλογή», οπότε μια απλή διόρθωση συνόλου θα
+      // κλείδωνε άδικα το έγγραφο έξω από τον αυτόματο ταξινομητή.
+      if (seriesKey !== initialSeriesKey) {
+        // Στέλνουμε ΚΑΙ την ενότητα: το API δεν χρειάζεται να μαντέψει σε ποιο μητρώο ανήκει ο κωδικός.
+        const sep = seriesKey.indexOf(':');
+        body.softoneSeries = seriesKey ? seriesKey.slice(sep + 1) : null;
+        body.seriesSource = seriesKey ? Number(seriesKey.slice(0, sep)) : null;
+      }
       if (isInvoice) body.items = extractedData.items;
       const res = await fetch(`/api/admin/ocr/${row.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error((await res.json())?.error ?? `HTTP ${res.status}`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.message ?? json?.error ?? `HTTP ${res.status}`);
+      }
       toast.success('Αποθηκεύτηκε');
       router.refresh();
     } catch (err: any) {

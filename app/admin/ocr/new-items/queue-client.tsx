@@ -283,7 +283,9 @@ export function NewItemsClient({
       search={search}
       onSearch={setSearch}
       searchPlaceholder="Αναζήτηση κειμένου, προμηθευτή, ΑΦΜ…"
-      progress={{ done, total }}
+      // Το `total` είναι server prop και μικραίνει με κάθε `router.refresh()`· ο μετρητής
+      // πρέπει να ανεβαίνει, άρα σύνολο = όσα ολοκληρώθηκαν + όσα απομένουν στην ουρά.
+      progress={{ done, total: done + groups.length }}
       // Χωρίς `ocr.categorize` το Enter δεν κλέβεται καν από την ουρά.
       onPrimary={canManage ? onPrimary : undefined}
       keysEnabled={!busy}
