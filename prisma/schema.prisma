@@ -924,6 +924,11 @@ model OcrDocument {
   // Chosen SoftOne document SERIES (PurchaseDocType.code) for posting. Replaces the
   // old free-text "Τύπος παραστατικού" with the real SoftOne series.
   softoneSeries String?
+  // Αναγνώριση τύπου κατά τη σάρωση (spec 2026-09-11 §1).
+  seriesSource     Int?                                   // SOSOURCE της επιλεγμένης σειράς (1251 αγορών / 1653 πιστωτών)
+  seriesConfidence Float?                                 // 0–1
+  seriesReason     String?                                // γιατί επιλέχθηκε (tooltip)
+  seriesBy         String?                                // auto | manual
   // Folder/batch this document belongs to (folder upload).
   batchId       String?
   batch         OcrBatch?     @relation(fields: [batchId], references: [id], onDelete: SetNull)
@@ -1343,10 +1348,13 @@ model OcrInvoiceItem {
   softoneCode      String?
   softoneName      String?
   softoneIsService Boolean?
-  softoneMatchedBy String?                              // code2 | code1 | code | manual
+  softoneMatchedBy String?                              // code2 | code1 | code | manual | memory | skipped
+  // Αντιστοίχιση σε έξοδο SoftOne (EXPENSES/EXPN) αντί για είδος.
+  softoneExpn      Int?
 
   @@index([documentId])
   @@index([softoneMtrl])
+  @@index([softoneExpn])
 }
 
 // ============================================================
@@ -1796,4 +1804,45 @@ model TemplateJobItem {
 
   @@index([jobId, order])
   @@index([status])
+}
+
+// Έξοδα SoftOne (EditMaster EXPENSES, πίνακας EXPN) — μητρώο για την αντιστοίχιση γραμμών.
+model SoftoneExpense {
+  id       Int      @id @default(autoincrement())
+  expn     Int      @unique           // SoftOne EXPN id
+  code     String                     // CODE
+  name     String                     // NAME
+  vat      String?                    // VAT (κατηγορία ΦΠΑ)
+  isActive Boolean  @default(true)
+  syncedAt DateTime @default(now())
+
+  @@index([name])
+  @@index([code])
+}
+
+// Μνήμη αντιστοίχισης γραμμών: (ΑΦΜ εκδότη ή '' για γενικό, κανονικοποιημένο κείμενο) → είδος/υπηρεσία/έξοδο.
+// ΠΡΟΣΟΧΗ: το afm είναι NOT NULL με default '' — η Postgres θεωρεί τα NULL διακριτά στο unique index,
+// οπότε οι γενικοί κανόνες γράφονται πάντα με afm = '' και ποτέ NULL.
+model LineMatchRule {
+  id          String   @id @default(cuid())
+  afm         String   @default("")
+  pattern     String                     // normalizeLineText του ονόματος της γραμμής
+  mtrl        Int?                       // SoftoneItem.mtrl
+  expn        Int?                       // SoftoneExpense.expn
+  isService   Boolean  @default(false)
+  timesUsed   Int      @default(0)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([afm, pattern])
+  @@index([pattern])
+}
+
+// Εκδότες που ο χρήστης επέλεξε να μη δημιουργήσει στο SoftOne.
+model IgnoredIssuer {
+  afm         String   @id
+  reason      String?
+  createdById String?
+  createdAt   DateTime @default(now())
 }
