@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   FiGrid, FiUsers, FiShield, FiKey, FiImage, FiChevronDown, FiList,
-  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiLayers, FiCpu, FiBookOpen, FiUserCheck, FiBox, FiTool, FiFolder, FiLink, FiAlertCircle,
+  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiLayers, FiCpu, FiBookOpen, FiUserCheck, FiBox, FiTool, FiFolder, FiAlertCircle, FiUserPlus, FiPackage,
 } from 'react-icons/fi';
 
 type IconType = React.ComponentType<{ className?: string }>;
@@ -24,6 +24,10 @@ type NavGroup = { label: string; items: NavItem[] };
 
 export interface Badges {
   pendingUsers?: number;
+  /** Εκκρεμείς εκδότες χωρίς συναλλασσόμενο — από /api/admin/ocr/queues/counts. */
+  newTraders?: number;
+  /** Ομάδες γραμμών χωρίς αντιστοίχιση — από το ίδιο endpoint. */
+  newItems?: number;
 }
 
 /** DGsoft wordmark shown at the top of the sidebar. */
@@ -50,7 +54,8 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/media', label: 'Media', icon: FiImage },
       { href: '/admin/ocr', label: 'OCR / Έγγραφα', icon: FiCpu, permissions: ['ocr.read'], exact: true },
       { href: '/admin/ocr/batches', label: 'Φάκελοι OCR', icon: FiFolder, permissions: ['ocr.read'] },
-      { href: '/admin/ocr/matching', label: 'Αντιστοιχίσεις SoftOne', icon: FiLink, permissions: ['ocr.read'] },
+      { href: '/admin/ocr/new-traders', label: 'Νέοι συναλλασσόμενοι', icon: FiUserPlus, permissions: ['ocr.read'], badgeKey: 'newTraders' },
+      { href: '/admin/ocr/new-items', label: 'Είδη & έξοδα', icon: FiPackage, permissions: ['ocr.read'], badgeKey: 'newItems' },
       { href: '/admin/ocr/pending', label: 'Εκκρεμότητες OCR', icon: FiAlertCircle, permissions: ['ocr.read'] },
       { href: '/admin/ocr/templates', label: 'Πρότυπα εξαγωγής', icon: FiLayers, permissions: ['ocr.read'] },
     ],
@@ -128,6 +133,25 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
     });
   };
 
+  // Queue badges («Νέοι συναλλασσόμενοι» / «Είδη & έξοδα») — fetched once on
+  // mount. Any failure (404 while the route is not deployed, offline, 403) is
+  // swallowed: the badge is decoration, never a blocker.
+  const [queueCounts, setQueueCounts] = React.useState<Pick<Badges, 'newTraders' | 'newItems'>>({});
+  const canReadOcr = permissionKeys.includes('ocr.read');
+  React.useEffect(() => {
+    if (!canReadOcr) return;
+    let cancelled = false;
+    fetch('/api/admin/ocr/queues/counts', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { traders?: unknown; items?: unknown } | null) => {
+        if (cancelled || !d) return;
+        setQueueCounts({ newTraders: Number(d.traders) || 0, newItems: Number(d.items) || 0 });
+      })
+      .catch(() => { /* badges are optional */ });
+    return () => { cancelled = true; };
+  }, [canReadOcr]);
+  const allBadges: Badges = { ...badges, ...queueCounts };
+
   return (
     <aside className="sticky top-0 hidden h-screen w-[244px] shrink-0 flex-col self-start border-r border-sidebar-border bg-sidebar lg:flex">
       <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
@@ -168,7 +192,7 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
               <ul id={groupId} className={cn('flex-col', expanded ? 'flex' : 'hidden')}>
                 {visible.map((item) => {
                   const active = isActive(item);
-                  const badge = item.badgeKey ? badges[item.badgeKey] : undefined;
+                  const badge = item.badgeKey ? allBadges[item.badgeKey] : undefined;
                   return (
                     <li key={item.href}>
                       <Link
