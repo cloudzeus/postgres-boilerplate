@@ -20,7 +20,7 @@ beforeEach(() => {
   rbac.requirePermission.mockResolvedValue({ id: 'u1', email: 'a@b.gr' });
   fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
-  vi.stubEnv('GOOGLE_GEOCODING_API_KEY', '');
+  vi.stubEnv('MAPTILER_API_KEY', '');
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 

@@ -3,14 +3,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { geocodeAddressParts } from '../geocode';
 
-const GOOGLE_OK = {
-  results: [{
-    formatted_address: 'Leof. Archiepiskopou Makariou III 1, Lefkosia 1065, Cyprus',
-    address_components: [
-      { long_name: '1', short_name: '1', types: ['street_number'] },
-      { long_name: 'Lefkosia', short_name: 'Lefkosia', types: ['locality', 'political'] },
-      { long_name: 'Cyprus', short_name: 'CY', types: ['country', 'political'] },
-      { long_name: '1065', short_name: '1065', types: ['postal_code'] },
+/** Τυπική απάντηση MapTiler: το feature είναι διεύθυνση, τα υπόλοιπα στο `context`. */
+const MAPTILER_OK = {
+  features: [{
+    place_name: 'Friedrichstraße 1, 10117 Berlin, Deutschland',
+    place_type: ['address'],
+    text: 'Friedrichstraße',
+    context: [
+      { id: 'postal_code.123', text: '10117' },
+      { id: 'place.456', text: 'Berlin' },
+      { id: 'region.789', text: 'Berlin' },
+      { id: 'country.14', text: 'Deutschland', country_code: 'de' },
     ],
   }],
 };
@@ -29,45 +32,81 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
-  vi.stubEnv('GOOGLE_GEOCODING_API_KEY', '');
+  vi.stubEnv('MAPTILER_API_KEY', '');
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
-describe('geocodeAddressParts — Google (με κλειδί)', () => {
-  beforeEach(() => vi.stubEnv('GOOGLE_GEOCODING_API_KEY', 'test-key'));
+describe('geocodeAddressParts — MapTiler (με κλειδί)', () => {
+  beforeEach(() => vi.stubEnv('MAPTILER_API_KEY', 'test-key'));
 
-  it('βγάζει χώρα / πόλη / ΤΚ από τα address_components', async () => {
-    fetchMock.mockResolvedValue(jsonRes(GOOGLE_OK));
-    await expect(geocodeAddressParts('Makariou 1, Nicosia')).resolves.toEqual({
-      countryCode: 'CY',
-      country: 'Cyprus',
-      city: 'Lefkosia',
-      zip: '1065',
-      formatted: 'Leof. Archiepiskopou Makariou III 1, Lefkosia 1065, Cyprus',
+  it('βγάζει χώρα / πόλη / ΤΚ από το context', async () => {
+    fetchMock.mockResolvedValue(jsonRes(MAPTILER_OK));
+    await expect(geocodeAddressParts('Friedrichstraße 1, Berlin')).resolves.toEqual({
+      countryCode: 'DE',
+      country: 'Deutschland',
+      city: 'Berlin',
+      zip: '10117',
+      formatted: 'Friedrichstraße 1, 10117 Berlin, Deutschland',
     });
-    expect(String(fetchMock.mock.calls[0][0])).toContain('maps.googleapis.com');
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain('api.maptiler.com/geocoding/');
+    expect(url).toContain('key=test-key');
+    expect(url).toContain('limit=1');
   });
 
-  it('δέχεται postal_town όταν λείπει το locality', async () => {
-    fetchMock.mockResolvedValue(jsonRes({ results: [{
-      formatted_address: 'London EC1A, UK',
-      address_components: [
-        { long_name: 'London', short_name: 'London', types: ['postal_town'] },
-        { long_name: 'United Kingdom', short_name: 'GB', types: ['country'] },
+  it('ΔΕΝ περιορίζει σε χώρα χωρίς ρητό countryHint (εκεί είναι όλο το νόημα)', async () => {
+    fetchMock.mockResolvedValue(jsonRes(MAPTILER_OK));
+    await geocodeAddressParts('Friedrichstraße 1, Berlin');
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('country=');
+  });
+
+  it('περνά το countryHint ως country=…', async () => {
+    fetchMock.mockResolvedValue(jsonRes(MAPTILER_OK));
+    await geocodeAddressParts('Friedrichstraße 1', { countryHint: 'DE' });
+    expect(String(fetchMock.mock.calls[0][0])).toContain('country=de');
+  });
+
+  it('δέχεται το ίδιο το feature όταν αυτό είναι ο Τ.Κ. / η πόλη', async () => {
+    fetchMock.mockResolvedValue(jsonRes({ features: [{
+      place_name: '1065, Λευκωσία, Κύπρος',
+      place_type: ['postal_code'],
+      text: '1065',
+      context: [
+        { id: 'place.1', text: 'Λευκωσία' },
+        { id: 'country.2', text: 'Κύπρος', country_code: 'cy' },
       ],
     }] }));
-    const r = await geocodeAddressParts('EC1A, London');
-    expect(r).toMatchObject({ countryCode: 'GB', city: 'London', zip: null });
+    await expect(geocodeAddressParts('1065 Nicosia')).resolves.toMatchObject({
+      countryCode: 'CY', city: 'Λευκωσία', zip: '1065',
+    });
   });
 
-  it('περνά το countryHint ως components=country:…', async () => {
-    fetchMock.mockResolvedValue(jsonRes(GOOGLE_OK));
-    await geocodeAddressParts('Makariou 1', { countryHint: 'cy' });
-    expect(String(fetchMock.mock.calls[0][0])).toContain('components=country%3ACY');
+  it('βρίσκει τον ISO κωδικό από το όνομα της χώρας όταν λείπει το country_code', async () => {
+    fetchMock.mockResolvedValue(jsonRes({ features: [{
+      place_name: 'Dublin 2, Ireland',
+      place_type: ['place'],
+      text: 'Dublin',
+      context: [{ id: 'country.9', text: 'Ireland' }],
+    }] }));
+    await expect(geocodeAddressParts('Dublin 2')).resolves.toMatchObject({
+      countryCode: 'IE', country: 'Ireland', city: 'Dublin',
+    });
   });
 
-  it('κανένα αποτέλεσμα → null', async () => {
-    fetchMock.mockResolvedValue(jsonRes({ results: [], status: 'ZERO_RESULTS' }));
+  it('άγνωστη χώρα → countryCode null (όχι σκουπίδια), τα υπόλοιπα πεδία μένουν', async () => {
+    fetchMock.mockResolvedValue(jsonRes({ features: [{
+      place_name: 'Kalamazoo',
+      place_type: ['place'],
+      text: 'Kalamazoo',
+      context: [{ id: 'country.9', text: 'Ουτοπία' }],
+    }] }));
+    await expect(geocodeAddressParts('Kalamazoo')).resolves.toMatchObject({
+      countryCode: null, city: 'Kalamazoo',
+    });
+  });
+
+  it('κανένα feature → null', async () => {
+    fetchMock.mockResolvedValue(jsonRes({ features: [] }));
     await expect(geocodeAddressParts('—')).resolves.toBeNull();
   });
 });
@@ -101,7 +140,12 @@ describe('geocodeAddressParts — Nominatim (χωρίς κλειδί)', () => {
 });
 
 describe('geocodeAddressParts — αποτυχίες δεν φτάνουν ΠΟΤΕ στο UI', () => {
-  it('timeout / abort → null', async () => {
+  it('timeout / abort → null (MapTiler)', async () => {
+    vi.stubEnv('MAPTILER_API_KEY', 'test-key');
+    fetchMock.mockRejectedValue(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
+    await expect(geocodeAddressParts('Οδός 1')).resolves.toBeNull();
+  });
+  it('timeout / abort → null (Nominatim)', async () => {
     fetchMock.mockRejectedValue(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
     await expect(geocodeAddressParts('Οδός 1')).resolves.toBeNull();
   });

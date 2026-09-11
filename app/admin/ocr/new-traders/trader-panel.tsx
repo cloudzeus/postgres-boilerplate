@@ -44,7 +44,8 @@ interface ViesResult {
 
 /** Ό,τι επιστρέφει το `POST /api/admin/geocode`. */
 interface GeoParts {
-  countryCode: string;
+  /** `null` όταν ο πάροχος δεν αναγνώρισε τη χώρα. */
+  countryCode: string | null;
   country: string;
   city: string | null;
   zip: string | null;
@@ -789,7 +790,7 @@ export function TraderPanel({
                   onClick={() => {
                     setForm((f) => ({
                       ...f,
-                      country: COUNTRY_NAMES_EL[geo.countryCode] ? geo.countryCode : f.country,
+                      country: geo.countryCode && COUNTRY_NAMES_EL[geo.countryCode] ? geo.countryCode : f.country,
                       city: geo.city || f.city,
                       zip: geo.zip || f.zip,
                     }));

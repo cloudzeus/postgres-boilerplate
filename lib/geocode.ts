@@ -1,5 +1,6 @@
 // MapTiler geocoding helpers. Uses MAPTILER_API_KEY from env.
 // Docs: https://docs.maptiler.com/cloud/api/geocoding/
+import { COUNTRY_NAMES_EL } from './countries';
 
 const MAPTILER_KEY = process.env.MAPTILER_API_KEY ?? '';
 
@@ -85,8 +86,8 @@ export function staticMapUrl(opts: {
  * χώρα/πόλη/ΤΚ ενός ΞΕΝΟΥ εκδότη, όπου δεν υπάρχει μητρώο ΑΑΔΕ.
  */
 export interface AddressParts {
-  /** ISO-3166-1 alpha-2, κεφαλαία (π.χ. «CY»). */
-  countryCode: string;
+  /** ISO-3166-1 alpha-2, κεφαλαία (π.χ. «CY») — `null` όταν δεν αναγνωρίστηκε. */
+  countryCode: string | null;
   /** Όνομα χώρας όπως το δίνει ο πάροχος. */
   country: string;
   city: string | null;
@@ -124,26 +125,91 @@ const trimOrNull = (v: unknown): string | null => {
   return s || null;
 };
 
-/** Google Geocoding API → {@link AddressParts}. */
-async function googleParts(q: string, key: string, countryHint?: string): Promise<AddressParts | null> {
-  const params = new URLSearchParams({ address: q, key, language: 'el' });
-  if (countryHint) params.set('components', `country:${countryHint.toUpperCase()}`);
-  const data = await fetchJson(`https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`);
-  const r = data?.results?.[0];
-  if (!r) return null;
-  const comps: { long_name?: string; short_name?: string; types?: string[] }[] = r.address_components ?? [];
-  const pick = (type: string) => comps.find((c) => c.types?.includes(type));
+/**
+ * Ονόματα χωρών → ISO-3166-1 alpha-2, για όταν το MapTiler δίνει μόνο το
+ * `text` της χώρας χωρίς `country_code`. Καλύπτει ΕΕ + ΕΟΧ στα ελληνικά
+ * (από το {@link COUNTRY_NAMES_EL}), στα αγγλικά και στην εθνική γλώσσα.
+ */
+const COUNTRY_NAME_TO_ISO: Record<string, string> = {
+  // Ελληνικά — από το μητρώο ονομάτων της εφαρμογής.
+  ...Object.fromEntries(Object.entries(COUNTRY_NAMES_EL).map(([iso, name]) => [name.toLowerCase(), iso])),
+  ελλας: 'GR', 'ηνωμενο βασιλειο': 'GB',
+  // Αγγλικά
+  greece: 'GR', austria: 'AT', belgium: 'BE', bulgaria: 'BG', cyprus: 'CY',
+  czechia: 'CZ', 'czech republic': 'CZ', germany: 'DE', denmark: 'DK', estonia: 'EE',
+  spain: 'ES', finland: 'FI', france: 'FR', croatia: 'HR', hungary: 'HU',
+  ireland: 'IE', italy: 'IT', lithuania: 'LT', luxembourg: 'LU', latvia: 'LV',
+  malta: 'MT', netherlands: 'NL', 'the netherlands': 'NL', poland: 'PL',
+  portugal: 'PT', romania: 'RO', sweden: 'SE', slovenia: 'SI', slovakia: 'SK',
+  'united kingdom': 'GB', switzerland: 'CH', norway: 'NO', iceland: 'IS',
+  liechtenstein: 'LI', 'san marino': 'SM', monaco: 'MC',
+  // Εθνικές ονομασίες
+  ελλάδα: 'GR', österreich: 'AT', oesterreich: 'AT', belgië: 'BE', belgique: 'BE',
+  българия: 'BG', κύπρος: 'CY', česko: 'CZ', 'česká republika': 'CZ',
+  deutschland: 'DE', danmark: 'DK', eesti: 'EE', españa: 'ES', suomi: 'FI',
+  hrvatska: 'HR', magyarország: 'HU', éire: 'IE', eire: 'IE', italia: 'IT',
+  lietuva: 'LT', 'lëtzebuerg': 'LU', latvija: 'LV', nederland: 'NL',
+  polska: 'PL', românia: 'RO', sverige: 'SE', slovenija: 'SI', slovensko: 'SK',
+  schweiz: 'CH', suisse: 'CH', svizzera: 'CH', norge: 'NO', ísland: 'IS',
+  island: 'IS', 'san marino / repubblica di san marino': 'SM',
+};
+
+/** «Deutschland» → «DE». Άγνωστο όνομα → `null`. */
+function isoFromCountryName(name: string | null): string | null {
+  if (!name) return null;
+  return COUNTRY_NAME_TO_ISO[name.trim().toLowerCase()] ?? null;
+}
+
+/** Μια εγγραφή του MapTiler (context ή το ίδιο το feature) σε κοινή μορφή. */
+type MapTilerEntry = { type: string; text: string | null; countryCode: string | null };
+
+/**
+ * MapTiler Geocoding → {@link AddressParts}.
+ *
+ * ΔΕΝ στέλνουμε `country=` χωρίς ρητό `countryHint`: όλο το νόημα της κλήσης
+ * είναι να ΒΡΕΘΕΙ η χώρα του ξένου εκδότη.
+ */
+async function maptilerParts(q: string, key: string, countryHint?: string): Promise<AddressParts | null> {
+  const params = new URLSearchParams({ key, limit: '1', language: 'el,en' });
+  if (countryHint) params.set('country', countryHint.toLowerCase());
+  const data = await fetchJson(
+    `https://api.maptiler.com/geocoding/${encodeURIComponent(q)}.json?${params.toString()}`,
+  );
+  const f = data?.features?.[0];
+  if (!f) return null;
+
+  // Τα context entries πρώτα· το ίδιο το feature στο τέλος ως εφεδρεία —
+  // ένα αποτέλεσμα μπορεί να ΕΙΝΑΙ ο Τ.Κ. ή η πόλη (`place_type`).
+  const entries: MapTilerEntry[] = [];
+  for (const c of Array.isArray(f.context) ? f.context : []) {
+    const type = String(c?.id ?? '').split('.')[0];
+    if (!type) continue;
+    entries.push({
+      type,
+      text: trimOrNull(c?.text),
+      countryCode: trimOrNull(c?.country_code) ?? trimOrNull(c?.properties?.country_code),
+    });
+  }
+  for (const t of Array.isArray(f.place_type) ? f.place_type : []) {
+    entries.push({
+      type: String(t ?? ''),
+      text: trimOrNull(f.text),
+      countryCode: trimOrNull(f.properties?.country_code),
+    });
+  }
+
+  const pick = (...types: string[]) => entries.find((e) => types.includes(e.type));
   const country = pick('country');
-  const countryCode = String(country?.short_name ?? '').toUpperCase();
-  if (!countryCode) return null;
-  // `locality` λείπει σε αρκετές χώρες (UK/IE): το `postal_town` είναι το αντίστοιχο.
-  const city = pick('locality') ?? pick('postal_town') ?? pick('administrative_area_level_3');
+  const countryCode =
+    (trimOrNull(country?.countryCode) ?? isoFromCountryName(country?.text ?? null))?.toUpperCase() ?? null;
+
   return {
     countryCode,
-    country: trimOrNull(country?.long_name) ?? countryCode,
-    city: trimOrNull(city?.long_name),
-    zip: trimOrNull(pick('postal_code')?.long_name),
-    formatted: trimOrNull(r.formatted_address) ?? q,
+    country: country?.text ?? countryCode ?? '',
+    // Η «πόλη» έρχεται ως `place`, αλλά σε κάποιες χώρες ως `municipality`/`locality`.
+    city: pick('place', 'municipality', 'locality')?.text ?? null,
+    zip: pick('postal_code')?.text ?? null,
+    formatted: trimOrNull(f.place_name) ?? q,
   };
 }
 
@@ -172,9 +238,10 @@ async function nominatimParts(q: string, countryHint?: string): Promise<AddressP
 /**
  * Αναλύει μια ΕΛΕΥΘΕΡΗ διεύθυνση σε χώρα / πόλη / Τ.Κ.
  *
- * Πάροχος: Google Geocoding όταν υπάρχει `GOOGLE_GEOCODING_API_KEY` (ή το υπάρχον `GOOGLE_MAPS_API_KEY`), αλλιώς
- * Nominatim (OpenStreetMap, χωρίς κλειδί). Καμία επανάληψη, προθεσμία 8s και
- * ΠΟΤΕ exception προς το UI: μια αποτυχία είναι απλώς `null`.
+ * Πάροχος: **MapTiler** όταν υπάρχει `MAPTILER_API_KEY` (το ίδιο κλειδί που
+ * χρησιμοποιεί ήδη η εφαρμογή για χάρτες), αλλιώς **Nominatim** (OpenStreetMap,
+ * χωρίς κλειδί). Καμία επανάληψη, προθεσμία 8s και ΠΟΤΕ exception προς το UI:
+ * μια αποτυχία είναι απλώς `null`.
  */
 export async function geocodeAddressParts(
   q: string,
@@ -182,8 +249,9 @@ export async function geocodeAddressParts(
 ): Promise<AddressParts | null> {
   const query = String(q ?? '').trim();
   if (!query) return null;
-  const key = process.env.GOOGLE_GEOCODING_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '';
+  // Διαβάζεται εδώ (όχι module-level) ώστε να ακολουθεί το περιβάλλον εκτέλεσης.
+  const key = process.env.MAPTILER_API_KEY ?? '';
   return key
-    ? googleParts(query, key, opts.countryHint)
+    ? maptilerParts(query, key, opts.countryHint)
     : nominatimParts(query, opts.countryHint);
 }
