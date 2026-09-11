@@ -36,6 +36,41 @@ export function familyOf(label: string | null | undefined): Family | null {
   for (const [fam, re] of FAMILY_RULES) if (re.test(n)) return fam;
   return null;
 }
+/* ------------------------------------------------------------------ */
+/* Ένδειξη τύπου από το ΟΝΟΜΑ ΑΡΧΕΙΟΥ                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Σύντομες ενδείξεις τύπου όπως γράφονται σε ονόματα αρχείων, ως ΑΥΤΟΤΕΛΗ tokens →
+ * ετικέτα που καταλαβαίνει το `familyOf`. Μόνο tokens που δίνουν οικογένεια: το «ΠΤ»
+ * ή το «ΔΕΛΤΙΟ» σκέτα δεν ταιριάζουν σε κανέναν κανόνα, οπότε δεν μπαίνουν.
+ */
+const FILE_NAME_HINTS = new Map<string, string>([
+  ['ΠΙΣΤΩΤΙΚΟ', 'ΠΙΣΤΩΤΙΚΟ'], ['ΤΔΑΠ', 'ΤΔΑΠ'], ['ΤΔΑ', 'ΤΔΑ'], ['ΔΑΤ', 'ΔΑΤ'],
+  ['ΤΠΥ', 'ΤΠΥ'], ['ΑΠΥ', 'ΑΠΥ'], ['ΑΛΠ', 'ΑΛΠ'], ['ΔΑ', 'ΔΑ'],
+  ['ΤΙΜΟΛΟΓΙΟ', 'ΤΙΜΟΛΟΓΙΟ'], ['ΤΙΜ', 'ΤΙΜ'], ['ΑΠΟΔΕΙΞΗ', 'ΑΠΟΔΕΙΞΗ'], ['ΛΟΓΑΡΙΑΣΜΟΣ', 'ΛΟΓΑΡΙΑΣΜΟΣ'],
+  ['INVOICE', 'INVOICE'], ['INV', 'INVOICE'], ['RECEIPT', 'RECEIPT'], ['CREDIT', 'ΠΙΣΤΩΤΙΚΟ'],
+]);
+
+/**
+ * ΑΔΥΝΑΜΗ ένδειξη τύπου από το όνομα αρχείου, για έγγραφα χωρίς τυπωμένο τύπο.
+ * Καθαρή συνάρτηση. Δέχεται ΜΟΝΟ αυτοτελή tokens του basename — έτσι το «invoices/…»
+ * (φάκελος) ή το «S1Prt_260129» δεν παράγουν ψεύτικη ένδειξη. Ο τύπος συχνά κολλάει
+ * στον αριθμό («ΤΠΥ1032»), οπότε σπάμε και τα όρια γράμματος/ψηφίου.
+ */
+export function labelFromFileName(name: string | null | undefined): string | null {
+  const base = String(name ?? '').split(/[\\/]/).pop() ?? '';
+  const stem = base.replace(/\.[A-Za-z0-9]{1,5}$/, '');
+  const spaced = normalizeGreek(stem)
+    .replace(/(?<=[A-ZΑ-Ω])(?=[0-9])/g, ' ')
+    .replace(/(?<=[0-9])(?=[A-ZΑ-Ω])/g, ' ');
+  for (const token of spaced.split(' ')) {
+    const hit = FILE_NAME_HINTS.get(token);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 /** Family of a SERIES from its abbrev + name (same lexicon). */
 export function seriesFamily(c: SeriesCandidate): Family | null { return familyOf(`${c.abbrev ?? ''} ${c.name}`); }
 const SERVICE_FAMILIES = new Set<Family>(['TPY', 'APY', 'LOG']);

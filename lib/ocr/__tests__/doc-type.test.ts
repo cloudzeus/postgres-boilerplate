@@ -6,11 +6,16 @@ const db = vi.hoisted(() => ({
   softoneDocSeries: { findMany: vi.fn() },
 }));
 const callTextLLM = vi.hoisted(() => vi.fn());
-const resolveCfg = vi.hoisted(() => vi.fn(async () => ({ textKey: 'k', textUrl: 'https://api.deepseek.com/v1/chat/completions', textModel: 'deepseek-chat' })));
+const callTextViaVision = vi.hoisted(() => vi.fn());
+const resolveCfg = vi.hoisted(() => vi.fn(async () => ({
+  textKey: 'k', textUrl: 'https://api.deepseek.com/v1/chat/completions', textModel: 'deepseek-chat',
+  visionKey: 'v', visionUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', visionModel: 'gemini-2.5-flash',
+})));
 
 vi.mock('@/lib/db', () => ({ prisma: db }));
 vi.mock('../extract', () => ({
   callTextLLM: (...a: unknown[]) => callTextLLM(...a),
+  callTextViaVision: (...a: unknown[]) => callTextViaVision(...a),
   resolveCfg: () => resolveCfg(),
 }));
 
@@ -33,6 +38,7 @@ const doc = (over: Record<string, unknown> = {}) => ({
   softoneKind: 'Πιστωτής',
   invoiceKind: 'service',
   seriesBy: null,
+  fileName: 'scan-001.pdf',
   ...over,
 });
 
@@ -113,16 +119,82 @@ describe('classifyDocument', () => {
     expect(db.ocrDocument.update.mock.calls[0][0].data.seriesReason).not.toContain('επιλογή μοντέλου');
   });
 
+  it('falls back to the vision model when the text model throws (invalid DeepSeek key)', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue(doc({
+      extractedData: { documentTypeLabel: 'ΤΙΜΟΛΟΓΙΟ', totalAmount: 10, items: [{ name: 'ΥΓΡΟ ΑΖΩΤΟ' }] },
+      softoneKind: null, invoiceKind: null,
+    }));
+    callTextLLM.mockRejectedValue(new Error('DeepSeek text 401: Authentication Fails'));
+    callTextViaVision.mockResolvedValue({ content: '{"code":"2061"}', model: 'gemini-2.5-flash', tokens: 90 });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const r = await classifyDocument('d1');
+    expect(r).toMatchObject({ code: '2061' });
+    // Ίδιο prompt, ίδιο usage label — αλλάζει μόνο το endpoint.
+    const [, system, user, usage] = callTextViaVision.mock.calls[0];
+    expect(system).toContain('{"code"');
+    expect(user).toContain('2061');
+    expect(usage).toMatchObject({ operation: 'ocr.classify_series', refType: 'OcrDocument', refId: 'd1' });
+    expect(db.ocrDocument.update.mock.calls[0][0].data.seriesReason).toContain('επιλογή μοντέλου');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('text model unavailable'), expect.anything());
+    warn.mockRestore();
+  });
+
+  it('uses the vision model directly when no text key is configured', async () => {
+    resolveCfg.mockResolvedValueOnce({
+      textKey: '', textUrl: 'https://api.deepseek.com/v1/chat/completions', textModel: 'deepseek-chat',
+      visionKey: 'v', visionUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', visionModel: 'gemini-2.5-flash',
+    } as never);
+    db.ocrDocument.findUnique.mockResolvedValue(doc({
+      extractedData: { documentTypeLabel: 'ΤΙΜΟΛΟΓΙΟ', totalAmount: 10 }, softoneKind: null, invoiceKind: null,
+    }));
+    callTextViaVision.mockResolvedValue({ content: '{"code":"1653:1001"}', model: 'gemini-2.5-flash', tokens: 80 });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const r = await classifyDocument('d1');
+    expect(r).toMatchObject({ code: '1001' });
+    expect(callTextLLM).not.toHaveBeenCalled();
+    expect(callTextViaVision).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
   it('swallows a failing model call and still persists the scored winner', async () => {
     db.ocrDocument.findUnique.mockResolvedValue(doc({
       extractedData: { documentTypeLabel: 'ΤΙΜΟΛΟΓΙΟ', totalAmount: 10 }, softoneKind: null, invoiceKind: null,
     }));
     callTextLLM.mockRejectedValue(new Error('DeepSeek text 502'));
+    callTextViaVision.mockRejectedValue(new Error('Vision text 503'));
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const r = await classifyDocument('d1');
     expect(['2061', '1001']).toContain(r!.code);
     expect(db.ocrDocument.update).toHaveBeenCalledTimes(1);
-    spy.mockRestore();
+    expect(db.ocrDocument.update.mock.calls[0][0].data.seriesReason).not.toContain('επιλογή μοντέλου');
+    spy.mockRestore(); warn.mockRestore();
+  });
+
+  it('falls back to the file name when no printed type was read, capped at 0,6', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue(doc({
+      extractedData: { documentTypeLabel: '', totalAmount: 229.4 }, fileName: 'ΤΠΥ_4441.pdf',
+    }));
+    const r = await classifyDocument('d1');
+    expect(r).toMatchObject({ code: '1001' });
+    expect(r!.confidence).toBeLessThanOrEqual(0.6);
+    const data = db.ocrDocument.update.mock.calls[0][0].data;
+    expect(data.seriesReason).toMatch(/^από όνομα αρχείου · /);
+    expect(data.seriesReason).toContain('ΤΠΥ');
+    expect(data.seriesConfidence).toBeLessThanOrEqual(0.6);
+  });
+
+  it('leaves a document with no usable file-name hint on the «χωρίς τυπωμένο τύπο» path', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue(doc({
+      extractedData: { documentTypeLabel: '', totalAmount: 229.4 }, fileName: 'S1Prt_260129.PDF',
+    }));
+    const r = await classifyDocument('d1');
+    const data = db.ocrDocument.update.mock.calls[0][0].data;
+    expect(data.seriesReason).toContain('χωρίς τυπωμένο τύπο');
+    expect(data.seriesReason).not.toContain('από όνομα αρχείου');
+    expect(r!.confidence).toBeLessThan(0.6);
   });
 
   it('never throws when prisma rejects', async () => {

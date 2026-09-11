@@ -248,6 +248,51 @@ export async function callTextLLM(
 }
 
 /**
+ * Text-only chat completion sent to the VISION endpoint (OpenAI-compatible).
+ * Εφεδρεία για όταν ο πάροχος κειμένου λείπει ή απορρίπτει το κλειδί (401): το
+ * vision endpoint είναι το ίδιο OpenAI-compatible API, οπότε δέχεται και σκέτο
+ * κείμενο. ΔΕΝ στέλνει `response_format` (δεν το υποστηρίζουν όλα τα μοντέλα σε
+ * text-only κλήση) — ο καλών πρέπει να ανέχεται απάντηση εκτός JSON.
+ */
+export async function callTextViaVision(
+  cfg: DeepSeekCfg, system: string, userContent: string,
+  usage?: { operation?: string; refType?: string; refId?: string },
+): Promise<{ content: string; tokens: number | null; model: string }> {
+  if (!cfg.visionKey) throw new Error('Vision API key is not configured (settings: ai.visionApiKey).');
+  const res = await fetchWithRetry(cfg.visionUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.visionKey}` },
+    body: JSON.stringify({
+      model: cfg.visionModel,
+      temperature: 0,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: userContent },
+      ],
+    }),
+  }, { label: `text-via-vision:${cfg.visionModel}` });
+  if (!res.ok) throw new Error(`Vision text ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  const u = data?.usage ?? {};
+  void logAiUsage({
+    scope: 'OCR_TEXT',
+    provider: providerFromUrl(cfg.visionUrl),
+    model: cfg.visionModel,
+    operation: usage?.operation ?? 'ocr.classify_series',
+    inputTokens: u.prompt_tokens ?? 0,
+    outputTokens: u.completion_tokens ?? 0,
+    totalTokens: u.total_tokens ?? 0,
+    refType: usage?.refType ?? null,
+    refId: usage?.refId ?? null,
+  });
+  return {
+    content: data?.choices?.[0]?.message?.content as string,
+    tokens: u.total_tokens ?? null,
+    model: cfg.visionModel,
+  };
+}
+
+/**
  * Send a PDF buffer DIRECTLY to Gemini's native API (no rasterization). Gemini
  * natively understands PDFs end-to-end — text + embedded images. We use this
  * when pdf-to-img/canvas chokes on a PDF, especially mixed PDFs with weird

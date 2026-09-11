@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  normalizeGreek, familyOf, seriesFamily, classifySeries, inferInvoiceKind,
+  normalizeGreek, familyOf, seriesFamily, classifySeries, inferInvoiceKind, labelFromFileName,
   parseSeriesChoice, seriesKey, type SeriesCandidate,
 } from '../doc-type-classify';
 const C = (code: string, abbrev: string | null, name: string, kind: 'purchase' | 'creditor', sosource = kind === 'purchase' ? 1251 : 1653): SeriesCandidate => ({ code, abbrev, name, kind, sosource });
@@ -204,5 +204,26 @@ describe('inferInvoiceKind — ποσότητες ως κείμενο', () => {
 
   it('ποσότητα που δεν είναι αριθμός μένει άγνωστη', () => {
     expect(inferInvoiceKind({ items: [{ name: 'Αμοιβή συμβούλου', quantity: 'κατ αποκοπήν' }] })).toBe('service');
+  });
+});
+
+describe('labelFromFileName', () => {
+  it.each([
+    ['ΤΠΥ1032.pdf', 'ΤΠΥ'],                       // ο τύπος κολλημένος στον αριθμό
+    ['ΤΠΥ_4441.pdf', 'ΤΠΥ'],
+    ['ΓΚΟΥΜΑΣ ΕΕ - ΤΔΑ 3.pdf', 'ΤΔΑ'],            // ο τύπος μέσα σε όνομα προμηθευτή
+    ['Invoice_2200569632.PDF', 'INVOICE'],
+    ['INV-88.pdf', 'INVOICE'],                     // «INV» ως αυτοτελές token → ΤΙΜ
+    ['S1Prt_260129.PDF', null],                    // εκτύπωση SoftOne, καμία ένδειξη
+    ['invoices/5565927642.pdf', null],             // «invoices» είναι ΦΑΚΕΛΟΣ, όχι token του ονόματος
+    ['5565927642.pdf', null],
+    ['', null],
+    [null, null],
+  ])('%s → %s', (name, label) => { expect(labelFromFileName(name)).toBe(label); });
+
+  it('η ετικέτα που γυρίζει είναι αναγνωρίσιμη από το familyOf', () => {
+    expect(familyOf(labelFromFileName('ΤΠΥ1032.pdf'))).toBe('TPY');
+    expect(familyOf(labelFromFileName('Invoice_1.pdf'))).toBe('TIM');
+    expect(familyOf(labelFromFileName('ΓΚΟΥΜΑΣ ΕΕ - ΤΔΑ 3.pdf'))).toBe('TDA');
   });
 });

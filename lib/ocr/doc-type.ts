@@ -1,10 +1,10 @@
 import 'server-only';
 import { prisma } from '@/lib/db';
 import {
-  classifySeries, inferInvoiceKind, parseSeriesChoice, seriesKey,
+  classifySeries, inferInvoiceKind, labelFromFileName, parseSeriesChoice, seriesKey,
   type ClassifyResult, type SeriesCandidate,
 } from './doc-type-classify';
-import { callTextLLM, resolveCfg } from './extract';
+import { callTextLLM, callTextViaVision, resolveCfg } from './extract';
 
 /**
  * Ενεργοποιημένες σειρές: αγορών (PurchaseDocType, SOSOURCE 1251) ∪ πιστωτών
@@ -40,7 +40,7 @@ export async function classifyDocument(docId: string): Promise<{ code: string; c
   try {
     const doc = await prisma.ocrDocument.findUnique({
       where: { id: docId },
-      select: { extractedData: true, softoneKind: true, invoiceKind: true, seriesBy: true },
+      select: { extractedData: true, softoneKind: true, invoiceKind: true, seriesBy: true, fileName: true },
     });
     if (!doc || doc.seriesBy === 'manual') return null;
 
@@ -48,9 +48,13 @@ export async function classifyDocument(docId: string): Promise<{ code: string; c
     if (!candidates.length) return null;
 
     const d = (doc.extractedData ?? {}) as Record<string, unknown>;
+    const printedLabel = typeof d.documentTypeLabel === 'string' ? d.documentTypeLabel.trim() : '';
+    // Χωρίς τυπωμένο τύπο η βαθμολογία πέφτει στο 0,15: το όνομα του αρχείου («ΤΠΥ_4441.pdf»)
+    // είναι ΑΔΥΝΑΜΗ αλλά πραγματική ένδειξη. Την περνάμε ως τύπο και καπακώνουμε τη βεβαιότητα.
+    const nameLabel = printedLabel ? null : labelFromFileName(doc.fileName);
     let r = classifySeries(
       {
-        documentTypeLabel: typeof d.documentTypeLabel === 'string' ? d.documentTypeLabel : null,
+        documentTypeLabel: printedLabel || nameLabel,
         issuerKind: issuerKindOf(doc.softoneKind),
         totalAmount: typeof d.totalAmount === 'number' ? d.totalAmount : null,
         // Το `invoiceKind` το γράφει το correlate ΜΕΤΑ την ταξινόμηση: όσο λείπει, το μαντεύουμε
@@ -87,6 +91,11 @@ export async function classifyDocument(docId: string): Promise<{ code: string; c
       }
     }
 
+    // Ό,τι στηρίχθηκε στο όνομα αρχείου μένει «υπό αίρεση» — ακόμη κι όταν το μοντέλο έλυσε ισοπαλία.
+    if (nameLabel) {
+      r = { ...r, confidence: Math.min(r.confidence, NAME_HINT_MAX_CONFIDENCE), reason: `από όνομα αρχείου · ${r.reason}` };
+    }
+
     await prisma.ocrDocument.update({
       where: { id: docId },
       data: {
@@ -104,16 +113,21 @@ export async function classifyDocument(docId: string): Promise<{ code: string; c
   }
 }
 
+/** Καπάκι βεβαιότητας όταν ο τύπος βγήκε από το όνομα αρχείου και όχι από το ίδιο το έγγραφο. */
+const NAME_HINT_MAX_CONFIDENCE = 0.6;
+
 /**
  * Το `callTextLLM` στέλνει `response_format: json_object`, άρα ζητάμε ρητά JSON
  * `{"code":"…"}`. Το κόστος καταγράφεται μέσα στο `callTextLLM` (operation `ocr.classify_series`).
+ * Αν ο πάροχος κειμένου δεν είναι διαθέσιμος (κλειδί κενό ή 401), η ίδια κλήση πάει text-only
+ * στο vision endpoint — χωρίς `response_format`, άρα η απάντηση μπορεί να μην είναι καθαρό JSON
+ * (το καλύπτει το regex fallback παρακάτω).
  */
 async function modelTieBreak(
   docId: string, d: Record<string, unknown>, options: SeriesCandidate[],
 ): Promise<SeriesCandidate | null> {
   if (options.length < 2) return null;
   const cfg = await resolveCfg();
-  if (!cfg.textKey) return null;
   // Κάθε επιλογή δηλώνεται με την ΠΛΗΡΗ ταυτότητά της (`sosource:code`) — ο σκέτος κωδικός
   // δεν ξεχωρίζει τη σειρά αγορών από την ομώνυμη σειρά πιστωτών.
   const list = options
@@ -126,9 +140,21 @@ async function modelTieBreak(
     + 'Answer with JSON only: {"code":"<sosource:code exactly as listed>"}.';
   const user = `Document: type «${d.documentTypeLabel ?? ''}», issuer «${d.companyName ?? ''}», `
     + `total ${d.totalAmount ?? ''}, lines: ${lines}\n\nSeries:\n${list}\n\nReply {"code":"<sosource:code>"}.`;
-  const out = await callTextLLM(cfg, system, user, {
-    operation: 'ocr.classify_series', refType: 'OcrDocument', refId: docId,
-  });
+  const usage = { operation: 'ocr.classify_series', refType: 'OcrDocument', refId: docId };
+  // Το κλειδί κειμένου λείπει ή το endpoint απαντά 401/5xx: το vision endpoint είναι επίσης
+  // OpenAI-compatible, οπότε σηκώνει την ίδια text-only κλήση. Αν πέσει κι αυτό, πετάει —
+  // ο καλών κρατάει τον νικητή της βαθμολογίας.
+  let out: { content: string } | null = null;
+  if (cfg.textKey) {
+    try {
+      out = await callTextLLM(cfg, system, user, usage);
+    } catch (e) {
+      console.warn('[doc-type] text model unavailable, using vision model', (e as Error).message);
+    }
+  } else {
+    console.warn('[doc-type] text model unavailable, using vision model', 'no text key');
+  }
+  if (!out) out = await callTextViaVision(cfg, system, user, usage);
   const raw = String(out?.content ?? '');
   let answer: string | null = null;
   try {
