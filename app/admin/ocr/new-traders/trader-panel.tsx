@@ -367,7 +367,10 @@ export function TraderPanel({
     try {
       const res = await fetch('/api/admin/geocode', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address, countryHint: form.country || group.country || null }),
+        // Χωρίς hint: ο σκοπός της κλήσης είναι να ΒΡΕΘΕΙ η χώρα. Η προεπιλογή «Ελλάδα» της
+        // φόρμας θα περιόριζε την αναζήτηση στην Ελλάδα και μια ξένη διεύθυνση δεν θα έβγαινε ποτέ.
+        // Μόνο μια χώρα που προκύπτει από το πρόθεμα ΑΦΜ (ξένη) στέλνεται ως hint.
+        body: JSON.stringify({ address, countryHint: group.country && group.country !== 'GR' ? group.country : null }),
       });
       const d = await res.json().catch(() => null);
       if (res.ok && d?.found) setGeo(d as GeoParts);
