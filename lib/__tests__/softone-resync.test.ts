@@ -12,7 +12,7 @@ const { db, s1, errs, settings, audit, rbac } = vi.hoisted(() => {
   errs: { SoftoneError, SoftoneConfigError },
   db: {
     vatCategory: { findMany: vi.fn(), upsert: vi.fn(), delete: vi.fn(), update: vi.fn() },
-    softoneLookup: { deleteMany: vi.fn(), createMany: vi.fn() },
+    softoneLookup: { deleteMany: vi.fn(), createMany: vi.fn(), groupBy: vi.fn() },
     softoneExpense: { findMany: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
     softoneItem: { deleteMany: vi.fn(), createMany: vi.fn() },
     softoneTrader: { deleteMany: vi.fn(), createMany: vi.fn() },
@@ -21,7 +21,7 @@ const { db, s1, errs, settings, audit, rbac } = vi.hoisted(() => {
     appSetting: {
       findMany: vi.fn(), upsert: vi.fn(),
       // Ο δείκτης τρέχοντος περάσματος (κλειδαριά + σωρευτής) ζει σε γραμμή `AppSetting`.
-      create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), deleteMany: vi.fn(),
+      create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn(),
     },
     $transaction: vi.fn(),
   },
@@ -60,7 +60,7 @@ const ACTOR = { id: 'u1', email: 'a@b.gr' };
 /** Κάθε fetcher γυρίζει μία εύλογη γραμμή, ώστε κανένα βήμα να μη σκάσει στον έλεγχο «κενή απάντηση». */
 function happyPath() {
   s1.softoneFetchVatCategories.mockResolvedValue([{ code: '1', name: 'ΦΠΑ 24%', percent: 24, isActive: true, mydataCode: null }]);
-  s1.softoneFetchLookups.mockResolvedValue([{ kind: 'unit', code: '1', name: 'ΤΕΜ' }]);
+  s1.softoneFetchLookups.mockResolvedValue({ rows: [{ kind: 'MTRUNIT', code: '1', name: 'ΤΕΜ' }], failed: [] });
   s1.softoneFetchExpenses.mockResolvedValue([{ expn: 10, code: 'E1', name: 'Έξοδο', vat: 1 }]);
   s1.softoneFetchItems.mockResolvedValue([{ mtrl: 1, code: 'A', code1: null, code2: null, name: 'Είδος', name2: null, price: 1, isService: false, isActive: true }]);
   s1.softoneFetchTraders.mockResolvedValue([{ trdr: 1, sodtype: 13, kind: 'supplier', code: 'S1', name: 'Προμηθευτής', afm: '1', doy: null, profession: null, address: null, district: null, zip: null, city: null, phone: null, phone2: null, fax: null, email: null, webpage: null, isActive: true }]);
@@ -73,6 +73,7 @@ function happyPath() {
  * προσομοιώνουμε πιστά (create = ατομικό «πιάσε τη σειρά», P2002 = κάποιος άλλος την έχει),
  * γιατί πάνω σε αυτή τη μοναδικότητα στηρίζεται και η κλειδαριά και ο σωρευτής του περάσματος.
  */
+type MarkerWhere = { key?: string; value?: { path?: string[]; equals?: unknown } };
 let markerRow: { key: string; value: unknown } | null = null;
 
 beforeEach(() => {
@@ -84,14 +85,23 @@ beforeEach(() => {
     return markerRow;
   });
   db.appSetting.findUnique.mockImplementation(async () => markerRow);
-  db.appSetting.update.mockImplementation(async ({ data }: { data: { value: unknown } }) => {
+  // Οι γραφές στον δείκτη είναι ΥΠΟ ΣΥΝΘΗΚΗ `runId` (`where.value.path/equals`): ο ψεύτικος
+  // πρέπει να τη σέβεται, αλλιώς τα tests δεν θα έβλεπαν ποτέ το bug που κλείνει η συνθήκη.
+  const matches = (where: MarkerWhere | undefined): boolean => {
+    if (!markerRow) return false;
+    const want = where?.value?.equals;
+    if (want === undefined) return true;
+    return (markerRow.value as { runId?: string })?.runId === want;
+  };
+  db.appSetting.updateMany.mockImplementation(async ({ where, data }: { where?: MarkerWhere; data: { value: unknown } }) => {
+    if (!matches(where)) return { count: 0 };
     markerRow = { key: 'integrations.softoneResyncRun', value: data.value };
-    return markerRow;
+    return { count: 1 };
   });
-  db.appSetting.deleteMany.mockImplementation(async () => {
-    const count = markerRow ? 1 : 0;
+  db.appSetting.deleteMany.mockImplementation(async ({ where }: { where?: MarkerWhere } = {}) => {
+    if (!matches(where)) return { count: 0 };
     markerRow = null;
-    return { count };
+    return { count: 1 };
   });
   rbac.requirePermission.mockResolvedValue(ACTOR);
   db.vatCategory.findMany.mockResolvedValue([]);
@@ -107,6 +117,7 @@ beforeEach(() => {
   db.$transaction.mockImplementation(async (fn: unknown) =>
     typeof fn === 'function' ? (fn as (tx: unknown) => unknown)(db) : fn);
   db.softoneLookup.createMany.mockResolvedValue({ count: 1 });
+  db.softoneLookup.groupBy.mockResolvedValue([]);
   db.softoneItem.createMany.mockResolvedValue({ count: 1 });
   db.softoneTrader.createMany.mockResolvedValue({ count: 1 });
   happyPath();
@@ -155,7 +166,7 @@ describe('resyncAllSoftone', () => {
       return value;
     });
     s1.softoneFetchVatCategories.mockImplementation(mark('vat', []));
-    s1.softoneFetchLookups.mockImplementation(mark('lookups', [{ kind: 'u', code: '1', name: 'ΤΕΜ' }]));
+    s1.softoneFetchLookups.mockImplementation(mark('lookups', { rows: [{ kind: 'MTRUNIT', code: '1', name: 'ΤΕΜ' }], failed: [] }));
     await resyncAllSoftone(ACTOR, { only: ['vat', 'lookups'] });
     expect(order).toEqual(['start:vat', 'end:vat', 'start:lookups', 'end:lookups']);
   });
@@ -367,7 +378,7 @@ describe('άδεια απάντηση SoftOne — κανένα μητρώο δε
 
   it.each(CASES)('$table: κενή λίστα ⇒ αποτυχία βήματος, καμία διαγραφή', async (c) => {
     c.arm();
-    c.fetcher().mockResolvedValue([]);
+    c.fetcher().mockResolvedValue(c.table === 'lookups' ? { rows: [], failed: [] } : []);
 
     const report = await resyncAllSoftone(ACTOR, { only: [c.table] });
     const outcome = report.results[0];
@@ -483,5 +494,128 @@ describe('δείκτης τρέχοντος περάσματος', () => {
     };
     const report = await resyncAllSoftone(ACTOR, { only: ['vat'] });
     expect(report.results[0].ok).toBe(true);
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Βοηθητικοί πίνακες: η αποτυχία ΕΝΟΣ είδους δεν σβήνει το μητρώο του
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('syncLookups — μερική αποτυχία υποπινάκων', () => {
+  const rows = [
+    { kind: 'VAT', code: '1', name: 'ΦΠΑ 24%' },
+    { kind: 'MTRGROUP', code: '7', name: 'Ομάδα' },
+  ];
+
+  it('πίνακας που ΔΕΝ απάντησε ενώ είχε δεδομένα ⇒ αποτυχία, καμία διαγραφή', async () => {
+    s1.softoneFetchLookups.mockResolvedValue({ rows, failed: ['MTRUNIT'] });
+    db.softoneLookup.groupBy.mockResolvedValue([
+      { kind: 'MTRUNIT', _count: { _all: 42 } },
+      { kind: 'VAT', _count: { _all: 5 } },
+    ]);
+
+    const report = await resyncAllSoftone(ACTOR, { only: ['lookups'] });
+
+    expect(report.results[0]).toMatchObject({ ok: false, errorSource: 'softone' });
+    expect(report.results[0].error).toMatch(/MTRUNIT/);
+    expect(db.softoneLookup.deleteMany).not.toHaveBeenCalled();
+    expect(db.softoneLookup.createMany).not.toHaveBeenCalled();
+    expect(settings.setSetting).not.toHaveBeenCalled();
+  });
+
+  it('πίνακας που δεν απάντησε αλλά ήταν ούτως ή άλλως άδειος δεν σταματάει τίποτα', async () => {
+    s1.softoneFetchLookups.mockResolvedValue({ rows, failed: ['MTRMARK'] });
+    db.softoneLookup.groupBy.mockResolvedValue([{ kind: 'VAT', _count: { _all: 5 } }]);
+
+    const report = await resyncAllSoftone(ACTOR, { only: ['lookups'] });
+
+    expect(report.results[0].ok).toBe(true);
+    expect(report.results[0].detail).toMatchObject({ notAnswered: ['MTRMARK'] });
+  });
+
+  it('καθαρίζονται ΜΟΝΟ τα είδη που απάντησαν', async () => {
+    s1.softoneFetchLookups.mockResolvedValue({ rows, failed: ['MTRMARK'] });
+    db.softoneLookup.groupBy.mockResolvedValue([{ kind: 'MTRMARK', _count: { _all: 0 } }]);
+
+    await resyncAllSoftone(ACTOR, { only: ['lookups'] });
+
+    expect(db.softoneLookup.deleteMany).toHaveBeenCalledWith({ where: { kind: { in: ['VAT', 'MTRGROUP'] } } });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Η κλειδαριά δεν κλέβεται και δεν πατιέται
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('ανθεκτικότητα του δείκτη', () => {
+  it('η απελευθέρωση ΔΕΝ πατάει τον δείκτη άλλου περάσματος', async () => {
+    // Το δικό μας πέρασμα ξεκίνησε…
+    await resyncAllSoftone(ACTOR, { only: ['vat'], run: { id: 'MINE', tables: ['vat', 'items'] } });
+    expect((markerRow!.value as { runId: string }).runId).toBe('MINE');
+
+    // …και στο μεταξύ (αργό βήμα, ξεπερασμένο TTL) άλλος διαχειριστής πήρε τη σειρά.
+    markerRow = {
+      key: 'integrations.softoneResyncRun',
+      value: {
+        runId: 'THEIRS', actorId: 'u2', actorEmail: 'b@b.gr',
+        startedAt: Date.now(), touchedAt: Date.now(), expected: ['items'], done: [],
+      },
+    };
+
+    // Η δεύτερη κλήση του ΔΙΚΟΥ μας περάσματος δεν πρέπει να τους πάρει την κλειδαριά:
+    // ο δείκτης ανήκει πια σε εκείνους, άρα παίρνουμε «τρέχει ήδη».
+    await expect(
+      resyncAllSoftone(ACTOR, { only: ['items'], run: { id: 'MINE', tables: ['vat', 'items'] } }),
+    ).rejects.toBeInstanceOf(ResyncBusyError);
+    expect((markerRow!.value as { runId: string }).runId).toBe('THEIRS');
+  });
+
+  it('δύο αιτήματα πάνω στον ΙΔΙΟ ξεχασμένο δείκτη: μόνο ένα τον παίρνει', async () => {
+    const stale = {
+      runId: 'OLD', actorId: 'u9', actorEmail: 'old@b.gr',
+      startedAt: Date.now() - 60 * 60 * 1000, touchedAt: Date.now() - 60 * 60 * 1000,
+      expected: ['items'] as SyncTable[], done: [],
+    };
+    markerRow = { key: 'integrations.softoneResyncRun', value: stale };
+
+    const [a, b] = await Promise.allSettled([
+      resyncAllSoftone(ACTOR, { only: ['vat'], run: { id: 'A', tables: ['vat', 'items'] } }),
+      resyncAllSoftone({ id: 'u2', email: 'b@b.gr' }, { only: ['vat'], run: { id: 'B', tables: ['vat', 'items'] } }),
+    ]);
+    const won = [a, b].filter((r) => r.status === 'fulfilled');
+    const lost = [a, b].filter((r) => r.status === 'rejected');
+    expect(won).toHaveLength(1);
+    expect(lost).toHaveLength(1);
+    expect((lost[0] as PromiseRejectedResult).reason).toBeInstanceOf(ResyncBusyError);
+  });
+
+  it('το μήνυμα «τρέχει ήδη» λέει και πόσο κρατάει ο δείκτης', async () => {
+    await resyncAllSoftone(ACTOR, { only: ['vat'], run: { id: 'X', tables: ['vat', 'items'] } });
+    const err = await resyncAllSoftone({ id: 'u2', email: 'b@b.gr' }, { only: ['items'] })
+      .then(() => null, (e: Error) => e);
+    expect(err).toBeInstanceOf(ResyncBusyError);
+    expect(err!.message).toMatch(/15 λεπτά/);
+  });
+
+  it('το ΜΕΜΟΝΩΜΕΝΟ route απαντά 409 όσο τρέχει πέρασμα', async () => {
+    await resyncAllSoftone(ACTOR, { only: ['vat'], run: { id: 'X', tables: ['vat', 'items'] } });
+    const res = await syncItemsRoute();
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'sync_running' });
+    expect(s1.softoneFetchItems).not.toHaveBeenCalled();
+  });
+});
+
+describe('ελλιπείς ρυθμίσεις', () => {
+  it('δεν χρεώνονται στον ERP: errorSource = configuration και 400', async () => {
+    s1.softoneFetchItems.mockRejectedValue(new errs.SoftoneConfigError('Λείπουν ρυθμίσεις SoftOne: Password'));
+    const report = await resyncAllSoftone(ACTOR, { only: ['items'] });
+    expect(report.results[0]).toMatchObject({ ok: false, errorSource: 'configuration' });
+
+    s1.softoneFetchItems.mockRejectedValue(new errs.SoftoneConfigError('Λείπουν ρυθμίσεις SoftOne: Password'));
+    const res = await syncItemsRoute();
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: 'softone_not_configured', message: expect.stringContaining('Password') });
   });
 });

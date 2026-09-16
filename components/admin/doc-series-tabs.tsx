@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
 import { Combobox } from '@/components/ui/combobox';
 import { Switch } from '@/components/ui/switch';
+import { syncErrorMessage } from '@/lib/softone/sync-error';
 
 export type DocSeriesRecord = {
   id: number;
@@ -129,7 +130,7 @@ export function DocSeriesTabs({
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού');
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού'));
     }
   };
 

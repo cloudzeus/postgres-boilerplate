@@ -11,6 +11,7 @@ import { SoftoneResyncPanel } from '@/components/admin/softone-resync';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
+import { syncErrorMessage } from '@/lib/softone/sync-error';
 
 type SyncKind = 'gemi' | 'vat' | 'purdoc' | 'docseries' | 'traders' | 'lookups' | 'expenses';
 type Stat = {
@@ -104,7 +105,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού ΦΠΑ');
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού ΦΠΑ'));
     }
   };
 
@@ -117,7 +118,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού');
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού'));
     }
   };
 
@@ -131,7 +132,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού σειρών');
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού σειρών'));
     }
   };
 
@@ -143,14 +144,14 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού');
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού'));
     }
   };
 
   const syncLookups = async () => {
     const res = await fetch('/api/admin/metadata/sync-lookups-softone', { method: 'POST' });
     if (res.ok) { const d = await res.json(); toast.success(`Βοηθητικοί πίνακες: ${d.total.toLocaleString('el-GR')} εγγραφές`); router.refresh(); }
-    else { const e = await res.json().catch(() => ({})); toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία'); }
+    else { const e = await res.json().catch(() => ({})); toast.error(syncErrorMessage(e, 'Αποτυχία')); }
   };
 
   const syncExpenses = async () => {
@@ -162,7 +163,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού εξόδων');
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού εξόδων'));
     }
   };
 

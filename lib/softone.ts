@@ -834,9 +834,23 @@ const cleanS1Label = (s: string): string => {
 // SoftOne aux tables → local lookups. label = the el value, prefixed with code when useful.
 const LOOKUP_TABLES = ['MTRUNIT', 'MTRGROUP', 'MTRCATEGORY', 'MTRMANFCTR', 'MTRMARK'] as const;
 
+export type LookupRow = { kind: string; code: string; name: string };
+
+export type LookupFetchResult = {
+  rows: LookupRow[];
+  /**
+   * Βοηθητικοί πίνακες που ΔΕΝ απάντησαν (η `GetTable` πέταξε). ΔΕΝ είναι το ίδιο με «άδειος»:
+   * μια εγκατάσταση μπορεί κάλλιστα να μην έχει μάρκες. Ο καλών το χρειάζεται για να μην
+   * καθαρίσει είδος που απλώς δεν μίλησε — μέχρι τώρα η αποτυχία καταπινόταν με `.catch(() => [])`
+   * και ο συγχρονισμός έσβηνε ΟΛΟ το μητρώο του συγκεκριμένου πίνακα νομίζοντας ότι άδειασε.
+   */
+  failed: string[];
+};
+
 /** Fetches all aux/classification tables flat ({kind, code, name}) for the lookups sync. */
-export async function softoneFetchLookups(): Promise<{ kind: string; code: string; name: string }[]> {
-  const out: { kind: string; code: string; name: string }[] = [];
+export async function softoneFetchLookups(): Promise<LookupFetchResult> {
+  const out: LookupRow[] = [];
+  const failed: string[] = [];
   // Aux tables are company-scoped → GetTable returns the same code per company.
   // Dedupe on (kind, code) to satisfy the unique constraint.
   const seen = new Set<string>();
@@ -853,11 +867,14 @@ export async function softoneFetchLookups(): Promise<{ kind: string; code: strin
   const companyFilter = cfg?.company ? ` AND COMPANY=${cfg.company}` : '';
   const onlyCompany = cfg?.company ? `COMPANY=${cfg.company}` : '';
 
-  const vats = await softoneGetTable('VAT', ['VAT', 'NAME', 'PERCNT'], `ISACTIVE=1${companyFilter}`).catch(() => []);
+  // Η αποτυχία ενός πίνακα δεν σταματάει τους υπόλοιπους — αλλά ΚΑΤΑΓΡΑΦΕΤΑΙ.
+  const vats = await softoneGetTable('VAT', ['VAT', 'NAME', 'PERCNT'], `ISACTIVE=1${companyFilter}`)
+    .catch(() => { failed.push('VAT'); return []; });
   for (const r of vats) add('VAT', String(r.VAT), `${cleanS1Label(r.NAME)} (${r.PERCNT}%)`);
 
   for (const table of LOOKUP_TABLES) {
-    const rows = await softoneGetTable(table, [table, 'CODE', 'NAME'], onlyCompany).catch(() => []);
+    const rows = await softoneGetTable(table, [table, 'CODE', 'NAME'], onlyCompany)
+      .catch(() => { failed.push(table); return []; });
     for (const r of rows) {
       // MTRUNIT keeps the label in CODE (NAME holds the company); the rest use NAME.
       const name = table === 'MTRUNIT'
@@ -866,7 +883,7 @@ export async function softoneFetchLookups(): Promise<{ kind: string; code: strin
       add(table, String(r[table]), name);
     }
   }
-  return out;
+  return { rows: out, failed };
 }
 
 /** Loads the item classification lookup tables from SoftOne (small, cached upstream). */

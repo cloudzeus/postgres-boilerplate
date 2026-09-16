@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
+import { syncErrorMessage } from '@/lib/softone/sync-error';
 
 // Μητρώο εξόδων SoftOne (object EXPENSES → πίνακας EXPN), καθρέφτης του SoftoneExpense.
 export type ExpenseRecord = {
@@ -43,7 +44,7 @@ export function ExpensesTableClient({
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού');
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού'));
     }
   };
 
