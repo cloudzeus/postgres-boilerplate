@@ -7,11 +7,16 @@ import { DocumentSchema, normalizeDocument, type DocumentJson } from '@/lib/ocr/
 import { docTypeOf, loadDocumentJson, mergeLegacyPatch, saveDocumentJson } from '@/lib/ocr/document';
 import { matchDocItems } from '@/lib/ocr/softone-match';
 
+// ΠΡΟΣΟΧΗ: το zod ΠΕΤΑΕΙ ό,τι δεν είναι στο σχήμα. Η μονάδα μέτρησης και τα ανά γραμμή ειδικά
+// πεδία πρέπει να δηλωθούν ρητά — αλλιώς ο επεξεργαστής γραμμών τα στέλνει και το route τα σβήνει
+// πριν καν φτάσουν στο `mergeLegacyPatch` (τα `items` του σώματος νικούν το `extractedData.items`).
 const ItemSchema = z.object({
   code: z.string().nullable().optional(), name: z.string(),
+  unit: z.string().nullable().optional(),
   quantity: z.number().nullable().optional(), price: z.number().nullable().optional(),
   discount: z.number().nullable().optional(), vatRate: z.number().nullable().optional(),
   total: z.number().nullable().optional(),
+  customFields: z.record(z.string(), z.any()).nullable().optional(),
 });
 const PatchSchema = z.object({
   category: z.enum(['EXPENSE','INVOICE_IN','INVOICE_OUT','RECEIPT','CREDIT_NOTE','PAYROLL','TAX','OTHER']).nullable().optional(),
