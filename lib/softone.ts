@@ -3,6 +3,7 @@ import iconv from 'iconv-lite';
 import { gunzipSync } from 'node:zlib';
 import { getSetting, setSetting } from '@/lib/settings';
 import { validCoords } from '@/lib/coords';
+import { normalizeDocRef } from '@/lib/doc-reference';
 import { nextTraderCode, type NextCodeResult } from '@/lib/trader-code';
 
 /**
@@ -767,11 +768,6 @@ export async function softoneFindItemByCode(rawCode: string): Promise<ItemRow | 
   );
 }
 
-// Normalises a document number for loose comparison (digits+letters, uppercase).
-function normNum(s: string): string {
-  return String(s ?? '').toUpperCase().replace(/[^0-9A-ZΑ-Ω]/gi, '');
-}
-
 /** Η αναφορά του εκδότη, όπως θα γραφόταν στην κεφαλίδα — το ίδιο τρίπτυχο με την καταχώριση. */
 export type PurchaseDocRef = {
   /** Ο τυπωμένος αριθμός, χωρίς πρόθεμα (`TAXSERIESNUM`). */
@@ -797,15 +793,24 @@ export async function softoneCheckPurchaseDoc(
   ref: PurchaseDocRef,
   dateISO?: string | null,
 ): Promise<{ exists: boolean; ref: string | null }> {
-  const n = normNum(ref.number ?? '');
+  const n = normalizeDocRef(ref.number ?? '');
   if (!Number.isFinite(trdr) || !n) return { exists: false, ref: null };
   // Και οι δύο γραφές που μπορεί να έχει το υπάρχον παραστατικό: σκέτος αριθμός ή πλήρης ταυτότητα.
-  const wanted = new Set([n, normNum(ref.fincode ?? '')].filter(Boolean));
+  const wanted = new Set([n, normalizeDocRef(ref.fincode ?? '')].filter(Boolean));
 
-  const day = dateISO ? String(dateISO).slice(0, 10) : null; // yyyy-MM-dd
+  // Η ημερομηνία θέλει ΕΙΣΑΓΩΓΙΚΑ. Χωρίς αυτά το `TRNDATE=2026-05-01` δεν ταιριάζει ΚΑΜΙΑ γραμμή
+  // (επαληθεύτηκε live: ίδιο φίλτρο με εισαγωγικά επιστρέφει το παραστατικό, χωρίς επιστρέφει 0) —
+  // δηλαδή ο έλεγχος απαντούσε σιωπηλά «δεν υπάρχει διπλοεγγραφή» για ΚΑΘΕ έγγραφο με ημερομηνία.
+  // Δεχόμαστε μόνο αυστηρό `YYYY-MM-DD`: η ημερομηνία έρχεται από OCR και μπαίνει σε φίλτρο.
+  const raw = dateISO ? String(dateISO).slice(0, 10) : '';
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+  // ΜΟΝΟ οι ενότητες στις οποίες καταχωρίζουμε: αγορές, ειδικές προμηθευτών/χρεωστών/πιστωτών.
+  // Αφιλτράριστο, το ερώτημα φτάνει και σε παραστατικά ΠΩΛΗΣΕΩΝ, όπου ο «Φορ/κός αριθμός» είναι
+  // πάντα ένας μικρός ακέραιος ίσος με τον αύξοντα — έτοιμο ψευδώς θετικό.
+  const scope = 'SOSOURCE IN (1251,1253,1553,1653)';
   const filter = day
-    ? `TRDR=${trdr} AND TRNDATE=${day}`
-    : `TRDR=${trdr}`;
+    ? `TRDR=${trdr} AND ${scope} AND TRNDATE='${day}'`
+    : `TRDR=${trdr} AND ${scope}`;
 
   let rows: Array<Record<string, string>>;
   try {
@@ -816,8 +821,8 @@ export async function softoneCheckPurchaseDoc(
 
   const loose = n.length >= 3;
   for (const r of rows) {
-    const fincode = normNum(r.FINCODE);
-    const taxnum = normNum(r.TAXSERIESNUM);
+    const fincode = normalizeDocRef(r.FINCODE);
+    const taxnum = normalizeDocRef(r.TAXSERIESNUM);
     const hit =
       (fincode !== '' && (wanted.has(fincode) || (loose && fincode.includes(n)))) ||
       (taxnum !== '' && (wanted.has(taxnum) || (loose && taxnum.includes(n))));

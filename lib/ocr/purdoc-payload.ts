@@ -7,6 +7,7 @@
 // εγγράφου (`lib/ocr/posting-target.ts`), όχι από το τι ταίριαξε η κάθε γραμμή. Ένα τιμολόγιο
 // δαπανών πάει σε `LINSUPDOC`/`LINLINES`, μια αγορά εμπορευμάτων σε `PURDOC`/`ITELINES`, ένα
 // παραστατικό χρεώστη σε `LINDEBDOC`/`LINLINES`.
+import { normalizeDocRef } from '@/lib/doc-reference';
 import type { DocumentJson } from './canonical';
 import {
   LINES_FOR_OBJECT, POST_LINES_LABEL, SODTYPE_FOR_OBJECT,
@@ -182,12 +183,31 @@ const text = (v: unknown): string | undefined => {
  *  | `TAXSERIESNUM` | Φορ/κός αριθμός | ο τυπωμένος αριθμός ΤΟΥ ΕΚΔΟΤΗ (String 50)  |
  *  | `FINCODE`      | Παραστατικό     | η ΠΛΗΡΗΣ τυπωμένη ταυτότητα (String 30)     |
  *
- * Τι κάνει ο ΙΔΙΟΣ ο πελάτης (read-only `GetTable FINDOC`, παραστατικά αγορών SOSOURCE 1251):
- *   `FINCODE="ΤΙΜ-AA-2455"  TAXSERIES="ΤΙΜ-AA"  TAXSERIESNUM="2455"  SERIESNUM=1`
- *   `FINCODE="ΔΠ-0035656"   TAXSERIES="ΔΠ"      TAXSERIESNUM="0035656" SERIESNUM=1`
- * — δηλαδή ΚΑΙ τα τρία συμπληρωμένα, με τη σειρά και τον αριθμό του προμηθευτή χωριστά και την
- * πλήρη ταυτότητα στο «Παραστατικό». Το ίδιο δείχνει και το §14.8 του spec
- * (`INV.239124`, `ΤΠΥ 276708`, `ΤΙΜ Α32-000085237` στο «Παραστατικό», δίπλα σε «Φορ/κός αριθμός»).
+ * Τι κάνει ο ΙΔΙΟΣ ο πελάτης — read-only `GetTable FINDOC`, ΚΑΙ ΟΙ ΤΕΣΣΕΡΙΣ γραμμές αγορών
+ * (SOSOURCE 1251) που υπάρχουν, όχι μόνο όσες βολεύουν:
+ *
+ *   1042: `FINCODE="ΤΙΜ-AA-2455"  TAXSERIES="ΤΙΜ-AA"  TAXSERIESNUM="2455"    SERIESNUM=1`
+ *   1044: `FINCODE="ΔΠ-0035656"   TAXSERIES="ΔΠ"      TAXSERIESNUM="0035656" SERIESNUM=1`
+ *   1009: `FINCODE="ΤΔΑ"          TAXSERIES="ΤΔΑ"     TAXSERIESNUM="1"       SERIESNUM=1`
+ *   1034: `FINCODE="ΔΠ"           TAXSERIES="ΔΠ"      TAXSERIESNUM="1"       SERIESNUM=1`
+ *
+ * Οι δύο πρώτες κουβαλούν την πλήρη ταυτότητα στο «Παραστατικό». Οι δύο ΤΕΛΕΥΤΑΙΕΣ όμως έχουν
+ * `FINCODE` = σκέτο τον κωδικό σειράς, ΧΩΡΙΣ αριθμό, και `TAXSERIESNUM` ίσο με τον δικό μας
+ * `SERIESNUM` — δηλαδή είναι απολύτως συμβατές με το «το ERP παράγει το FINCODE από τη μάσκα της
+ * σειράς και γεμίζει τον κενό Φορ/κό αριθμό από τον αύξοντα». Δεν μπορούμε να το αποκλείσουμε
+ * χωρίς `setData`, οπότε το λέμε όπως είναι:
+ *
+ *   ΤΟ `FINCODE` ΠΟΥ ΣΤΕΛΝΟΥΜΕ ΕΙΝΑΙ ΣΥΜΒΟΥΛΕΥΤΙΚΟ — μπορεί να το ξαναγράψει η μάσκα της σειράς.
+ *   ΤΑ `TAXSERIES`/`TAXSERIESNUM` ΕΙΝΑΙ ΑΥΤΑ ΠΟΥ ΚΡΑΤΑΝΕ ΤΗΝ ΤΑΥΤΟΤΗΤΑ ΤΟΥ ΕΚΔΟΤΗ.
+ *
+ * Γι' αυτό και η επαλήθευση μετά την εγγραφή δέχεται συμφωνία σε οποιοδήποτε από τα δύο.
+ *
+ * Δεύτερη πηγή: `docs/superpowers/specs/2026-09-09-extraction-templates-design.md:366` (§14.8, η
+ * οθόνη καταχώρισης του πελάτη). Δείχνει «Παραστατικό» με την πλήρη τυπωμένη ταυτότητα
+ * (`INV.239124`, `ΤΠΥ 276708`, `ΤΙΜ Α32-000085237`) ΚΑΙ ξεχωριστό «Φορ/κός αριθμός» — δηλαδή
+ * τεκμηριώνει ΔΥΟ από τα τρία πεδία· το «Φορ/κή σειρά» ΔΕΝ αναφέρεται εκεί καθόλου και στηρίζεται
+ * μόνο στο schema και στις τέσσερις γραμμές παραπάνω.
+ *
  * Μέχρι τώρα στέλναμε ΜΟΝΟ `FINCODE = type.number` — δηλαδή τα σκέτα ψηφία, χωρίς το πρόθεμα, και
  * με τα δύο φορολογικά πεδία κενά.
  */
@@ -204,20 +224,19 @@ export type DocReference = {
 const FINCODE_MAX = 30;
 const TAXSERIES_MAX = 50;
 
-/** Ό,τι δεν είναι γράμμα ή ψηφίο είναι διαχωριστικό: «ΤΠΥ 17» = «ΤΠΥ-17» = «ΤΠΥ/17». */
-const refNorm = (s: string): string => s.toUpperCase().replace(/[^0-9A-ZΑ-Ω]/gi, '');
-
 /**
  * Όταν το πρόθεμα είναι ΗΔΗ μέσα στον αριθμό («ΤΠΥ 17» και σειρά «ΤΠΥ»), επιστρέφει ό,τι μένει
- * («17») — αλλιώς `null`. Η σύγκριση αγνοεί κενά/παύλες, ώστε «ΤΙΜ Α32-000085237» με σειρά
- * «ΤΙΜ Α32» να χωρίζεται σωστά.
+ * («17») — αλλιώς `null`. Κενό string σημαίνει «ο αριθμός ΕΙΝΑΙ το πρόθεμα, δεν περισσεύει τίποτα».
+ * Η σύγκριση περνά από το `normalizeDocRef`: αγνοεί κενά/παύλες ΚΑΙ διπλώνει τα ελληνικά ομόγλυφα,
+ * ώστε «ΤΙΜ-ΑΑ-2455» (ελληνικά Α) με σειρά «ΤΙΜ-AA» (λατινικά A) να χωρίζεται σωστά αντί να
+ * γράψει το πρόθεμα δύο φορές.
  */
 function stripSeriesPrefix(number: string, series: string): string | null {
-  const want = refNorm(series);
+  const want = normalizeDocRef(series);
   if (!want) return null;
   let seen = '';
   for (let i = 0; i < number.length; i++) {
-    seen += refNorm(number[i]);
+    seen += normalizeDocRef(number[i]);
     if (seen.length < want.length) continue;
     return seen === want ? number.slice(i + 1).replace(/^[^0-9A-ZΑ-Ω]+/i, '') : null;
   }
@@ -250,7 +269,11 @@ export function documentReference(type: { series: string | null; number: string 
       printed = `${series} ${number}`;
     } else {
       // Το κουβαλά: ο τυπωμένος αριθμός ΕΙΝΑΙ η πλήρης ταυτότητα, δεν διπλασιάζουμε το πρόθεμα.
-      taxSeriesNum = rest;
+      // ΟΤΑΝ ΔΕΝ ΠΕΡΙΣΣΕΥΕΙ ΤΙΠΟΤΑ (ο αριθμός είναι σκέτο το πρόθεμα, π.χ. «ΤΔΑ»), κρατάμε
+      // ΟΛΟΚΛΗΡΟ τον αριθμό ως «Φορ/κό αριθμό» αντί να αφήσουμε το πεδίο κενό: κενό πεδίο σημαίνει
+      // ότι το SoftOne θα βάλει εκεί τον ΔΙΚΟ ΜΑΣ αύξοντα (`SERIESNUM`) — έτσι δείχνουν οι
+      // γραμμές 1009/1034 του πελάτη — και ότι ο έλεγχος διπλοεγγραφής δεν θα τρέξει καθόλου.
+      taxSeriesNum = rest === '' ? number : rest;
       printed = number;
     }
   } else if (!series) {

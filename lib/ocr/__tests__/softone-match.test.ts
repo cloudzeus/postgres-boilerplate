@@ -17,7 +17,17 @@ const { db } = vi.hoisted(() => ({
 
 vi.mock('@/lib/db', () => ({ prisma: db }));
 
-import { matchDocItems, alignTraderToTarget } from '../softone-match';
+const { softone } = vi.hoisted(() => ({
+  softone: { softoneCheckPurchaseDoc: vi.fn(), softoneFindTraderByAfm: vi.fn() },
+}));
+
+vi.mock('@/lib/softone', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  softoneCheckPurchaseDoc: softone.softoneCheckPurchaseDoc,
+  softoneFindTraderByAfm: softone.softoneFindTraderByAfm,
+}));
+
+import { buildDuplicateCheck, matchDocItems, alignTraderToTarget } from '../softone-match';
 
 const updateFor = (id: string) =>
   db.ocrInvoiceItem.update.mock.calls.map((c) => c[0]).find((a) => a.where.id === id)?.data;
@@ -193,5 +203,61 @@ describe('alignTraderToTarget — ο τύπος του συναλλασσομέ�
 
     expect(await alignTraderToTarget('d1')).toBe(false);
     expect(db.softoneTrader.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+// ── buildDuplicateCheck ─────────────────────────────────────────────────────
+// Ο ΜΟΝΟΣ καλών του `softoneCheckPurchaseDoc`: αν ρωτήσει με λάθος αναφορά, ο έλεγχος
+// διπλοεγγραφής κοιτάζει αλλού από εκεί που γράφει η καταχώριση — και δεν το πιάνει κανείς,
+// γιατί παντού αλλού η συνάρτηση είναι mocked.
+describe('buildDuplicateCheck', () => {
+  beforeEach(() => {
+    softone.softoneCheckPurchaseDoc.mockReset();
+    softone.softoneCheckPurchaseDoc.mockResolvedValue({ exists: false, ref: null });
+  });
+
+  it('ρωτάει με ΤΗΝ ΙΔΙΑ αναφορά που θα καταχωριζόταν: αριθμός χωρίς πρόθεμα + πλήρης ταυτότητα', async () => {
+    await buildDuplicateCheck(12345, { series: 'ΤΠΥ', number: '17' }, '2026-03-14');
+    expect(softone.softoneCheckPurchaseDoc).toHaveBeenCalledWith(
+      12345, { number: '17', fincode: 'ΤΠΥ 17' }, '2026-03-14',
+    );
+  });
+
+  it('πρόθεμα ενσωματωμένο στον αριθμό: ρωτάει με το ΥΠΟΛΟΙΠΟ, όχι με ολόκληρο το string', async () => {
+    await buildDuplicateCheck(12345, { series: 'ΤΙΜ Α32', number: 'ΤΙΜ Α32-000085237' }, null);
+    expect(softone.softoneCheckPurchaseDoc).toHaveBeenCalledWith(
+      12345, { number: '000085237', fincode: 'ΤΙΜ Α32-000085237' }, null,
+    );
+  });
+
+  it('αριθμός που ΕΙΝΑΙ σκέτο το πρόθεμα: ο έλεγχος ΤΡΕΧΕΙ, δεν παρακάμπτεται σιωπηλά', async () => {
+    // Το `stripSeriesPrefix` επιστρέφει κενό· αν το κρατούσαμε, το early return «χωρίς αριθμό»
+    // θα ακύρωνε τον έλεγχο για κάθε τέτοιο παραστατικό (π.χ. «ΤΔΑ» των γραμμών 1009/1034).
+    await buildDuplicateCheck(12345, { series: 'ΤΔΑ', number: 'ΤΔΑ' }, null);
+    expect(softone.softoneCheckPurchaseDoc).toHaveBeenCalledWith(12345, { number: 'ΤΔΑ', fincode: 'ΤΔΑ' }, null);
+  });
+
+  it('το αποτέλεσμα γίνεται πεδία του εγγράφου', async () => {
+    softone.softoneCheckPurchaseDoc.mockResolvedValue({ exists: true, ref: 'ΤΙΜ-AA-2455' });
+    const r = await buildDuplicateCheck(12345, { series: null, number: '2455' }, '2026-03-14');
+    expect(r.softoneDocExists).toBe(true);
+    expect(r.softoneDocRef).toBe('ΤΙΜ-AA-2455');
+    expect(r.softoneDocChecked).toBeInstanceOf(Date);
+  });
+
+  it('χωρίς συναλλασσόμενο ή χωρίς αριθμό δεν ρωτάει καθόλου — «δεν ξέρω», όχι «δεν υπάρχει»', async () => {
+    expect(await buildDuplicateCheck(null, { series: 'ΤΠΥ', number: '17' }, null))
+      .toMatchObject({ softoneDocExists: null, softoneDocRef: null });
+    expect(await buildDuplicateCheck(12345, { series: null, number: null }, null))
+      .toMatchObject({ softoneDocExists: null, softoneDocRef: null });
+    expect(await buildDuplicateCheck(12345, null, null))
+      .toMatchObject({ softoneDocExists: null, softoneDocRef: null });
+    expect(softone.softoneCheckPurchaseDoc).not.toHaveBeenCalled();
+  });
+
+  it('σφάλμα SoftOne δεν σκάει τη σάρωση — «δεν ξέρω»', async () => {
+    softone.softoneCheckPurchaseDoc.mockRejectedValue(new Error('boom'));
+    expect(await buildDuplicateCheck(12345, { series: 'ΤΠΥ', number: '17' }, null))
+      .toMatchObject({ softoneDocExists: null, softoneDocRef: null });
   });
 });

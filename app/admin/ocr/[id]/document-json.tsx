@@ -28,7 +28,7 @@ type Preview = {
   payload: { OBJECT: string; KEY: string; DATA: PayloadData };
   summary: {
     series: string | null; trader: string | null; trdr: number | null; date: string | null;
-    number: string | null; lines: number;
+    lines: number;
     reference: { fincode: string | null; taxSeries: string | null; taxSeriesNum: string | null };
   };
   postStatus: string;

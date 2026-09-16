@@ -4,6 +4,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getSetting } from '@/lib/settings';
 import { softoneCall, softoneGetData } from '@/lib/softone';
+import { normalizeDocRef } from '@/lib/doc-reference';
 import { buildReviewFlags } from '@/lib/templates/run-logic';
 import type { DocumentJson } from './canonical';
 import { loadDocumentJson } from './document';
@@ -286,7 +287,7 @@ export type PostingPreview = {
   /** Σύνοψη για την κάρτα: ό,τι δεν διαβάζεται εύκολα από το raw payload. */
   summary: {
     series: string | null; trader: string | null; trdr: number | null; date: string | null;
-    number: string | null; lines: number;
+    lines: number;
     /**
      * Η αναφορά του ΕΚΔΟΤΗ όπως θα γραφτεί, ΑΝΑ ΠΕΔΙΟ: η κάρτα το δείχνει με τις λεζάντες του
      * SoftOne, ώστε να φαίνεται ΠΟΥ πάει ο σαρωμένος αριθμός πριν ανοίξει ποτέ ο διακόπτης.
@@ -317,7 +318,6 @@ export async function postingPreview(id: string): Promise<PostingPreview> {
       trader: doc.softoneName,
       trdr: doc.softoneTrdr,
       date: document.date,
-      number: document.type.number,
       lines: ctx.lines.length,
       reference: {
         fincode: ref.fincode ?? null,
@@ -331,20 +331,29 @@ export async function postingPreview(id: string): Promise<PostingPreview> {
 }
 
 const sameRef = (a: unknown, b: unknown): boolean => {
-  const norm = (v: unknown) => String(v ?? '').replace(/[^0-9A-Za-zΑ-Ωα-ω]/g, '').toUpperCase();
-  const x = norm(a);
-  return x !== '' && x === norm(b);
+  const x = normalizeDocRef(a);
+  return x !== '' && x === normalizeDocRef(b);
 };
 
 /**
- * Το read-back βρήκε ΤΟ ΠΑΡΑΣΤΑΤΙΚΟ ΜΑΣ; Η αναφορά του εκδότη γράφεται σε τρία πεδία, οπότε αρκεί
- * να συμφωνήσει ΕΝΑ από αυτά με ό,τι στείλαμε: το SoftOne μπορεί να κανονικοποιήσει το «Παραστατικό»
- * (μάσκα σειράς), αλλά δεν θα αλλάξει και τα τρία. Κενή απάντηση ΔΕΝ περνά — `sameRef` θέλει τιμή.
+ * Το read-back βρήκε ΤΟ ΠΑΡΑΣΤΑΤΙΚΟ ΜΑΣ; Η αναφορά του εκδότη γράφεται σε δύο πεδία που μπορούμε
+ * να ελέγξουμε, οπότε αρκεί να συμφωνήσει ΕΝΑ: το SoftOne μπορεί να ξαναγράψει το «Παραστατικό»
+ * με τη μάσκα της σειράς (βλ. γραμμές 1009/1034 του πελάτη), αλλά όχι και τα δύο. Κενή απάντηση
+ * ΔΕΝ περνά — το `sameRef` απαιτεί τιμή και στις δύο πλευρές.
+ *
+ * ΜΙΑ ΠΑΓΙΔΑ: όταν αφήσουμε κενό τον «Φορ/κό αριθμό», το SoftOne φαίνεται να τον γεμίζει από τον
+ * ΔΙΚΟ ΜΑΣ αύξοντα — οι γραμμές 1009/1034 έχουν `TAXSERIESNUM="1"` με `SERIESNUM=1`. Άρα ένα
+ * τιμολόγιο προμηθευτή με αριθμό «1», σε σειρά που δίνει `SERIESNUM=1`, θα «επιβεβαιωνόταν» ακόμη
+ * κι αν το ERP είχε πετάξει ό,τι στείλαμε. Όταν ο «Φορ/κός αριθμός» ισούται με τον αύξοντα, δεν
+ * τον δεχόμαστε ΜΟΝΟ του: θέλουμε και το «Παραστατικό» να συμφωνεί.
  */
-const refConfirmed = (row: Record<string, unknown>, ref: DocReference, fallback: string | null): boolean =>
-  sameRef(row.TAXSERIESNUM, ref.taxSeriesNum ?? fallback)
-  || sameRef(row.FINCODE, ref.fincode ?? fallback)
-  || sameRef(row.FINCODE, fallback);
+const refConfirmed = (row: Record<string, unknown>, ref: DocReference, fallback: string | null): boolean => {
+  const fincodeOk = sameRef(row.FINCODE, ref.fincode ?? fallback);
+  const taxNumOk = sameRef(row.TAXSERIESNUM, ref.taxSeriesNum ?? fallback);
+  const echoesSeriesNum = row.SERIESNUM != null && sameRef(row.TAXSERIESNUM, String(row.SERIESNUM));
+  if (taxNumOk && echoesSeriesNum && !fincodeOk) return false;
+  return fincodeOk || taxNumOk;
+};
 
 /**
  * Posts the document to SoftOne (setData on the series' own object — PURDOC, LINSUPDOC,

@@ -256,7 +256,7 @@ describe('postDocumentToSoftone', () => {
   it('ανοιχτός διακόπτης → setData, read-back και POSTED', async () => {
     settings.getSetting.mockResolvedValue(true);
     softone.softoneCall.mockResolvedValue({ success: true, id: 90210 });
-    softone.softoneGetData.mockResolvedValue({ PURDOC: [{ FINDOC: '90210', FINCODE: '17', TRDR: '12345' }] });
+    softone.softoneGetData.mockResolvedValue({ PURDOC: [{ FINDOC: '90210', FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17', SERIESNUM: '48', TRDR: '12345' }] });
 
     const res = await postDocumentToSoftone('d1');
 
@@ -273,7 +273,7 @@ describe('postDocumentToSoftone', () => {
   it('ΑΥΤΟΜΑΤΗ ανάρτηση (εκτελεστής προτύπων) ΔΕΝ επιβεβαιώνει το έγγραφο', async () => {
     settings.getSetting.mockResolvedValue(true);
     softone.softoneCall.mockResolvedValue({ success: true, id: 90210 });
-    softone.softoneGetData.mockResolvedValue({ PURDOC: [{ FINDOC: '90210', FINCODE: '17', TRDR: '12345' }] });
+    softone.softoneGetData.mockResolvedValue({ PURDOC: [{ FINDOC: '90210', FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17', SERIESNUM: '48', TRDR: '12345' }] });
 
     await postDocumentToSoftone('d1');                       // όπως το καλεί το lib/templates/run.ts
 
@@ -286,7 +286,7 @@ describe('postDocumentToSoftone', () => {
   it('ΧΕΙΡΟΚΙΝΗΤΗ ανάρτηση επιβεβαιώνει, με τον χρήστη που την έκανε', async () => {
     settings.getSetting.mockResolvedValue(true);
     softone.softoneCall.mockResolvedValue({ success: true, id: 90210 });
-    softone.softoneGetData.mockResolvedValue({ PURDOC: [{ FINDOC: '90210', FINCODE: '17', TRDR: '12345' }] });
+    softone.softoneGetData.mockResolvedValue({ PURDOC: [{ FINDOC: '90210', FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17', SERIESNUM: '48', TRDR: '12345' }] });
 
     await postDocumentToSoftone('d1', { verified: true, verifiedById: 'u1' });
 
@@ -316,6 +316,38 @@ describe('postDocumentToSoftone', () => {
 
     expect(res.ref).toBe('90210');
     expect(db.ocrDocument.update.mock.calls.at(-1)?.[0].data).toMatchObject({ postStatus: 'POSTED' });
+  });
+
+  it('read-back: «Φορ/κός αριθμός» ίσος με τον ΔΙΚΟ ΜΑΣ αύξοντα δεν επιβεβαιώνει μόνος του', async () => {
+    // Οι γραμμές 1009/1034 του πελάτη έχουν TAXSERIESNUM = SERIESNUM: το ERP φαίνεται να γεμίζει
+    // το κενό πεδίο από τον αύξοντα. Άρα τιμολόγιο με αριθμό «1» σε σειρά που δίνει SERIESNUM=1
+    // θα «επιβεβαιωνόταν» ακόμη κι αν το ERP είχε πετάξει ό,τι στείλαμε.
+    documentMod.loadDocumentJson.mockResolvedValue(document({ type: { label: null, series: null, number: '1', myDataType: null } }));
+    settings.getSetting.mockResolvedValue(true);
+    softone.softoneCall.mockResolvedValue({ success: true, id: 90210 });
+    softone.softoneGetData.mockResolvedValue({
+      PURDOC: [{ FINDOC: '90210', FINCODE: 'ΑΓΟ00000001', TAXSERIESNUM: '1', SERIESNUM: '1', TRDR: '12345' }],
+    });
+    await expect(postDocumentToSoftone('d1')).rejects.toThrow(/δεν επιβεβαιώθηκε/);
+  });
+
+  it('read-back: ίδια σύμπτωση, αλλά με το «Παραστατικό» να συμφωνεί → επιβεβαιώνεται', async () => {
+    documentMod.loadDocumentJson.mockResolvedValue(document({ type: { label: null, series: null, number: '1', myDataType: null } }));
+    settings.getSetting.mockResolvedValue(true);
+    softone.softoneCall.mockResolvedValue({ success: true, id: 90210 });
+    softone.softoneGetData.mockResolvedValue({
+      PURDOC: [{ FINDOC: '90210', FINCODE: '1', TAXSERIESNUM: '1', SERIESNUM: '1', TRDR: '12345' }],
+    });
+    await expect(postDocumentToSoftone('d1')).resolves.toMatchObject({ ref: '90210' });
+  });
+
+  it('read-back: ελληνικό/λατινικό ομόγλυφο στην απάντηση δεν ρίχνει την επαλήθευση', async () => {
+    settings.getSetting.mockResolvedValue(true);
+    softone.softoneCall.mockResolvedValue({ success: true, id: 90210 });
+    softone.softoneGetData.mockResolvedValue({
+      PURDOC: [{ FINDOC: '90210', FINCODE: 'TΠY 17', TAXSERIESNUM: '17', SERIESNUM: '48', TRDR: '12345' }],
+    });
+    await expect(postDocumentToSoftone('d1')).resolves.toMatchObject({ ref: '90210' });
   });
 
   it('read-back: άλλος αριθμός ΚΑΙ στα δύο φορολογικά πεδία → η επαλήθευση σκάει', async () => {
@@ -386,7 +418,7 @@ describe('postDocumentToSoftone', () => {
     db.softoneItem.findMany.mockResolvedValue([]);
     db.softoneLineItem.findMany.mockResolvedValue([{ mtrl: 777, mtrType: 1, classType: 1, classCategory: 1, myDataCode: 'x' }]);
     softone.softoneCall.mockResolvedValue({ success: true, id: 4242 });
-    softone.softoneGetData.mockResolvedValue({ LINCREDOC: [{ FINDOC: '4242', FINCODE: '17', TRDR: '12345' }] });
+    softone.softoneGetData.mockResolvedValue({ LINCREDOC: [{ FINDOC: '4242', FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17', SERIESNUM: '48', TRDR: '12345' }] });
 
     await postDocumentToSoftone('d1');
 
@@ -406,7 +438,7 @@ describe('postDocumentToSoftone', () => {
     db.softoneItem.findMany.mockResolvedValue([]);
     db.softoneLineItem.findMany.mockResolvedValue([{ mtrl: 777, mtrType: 1, classType: 1, classCategory: 1, myDataCode: 'x' }]);
     softone.softoneCall.mockResolvedValue({ success: true, id: 5151 });
-    softone.softoneGetData.mockResolvedValue({ LINDEBDOC: [{ FINDOC: '5151', FINCODE: '17', TRDR: '12345' }] });
+    softone.softoneGetData.mockResolvedValue({ LINDEBDOC: [{ FINDOC: '5151', FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17', SERIESNUM: '48', TRDR: '12345' }] });
 
     await postDocumentToSoftone('d1');
 

@@ -502,6 +502,27 @@ describe('documentReference — η αναφορά του εκδότη στα τ�
       .toEqual({ taxSeries: 'ΤΠΥ', taxSeriesNum: 'ΤΙΜ 17', fincode: 'ΤΠΥ ΤΙΜ 17' });
   });
 
+  it('ελληνικά/λατινικά ομόγλυφα: το πρόθεμα ΔΕΝ γράφεται δύο φορές', () => {
+    // Η ΠΡΑΓΜΑΤΙΚΗ γραμμή 1042 του πελάτη είναι «ΤΙΜ-AA-2455» με ΕΛΛΗΝΙΚΟ «ΤΙΜ» και ΛΑΤΙΝΙΚΟ
+    // «AA» στο ίδιο string. Το OCR μπορεί κάλλιστα να δώσει τη σειρά με ελληνικά «Α»: χωρίς
+    // δίπλωμα ομογλύφων το πρόθεμα δεν αναγνωριζόταν και γραφόταν «ΤΙΜ-ΑΑ ΤΙΜ-AA-2455».
+    expect(documentReference({ series: 'ΤΙΜ-ΑΑ', number: 'ΤΙΜ-AA-2455' }))
+      .toEqual({ taxSeries: 'ΤΙΜ-ΑΑ', taxSeriesNum: '2455', fincode: 'ΤΙΜ-AA-2455' });
+    // Και αντίστροφα (σειρά λατινική, αριθμός ελληνικός).
+    expect(documentReference({ series: 'ΤΙΜ-AA', number: 'ΤΙΜ-ΑΑ-2455' }))
+      .toEqual({ taxSeries: 'ΤΙΜ-AA', taxSeriesNum: '2455', fincode: 'ΤΙΜ-ΑΑ-2455' });
+    // Ο τόνος δεν σπάει τη σύγκριση ούτε χάνεται χαρακτήρας.
+    expect(documentReference({ series: 'ΤΊΜ', number: 'ΤΙΜ 42' }))
+      .toEqual({ taxSeries: 'ΤΊΜ', taxSeriesNum: '42', fincode: 'ΤΙΜ 42' });
+  });
+
+  it('ο αριθμός είναι σκέτο το πρόθεμα: ο «Φορ/κός αριθμός» ΔΕΝ μένει κενός', () => {
+    // Κενό πεδίο σημαίνει ότι το ERP βάζει εκεί τον ΔΙΚΟ ΜΑΣ αύξοντα (γραμμές 1009/1034) και ότι
+    // ο έλεγχος διπλοεγγραφής παρακάμπτεται εντελώς.
+    expect(documentReference({ series: 'ΤΔΑ', number: 'ΤΔΑ' }))
+      .toEqual({ taxSeries: 'ΤΔΑ', taxSeriesNum: 'ΤΔΑ', fincode: 'ΤΔΑ' });
+  });
+
   it('κενό έγγραφο → κανένα πεδίο (και άρα καμία κενή τιμή στην κεφαλίδα)', () => {
     expect(documentReference({ series: null, number: null })).toEqual({});
     expect(documentReference({ series: 'ΤΠΥ', number: null })).toEqual({ taxSeries: 'ΤΠΥ' });
