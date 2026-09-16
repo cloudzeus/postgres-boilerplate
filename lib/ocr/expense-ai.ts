@@ -183,6 +183,26 @@ export function parseAiAnswer(raw: string): ParsedAnswer[] {
   return out;
 }
 
+/**
+ * Το κλειδί που επέστρεψε το μοντέλο, δεμένο σε ένα κλειδί που ΟΝΤΩΣ ρωτήσαμε — αλλιώς `null`.
+ *
+ * Η γραμμή του prompt είναι `<key> :: <δείγμα>`, και το μοντέλο αντιγράφει συχνά ΟΛΗ τη γραμμή
+ * στο `key`. Με σκέτο `Set.has()` έπεφτε τότε **κάθε** απάντηση στη λευκή λίστα, σιωπηλά: η
+ * «Πρόταση με AI» πλήρωνε την κλήση και γύριζε μηδέν προτάσεις χωρίς να παραπονεθεί πουθενά.
+ * Δεν κόβουμε στο `' :: '` (ένα κλειδί θα μπορούσε να το περιέχει) αλλά δεχόμαστε το πιο ΜΑΚΡΥ
+ * κλειδί που είναι πρόθεμα της απάντησης: η λευκή λίστα μένει λευκή λίστα.
+ */
+export function resolveAnswerKey(raw: string, asked: Set<string>): string | null {
+  const k = String(raw ?? '').trim();
+  if (!k) return null;
+  if (asked.has(k)) return k;
+  let best: string | null = null;
+  for (const a of asked) {
+    if (k.startsWith(a) && (best === null || a.length > best.length)) best = a;
+  }
+  return best;
+}
+
 /** Η καλύτερη ντετερμινιστική πρόταση μιας ομάδας — αυτή κρίνει αν χρειάζεται μοντέλο. */
 const bestScore = (suggestions: QueueSuggestion[]): number => bestSuggestionScore(suggestions);
 
@@ -449,6 +469,8 @@ export async function suggestExpensesWithAi(input: {
     '',
     'Επέστρεψε JSON με ΜΙΑ εγγραφή ανά γραμμή. Δώσε πάντα "kind" και "reason"·',
     'το "code" μόνο όταν υπάρχει πραγματικό ταίριασμα στη λίστα υποψηφίων.',
+    'Το "key" είναι ΑΚΡΙΒΩΣ το κείμενο ΠΡΙΝ από το " :: " της γραμμής — αντέγραψέ το',
+    'αυτούσιο, χωρίς το δείγμα και χωρίς τη γραμμή «εκδότης».',
   ].join('\n');
 
   const usage = { operation: 'ocr.suggest_expense', refType: 'OcrInvoiceItem', refId: fresh[0]?.key };
@@ -477,7 +499,8 @@ export async function suggestExpensesWithAi(input: {
   const askedKeys = new Set(fresh.map((g) => g.key));
   const seen = new Set<string>();
   for (const a of answers) {
-    if (!askedKeys.has(a.key) || seen.has(a.key)) continue;
+    const key = resolveAnswerKey(a.key, askedKeys);
+    if (!key || seen.has(key)) continue;
     // ΛΕΥΚΗ ΛΙΣΤΑ: δεκτός μόνο κωδικός που όντως στείλαμε. Ό,τι άλλο πετιέται σιωπηλά.
     const c = a.code ? byCode.get(a.code.trim().toUpperCase()) ?? null : null;
     // Ο ΤΥΠΟΣ δηλώνεται μόνο πάνω από το κατώφλι βεβαιότητας: χαμηλή βεβαιότητα ⇒ «χωρίς
@@ -488,9 +511,9 @@ export async function suggestExpensesWithAi(input: {
     // prompt για τα ΠΑΓΙΑ («χαμηλό confidence + γράψε στο reason ότι είναι πάγιο»): πριν, η
     // απάντηση πετιόταν εδώ και ο χρήστης δεν έβλεπε ποτέ τον λόγο που του γράφτηκε.
     if (!c && !kind && !standsAlone(a.reason)) continue;
-    seen.add(a.key);
+    seen.add(key);
     const suggestion: AiSuggestion = {
-      key: a.key,
+      key,
       kind,
       lin: c?.mtrl ?? null,
       code: c?.code ?? null,
@@ -501,7 +524,7 @@ export async function suggestExpensesWithAi(input: {
       myDataType: a.mydata && myData.allowedTypes.has(a.mydata.trim()) ? a.mydata.trim() : null,
     };
     out.push(suggestion);
-    cache.set(cacheKey(fresh.find((g) => g.key === a.key)!, categoryId, signature), { at: now, value: suggestion });
+    cache.set(cacheKey(fresh.find((g) => g.key === key)!, categoryId, signature), { at: now, value: suggestion });
   }
   // Ομάδες που το μοντέλο άφησε αναπάντητες: τις θυμόμαστε κι αυτές, για να μην ξαναπληρώσουμε.
   for (const g of fresh) {

@@ -26,7 +26,7 @@ vi.mock('@/lib/ocr/extract', () => extract);
 vi.mock('@/lib/settings', () => ({ getSetting: vi.fn(async () => ''), setSetting: vi.fn() }));
 
 import {
-  suggestExpensesWithAi, parseAiAnswer, clearExpenseAiCache, MAX_GROUPS,
+  suggestExpensesWithAi, parseAiAnswer, clearExpenseAiCache, MAX_GROUPS, resolveAnswerKey,
 } from '../expense-ai';
 import { clearOwnCompanyCache } from '../own-company';
 
@@ -262,5 +262,49 @@ describe('suggestExpensesWithAi', () => {
     const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
 
     expect(r.suggestions[0]).toMatchObject({ kind: 'expense', myDataType: null });
+  });
+  // Το μοντέλο αντιγράφει συχνά ΟΛΗ τη γραμμή του prompt («<key> :: <δείγμα>») στο "key".
+  // Με σκέτο Set.has() έπεφτε ΚΑΘΕ απάντηση στη λευκή λίστα — η κλήση πληρωνόταν και γύριζε
+  // μηδέν προτάσεις, σιωπηλά. Επαληθεύτηκε ζωντανά με το gemini-2.5-flash.
+  it('κλειδί με το δείγμα κολλημένο («<key> :: <δείγμα>») δένεται στη σωστή ομάδα', async () => {
+    queues.suggestForGroup.mockResolvedValue([]);
+    db.softoneLineItem.findMany.mockResolvedValue([]);
+    extract.callTextViaVision.mockResolvedValue({
+      content: '{"matches":[{"key":"g1 :: ΨΩΜΙ ΧΩΡΙΑΤΙΚΟ","kind":"expense","code":"","confidence":0.9,"reason":"ομάδα 64 — έξοδα φιλοξενίας"}]}',
+    });
+
+    const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΨΩΜΙ ΧΩΡΙΑΤΙΚΟ')] });
+
+    expect(r.suggestions).toHaveLength(1);
+    expect(r.suggestions[0]).toMatchObject({ key: 'g1', kind: 'expense' });
+  });
+
+  it('κλειδί που ΔΕΝ είναι πρόθεμα καμιάς ερώτησης εξακολουθεί να πέφτει', async () => {
+    queues.suggestForGroup.mockResolvedValue([]);
+    db.softoneLineItem.findMany.mockResolvedValue([]);
+    extract.callTextViaVision.mockResolvedValue({
+      content: '{"matches":[{"key":"ΑΛΛΗ ΟΜΑΔΑ :: g1","kind":"expense","code":"","confidence":0.9,"reason":"ομάδα 64"}]}',
+    });
+
+    const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΨΩΜΙ')] });
+
+    expect(r.suggestions).toEqual([]);
+  });
+});
+
+describe('resolveAnswerKey', () => {
+  const asked = new Set(['094073495|ψωμι', '094073495|ψωμι χωριατικο']);
+
+  it('ακριβές κλειδί περνά ως έχει', () => {
+    expect(resolveAnswerKey('094073495|ψωμι', asked)).toBe('094073495|ψωμι');
+  });
+
+  it('διαλέγει το ΜΑΚΡΥΤΕΡΟ κλειδί όταν δύο είναι προθέματα της απάντησης', () => {
+    expect(resolveAnswerKey('094073495|ψωμι χωριατικο :: ΨΩΜΙ', asked)).toBe('094073495|ψωμι χωριατικο');
+  });
+
+  it('άσχετο ή κενό κλειδί → null, η λευκή λίστα μένει λευκή λίστα', () => {
+    expect(resolveAnswerKey('κατι αλλο', asked)).toBeNull();
+    expect(resolveAnswerKey('   ', asked)).toBeNull();
   });
 });
