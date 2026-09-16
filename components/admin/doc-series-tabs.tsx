@@ -15,6 +15,7 @@ import {
   defaultPostingTarget, objectsForSosource, resolvePostingTarget,
   type PostLineTable,
 } from '@/lib/ocr/posting-target';
+import { syncErrorMessage } from '@/lib/softone/sync-error';
 
 export type DocSeriesRecord = {
   id: number;
@@ -137,7 +138,7 @@ export function DocSeriesTabs({
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού');
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού'));
     }
   };
 

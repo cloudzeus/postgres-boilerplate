@@ -309,7 +309,13 @@ export function OcrRowDetail({
         quantity: toNum(it.quantity), price: toNum(it.price), discount: toNum(it.discount),
         vatRate: toNum(it.vatRate), total: toNum(it.total),
         ...(it.customFields && Object.keys(it.customFields).length ? { customFields: it.customFields } : {}),
-      })).filter((it) => it.name || it.code || it.total != null);
+      // Κρατάμε κάθε γραμμή που κουβαλάει ΕΣΤΩ ΕΝΑ στοιχείο. Το παλιό φίλτρο ζητούσε περιγραφή,
+      // κωδικό ή σύνολο — και έσβηνε σιωπηλά γραμμή με μόνο ποσότητα και τιμή (ή μόνο μονάδα),
+      // δηλαδή ακριβώς ό,τι μόλις είχε πληκτρολογήσει ο χρήστης. Φεύγει μόνο η ΕΝΤΕΛΩΣ κενή.
+      })).filter((it) =>
+        it.name || it.code || it.unit || it.total != null
+        || it.quantity != null || it.price != null || it.discount != null || it.vatRate != null,
+      );
     }
     return out;
   }

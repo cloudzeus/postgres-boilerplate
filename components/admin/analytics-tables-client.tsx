@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
+import { syncErrorMessage } from '@/lib/softone/sync-error';
 
 // Τα τρία μητρώα της ΑΝΑΛΥΤΙΚΗΣ ανά γραμμή: κέντρα κόστους (PRSCOSTCNTR), έργα (PRJC) και
 // κατηγορίες δραστηριότητας (PRJCSTAGE). Ίδιος πίνακας, ίδιος συγχρονισμός — μόνο ανάγνωση.
@@ -44,8 +45,8 @@ export function AnalyticsTableClient({
       toast.success(`${title}: ${Number(d.total ?? 0).toLocaleString('el-GR')} (νέα ${d.created}, ενημερώσεις ${d.updated})`);
       router.refresh();
     } else {
-      const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού');
+      // Ένα μήνυμα, μία μετάφραση: το ίδιο helper με τα υπόλοιπα κουμπιά συγχρονισμού.
+      toast.error(syncErrorMessage(await res.json().catch(() => ({}))));
     }
   };
 

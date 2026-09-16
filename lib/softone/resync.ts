@@ -11,6 +11,8 @@ import { prisma } from '@/lib/db';
 import { setSetting } from '@/lib/settings';
 import { logAudit } from '@/lib/audit';
 import {
+  SoftoneConfigError,
+  SoftoneError,
   softoneFetchDocSeries,
   softoneFetchExpenses,
   softoneFetchItems,
@@ -55,6 +57,8 @@ export type SyncOutcome = {
   updated: number;
   skipped: number;
   error: string | null;
+  /** Ποιο σύστημα φταίει όταν `ok:false` — ο ERP, η τοπική βάση ή η διαμόρφωση. `null` σε επιτυχία. */
+  errorSource: 'softone' | 'database' | 'configuration' | null;
   ms: number;
   detail: Record<string, unknown>;
 };
@@ -70,12 +74,42 @@ export type ResyncReport = {
 
 const nowIso = () => new Date().toISOString();
 
+/**
+ * Άδεια απάντηση = ΑΠΟΤΥΧΙΑ του βήματος, ποτέ «μηδέν εγγραφές».
+ *
+ * Κάθε ένας από τους επτά συγχρονισμούς είτε αντικαθιστά ολόκληρο τον πίνακα είτε σβήνει/
+ * απενεργοποιεί ό,τι δεν γύρισε ο ERP. Αν δεχτούμε ένα άδειο `rows` ως έγκυρη απάντηση, το
+ * αποτέλεσμα είναι ΑΔΕΙΟ ΜΗΤΡΩΟ με `ok: true` — δηλαδή σιωπηλή καταστροφή δεδομένων ακριβώς
+ * τη στιγμή που ο χρήστης νομίζει ότι συγχρονίστηκε. Πετώντας εδώ, ο ενορχηστρωτής γράφει το
+ * βήμα ως αποτυχία και ΚΑΝΕΝΑ prune δεν προλαβαίνει να τρέξει.
+ */
+function assertNonEmpty(rows: unknown[], what: string, note = ''): void {
+  if (rows.length === 0) throw new SoftoneError(`Δεν επιστράφηκαν ${what} από το SoftOne${note}`);
+}
+
+/**
+ * Τρία μητρώα (έξοδα, τύποι παραστατικών αγορών, σειρές) μπορούν να είναι ΝΟΜΙΜΑ άδεια σε μια
+ * εγκατάσταση. Εκεί η αυστηρότητα σημαίνει μόνιμα κόκκινο βήμα — σωστό μεν, αλλά ο διαχειριστής
+ * πρέπει να το ξέρει και να μην το κυνηγάει.
+ */
+const MAY_BE_EMPTY = ' (αν η εγκατάσταση όντως δεν έχει, το βήμα θα μένει κόκκινο — δεν είναι βλάβη)';
+
+/**
+ * Ποιο σύστημα φταίει. Οι ελλιπείς ρυθμίσεις σύνδεσης ΔΕΝ είναι φταίξιμο του ERP (ούτε της
+ * βάσης): είναι διαμόρφωση, και γι' αυτό απαντούν 400 αντί για 502.
+ */
+function errorSourceOf(e: unknown): NonNullable<SyncOutcome['errorSource']> {
+  if (e instanceof SoftoneConfigError) return 'configuration';
+  return e instanceof SoftoneError ? 'softone' : 'database';
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ΦΠΑ (VatCategory)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function syncVatCategories(actor: SyncActor): Promise<SyncPayload> {
   const rows = await softoneFetchVatCategories();
+  assertNonEmpty(rows, 'κατηγορίες ΦΠΑ');
 
   // Φωτογραφία του μητρώου (με το πλήθος εταιριών που το δείχνουν) ΠΡΙΝ τον συγχρονισμό.
   const before = await prisma.vatCategory.findMany({
@@ -129,12 +163,31 @@ export async function syncVatCategories(actor: SyncActor): Promise<SyncPayload> 
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function syncLookups(actor: SyncActor): Promise<SyncPayload> {
-  const rows = await softoneFetchLookups();
-  if (rows.length === 0) throw new Error('Δεν επιστράφηκαν πίνακες');
+  const { rows, failed } = await softoneFetchLookups();
+  assertNonEmpty(rows, 'βοηθητικοί πίνακες');
 
+  // Ο πίνακας `SoftoneLookup` κουβαλάει ΕΞΙ διαφορετικά είδη (ΦΠΑ, μονάδες, ομάδες, κατηγορίες,
+  // κατασκευαστές, μάρκες). Παλιά η αποτυχία ενός από αυτά καταπινόταν και το βήμα έσβηνε
+  // ΟΛΟΚΛΗΡΟ τον πίνακα για να τον ξαναγράψει χωρίς εκείνο το είδος: δηλαδή το ίδιο «άδειασμα
+  // μητρώου με ok: true» που κλείσαμε στον ΦΠΑ, μία στάθμη πιο κάτω.
+  //
+  //  • Είδος που ΔΕΝ απάντησε και είχε ήδη δεδομένα ⇒ αποτυχία βήματος, τίποτα δεν γράφεται.
+  //  • Είδος που ΔΕΝ απάντησε και ήταν ούτως ή άλλως άδειο (π.χ. εγκατάσταση χωρίς μάρκες)
+  //    ⇒ αγνοείται· δεν το αγγίζουμε καν.
+  //  • Καθαρίζονται ΜΟΝΟ τα είδη που απάντησαν.
+  const before = await prisma.softoneLookup.groupBy({ by: ['kind'], _count: { _all: true } });
+  const had = new Map(before.map((b) => [b.kind, b._count._all]));
+  const lost = failed.filter((k) => (had.get(k) ?? 0) > 0);
+  if (lost.length > 0) {
+    throw new SoftoneError(
+      `Δεν απάντησαν οι βοηθητικοί πίνακες: ${lost.join(', ')} — το μητρώο δεν αντικαταστάθηκε`,
+    );
+  }
+
+  const syncedKinds = Array.from(new Set(rows.map((r) => r.kind)));
   const data = rows.map((r, i) => ({ kind: r.kind, code: r.code, name: r.name, order: i }));
   const total = await prisma.$transaction(async (tx) => {
-    await tx.softoneLookup.deleteMany({});
+    await tx.softoneLookup.deleteMany({ where: { kind: { in: syncedKinds } } });
     let n = 0;
     for (let i = 0; i < data.length; i += 1000) {
       const res = await tx.softoneLookup.createMany({ data: data.slice(i, i + 1000) });
@@ -148,11 +201,15 @@ export async function syncLookups(actor: SyncActor): Promise<SyncPayload> {
   await setSetting('integrations.softoneLookupsLastSync', syncedAt, actor.id);
   await logAudit({
     userId: actor.id, userEmail: actor.email,
-    action: 'metadata.lookups.sync_softone', resource: 'setting', metadata: { total, byKind },
+    action: 'metadata.lookups.sync_softone', resource: 'setting', metadata: { total, byKind, notAnswered: failed },
   });
 
-  // Ο πίνακας αντικαθίσταται ολόκληρος — δεν υπάρχει «νέο» και «ενημερωμένο», μόνο το σύνολο.
-  return { created: total, updated: 0, skipped: rows.length - total, total, syncedAt, detail: { byKind } };
+  // Κάθε είδος που απάντησε αντικαθίσταται ολόκληρο — δεν υπάρχει «νέο» και «ενημερωμένο».
+  // Τα είδη που δεν απάντησαν (και ήταν άδεια) αναφέρονται ρητά, για να μη θεωρηθεί ότι τα είδαμε.
+  return {
+    created: total, updated: 0, skipped: rows.length - total, total, syncedAt,
+    detail: { byKind, ...(failed.length ? { notAnswered: failed } : {}) },
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -161,7 +218,7 @@ export async function syncLookups(actor: SyncActor): Promise<SyncPayload> {
 
 export async function syncExpenses(actor: SyncActor): Promise<SyncPayload> {
   const rows = await softoneFetchExpenses();
-  if (rows.length === 0) throw new Error('Δεν επιστράφηκαν έξοδα');
+  assertNonEmpty(rows, 'έξοδα', MAY_BE_EMPTY);
 
   const existing = new Set((await prisma.softoneExpense.findMany({ select: { expn: true } })).map((v) => v.expn));
   const activeExpn = rows.map((r) => r.expn);
@@ -208,7 +265,7 @@ export async function syncExpenses(actor: SyncActor): Promise<SyncPayload> {
 
 export async function syncItems(actor: SyncActor): Promise<SyncPayload> {
   const rows = await softoneFetchItems();
-  if (rows.length === 0) throw new Error('Δεν επιστράφηκαν είδη');
+  assertNonEmpty(rows, 'είδη');
 
   const data = rows.map((r) => ({
     mtrl: r.mtrl, code: r.code, code1: r.code1, code2: r.code2,
@@ -245,7 +302,7 @@ export async function syncItems(actor: SyncActor): Promise<SyncPayload> {
 
 export async function syncTraders(actor: SyncActor): Promise<SyncPayload> {
   const rows = await softoneFetchTraders();
-  if (rows.length === 0) throw new Error('Δεν επιστράφηκαν συναλλασσόμενοι');
+  assertNonEmpty(rows, 'συναλλασσόμενοι');
 
   const data = rows.map((r) => ({
     trdr: r.trdr, sodtype: r.sodtype, kind: r.kind, code: r.code, name: r.name || r.code,
@@ -283,6 +340,7 @@ export async function syncTraders(actor: SyncActor): Promise<SyncPayload> {
 
 export async function syncPurchaseDocTypes(actor: SyncActor): Promise<SyncPayload> {
   const rows = await softoneFetchPurchaseDocTypes();
+  assertNonEmpty(rows, 'τύποι παραστατικών αγορών', MAY_BE_EMPTY);
 
   const existingCodes = new Set(
     (await prisma.purchaseDocType.findMany({ select: { code: true } })).map((v) => v.code),
@@ -303,7 +361,9 @@ export async function syncPurchaseDocTypes(actor: SyncActor): Promise<SyncPayloa
     if (existingCodes.has(r.code)) updated++; else created++;
   }
 
-  // Ασφαλιστική δικλείδα: μια άδεια απάντηση SoftOne δεν αδειάζει το μητρώο.
+  // Δεύτερη δικλείδα, μετά τον `assertNonEmpty`: γραμμές ΧΩΡΙΣ κωδικό μετριούνται ως
+  // `skipped`, οπότε ένα μη άδειο `rows` μπορεί να δώσει άδειο `activeCodes` — και πάλι
+  // δεν επιτρέπεται να σβήσει το μητρώο.
   let removed = 0;
   if (activeCodes.size > 0) {
     const res = await prisma.purchaseDocType.deleteMany({ where: { code: { notIn: Array.from(activeCodes) } } });
@@ -327,6 +387,7 @@ export async function syncPurchaseDocTypes(actor: SyncActor): Promise<SyncPayloa
 
 export async function syncDocSeries(actor: SyncActor): Promise<SyncPayload> {
   const rows = await softoneFetchDocSeries();
+  assertNonEmpty(rows, 'σειρές παραστατικών', MAY_BE_EMPTY);
 
   const existing = new Set(
     (await prisma.softoneDocSeries.findMany({ select: { sosource: true, code: true } }))
@@ -345,7 +406,7 @@ export async function syncDocSeries(actor: SyncActor): Promise<SyncPayload> {
     if (existing.has(`${r.sosource}:${r.code}`)) updated++; else created++;
   }
 
-  // Ασφαλιστική δικλείδα: μια άδεια απάντηση SoftOne δεν αδειάζει το μητρώο.
+  // Δεύτερη δικλείδα, μετά τον `assertNonEmpty`.
   let removed = 0;
   if (rows.length > 0) {
     const keep = new Set(rows.map((r) => `${r.sosource}:${r.code}`));
@@ -374,7 +435,7 @@ export async function syncDocSeries(actor: SyncActor): Promise<SyncPayload> {
 
 export async function syncLineItems(actor: SyncActor): Promise<SyncPayload> {
   const rows = await softoneFetchLineItems();
-  if (rows.length === 0) throw new Error('Δεν επιστράφηκαν χρεοπιστώσεις');
+  assertNonEmpty(rows, 'χρεοπιστώσεις', MAY_BE_EMPTY);
 
   const existing = new Set((await prisma.softoneLineItem.findMany({ select: { mtrl: true } })).map((v) => v.mtrl));
   const now = new Date();
@@ -415,7 +476,7 @@ export async function syncLineCategories(actor: SyncActor): Promise<SyncPayload>
   // Επιτρέπουμε ρητά την εφεδρεία χωρίς SODTYPE — αλλά ΔΕΝ την κρύβουμε: κάθε γραμμή που ήρθε
   // από αυτήν σημαδεύεται `sodtypeFiltered: false` και το UI το γράφει.
   const { rows, filtered } = await softoneFetchLineCategories({ allowUnfiltered: true });
-  if (rows.length === 0) throw new Error('Δεν επιστράφηκαν κατηγορίες δαπανών');
+  assertNonEmpty(rows, 'κατηγορίες δαπανών', MAY_BE_EMPTY);
 
   const existing = new Set(
     (await prisma.softoneLineCategory.findMany({ select: { mtrCategory: true } })).map((v) => v.mtrCategory),
@@ -466,7 +527,7 @@ export async function syncMyDataClasses(actor: SyncActor): Promise<SyncPayload> 
     softoneFetchMyDataClassCategories(),
   ]);
   if (types.length === 0 && categories.length === 0) {
-    throw new Error('Δεν επιστράφηκαν χαρακτηρισμοί myDATA');
+    assertNonEmpty([], 'χαρακτηρισμοί myDATA');
   }
 
   const now = new Date();
@@ -516,7 +577,7 @@ export async function syncMyDataClasses(actor: SyncActor): Promise<SyncPayload> 
 
 export async function syncCostCenters(actor: SyncActor): Promise<SyncPayload> {
   const rows = await softoneFetchCostCenters();
-  if (rows.length === 0) throw new Error('Δεν επιστράφηκαν κέντρα κόστους');
+  assertNonEmpty(rows, 'κέντρα κόστους', MAY_BE_EMPTY);
 
   const existing = new Set((await prisma.softoneCostCenter.findMany({ select: { costcntr: true } })).map((v) => v.costcntr));
   const now = new Date();
@@ -547,7 +608,7 @@ export async function syncCostCenters(actor: SyncActor): Promise<SyncPayload> {
 
 export async function syncProjects(actor: SyncActor): Promise<SyncPayload> {
   const rows = await softoneFetchProjects();
-  if (rows.length === 0) throw new Error('Δεν επιστράφηκαν έργα');
+  assertNonEmpty(rows, 'έργα', MAY_BE_EMPTY);
 
   const existing = new Set((await prisma.softoneProject.findMany({ select: { prjc: true } })).map((v) => v.prjc));
   const now = new Date();
@@ -575,7 +636,7 @@ export async function syncProjects(actor: SyncActor): Promise<SyncPayload> {
 
 export async function syncProjectStages(actor: SyncActor): Promise<SyncPayload> {
   const rows = await softoneFetchProjectStages();
-  if (rows.length === 0) throw new Error('Δεν επιστράφηκαν δραστηριότητες');
+  assertNonEmpty(rows, 'δραστηριότητες', MAY_BE_EMPTY);
 
   const existing = new Set((await prisma.softoneProjectStage.findMany({ select: { prjcStage: true } })).map((v) => v.prjcStage));
   const now = new Date();
@@ -645,40 +706,242 @@ export const SYNC_STEPS: { table: SyncTable; label: string; run: (actor: SyncAct
 export const SYNC_LABELS: Record<SyncTable, string> =
   Object.fromEntries(SYNC_STEPS.map((s) => [s.table, s.label])) as Record<SyncTable, string>;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Ο δείκτης τρέχοντος περάσματος: κλειδαριά ΚΑΙ σωρευτής
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ΜΙΑ γραμμή `AppSetting` κρατάει το πέρασμα που τρέχει τώρα. Κάνει δύο δουλειές ταυτόχρονα:
+ *
+ *  1. **Κλειδαριά.** Οι βαριοί πίνακες (είδη, συναλλασσόμενοι) σβήνουν ΤΑ ΠΑΝΤΑ και ξαναγράφουν
+ *     μέσα σε transaction. Δύο διαχειριστές που πατάνε μαζί το κουμπί τρέχουν δύο τέτοια
+ *     ταυτόχρονα πάνω στον ίδιο πίνακα. Ο δεύτερος παίρνει πλέον σαφές «τρέχει ήδη».
+ *  2. **Σωρευτής.** Το UI τρέχει έναν πίνακα ανά αίτημα (για να δείχνει πρόοδο), άρα ο server
+ *     δεν βλέπει ποτέ «ολόκληρο πέρασμα» μέσα σε μία κλήση. Ο δείκτης θυμάται τι έχει ήδη
+ *     ολοκληρωθεί με το ίδιο `runId`, ώστε η συγκεντρωτική εγγραφή ελέγχου να γράφεται
+ *     ΠΡΑΓΜΑΤΙΚΑ όταν κλείσει ο κύκλος — και όχι ποτέ, όπως γινόταν.
+ *
+ * Το κλειδί ΔΕΝ είναι στον `SETTING_CATALOG`, άρα δεν εμφανίζεται ποτέ στη φόρμα ρυθμίσεων.
+ */
+const RUN_KEY = 'integrations.softoneResyncRun';
+
+/** Μετά από τόση ώρα ΧΩΡΙΣ ΧΤΥΠΟ, το πέρασμα θεωρείται εγκαταλελειμμένο (κλειστή καρτέλα). */
+const RUN_STALE_MS = 15 * 60 * 1000;
+
+/** Πόσο συχνά ένα βήμα που τρέχει δηλώνει «ζω» στον δείκτη. Αρκετά μικρό ώστε ένα βαρύ βήμα
+ *  να μη φαίνεται ποτέ ξεχασμένο, αρκετά μεγάλο ώστε να μη φορτώνει τη βάση. */
+const HEARTBEAT_MS = 60 * 1000;
+
+type RunStep = Pick<SyncOutcome, 'table' | 'ok' | 'error' | 'errorSource' | 'created' | 'updated' | 'skipped' | 'ms'>;
+
+type RunMarker = {
+  runId: string;
+  actorId: string;
+  actorEmail: string;
+  startedAt: number;
+  touchedAt: number;
+  /** Τα βήματα που δήλωσε ο caller ότι θα τρέξει σε αυτό το πέρασμα. */
+  expected: SyncTable[];
+  done: RunStep[];
+};
+
+/** Το «τρέχει ήδη συγχρονισμός» — ο caller το μεταφράζει σε 409. */
+export class ResyncBusyError extends Error {
+  readonly code = 'sync_running';
+  constructor(readonly startedAt: string, readonly byEmail: string) {
+    super(
+      `Ένας συγχρονισμός βοηθητικών πινάκων τρέχει ήδη (${byEmail}, από ${new Date(startedAt).toLocaleString('el-GR')}). `
+      + `Περίμενε να ολοκληρωθεί και ξαναδοκίμασε· αν η καρτέλα που τον ξεκίνησε έκλεισε, `
+      + `ο δείκτης ελευθερώνεται αυτόματα μετά από ${Math.round(RUN_STALE_MS / 60000)} λεπτά αδράνειας.`,
+    );
+    this.name = 'ResyncBusyError';
+  }
+}
+
+function parseMarker(value: unknown): RunMarker | null {
+  const o = typeof value === 'string' ? (() => { try { return JSON.parse(value); } catch { return null; } })() : value;
+  if (!o || typeof o !== 'object') return null;
+  const m = o as Partial<RunMarker>;
+  if (typeof m.runId !== 'string' || !Array.isArray(m.expected) || !Array.isArray(m.done)) return null;
+  return {
+    runId: m.runId,
+    actorId: String(m.actorId ?? ''),
+    actorEmail: String(m.actorEmail ?? ''),
+    startedAt: Number(m.startedAt ?? 0),
+    touchedAt: Number(m.touchedAt ?? m.startedAt ?? 0),
+    expected: m.expected as SyncTable[],
+    done: m.done as RunStep[],
+  };
+}
+
+const isUniqueViolation = (e: unknown): boolean => (e as { code?: string })?.code === 'P2002';
+
+/**
+ * «Η γραμμή του δείκτη, ΕΦΟΣΟΝ ανήκει ακόμη σε αυτό το πέρασμα.»
+ *
+ * Κάθε γραφή στον δείκτη περνάει από εδώ. Χωρίς τη συνθήκη `runId`, μια απελευθέρωση που
+ * αργεί ξαναγράφει τον δείκτη ΑΛΛΟΥ περάσματος που εν τω μεταξύ τον πήρε ως ξεχασμένο — και
+ * τότε τρέχουν δύο περάσματα μαζί πάνω στους ίδιους πίνακες, δηλαδή ακριβώς ό,τι εμποδίζει
+ * η κλειδαριά.
+ */
+const ownedBy = (runId: string) => ({
+  key: RUN_KEY,
+  value: { path: ['runId'], equals: runId },
+});
+
+/**
+ * Πιάνει τη σειρά. Ατομικά: το `create` πάνω σε μοναδικό `key` είναι ο μόνος τρόπος δύο
+ * ταυτόχρονα αιτήματα να μη νομίσουν και τα δύο ότι είναι μόνα τους.
+ */
+async function claimRun(
+  actor: SyncActor,
+  runId: string,
+  expected: SyncTable[],
+): Promise<RunMarker> {
+  const now = Date.now();
+  const fresh: RunMarker = {
+    runId, actorId: actor.id, actorEmail: actor.email,
+    startedAt: now, touchedAt: now, expected, done: [],
+  };
+
+  try {
+    await prisma.appSetting.create({
+      data: {
+        key: RUN_KEY,
+        value: fresh as unknown as never,
+        category: 'integrations',
+        description: 'Συγχρονισμός SoftOne σε εξέλιξη (προσωρινό)',
+      },
+    });
+    return fresh;
+  } catch (e) {
+    if (!isUniqueViolation(e)) throw e;
+  }
+
+  const row = await prisma.appSetting.findUnique({ where: { key: RUN_KEY } });
+  const current = parseMarker(row?.value);
+
+  // Συνέχεια του ΔΙΚΟΥ μας περάσματος: το UI στέλνει ένα αίτημα ανά πίνακα με το ίδιο runId.
+  if (current && current.runId === runId) return current;
+
+  const busy = () =>
+    new ResyncBusyError(new Date(current?.startedAt || now).toISOString(), current?.actorEmail || '—');
+
+  if (current && now - current.touchedAt < RUN_STALE_MS) throw busy();
+
+  // Ξεχασμένος δείκτης (έκλεισε η καρτέλα, έπεσε ο server): τον παίρνουμε — αλλά ΥΠΟ ΣΥΝΘΗΚΗ.
+  // Δύο αιτήματα μπορούν να διαβάσουν ταυτόχρονα τον ίδιο ξεχασμένο δείκτη· μόνο ένα επιτρέπεται
+  // να τον αντικαταστήσει, και είναι εκείνο που θα βρει ακόμη μέσα το ΠΑΛΙΟ `runId`.
+  const taken = current
+    ? await prisma.appSetting.updateMany({ where: ownedBy(current.runId), data: { value: fresh as unknown as never } })
+    : await prisma.appSetting.updateMany({ where: { key: RUN_KEY }, data: { value: fresh as unknown as never } });
+  if (taken.count === 0) throw busy();
+  return fresh;
+}
+
+/**
+ * Χτύπος καρδιάς όσο τρέχει ένα βήμα.
+ *
+ * Το `touchedAt` ανανεωνόταν μόνο ΑΝΑΜΕΣΑ στα αιτήματα: ένα βήμα που ξεπερνά το
+ * {@link RUN_STALE_MS} (οι συναλλασσόμενοι σε μεγάλη εγκατάσταση) έκανε τον δείκτη να φαίνεται
+ * ξεχασμένος ΕΝΩ ΕΤΡΕΧΕ. Επιστρέφει τη συνάρτηση που τον σταματάει.
+ */
+function startHeartbeat(marker: RunMarker): () => void {
+  const timer = setInterval(() => {
+    void prisma.appSetting
+      .updateMany({ where: ownedBy(marker.runId), data: { value: { ...marker, touchedAt: Date.now() } as unknown as never } })
+      .catch(() => { /* ο χτύπος δεν σπάει ποτέ τον συγχρονισμό */ });
+  }, HEARTBEAT_MS);
+  // Να μην κρατάει ζωντανή τη διεργασία.
+  (timer as unknown as { unref?: () => void }).unref?.();
+  return () => clearInterval(timer);
+}
+
+/** Γράφει την πρόοδο· όταν κλείσει ο κύκλος σβήνει τον δείκτη και λέει αν ήταν ΠΛΗΡΕΣ πέρασμα. */
+async function releaseRun(marker: RunMarker, steps: SyncOutcome[]): Promise<{ finished: boolean; full: boolean; done: RunStep[] }> {
+  const done: RunStep[] = [
+    ...marker.done.filter((d) => !steps.some((s) => s.table === d.table)),
+    ...steps.map((s) => ({
+      table: s.table, ok: s.ok, error: s.error, errorSource: s.errorSource,
+      created: s.created, updated: s.updated, skipped: s.skipped, ms: s.ms,
+    })),
+  ];
+  const covered = new Set(done.map((d) => d.table));
+  const finished = marker.expected.every((t) => covered.has(t));
+
+  // Και οι δύο γραφές είναι υπό συνθήκη `runId`: αν στο μεταξύ τον πήρε άλλο πέρασμα, δεν
+  // ακουμπάμε τίποτα — ούτε σβήνουμε τη δική του κλειδαριά, ούτε γράφουμε πάνω της.
+  if (finished) {
+    await prisma.appSetting.deleteMany({ where: ownedBy(marker.runId) });
+  } else {
+    await prisma.appSetting.updateMany({
+      where: ownedBy(marker.runId),
+      data: { value: { ...marker, touchedAt: Date.now(), done } as unknown as never },
+    });
+  }
+
+  return { finished, full: finished && SYNC_STEPS.every((s) => covered.has(s.table)), done };
+}
+
 /**
  * Τρέχει ΟΛΟΥΣ τους συγχρονισμούς, έναν-έναν, και επιστρέφει έναν απολογισμό ανά πίνακα.
  *
  * Μια αποτυχία ΔΕΝ σταματά τους υπόλοιπους: αν πέσει ο βαρύς πίνακας των συναλλασσομένων, δεν
  * υπάρχει λόγος να μείνουν ασυγχρόνιστες και οι σειρές παραστατικών. Ασφαλές να ξανατρέξει όσες
  * φορές θέλει κανείς — κάθε βήμα είναι upsert ή ολική αντικατάσταση, ποτέ προσθήκη.
+ *
+ * `run` είναι το πέρασμα στο οποίο ανήκει η κλήση: το UI στέλνει το ΙΔΙΟ `id` και τη ΛΙΣΤΑ των
+ * πινάκων που σκοπεύει να τρέξει, ώστε ο server να ξέρει πότε έκλεισε ο κύκλος. Χωρίς αυτό, η
+ * κλήση θεωρείται αυτοτελές πέρασμα (τα βήματά της και τέλος).
+ *
+ * Πετάει {@link ResyncBusyError} όταν τρέχει ήδη ΑΛΛΟ πέρασμα.
  */
 export async function resyncAllSoftone(
   actor: SyncActor,
-  opts: { only?: SyncTable[] } = {},
+  opts: { only?: SyncTable[]; run?: { id: string; tables?: SyncTable[] } } = {},
 ): Promise<ResyncReport> {
   const steps = opts.only?.length
     ? SYNC_STEPS.filter((s) => opts.only!.includes(s.table))
     : SYNC_STEPS;
 
+  const runId = opts.run?.id || `auto-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const expectedSet = new Set<SyncTable>(opts.run?.tables?.length ? opts.run.tables : steps.map((s) => s.table));
+  const expected = SYNC_STEPS.map((s) => s.table).filter((t) => expectedSet.has(t));
+
+  const marker = await claimRun(actor, runId, expected);
+  const stopHeartbeat = startHeartbeat(marker);
+
   const startedAt = Date.now();
   const results: SyncOutcome[] = [];
-  for (const step of steps) {
-    const t0 = Date.now();
-    try {
-      const r = await step.run(actor);
-      results.push({
-        table: step.table, label: step.label, ok: true,
-        created: r.created, updated: r.updated, skipped: r.skipped,
-        error: null, ms: Date.now() - t0, detail: { ...r.detail, total: r.total },
-      });
-    } catch (e) {
-      results.push({
-        table: step.table, label: step.label, ok: false,
-        created: 0, updated: 0, skipped: 0,
-        error: (e as Error).message || 'άγνωστο σφάλμα', ms: Date.now() - t0, detail: {},
-      });
+  try {
+    for (const step of steps) {
+      const t0 = Date.now();
+      try {
+        const r = await step.run(actor);
+        results.push({
+          table: step.table, label: step.label, ok: true,
+          created: r.created, updated: r.updated, skipped: r.skipped,
+          error: null, errorSource: null, ms: Date.now() - t0, detail: { ...r.detail, total: r.total },
+        });
+      } catch (e) {
+        results.push({
+          table: step.table, label: step.label, ok: false,
+          created: 0, updated: 0, skipped: 0,
+          error: (e as Error).message || 'άγνωστο σφάλμα', errorSource: errorSourceOf(e),
+          ms: Date.now() - t0, detail: {},
+        });
+      }
     }
+  } catch (e) {
+    // Άμυνα βάθους: τα σφάλματα των βημάτων πιάνονται ήδη μέσα στον βρόχο, οπότε εδώ φτάνει
+    // μόνο κάτι απρόβλεπτο. Δεν αφήνουμε κλειδαριά πίσω μας — τη δική ΜΑΣ κλειδαριά μόνο.
+    await prisma.appSetting.deleteMany({ where: ownedBy(marker.runId) }).catch(() => {});
+    throw e;
+  } finally {
+    stopHeartbeat();
   }
+
+  const { full, done } = await releaseRun(marker, results);
 
   const failCount = results.filter((r) => !r.ok).length;
   const report: ResyncReport = {
@@ -690,18 +953,65 @@ export async function resyncAllSoftone(
     finishedAt: nowIso(),
   };
 
-  // Συγκεντρωτική εγγραφή ΜΟΝΟ για ολόκληρο πέρασμα. Όταν το UI τρέχει έναν-έναν τους πίνακες
-  // (για να δείξει πρόοδο), η κάθε συνάρτηση γράφει ήδη τη δική της — δεν θέλουμε επτά «resync_all».
-  if (!opts.only?.length) {
+  // Συγκεντρωτική εγγραφή ΜΟΝΟ όταν κλείσει ΠΛΗΡΕΣ πέρασμα (και οι επτά πίνακες) — είτε έγινε
+  // με μία κλήση, είτε με επτά διαδοχικές που μοιράστηκαν το ίδιο `runId`. Τα νούμερα βγαίνουν
+  // από τον σωρευτή, όχι από την τελευταία κλήση, γιατί αυτή ξέρει μόνο τον δικό της πίνακα.
+  if (full) {
+    const failed = done.filter((d) => !d.ok);
     await logAudit({
       userId: actor.id, userEmail: actor.email,
       action: 'metadata.resync_all.sync_softone', resource: 'setting',
       metadata: {
-        ok: report.ok, okCount: report.okCount, failCount: report.failCount, ms: report.ms,
-        failed: results.filter((r) => !r.ok).map((r) => ({ table: r.table, error: r.error })),
+        ok: failed.length === 0,
+        okCount: done.length - failed.length,
+        failCount: failed.length,
+        ms: done.reduce((a, d) => a + (d.ms || 0), 0),
+        failed: failed.map((d) => ({ table: d.table, error: d.error, errorSource: d.errorSource })),
       },
     });
   }
 
   return report;
+}
+
+/**
+ * Η ΜΙΑ μετάφραση «σφάλμα συγχρονισμού → HTTP απάντηση», κοινή για τα επτά μεμονωμένα routes.
+ * Ένα `502 softone_error` πάνω από αποτυχία της τοπικής βάσης χρεώνει λάθος σύστημα.
+ */
+export function syncFailureResponse(e: unknown): { status: number; body: Record<string, unknown> } {
+  if (e instanceof ResyncBusyError) {
+    return { status: 409, body: { error: 'sync_running', message: e.message } };
+  }
+  if (e instanceof SoftoneConfigError) {
+    return { status: 400, body: { error: 'softone_not_configured', message: (e as Error).message } };
+  }
+  if (e instanceof SoftoneError) {
+    return { status: 502, body: { error: 'softone_error', message: (e as Error).message } };
+  }
+  return {
+    status: 500,
+    body: {
+      error: 'database_error',
+      message: `Αποτυχία στην τοπική βάση δεδομένων (το SoftOne απάντησε κανονικά): ${(e as Error).message}`,
+    },
+  };
+}
+
+/**
+ * Κλειδαριά για τα ΜΕΜΟΝΩΜΕΝΑ `sync-*-softone` routes: χωρίς αυτήν, ένα «Συγχρονισμός όλων»
+ * και ένα κλικ στο εικονίδιο ανανέωσης μιας κάρτας σβήνουν τον ίδιο πίνακα ταυτόχρονα.
+ */
+export async function withResyncLock<T>(
+  actor: SyncActor,
+  tables: SyncTable[],
+  fn: () => Promise<T>,
+): Promise<T> {
+  const runId = `single-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const marker = await claimRun(actor, runId, tables);
+  try {
+    return await fn();
+  } finally {
+    // Ο δείκτης δεν κρατάει απολογισμό εδώ — μόνο τη σειρά. Σβήνεται πάντα.
+    if (marker.runId === runId) await prisma.appSetting.deleteMany({ where: { key: RUN_KEY } }).catch(() => {});
+  }
 }
