@@ -31,7 +31,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ jobId: s
 
   try {
     const out = await rasterizeToWebp(buf, item.mimeType, { page, scale });
-    return new NextResponse(new Uint8Array(out), { headers: { 'Content-Type': 'image/webp', 'Cache-Control': 'private, max-age=0, must-revalidate', ETag: etag } });
+    return new NextResponse(new Uint8Array(out), { headers: { 'Content-Type': 'image/webp', 'Content-Length': String(out.byteLength), 'Cache-Control': 'private, max-age=0, must-revalidate', ETag: etag } });
   } catch (err) {
     const message = (err as Error)?.message;
     if (message === 'page out of range') return NextResponse.json({ error: 'page out of range' }, { status: 422 });

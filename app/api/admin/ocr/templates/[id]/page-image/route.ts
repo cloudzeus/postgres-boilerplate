@@ -36,7 +36,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
   try {
     const out = await rasterizeToWebp(buf, t.sampleMimeType ?? 'application/pdf', { page, scale });
-    return new NextResponse(new Uint8Array(out), { headers: { 'Content-Type': 'image/webp', 'Cache-Control': 'private, max-age=0, must-revalidate', ETag: etag } });
+    return new NextResponse(new Uint8Array(out), { headers: { 'Content-Type': 'image/webp', 'Content-Length': String(out.byteLength), 'Cache-Control': 'private, max-age=0, must-revalidate', ETag: etag } });
   } catch (err: any) {
     if (err?.message === 'page out of range') return NextResponse.json({ error: 'page out of range' }, { status: 422 });
     if (err?.message === 'unsupported type') return NextResponse.json({ error: 'unsupported type' }, { status: 415 });
