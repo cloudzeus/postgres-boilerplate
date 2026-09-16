@@ -4,13 +4,13 @@ module: ocr
 slug: ocr-overview
 roles: [SUPER_ADMIN, ADMIN, EMPLOYEE]
 order: 1
-updatedAt: 2026-09-12
+updatedAt: 2026-09-16
 description: "Αναγνώριση τιμολογίων / αποδείξεων / εγγράφων με AI και αυτόματη ανάρτηση σε εταιρία."
 screenshots:
   - file: list.png
     route: /admin/ocr
     caption: "Λίστα εγγράφων με κατάσταση επεξεργασίας"
-related: [templates, template-runs, template-training, template-jobs, document-json, doc-type, new-traders, new-items, companies-overview, split-pdf]
+related: [lines-editor, templates, template-runs, template-training, template-jobs, document-json, doc-type, new-traders, new-items, companies-overview, split-pdf]
 helpAnchors: [ocr, ocr-list]
 ---
 
@@ -168,6 +168,8 @@ helpAnchors: [ocr, ocr-list]
 ## Διόρθωση & ανάρτηση
 
 Άνοιξε ένα έγγραφο για επεξεργασία. Διόρθωσε ΑΦΜ, ποσά, ημερομηνίες αν χρειάζεται. Πάτα <strong>Καταχώρηση</strong> για ανάρτηση.
+
+Η κάρτα έχει τρεις καρτέλες: <strong>Πεδία</strong>, <strong>Γραμμές</strong> και <strong>JSON</strong>. Στις [Γραμμές](/wiki/ocr/lines-editor) διορθώνεις κάθε είδος ξεχωριστά — κωδικό, περιγραφή, <strong>μονάδα μέτρησης</strong>, ποσότητα, τιμή, έκπτωση, <strong>ΦΠΑ %</strong> και σύνολο. Η καρτέλα εμφανίζεται σε τιμολόγια και <strong>αποδείξεις</strong>, καθώς και σε κάθε έγγραφο που διάβασε έστω μία γραμμή.
 
 <Callout type="info">
   Προεπισκόπηση πρωτότυπου (αριστερά): τα <strong>PDF</strong> ανοίγουν στον ενσωματωμένο PDF viewer του browser με <strong>καθαρό zoom</strong> (Ctrl + κύλιση ή τα κουμπιά zoom) για επιβεβαίωση των στοιχείων. Οι <strong>εικόνες</strong> υποστηρίζουν <strong>κύλιση (scroll) για zoom</strong> και <strong>σύρε για μετακίνηση</strong> (διπλό κλικ για επαναφορά).

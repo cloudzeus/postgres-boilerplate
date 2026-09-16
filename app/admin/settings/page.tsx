@@ -30,6 +30,7 @@ export default async function SettingsPage() {
         icon={<FiSettings />}
         title="Ρυθμίσεις"
         description="Στοιχεία εταιρίας, διασυνδέσεις τρίτων, API keys και AI providers."
+        helpAnchor="softone-resync"
       />
       <SettingsForm
         items={items}
