@@ -10,6 +10,11 @@ import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
 import { Combobox } from '@/components/ui/combobox';
 import { Switch } from '@/components/ui/switch';
+import {
+  LINES_FOR_OBJECT, POST_LINES_LABEL, POST_OBJECTS, POST_OBJECT_SHORT,
+  defaultPostingTarget, resolvePostingTarget,
+  type PostLineTable, type PostObject,
+} from '@/lib/ocr/posting-target';
 
 export type DocSeriesRecord = {
   id: number;
@@ -22,6 +27,9 @@ export type DocSeriesRecord = {
   section: string | null;
   isActive: boolean;
   enabled: boolean;
+  /** Στόχος καταχώρισης· `null` = ισχύει η προεπιλογή της ενότητας. */
+  postObject: string | null;
+  postLines: string | null;
 };
 
 // Business areas in working order (purchases, expenses, assets first). Colors are DG
@@ -133,17 +141,30 @@ export function DocSeriesTabs({
     }
   };
 
-  // Optimistic on/off; reverts on failure.
-  const toggle = async (rec: DocSeriesRecord, enabled: boolean) => {
-    setRows((rs) => rs.map((r) => (r.source === rec.source && r.id === rec.id ? { ...r, enabled } : r)));
+  // Optimistic patch (on/off ή στόχος καταχώρισης)· επαναφορά στην προηγούμενη τιμή σε αποτυχία.
+  const patch = async (rec: DocSeriesRecord, change: Partial<Pick<DocSeriesRecord, 'enabled' | 'postObject' | 'postLines'>>) => {
+    const before = { enabled: rec.enabled, postObject: rec.postObject, postLines: rec.postLines };
+    setRows((rs) => rs.map((r) => (r.source === rec.source && r.id === rec.id ? { ...r, ...change } : r)));
     const res = await fetch('/api/admin/metadata/doc-series', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source: rec.source, id: rec.id, enabled }),
+      body: JSON.stringify({ source: rec.source, id: rec.id, ...change }),
     });
     if (!res.ok) {
-      setRows((rs) => rs.map((r) => (r.source === rec.source && r.id === rec.id ? { ...r, enabled: !enabled } : r)));
+      setRows((rs) => rs.map((r) => (r.source === rec.source && r.id === rec.id ? { ...r, ...before } : r)));
       toast.error(`Αποτυχία αλλαγής για τη σειρά ${rec.code}`);
     }
+  };
+  const toggle = (rec: DocSeriesRecord, enabled: boolean) => void patch(rec, { enabled });
+
+  /**
+   * Αλλαγή object: ο πίνακας γραμμών μπορεί να μην υπάρχει πια εκεί (π.χ. EXPANAL σε LINSUPDOC),
+   * οπότε τον καθαρίζουμε ώστε να ξαναϊσχύσει η προεπιλογή αντί για μια αδύνατη ρύθμιση.
+   */
+  const setObject = (rec: DocSeriesRecord, value: string) => {
+    const postObject = value || null;
+    const allowed = postObject ? LINES_FOR_OBJECT[postObject as PostObject] : null;
+    const keep = rec.postLines && allowed && allowed.includes(rec.postLines as PostLineTable);
+    void patch(rec, { postObject, postLines: keep ? rec.postLines : null });
   };
 
   const showModuleColumn = activeModule == null;
@@ -179,6 +200,12 @@ export function DocSeriesTabs({
         ),
       },
     ];
+    // Στόχος καταχώρισης — ΜΟΝΟ για τις σειρές που χρησιμοποιούμε: για τις υπόλοιπες δεν
+    // σημαίνει τίποτα και θα γέμιζε τον πίνακα με θόρυβο.
+    cols.push({
+      id: 'postTarget', header: 'Καταχώριση', size: 420, enableSorting: false,
+      cell: ({ row }) => <PostTargetCell rec={row.original} canManage={canManage} onObject={setObject} onLines={(r, v) => void patch(r, { postLines: v || null })} />,
+    });
     if (showModuleColumn) {
       cols.push({
         accessorKey: 'family', header: 'Ενότητα', size: 260,
@@ -278,6 +305,66 @@ export function DocSeriesTabs({
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Πού καταχωρείται μια σειρά: SoftOne object + πίνακας γραμμών. Κενή επιλογή = «προεπιλογή», και
+ * η προεπιλογή γράφεται δίπλα με ελληνικά ώστε ο χρήστης να βλέπει ΤΙ θα γίνει χωρίς να διαλέξει.
+ */
+function PostTargetCell({
+  rec, canManage, onObject, onLines,
+}: {
+  rec: DocSeriesRecord;
+  canManage: boolean;
+  onObject: (rec: DocSeriesRecord, value: string) => void;
+  onLines: (rec: DocSeriesRecord, value: string) => void;
+}) {
+  const fallback = defaultPostingTarget({ sosource: rec.sosource, section: rec.section, name: rec.name });
+  const effective = resolvePostingTarget({
+    sosource: rec.sosource, section: rec.section, name: rec.name,
+    postObject: rec.postObject, postLines: rec.postLines,
+  });
+  const allowed = LINES_FOR_OBJECT[effective.object];
+
+  if (!rec.enabled) {
+    return <span className="text-[11px] text-muted-foreground/70">—</span>;
+  }
+
+  const selectCls = 'h-7 max-w-[13rem] cursor-pointer rounded-sm border border-border bg-white px-1.5 text-[11px] disabled:cursor-default disabled:opacity-60';
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <select
+          aria-label={`Παραστατικό SoftOne για τη σειρά ${rec.code}`}
+          className={selectCls}
+          disabled={!canManage}
+          value={rec.postObject ?? ''}
+          onChange={(e) => onObject(rec, e.target.value)}
+        >
+          <option value="">Προεπιλογή — {POST_OBJECT_SHORT[fallback.object]}</option>
+          {POST_OBJECTS.map((o) => (
+            <option key={o} value={o}>{POST_OBJECT_SHORT[o]}</option>
+          ))}
+        </select>
+        <select
+          aria-label={`Πίνακας γραμμών για τη σειρά ${rec.code}`}
+          className={selectCls}
+          disabled={!canManage}
+          value={rec.postLines && allowed.includes(rec.postLines as PostLineTable) ? rec.postLines : ''}
+          onChange={(e) => onLines(rec, e.target.value)}
+        >
+          <option value="">Προεπιλογή — {POST_LINES_LABEL[fallback.lines]}</option>
+          {allowed.map((t) => (
+            <option key={t} value={t}>{POST_LINES_LABEL[t]}</option>
+          ))}
+        </select>
+      </div>
+      <span className="text-[10px] text-muted-foreground">
+        {effective.source === 'default' ? 'Προεπιλογή: ' : 'Ρύθμιση: '}
+        {POST_OBJECT_SHORT[effective.object]} · {POST_LINES_LABEL[effective.lines]}
+      </span>
     </div>
   );
 }

@@ -13,10 +13,18 @@ import type { DocumentEnvelope } from '@/lib/ocr/canonical';
 
 type PurdocHeader = Record<string, string | number>;
 type PurdocLine = Record<string, string | number>;
+type PayloadData = {
+  PURDOC?: PurdocHeader[]; LINSUPDOC?: PurdocHeader[]; LINCREDOC?: PurdocHeader[];
+  ITELINES?: PurdocLine[]; SRVLINES?: PurdocLine[]; ASSLINES?: PurdocLine[];
+  EXPANAL?: PurdocLine[]; LINLINES?: PurdocLine[];
+};
 type Preview = {
   enabled: boolean;
   blockers: { code: string; message: string }[];
-  payload: { OBJECT: string; KEY: string; DATA: { PURDOC: PurdocHeader[]; ITELINES?: PurdocLine[]; SRVLINES?: PurdocLine[]; EXPANAL?: PurdocLine[] } };
+  warnings: { code: string; message: string }[];
+  /** Πού πάει: SoftOne object + πίνακας γραμμών, με ελληνική περιγραφή και το «γιατί». */
+  target: { object: string; lines: string; source: 'configured' | 'default'; reason: string; label: string };
+  payload: { OBJECT: string; KEY: string; DATA: PayloadData };
   summary: { series: string | null; trader: string | null; trdr: number | null; date: string | null; number: string | null; lines: number };
   postStatus: string;
   postedRef: string | null;
@@ -123,7 +131,9 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
   const payloadRows: { kind: string; row: PurdocLine }[] = React.useMemo(() => [
     ...(lines?.ITELINES ?? []).map((row) => ({ kind: 'Είδος', row })),
     ...(lines?.SRVLINES ?? []).map((row) => ({ kind: 'Υπηρεσία', row })),
+    ...(lines?.ASSLINES ?? []).map((row) => ({ kind: 'Πάγιο', row })),
     ...(lines?.EXPANAL ?? []).map((row) => ({ kind: 'Έξοδο', row })),
+    ...(lines?.LINLINES ?? []).map((row) => ({ kind: 'Χρεοπίστωση', row })),
   ], [lines]);
   const blocked = (preview?.blockers.length ?? 0) > 0;
   // Ήδη καταχωρισμένο: το κουμπί κλειδώνει. Ο server το απορρίπτει ούτως ή άλλως (`already_posted`),
@@ -221,6 +231,29 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
             </p>
           )}
 
+          {/* Πού πάει: το πρώτο πράγμα που θέλει να δει ο χρήστης πριν σταλεί οτιδήποτε. */}
+          <div className="rounded-lg border border-border bg-muted/40 p-2.5 text-[12px]">
+            <p className="font-semibold">Προορισμός: {preview.target.label}</p>
+            <p className="mt-0.5 text-muted-foreground">
+              {preview.target.source === 'default' ? 'Προεπιλογή ενότητας' : 'Ρύθμιση σειράς'} · {preview.target.reason}
+              {' · '}
+              <Link href="/admin/doc-series" className="underline hover:text-foreground">Αλλαγή στις σειρές παραστατικών</Link>
+            </p>
+          </div>
+
+          {preview.warnings.length > 0 && !posted && (
+            <div className="rounded-lg border p-2.5 text-[12px]" style={{ borderColor: '#B4530930', backgroundColor: '#FFFBF3', color: '#92400E' }}>
+              <p className="font-semibold">Παρατηρήσεις (δεν εμποδίζουν)</p>
+              <ul className="mt-1 space-y-0.5">
+                {preview.warnings.map((w, i) => (
+                  <li key={`${w.code}-${i}`} className="flex items-start gap-1.5">
+                    <FiAlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden /> {w.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] sm:grid-cols-4">
             <div><dt className="text-muted-foreground">Σειρά</dt><dd className="font-medium">{preview.summary.series ?? '—'}</dd></div>
             <div><dt className="text-muted-foreground">Προμηθευτής</dt><dd className="font-medium">{preview.summary.trader ?? '—'}{preview.summary.trdr ? ` (${preview.summary.trdr})` : ''}</dd></div>
@@ -260,8 +293,8 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
             </div>
           )}
 
-          <Disclosure open={payloadOpen} onToggle={() => setPayloadOpen((o) => !o)} label="Προβολή payload">
-            <JsonBlock value={preview.payload} label="Payload καταχώρισης PURDOC" />
+          <Disclosure open={payloadOpen} onToggle={() => setPayloadOpen((o) => !o)} label={`Προβολή payload (${preview.payload.OBJECT} · ${preview.target.lines})`}>
+            <JsonBlock value={preview.payload} label={`Payload καταχώρισης ${preview.payload.OBJECT}`} />
           </Disclosure>
         </div>
       )}

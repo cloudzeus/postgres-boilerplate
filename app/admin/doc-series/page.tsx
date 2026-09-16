@@ -31,6 +31,8 @@ export default async function DocSeriesPage() {
       section: r.section,
       isActive: r.isActive,
       enabled: r.enabled,
+      postObject: r.postObject,
+      postLines: r.postLines,
     })),
     ...rows.map((r) => ({
       id: r.id,
@@ -43,6 +45,8 @@ export default async function DocSeriesPage() {
       section: r.section,
       isActive: r.isActive,
       enabled: r.enabled,
+      postObject: r.postObject,
+      postLines: r.postLines,
     })),
   ].sort((a, b) => a.sosource - b.sosource || a.code.localeCompare(b.code, 'el', { numeric: true }));
   const families = new Set(records.map((r) => r.sosource)).size;
@@ -54,7 +58,7 @@ export default async function DocSeriesPage() {
       <PageHeader
         icon={<FiList />}
         title="Σειρές παραστατικών"
-        description={`${records.length.toLocaleString('el-GR')} σειρές SoftOne σε ${families} ενότητες · ${enabledCount.toLocaleString('el-GR')} σε χρήση.`}
+        description={`${records.length.toLocaleString('el-GR')} σειρές SoftOne σε ${families} ενότητες · ${enabledCount.toLocaleString('el-GR')} σε χρήση. Για κάθε σειρά σε χρήση ορίζεις και ΠΟΥ καταχωρείται.`}
         helpAnchor="doc-series"
       />
       <DocSeriesTabs rows={records} canManage={canManage} lastSync={lastSync ?? null} />
