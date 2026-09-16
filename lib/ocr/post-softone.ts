@@ -163,6 +163,7 @@ async function gather(id: string): Promise<Gathered> {
       orderBy: { rowIndex: 'asc' },
       select: {
         rowIndex: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneIsService: true,
+        softoneCostCntr: true, softonePrjc: true, softonePrjcStage: true,
       },
     }),
     // Η σειρά ΔΕΝ είναι διακοσμητική: δύο ενεργές εγγραφές με τον ίδιο συντελεστή (π.χ. κανονικό /
@@ -237,6 +238,9 @@ async function gather(id: string): Promise<Gathered> {
       lin: i.softoneLinMtrl,
       linMtrType: lin?.mtrType ?? null,
       isService: i.softoneIsService,
+      costCntr: i.softoneCostCntr,
+      prjc: i.softonePrjc,
+      prjcStage: i.softonePrjcStage,
       myDataCode,
       noClassification: Boolean(matched) && !hasClass,
     };

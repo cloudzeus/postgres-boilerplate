@@ -10,6 +10,9 @@ const { db } = vi.hoisted(() => ({
     softoneItem: { findMany: vi.fn(), findUnique: vi.fn() },
     softoneExpense: { findMany: vi.fn(), findUnique: vi.fn() },
     softoneLineItem: { findMany: vi.fn(), findUnique: vi.fn() },
+    softoneCostCenter: { findMany: vi.fn(), findUnique: vi.fn() },
+    softoneProject: { findMany: vi.fn(), findUnique: vi.fn() },
+    softoneProjectStage: { findMany: vi.fn(), findUnique: vi.fn() },
     softoneMyDataClassType: { findMany: vi.fn() },
     softoneMyDataClassCategory: { findMany: vi.fn() },
     lineMatchRule: { findMany: vi.fn(), upsert: vi.fn() },
@@ -62,6 +65,9 @@ beforeEach(() => {
   db.softoneExpense.findUnique.mockResolvedValue(null);
   db.softoneLineItem.findMany.mockResolvedValue([]);
   db.softoneLineItem.findUnique.mockResolvedValue(null);
+  db.softoneCostCenter.findMany.mockResolvedValue([]);
+  db.softoneProject.findMany.mockResolvedValue([]);
+  db.softoneProjectStage.findMany.mockResolvedValue([]);
   db.softoneMyDataClassType.findMany.mockResolvedValue([]);
   db.softoneMyDataClassCategory.findMany.mockResolvedValue([]);
   clearClassificationCache();
@@ -358,12 +364,13 @@ describe('applyMatchToGroup', () => {
     expect(upd.data).toEqual({
       softoneMtrl: 77, softoneExpn: null, softoneLinMtrl: null, softoneCode: '76-71106', softoneName: 'ΥΓΡΟ ΑΖΩΤΟ',
       softoneIsService: false, softoneMatchedBy: 'manual',
+      softoneCostCntr: null, softonePrjc: null, softonePrjcStage: null,
     });
     expect(db.lineMatchRule.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { afm_pattern: { afm: '094073495', pattern: 'υγρο αζωτο kg' } },
       // Ο κανόνας ξαναχρησιμοποιήθηκε → +1 χρήση.
-      update: { mtrl: 77, expn: null, lin: null, isService: false, timesUsed: { increment: 1 } },
-      create: { afm: '094073495', pattern: 'υγρο αζωτο kg', mtrl: 77, expn: null, lin: null, isService: false, createdById: 'u1' },
+      update: { mtrl: 77, expn: null, lin: null, isService: false, costCntr: null, prjc: null, prjcStage: null, timesUsed: { increment: 1 } },
+      create: { afm: '094073495', pattern: 'υγρο αζωτο kg', mtrl: 77, expn: null, lin: null, isService: false, costCntr: null, prjc: null, prjcStage: null, createdById: 'u1' },
     }));
     // refreshDocTallies: ένα update ανά παραστατικό που άγγιξε η ομάδα.
     expect(db.ocrDocument.update).toHaveBeenCalledTimes(2);

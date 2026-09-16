@@ -1380,6 +1380,11 @@ model OcrInvoiceItem {
   // Αντιστοίχιση σε ΧΡΕΟΠΙΣΤΩΣΗ SoftOne (LINEITEM → MTRL με SODTYPE 53). Ξεχωριστή στήλη από το
   // `softoneMtrl`: και οι δύο κρατούν MTRL, αλλά μόνο η χρεοπίστωση μπαίνει σε γραμμή LINLINES.
   softoneLinMtrl   Int?
+  // Αναλυτική ανά γραμμή: κέντρο κόστους, έργο, κατηγορία δραστηριότητας. Και τα τρία είναι
+  // ΠΡΟΑΙΡΕΤΙΚΑ στο SoftOne — δεν μπλοκάρουν ποτέ καταχώριση.
+  softoneCostCntr  Int?
+  softonePrjc      Int?
+  softonePrjcStage Int?
 
   @@index([documentId])
   @@index([softoneMtrl])
@@ -1920,6 +1925,54 @@ model SoftoneLineCategory {
   @@index([code])
 }
 
+// Κέντρα κόστους SoftOne — object PRSCOSTCNTR («Κέντρα κόστους») → DB πίνακας COSTCNTR.
+// Μπαίνουν ΑΝΑ ΓΡΑΜΜΗ (`COSTCNTR`) σε ITELINES / SRVLINES / LINLINES· το EXPANAL ΔΕΝ το έχει.
+model SoftoneCostCenter {
+  id       Int      @id @default(autoincrement())
+  costcntr Int      @unique          // SoftOne COSTCNTR (Integer key)
+  code     String                    // CODE (σύντμηση)
+  name     String                    // NAME (περιγραφή)
+  name2    String?                   // NAME2
+  sohCode  String?                   // SOHCODE (κωδικός ιεραρχίας)
+  acnmsk   String?                   // ACNMSK (λογαριασμός)
+  isActive Boolean  @default(true)
+  syncedAt DateTime @default(now())
+
+  @@index([name])
+  @@index([code])
+}
+
+// Έργα SoftOne — object PRJC («Έργα») → DB πίνακας PRJC. Μπαίνουν ΑΝΑ ΓΡΑΜΜΗ (`PRJC`).
+// Το `trdr` επιτρέπει να στενέψει η λίστα στα έργα ΤΟΥ εκδότη του παραστατικού.
+model SoftoneProject {
+  id       Int      @id @default(autoincrement())
+  prjc     Int      @unique          // SoftOne PRJC
+  code     String                    // CODE
+  name     String                    // NAME
+  trdr     Int?                      // TRDR («Πελάτης») — για φιλτράρισμα ανά συναλλασσόμενο
+  prjType  Int?                      // PRJTYPE
+  isActive Boolean  @default(true)
+  syncedAt DateTime @default(now())
+
+  @@index([name])
+  @@index([code])
+  @@index([trdr])
+}
+
+// Δραστηριότητες SoftOne — object PRJCSTAGE («Δραστηριότητες») → DB πίνακας PRJCSTAGE.
+// Στη γραμμή λέγεται «Κατηγορία δραστηριότητας».
+model SoftoneProjectStage {
+  id        Int      @id @default(autoincrement())
+  prjcStage Int      @unique         // SoftOne PRJCSTAGE
+  code      String                   // CODE (σύντμηση)
+  name      String                   // NAME (μπορεί να είναι κενό στο SoftOne → πέφτουμε στο CODE)
+  isActive  Boolean  @default(true)
+  syncedAt  DateTime @default(now())
+
+  @@index([name])
+  @@index([code])
+}
+
 // Λίστες χαρακτηρισμού myDATA (EditLists MYDATACLTYPE / MYDATACLCATEGORY). Μητρώα ΑΝΑΦΟΡΑΣ:
 // δείχνουν τι σημαίνει ο χαρακτηρισμός που κουβαλά κάθε είδος/υπηρεσία/χρεοπίστωση/έξοδο.
 // Η εφαρμογή ΔΕΝ ορίζει χαρακτηρισμό ανά γραμμή — τον ορίζει το μητρώο στο SoftOne.
@@ -1960,6 +2013,10 @@ model LineMatchRule {
   mtrl        Int?                       // SoftoneItem.mtrl
   expn        Int?                       // SoftoneExpense.expn
   lin         Int?                       // SoftoneLineItem.mtrl (χρεοπίστωση)
+  // «Αν το κάνει μια φορά να το θυμάται»: η αναλυτική μαθαίνεται με το ΙΔΙΟ κλειδί (ΑΦΜ + pattern).
+  costCntr    Int?                       // SoftoneCostCenter.costcntr
+  prjc        Int?                       // SoftoneProject.prjc
+  prjcStage   Int?                       // SoftoneProjectStage.prjcStage
   isService   Boolean  @default(false)
   timesUsed   Int      @default(0)
   createdById String?

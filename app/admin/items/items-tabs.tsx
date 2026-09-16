@@ -7,6 +7,7 @@ import { ExpensesTableClient, type ExpenseRecord } from '@/components/admin/expe
 import { LineItemsTableClient, type LineItemRecord } from '@/components/admin/lineitems-table-client';
 import { LineCategoriesTableClient, type LineCategoryRecord } from '@/components/admin/line-categories-table-client';
 import { MyDataClassesTableClient, type MyDataClassRecord } from '@/components/admin/mydata-classes-table-client';
+import { AnalyticsTableClient, type AnalyticsRecord } from '@/components/admin/analytics-tables-client';
 
 /**
  * Μητρώα SoftOne που τροφοδοτούν την αντιστοίχιση γραμμών: είδη (MTRL 51), υπηρεσίες (MTRL 52),
@@ -21,12 +22,18 @@ export function ItemsTabs({
   lineItems,
   lineCategories,
   myDataClasses,
+  costCenters,
+  projects,
+  projectStages,
   canManage,
   itemsLastSync,
   expensesLastSync,
   lineItemsLastSync,
   lineCategoriesLastSync,
   myDataClassesLastSync,
+  costCentersLastSync,
+  projectsLastSync,
+  projectStagesLastSync,
 }: {
   products: ItemRecord[];
   services: ItemRecord[];
@@ -34,12 +41,18 @@ export function ItemsTabs({
   lineItems: LineItemRecord[];
   lineCategories: LineCategoryRecord[];
   myDataClasses: MyDataClassRecord[];
+  costCenters: AnalyticsRecord[];
+  projects: AnalyticsRecord[];
+  projectStages: AnalyticsRecord[];
   canManage: boolean;
   itemsLastSync: string | null;
   expensesLastSync: string | null;
   lineItemsLastSync: string | null;
   lineCategoriesLastSync: string | null;
   myDataClassesLastSync: string | null;
+  costCentersLastSync: string | null;
+  projectsLastSync: string | null;
+  projectStagesLastSync: string | null;
 }) {
   const [tab, setTab] = React.useState('products');
   const count = (n: number) => n.toLocaleString('el-GR');
@@ -53,6 +66,9 @@ export function ItemsTabs({
         <TabsTrigger value="lineitems" className="cursor-pointer">Χρεοπιστώσεις ({count(lineItems.length)})</TabsTrigger>
         <TabsTrigger value="linecategories" className="cursor-pointer">Κατηγορίες δαπανών ({count(lineCategories.length)})</TabsTrigger>
         <TabsTrigger value="mydata" className="cursor-pointer">Χαρακτηρισμοί myDATA ({count(myDataClasses.length)})</TabsTrigger>
+        <TabsTrigger value="costcenters" className="cursor-pointer">Κέντρα κόστους ({count(costCenters.length)})</TabsTrigger>
+        <TabsTrigger value="projects" className="cursor-pointer">Έργα ({count(projects.length)})</TabsTrigger>
+        <TabsTrigger value="projectstages" className="cursor-pointer">Δραστηριότητες ({count(projectStages.length)})</TabsTrigger>
       </TabsList>
       <TabsContent value="products">
         <ItemsTableClient rows={products} variant="products" canManage={canManage} lastSync={itemsLastSync} />
@@ -71,6 +87,27 @@ export function ItemsTabs({
       </TabsContent>
       <TabsContent value="mydata">
         <MyDataClassesTableClient rows={myDataClasses} canManage={canManage} lastSync={myDataClassesLastSync} />
+      </TabsContent>
+      <TabsContent value="costcenters">
+        <AnalyticsTableClient
+          rows={costCenters} canManage={canManage} lastSync={costCentersLastSync}
+          endpoint="sync-costcenters-softone" title="Κέντρα κόστους" subHeader="Ιεραρχία / Λογ/σμός"
+          hint="Μπαίνουν ανά γραμμή σε Είδη, Υπηρεσίες και Ειδικές συναλλαγές. Η «Ανάλυση εξόδων» δεν έχει κέντρο κόστους."
+        />
+      </TabsContent>
+      <TabsContent value="projects">
+        <AnalyticsTableClient
+          rows={projects} canManage={canManage} lastSync={projectsLastSync}
+          endpoint="sync-projects-softone" title="Έργα" subHeader="Συναλλασσόμενος"
+          hint="Στην ουρά εμφανίζονται πρώτα τα έργα του εκδότη του παραστατικού· με ένα κλικ βλέπεις όλα."
+        />
+      </TabsContent>
+      <TabsContent value="projectstages">
+        <AnalyticsTableClient
+          rows={projectStages} canManage={canManage} lastSync={projectStagesLastSync}
+          endpoint="sync-projectstages-softone" title="Δραστηριότητες" subHeader="—"
+          hint="Στη γραμμή παραστατικού λέγεται «Κατηγορία δραστηριότητας»."
+        />
       </TabsContent>
     </Tabs>
   );

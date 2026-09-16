@@ -358,6 +358,10 @@ export interface ItemQueueGroup {
   category: MatchKind;
   suggestions: QueueSuggestion[];
   lines: ItemQueueLine[];
+  /** TRDR του εκδότη — για να δείξουμε πρώτα τα έργα του. */
+  trdr: number | null;
+  /** Η αναλυτική που θυμάται ο κανόνας της ομάδας — ΠΡΟΤΑΣΗ, όχι γραμμένη τιμή. */
+  remembered: RememberedAnalytics | null;
 }
 
 /** Πόσες γραμμές-δείγμα επιστρέφονται ανά ομάδα. */
@@ -375,7 +379,7 @@ type UnmatchedLine = {
   total: unknown;
   softoneIsService: boolean | null;
 };
-type QueueDocInfo = { fileName: string | null; afm: string; supplier: string | null };
+type QueueDocInfo = { fileName: string | null; afm: string; supplier: string | null; trdr: number | null };
 
 /** Οι εκκρεμείς γραμμές μαζί με τα στοιχεία εκδότη του παραστατικού τους. */
 async function loadUnmatchedLines(): Promise<{
@@ -397,7 +401,7 @@ async function loadUnmatchedLines(): Promise<{
   const docRows = docIds.length
     ? await prisma.ocrDocument.findMany({
         where: { id: { in: docIds } },
-        select: { id: true, fileName: true, extractedData: true, softoneName: true, issuerAfm: true },
+        select: { id: true, fileName: true, extractedData: true, softoneName: true, issuerAfm: true, softoneTrdr: true },
       })
     : [];
   const docs = new Map<string, QueueDocInfo>();
@@ -408,6 +412,8 @@ async function loadUnmatchedLines(): Promise<{
       // Το ΑΦΜ εκδότη έρχεται από τη στήλη· το JSON μένει μόνο για την επωνυμία-εφεδρεία.
       afm: d.issuerAfm ?? '',
       supplier: d.softoneName ?? str(ed.companyName),
+      // Ο TRDR του εκδότη επιτρέπει να δείξουμε πρώτα τα ΕΡΓΑ ΤΟΥ (PRJC.TRDR).
+      trdr: d.softoneTrdr ?? null,
     });
   }
   return { lines, docs, truncated: lines.length >= MAX_QUEUE_LINES };
@@ -435,6 +441,10 @@ export async function loadItemQueue(opts: { suggestFor?: number } = {}): Promise
     code: l.code,
   })));
 
+  // Η αναλυτική που θυμάται κάθε ομάδα, με ΜΙΑ ερώτηση για όλες τις ομάδες μαζί (και τρεις για
+  // τις ετικέτες): μια ερώτηση ανά ομάδα θα ήταν δεκάδες round-trips σε κάθε φόρτωση σελίδας.
+  const rememberedByKey = await loadRememberedAnalytics(grouped.map((g) => ({ afm: g.afm, pattern: g.pattern })));
+
   const groups: ItemQueueGroup[] = [];
   for (let i = 0; i < grouped.length; i++) {
     const g = grouped[i];
@@ -455,6 +465,8 @@ export async function loadItemQueue(opts: { suggestFor?: number } = {}): Promise
       docCount: g.docCount,
       category: defaultCategory(groupLinesData, suggestions),
       suggestions,
+      trdr: docs.get(groupLinesData[0]?.documentId ?? '')?.trdr ?? null,
+      remembered: rememberedByKey.get(`${g.afm}|${g.pattern}`) ?? null,
       lines: groupLinesData.slice(0, GROUP_LINES_SAMPLE).map((l) => ({
         id: l.id,
         docId: l.documentId,
@@ -662,6 +674,26 @@ export interface MatchTarget {
   /** MTRL χρεοπίστωσης (`SoftoneLineItem`) — οι «Ειδικές συναλλαγές» δέχονται μόνο αυτό. */
   lin?: number | null;
 }
+
+/**
+ * Η αναλυτική της γραμμής: κέντρο κόστους, έργο, κατηγορία δραστηριότητας. ΠΡΟΑΙΡΕΤΙΚΑ — και
+ * μαθαίνονται με το ΙΔΙΟ κλειδί μνήμης (ΑΦΜ εκδότη + κανονικοποιημένο κείμενο), ώστε η δεύτερη
+ * ίδια γραμμή να έρχεται ήδη συμπληρωμένη («αν το κάνει μια φορά να το θυμάται»).
+ */
+export interface LineAnalytics {
+  costCntr?: number | null;
+  prjc?: number | null;
+  prjcStage?: number | null;
+}
+
+/** Η αναλυτική όπως τη θυμάται ο κανόνας μιας ομάδας — πρόταση, ποτέ σιωπηλή εγγραφή. */
+export interface RememberedAnalytics {
+  costCntr: number | null;
+  prjc: number | null;
+  prjcStage: number | null;
+  /** Ετικέτες για το UI («ΚΚ01 — ΠΑΡΑΓΩΓΗ»), ώστε να μη φαίνονται σκέτοι αριθμοί. */
+  labels: { costCntr: string | null; prjc: string | null; prjcStage: string | null };
+}
 export interface GroupMatchResult {
   linesUpdated: number;
   docIds: string[];
@@ -670,6 +702,7 @@ export interface GroupMatchResult {
   lin: number | null;
   code: string | null;
   name: string | null;
+  analytics: LineAnalytics;
 }
 
 /**
@@ -682,6 +715,7 @@ export async function applyMatchToGroup(input: {
   pattern: string;
   target: MatchTarget;
   isService?: boolean;
+  analytics?: LineAnalytics;
   userId?: string | null;
 }): Promise<GroupMatchResult> {
   const afm = String(input.afm ?? '').trim();
@@ -718,11 +752,19 @@ export async function applyMatchToGroup(input: {
     name = expense.name;
   }
 
+  // Η αναλυτική είναι ανεξάρτητη από το τι ταίριαξε: `null` σημαίνει «κανένα», και γράφεται.
+  const num0 = (v: number | null | undefined): number | null => (v == null || Number(v) <= 0 ? null : Number(v));
+  const analytics: LineAnalytics = {
+    costCntr: num0(input.analytics?.costCntr),
+    prjc: num0(input.analytics?.prjc),
+    prjcStage: num0(input.analytics?.prjcStage),
+  };
+
   const { lineIds, docIds } = await groupLineIds(afm, pattern);
   // Καμία γραμμή: η ομάδα έφυγε από την ουρά όσο ο χρήστης αποφάσιζε (άλλη καρτέλα, νέα
   // σάρωση). Δεν γράφουμε μνήμη για ομάδα-φάντασμα — θα «διόρθωνε» γραμμές που κανείς δεν είδε.
   if (lineIds.length === 0) {
-    return { linesUpdated: 0, docIds, mtrl, expn, lin, code, name };
+    return { linesUpdated: 0, docIds, mtrl, expn, lin, code, name, analytics };
   }
 
   await prisma.ocrInvoiceItem.updateMany({
@@ -730,19 +772,111 @@ export async function applyMatchToGroup(input: {
     data: {
       softoneMtrl: mtrl, softoneExpn: expn, softoneLinMtrl: lin, softoneCode: code, softoneName: name,
       softoneIsService: isService, softoneMatchedBy: 'manual',
+      softoneCostCntr: analytics.costCntr, softonePrjc: analytics.prjc, softonePrjcStage: analytics.prjcStage,
     },
   });
 
   // Ο κανόνας ξαναχρησιμοποιήθηκε (ο χρήστης επιβεβαίωσε την ίδια αντιστοίχιση): +1 χρήση.
   await prisma.lineMatchRule.upsert({
     where: { afm_pattern: { afm, pattern } },
-    update: { mtrl, expn, lin, isService, timesUsed: { increment: 1 } },
-    create: { afm, pattern, mtrl, expn, lin, isService, createdById: input.userId ?? null },
+    update: { mtrl, expn, lin, isService, ...analytics, timesUsed: { increment: 1 } },
+    create: { afm, pattern, mtrl, expn, lin, isService, ...analytics, createdById: input.userId ?? null },
   });
 
   await refreshDocTallies(docIds);
-  return { linesUpdated: lineIds.length, docIds, mtrl, expn, lin, code, name };
+  return { linesUpdated: lineIds.length, docIds, mtrl, expn, lin, code, name, analytics };
 }
+
+/**
+ * Η αναλυτική που θυμάται ο κανόνας μιας ομάδας, με ελληνικές ετικέτες. Ο κανόνας του εκδότη
+ * υπερισχύει του γενικού — ίδια προτεραιότητα με τις προτάσεις είδους.
+ */
+export async function rememberedAnalytics(input: { afm: string; pattern: string }): Promise<RememberedAnalytics | null> {
+  const afm = String(input.afm ?? '').trim();
+  const pattern = String(input.pattern ?? '').trim();
+  if (!pattern) return null;
+  const rules = await prisma.lineMatchRule.findMany({
+    where: { pattern, afm: { in: afm ? [afm, ''] : [''] } },
+    select: { afm: true, costCntr: true, prjc: true, prjcStage: true },
+  });
+  const rule = rules.find((r) => r.afm !== '') ?? rules[0];
+  if (!rule || (rule.costCntr == null && rule.prjc == null && rule.prjcStage == null)) return null;
+
+  const [cc, pj, st] = await Promise.all([
+    rule.costCntr != null
+      ? prisma.softoneCostCenter.findUnique({ where: { costcntr: rule.costCntr }, select: { code: true, name: true } })
+      : Promise.resolve(null),
+    rule.prjc != null
+      ? prisma.softoneProject.findUnique({ where: { prjc: rule.prjc }, select: { code: true, name: true } })
+      : Promise.resolve(null),
+    rule.prjcStage != null
+      ? prisma.softoneProjectStage.findUnique({ where: { prjcStage: rule.prjcStage }, select: { code: true, name: true } })
+      : Promise.resolve(null),
+  ]);
+  const label = (r: { code: string; name: string } | null) => (r ? `${r.code} — ${r.name}` : null);
+  return {
+    costCntr: rule.costCntr, prjc: rule.prjc, prjcStage: rule.prjcStage,
+    labels: { costCntr: label(cc), prjc: label(pj), prjcStage: label(st) },
+  };
+}
+
+/**
+ * Η ίδια πληροφορία με το {@link rememberedAnalytics}, για ΠΟΛΛΕΣ ομάδες με σταθερό αριθμό
+ * ερωτημάτων: ένα για τους κανόνες και τρία για τις ετικέτες των μητρώων.
+ */
+export async function loadRememberedAnalytics(
+  groups: { afm: string; pattern: string }[],
+): Promise<Map<string, RememberedAnalytics>> {
+  const out = new Map<string, RememberedAnalytics>();
+  const patterns = Array.from(new Set(groups.map((g) => g.pattern).filter(Boolean)));
+  if (patterns.length === 0) return out;
+  const afms = Array.from(new Set(groups.map((g) => String(g.afm ?? '').trim()))).filter(Boolean);
+
+  const rules = await prisma.lineMatchRule.findMany({
+    where: { pattern: { in: patterns }, afm: { in: [...afms, ''] } },
+    select: { afm: true, pattern: true, costCntr: true, prjc: true, prjcStage: true },
+  });
+  if (rules.length === 0) return out;
+
+  const [ccRows, pjRows, stRows] = await Promise.all([
+    prisma.softoneCostCenter.findMany({
+      where: { costcntr: { in: uniqueIds(rules.map((r) => r.costCntr)) } },
+      select: { costcntr: true, code: true, name: true },
+    }),
+    prisma.softoneProject.findMany({
+      where: { prjc: { in: uniqueIds(rules.map((r) => r.prjc)) } },
+      select: { prjc: true, code: true, name: true },
+    }),
+    prisma.softoneProjectStage.findMany({
+      where: { prjcStage: { in: uniqueIds(rules.map((r) => r.prjcStage)) } },
+      select: { prjcStage: true, code: true, name: true },
+    }),
+  ]);
+  const label = (r: { code: string; name: string } | undefined) => (r ? `${r.code} — ${r.name}` : null);
+  const ccBy = new Map(ccRows.map((r) => [r.costcntr, r]));
+  const pjBy = new Map(pjRows.map((r) => [r.prjc, r]));
+  const stBy = new Map(stRows.map((r) => [r.prjcStage, r]));
+
+  for (const g of groups) {
+    const afm = String(g.afm ?? '').trim();
+    const mine = rules.filter((r) => r.pattern === g.pattern && (r.afm === afm || r.afm === ''));
+    // Ο κανόνας του εκδότη υπερισχύει του γενικού — ίδια προτεραιότητα με τις προτάσεις είδους.
+    const rule = mine.find((r) => r.afm !== '') ?? mine[0];
+    if (!rule || (rule.costCntr == null && rule.prjc == null && rule.prjcStage == null)) continue;
+    out.set(`${afm}|${g.pattern}`, {
+      costCntr: rule.costCntr, prjc: rule.prjc, prjcStage: rule.prjcStage,
+      labels: {
+        costCntr: label(rule.costCntr != null ? ccBy.get(rule.costCntr) : undefined),
+        prjc: label(rule.prjc != null ? pjBy.get(rule.prjc) : undefined),
+        prjcStage: label(rule.prjcStage != null ? stBy.get(rule.prjcStage) : undefined),
+      },
+    });
+  }
+  return out;
+}
+
+const uniqueIds = (v: (number | null)[]): number[] =>
+  Array.from(new Set(v.filter((x): x is number => x != null)));
 
 /**
  * «Παράλειψη»: οι γραμμές της ομάδας βγαίνουν από την ουρά (`softoneMatchedBy: 'skipped'`)

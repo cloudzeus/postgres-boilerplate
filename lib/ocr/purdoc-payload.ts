@@ -35,6 +35,14 @@ export type PurdocLineCtx = {
   myDataCode?: string | null;
   /** `true` όταν το μητρώο δεν κουβαλά κανέναν χαρακτηρισμό myDATA (προειδοποίηση, όχι εμπόδιο). */
   noClassification?: boolean;
+  /**
+   * Αναλυτική ανά γραμμή: κέντρο κόστους, έργο, κατηγορία δραστηριότητας. Υπάρχουν σε
+   * `ITELINES` / `SRVLINES` / `LINLINES` και ΔΕΝ υπάρχουν στο `EXPANAL` — εκεί απλώς δεν
+   * στέλνονται. Είναι ΠΡΟΑΙΡΕΤΙΚΑ στο SoftOne: κενά δεν εμποδίζουν ποτέ την καταχώριση.
+   */
+  costCntr?: number | null;
+  prjc?: number | null;
+  prjcStage?: number | null;
 };
 
 export type PurdocContext = {
@@ -73,6 +81,7 @@ export type PurdocHeader = {
 export type PurdocItemLine = {
   LINENUM: number; MTRL: number; QTY1: number; PRICE: number; DISC1PRC: number;
   VAT?: number; COMMENTS?: string; MYDATACODE?: string;
+  COSTCNTR?: number; PRJC?: number; PRJCSTAGE?: number;
 };
 /** Γραμμή ανάλυσης εξόδων (EXPANAL) — δεν έχει ποσότητα/τιμή, μόνο αξία. */
 export type PurdocExpenseLine = { LINENUM: number; EXPN: number; VAT?: number; EXPVAL: number };
@@ -80,6 +89,7 @@ export type PurdocExpenseLine = { LINENUM: number; EXPN: number; VAT?: number; E
 export type PurdocLinLine = {
   LINENUM: number; MTRL: number; MTRTYPE: number; QTY1: number; PRICE: number; DISC1PRC: number;
   NETLINEVAL: number; VAT?: number; COMMENTS?: string;
+  COSTCNTR?: number; PRJC?: number; PRJCSTAGE?: number;
 };
 
 export type PostingObjectName = 'PURDOC' | 'LINSUPDOC' | 'LINCREDOC';
@@ -149,6 +159,16 @@ const text = (v: unknown): string | undefined => {
 
 /** Ημερομηνία εγγράφου → `YYYY-MM-DD` (το έγγραφο είναι ήδη κανονικοποιημένο· κόβουμε ώρα αν υπάρχει). */
 const trnDate = (date: string | null): string => (date ?? '').slice(0, 10);
+
+/**
+ * Κέντρο κόστους / έργο / δραστηριότητα, μόνο όταν έχουν οριστεί. Ποτέ `0` ή κενό: το SoftOne
+ * διαβάζει το 0 ως «κανένα», αλλά ένα ρητό 0 σε πεδίο FK είναι θόρυβος στο payload.
+ */
+const analyticsOf = (m: PurdocLineCtx): { COSTCNTR?: number; PRJC?: number; PRJCSTAGE?: number } => ({
+  ...(m.costCntr ? { COSTCNTR: m.costCntr } : {}),
+  ...(m.prjc ? { PRJC: m.prjc } : {}),
+  ...(m.prjcStage ? { PRJCSTAGE: m.prjcStage } : {}),
+});
 
 const vatIdFor = (rate: number | null, map: Record<number, number>): number | undefined => {
   if (rate == null || !Number.isFinite(rate)) return undefined;
@@ -220,6 +240,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
         PRICE: num(line.unitPrice, 0),
         DISC1PRC: num(line.discount, 0),
         NETLINEVAL: num(line.net, 0),
+        ...analyticsOf(match),
       };
       if (vat != null) row.VAT = vat;
       if (name) row.COMMENTS = name;
@@ -227,6 +248,8 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
       return;
     }
     if (target === 'EXPANAL') {
+      // Η «Ανάλυση εξόδων» ΔΕΝ έχει COSTCNTR / PRJC / PRJCSTAGE: δεν τα στέλνουμε εδώ, και το UI
+      // το λέει ρητά αντί να αφήσει τον χρήστη να διαλέξει κάτι που θα χανόταν.
       expenses.push({
         LINENUM: FIRST_LINENUM + expenses.length,
         EXPN: match.expn as number,
@@ -242,6 +265,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
       QTY1: num(line.quantity, 1),
       PRICE: num(line.unitPrice, 0),
       DISC1PRC: num(line.discount, 0),
+      ...analyticsOf(match),
     };
     if (vat != null) row.VAT = vat;
     if (name) row.COMMENTS = name;

@@ -1597,3 +1597,85 @@ export async function softoneFetchMyDataClassCategories(): Promise<MyDataClassRo
     }))
     .filter((r) => Number.isFinite(r.code) && r.name);
 }
+
+// ============================================================
+// Αναλυτική ανά γραμμή — κέντρα κόστους, έργα, δραστηριότητες
+// Και τα τρία μπαίνουν ΑΝΑ ΓΡΑΜΜΗ σε ITELINES / SRVLINES / LINLINES (ποτέ σε EXPANAL) και είναι
+// ΠΡΟΑΙΡΕΤΙΚΑ στο SoftOne. Μόνο ΑΝΑΓΝΩΣΗ.
+// ============================================================
+
+export interface CostCenterRow {
+  costcntr: number;
+  code: string;
+  name: string;
+  name2: string | null;
+  sohCode: string | null;
+  acnmsk: string | null;
+  isActive: boolean;
+}
+
+/** Object PRSCOSTCNTR «Κέντρα κόστους» → DB πίνακας COSTCNTR. */
+export async function softoneFetchCostCenters(): Promise<CostCenterRow[]> {
+  const rows = await softoneGetTable(
+    'COSTCNTR', ['COSTCNTR', 'CODE', 'NAME', 'NAME2', 'SOHCODE', 'ACNMSK', 'ISACTIVE'], 'ISACTIVE=1',
+  );
+  return rows
+    .map((o) => ({
+      costcntr: Number(o.COSTCNTR),
+      code: o.CODE,
+      name: cleanS1Label(o.NAME) || o.CODE,
+      name2: idOrNull(o.NAME2),
+      sohCode: idOrNull(o.SOHCODE),
+      acnmsk: idOrNull(o.ACNMSK),
+      isActive: o.ISACTIVE !== '0',
+    }))
+    .filter((r) => Number.isFinite(r.costcntr) && r.costcntr !== 0);
+}
+
+export interface ProjectRow {
+  prjc: number;
+  code: string;
+  name: string;
+  /** TRDR («Πελάτης») — επιτρέπει να δείξουμε πρώτα τα έργα ΤΟΥ εκδότη του παραστατικού. */
+  trdr: number | null;
+  prjType: number | null;
+  isActive: boolean;
+}
+
+/** Object PRJC «Έργα» → DB πίνακας PRJC. */
+export async function softoneFetchProjects(): Promise<ProjectRow[]> {
+  const rows = await softoneGetTable(
+    'PRJC', ['PRJC', 'CODE', 'NAME', 'TRDR', 'PRJTYPE', 'ISACTIVE'], 'ISACTIVE=1',
+  );
+  return rows
+    .map((o) => ({
+      prjc: Number(o.PRJC),
+      code: o.CODE,
+      name: cleanS1Label(o.NAME) || o.CODE,
+      trdr: intOrNull(o.TRDR),
+      prjType: intOrNull(o.PRJTYPE),
+      isActive: o.ISACTIVE !== '0',
+    }))
+    .filter((r) => Number.isFinite(r.prjc) && r.prjc !== 0);
+}
+
+export interface ProjectStageRow {
+  prjcStage: number;
+  code: string;
+  name: string;
+  isActive: boolean;
+}
+
+/** Object PRJCSTAGE «Δραστηριότητες» → DB πίνακας PRJCSTAGE («Κατηγορία δραστηριότητας» στη γραμμή). */
+export async function softoneFetchProjectStages(): Promise<ProjectStageRow[]> {
+  const rows = await softoneGetTable('PRJCSTAGE', ['PRJCSTAGE', 'CODE', 'NAME', 'ISACTIVE'], 'ISACTIVE=1');
+  return rows
+    .map((o) => ({
+      prjcStage: Number(o.PRJCSTAGE),
+      code: o.CODE,
+      // Το NAME είναι προαιρετικό στο SoftOne: χωρίς αυτό, η σύντμηση ΕΙΝΑΙ το όνομα.
+      name: cleanS1Label(o.NAME) || o.CODE,
+      isActive: o.ISACTIVE !== '0',
+    }))
+    .filter((r) => Number.isFinite(r.prjcStage) && r.prjcStage !== 0);
+}

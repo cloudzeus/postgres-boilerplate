@@ -16,6 +16,9 @@ const { db, s1, settings, audit, rbac } = vi.hoisted(() => ({
     softoneLineCategory: { findMany: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
     softoneMyDataClassType: { findMany: vi.fn(), upsert: vi.fn() },
     softoneMyDataClassCategory: { findMany: vi.fn(), upsert: vi.fn() },
+    softoneCostCenter: { findMany: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
+    softoneProject: { findMany: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
+    softoneProjectStage: { findMany: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
     appSetting: { findMany: vi.fn(), upsert: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -31,6 +34,9 @@ const { db, s1, settings, audit, rbac } = vi.hoisted(() => ({
     softoneFetchLineCategories: vi.fn(),
     softoneFetchMyDataClassTypes: vi.fn(),
     softoneFetchMyDataClassCategories: vi.fn(),
+    softoneFetchCostCenters: vi.fn(),
+    softoneFetchProjects: vi.fn(),
+    softoneFetchProjectStages: vi.fn(),
     clearCachedToken: vi.fn(),
   },
   settings: { setSetting: vi.fn(), maskSecret: (v: string) => `••••${v.slice(-4)}` },
@@ -66,6 +72,9 @@ function happyPath() {
   s1.softoneFetchLineCategories.mockResolvedValue({ rows: [{ mtrCategory: 5, code: 'ΛΕΙΤ', name: 'ΛΕΙΤΟΥΡΓΙΚΑ', vat: null, acnmsk: null, isActive: true }], filtered: true });
   s1.softoneFetchMyDataClassTypes.mockResolvedValue([{ sotype: 1, code: 1, myDataCode: 'category2_1', sohCode: null, name: 'Αγορές', isVat: false }]);
   s1.softoneFetchMyDataClassCategories.mockResolvedValue([{ sotype: 1, code: 2, myDataCode: 'category2_2', sohCode: null, name: 'Δαπάνες' }]);
+  s1.softoneFetchCostCenters.mockResolvedValue([{ costcntr: 3, code: 'ΚΚ01', name: 'ΠΑΡΑΓΩΓΗ', name2: null, sohCode: null, acnmsk: null, isActive: true }]);
+  s1.softoneFetchProjects.mockResolvedValue([{ prjc: 4, code: 'ΕΡΓ1', name: 'ΕΡΓΟ Α', trdr: 12345, prjType: 1, isActive: true }]);
+  s1.softoneFetchProjectStages.mockResolvedValue([{ prjcStage: 5, code: 'ΔΡ1', name: 'ΜΕΛΕΤΗ', isActive: true }]);
 }
 
 beforeEach(() => {
@@ -84,6 +93,12 @@ beforeEach(() => {
   db.softoneLineCategory.updateMany.mockResolvedValue({ count: 0 });
   db.softoneMyDataClassType.findMany.mockResolvedValue([]);
   db.softoneMyDataClassCategory.findMany.mockResolvedValue([]);
+  db.softoneCostCenter.findMany.mockResolvedValue([]);
+  db.softoneCostCenter.updateMany.mockResolvedValue({ count: 0 });
+  db.softoneProject.findMany.mockResolvedValue([]);
+  db.softoneProject.updateMany.mockResolvedValue({ count: 0 });
+  db.softoneProjectStage.findMany.mockResolvedValue([]);
+  db.softoneProjectStage.updateMany.mockResolvedValue({ count: 0 });
   db.appSetting.findMany.mockResolvedValue([]);
   db.appSetting.upsert.mockResolvedValue({});
   // Οι τρεις «ολικής αντικατάστασης» πίνακες τρέχουν μέσα σε transaction με callback.
@@ -98,7 +113,8 @@ beforeEach(() => {
 describe('SYNC_STEPS — η σειρά εξάρτησης', () => {
   it('τρέχει ΦΠΑ και lookups πριν από έξοδα/είδη, και τις σειρές τελευταίες', () => {
     expect(SYNC_STEPS.map((s) => s.table)).toEqual(
-      ['vat', 'lookups', 'expenses', 'items', 'traders', 'purdoc', 'docseries', 'linecategories', 'lineitems', 'mydataclasses'],
+      ['vat', 'lookups', 'expenses', 'items', 'traders', 'purdoc', 'docseries',
+        'linecategories', 'lineitems', 'mydataclasses', 'costcenters', 'projects', 'projectstages'],
     );
   });
 
@@ -143,7 +159,7 @@ describe('resyncAllSoftone', () => {
     s1.softoneFetchItems.mockRejectedValue(new Error('SoftOne login απέτυχε'));
     const report = await resyncAllSoftone(ACTOR);
 
-    expect(report.results).toHaveLength(10);
+    expect(report.results).toHaveLength(SYNC_STEPS.length);
     expect(report.ok).toBe(false);
     expect(report.failCount).toBe(1);
     expect(report.okCount).toBe(SYNC_STEPS.length - 1);
@@ -154,7 +170,7 @@ describe('resyncAllSoftone', () => {
 
     // Οι πίνακες ΜΕΤΑ τον αποτυχημένο έτρεξαν κανονικά.
     expect(report.results.filter((r) => r.ok).map((r) => r.table))
-      .toEqual(['vat', 'lookups', 'expenses', 'traders', 'purdoc', 'docseries', 'linecategories', 'lineitems', 'mydataclasses']);
+      .toEqual(SYNC_STEPS.map((x) => x.table).filter((t) => t !== 'items'));
   });
 
   it('πολλαπλές αποτυχίες αναφέρονται όλες, χωρίς να πετάει', async () => {
@@ -204,7 +220,7 @@ describe('POST /api/admin/metadata/resync-all-softone', () => {
     const res = await resyncRoute(post());
     const json = await res.json();
     expect(res.status).toBe(200);
-    expect(json.results).toHaveLength(10);
+    expect(json.results).toHaveLength(SYNC_STEPS.length);
     expect(json.ok).toBe(true);
   });
 

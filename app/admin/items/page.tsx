@@ -12,7 +12,9 @@ export default async function ItemsPage() {
   await requirePermission('metadata.read');
   const [
     items, expenses, lineItems, lineCategories, classTypes, classCategories,
+    costCenters, projects, projectStages,
     canManage, itemsLastSync, expensesLastSync, lineItemsLastSync, lineCategoriesLastSync, myDataClassesLastSync,
+    costCentersLastSync, projectsLastSync, projectStagesLastSync,
   ] = await Promise.all([
     prisma.softoneItem.findMany({ orderBy: { name: 'asc' } }),
     prisma.softoneExpense.findMany({ orderBy: { name: 'asc' } }),
@@ -20,12 +22,18 @@ export default async function ItemsPage() {
     prisma.softoneLineCategory.findMany({ orderBy: { name: 'asc' } }),
     prisma.softoneMyDataClassType.findMany({ orderBy: [{ sotype: 'asc' }, { code: 'asc' }] }),
     prisma.softoneMyDataClassCategory.findMany({ orderBy: [{ sotype: 'asc' }, { code: 'asc' }] }),
+    prisma.softoneCostCenter.findMany({ orderBy: { name: 'asc' } }),
+    prisma.softoneProject.findMany({ orderBy: { name: 'asc' } }),
+    prisma.softoneProjectStage.findMany({ orderBy: { name: 'asc' } }),
     hasPermission('metadata.manage'),
     getSetting<string>('integrations.softoneItemsLastSync'),
     getSetting<string>('integrations.softoneExpensesLastSync'),
     getSetting<string>('integrations.softoneLineItemsLastSync'),
     getSetting<string>('integrations.softoneLineCategoriesLastSync'),
-    getSetting<string>('integrations.softoneMyDataClassTypesLastSync'),
+    getSetting<string>('integrations.softoneMyDataClassesLastSync'),
+    getSetting<string>('integrations.softoneCostCentersLastSync'),
+    getSetting<string>('integrations.softoneProjectsLastSync'),
+    getSetting<string>('integrations.softoneProjectStagesLastSync'),
   ]);
   const products = items.filter((i) => !i.isService);
   const services = items.filter((i) => i.isService);
@@ -68,12 +76,23 @@ export default async function ItemsPage() {
           ...classTypes.map((t) => ({ kind: 'type' as const, sotype: t.sotype, code: t.code, myDataCode: t.myDataCode, name: t.name })),
           ...classCategories.map((c) => ({ kind: 'category' as const, sotype: c.sotype, code: c.code, myDataCode: c.myDataCode, name: c.name })),
         ]}
+        costCenters={costCenters.map((c) => ({
+          id: c.costcntr, code: c.code, name: c.name,
+          sub: [c.sohCode, c.acnmsk].filter(Boolean).join(' · ') || null,
+        }))}
+        projects={projects.map((c) => ({
+          id: c.prjc, code: c.code, name: c.name, sub: c.trdr ? `TRDR ${c.trdr}` : null,
+        }))}
+        projectStages={projectStages.map((c) => ({ id: c.prjcStage, code: c.code, name: c.name, sub: null }))}
         canManage={canManage}
         itemsLastSync={itemsLastSync ?? null}
         expensesLastSync={expensesLastSync ?? null}
         lineItemsLastSync={lineItemsLastSync ?? null}
         lineCategoriesLastSync={lineCategoriesLastSync ?? null}
         myDataClassesLastSync={myDataClassesLastSync ?? null}
+        costCentersLastSync={costCentersLastSync ?? null}
+        projectsLastSync={projectsLastSync ?? null}
+        projectStagesLastSync={projectStagesLastSync ?? null}
       />
     </div>
   );

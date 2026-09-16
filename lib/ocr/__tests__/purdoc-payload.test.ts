@@ -317,3 +317,42 @@ describe('postingBlockers — σειρά και συναλλασσόμενος',
     expect(postingBlockers(doc(), postingDoc({ traderSodtype: null }), ctx())).not.toContain('trader_kind_mismatch');
   });
 });
+
+describe('αναλυτική ανά γραμμή (κέντρο κόστους / έργο / δραστηριότητα)', () => {
+  const AN = { costCntr: 3, prjc: 4, prjcStage: 5 };
+
+  it('ITELINES: στέλνονται και τα τρία όταν έχουν οριστεί', () => {
+    const payload = buildPurdocPayload(doc(), ctx({ lines: [{ rowIndex: 0, mtrl: 555, ...AN }] }));
+    expect(payload.DATA.ITELINES?.[0]).toMatchObject({ COSTCNTR: 3, PRJC: 4, PRJCSTAGE: 5 });
+  });
+
+  it('LINLINES: στέλνονται και εκεί', () => {
+    const payload = buildPurdocPayload(doc(), ctx({
+      target: LINSUP, lines: [{ rowIndex: 0, lin: 777, linMtrType: 0, ...AN }],
+    }));
+    expect(payload.DATA.LINLINES?.[0]).toMatchObject({ COSTCNTR: 3, PRJC: 4, PRJCSTAGE: 5 });
+  });
+
+  // Το EXPANAL ΔΕΝ έχει τα πεδία: ό,τι κι αν κρατά η γραμμή, δεν φεύγει — και το UI το λέει.
+  it('EXPANAL: ΔΕΝ στέλνεται τίποτα από την αναλυτική', () => {
+    const payload = buildPurdocPayload(doc(), ctx({ lines: [{ rowIndex: 0, expn: 91, ...AN }] }));
+    const row = payload.DATA.EXPANAL?.[0] as Record<string, unknown>;
+    expect(row).not.toHaveProperty('COSTCNTR');
+    expect(row).not.toHaveProperty('PRJC');
+    expect(row).not.toHaveProperty('PRJCSTAGE');
+  });
+
+  it('κενά / μηδενικά δεν μπαίνουν καθόλου στο payload', () => {
+    const payload = buildPurdocPayload(doc(), ctx({
+      lines: [{ rowIndex: 0, mtrl: 555, costCntr: null, prjc: 0, prjcStage: undefined }],
+    }));
+    const row = payload.DATA.ITELINES?.[0] as Record<string, unknown>;
+    expect(row).not.toHaveProperty('COSTCNTR');
+    expect(row).not.toHaveProperty('PRJC');
+    expect(row).not.toHaveProperty('PRJCSTAGE');
+  });
+
+  it('η αναλυτική ΔΕΝ εμποδίζει ποτέ: κενή γραμμή περνά χωρίς εμπόδιο', () => {
+    expect(postingBlockers(doc(), postingDoc(), ctx())).toEqual([]);
+  });
+});

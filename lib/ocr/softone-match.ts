@@ -87,6 +87,10 @@ type LineMatchUpdate = {
   softoneMtrl: number | null;
   softoneExpn: number | null;
   softoneLinMtrl: number | null;
+  /** Αναλυτική από τη μνήμη· `undefined` = μην την αγγίξεις (π.χ. αντιστοίχιση με κωδικό). */
+  softoneCostCntr?: number | null;
+  softonePrjc?: number | null;
+  softonePrjcStage?: number | null;
   softoneCode: string | null;
   softoneName: string | null;
   softoneIsService: boolean | null;
@@ -174,7 +178,10 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     const patterns = Array.from(new Set(unmatched.map((u) => u.pattern)));
     const rules = await prisma.lineMatchRule.findMany({
       where: { pattern: { in: patterns }, afm: { in: afm ? [afm, ''] : [''] } },
-      select: { id: true, afm: true, pattern: true, mtrl: true, expn: true, lin: true, isService: true },
+      select: {
+        id: true, afm: true, pattern: true, mtrl: true, expn: true, lin: true, isService: true,
+        costCntr: true, prjc: true, prjcStage: true,
+      },
     });
 
     if (rules.length > 0) {
@@ -230,6 +237,11 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
           };
         }
         if (!data) continue;
+        // Η αναλυτική που έμαθε ο κανόνας εφαρμόζεται μαζί με το είδος: αυτό ακριβώς ζήτησε ο
+        // χρήστης («αν το κάνει μια φορά να το θυμάται»). Παραμένει επεξεργάσιμη στη γραμμή.
+        if (r.costCntr != null) data.softoneCostCntr = r.costCntr;
+        if (r.prjc != null) data.softonePrjc = r.prjc;
+        if (r.prjcStage != null) data.softonePrjcStage = r.prjcStage;
         updates.set(u.id, data);
         matched++;
         usage.set(r.id, (usage.get(r.id) ?? 0) + 1);

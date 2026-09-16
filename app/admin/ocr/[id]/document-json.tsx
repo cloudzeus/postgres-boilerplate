@@ -273,7 +273,8 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
                     <th scope="col" className="py-1 pr-2 font-medium">Περιγραφή</th>
                     <th scope="col" className="py-1 pr-2 text-right font-medium">Ποσότητα</th>
                     <th scope="col" className="py-1 pr-2 text-right font-medium">Τιμή / Αξία</th>
-                    <th scope="col" className="py-1 text-right font-medium">ΦΠΑ</th>
+                    <th scope="col" className="py-1 pr-2 text-right font-medium">ΦΠΑ</th>
+                    <th scope="col" className="py-1 font-medium">Αναλυτική</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -285,7 +286,15 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
                       <td className="py-1 pr-2">{row.COMMENTS ?? '—'}</td>
                       <td className="py-1 pr-2 text-right">{row.QTY1 ?? '—'}</td>
                       <td className="py-1 pr-2 text-right">{money(Number(row.PRICE ?? row.EXPVAL))}</td>
-                      <td className="py-1 text-right">{row.VAT ?? '—'}</td>
+                      <td className="py-1 pr-2 text-right">{row.VAT ?? '—'}</td>
+                      {/* Κέντρο κόστους / έργο / δραστηριότητα — προαιρετικά, και ποτέ σε EXPANAL. */}
+                      <td className="py-1">
+                        {[
+                          row.COSTCNTR != null ? `ΚΚ ${row.COSTCNTR}` : null,
+                          row.PRJC != null ? `Έργο ${row.PRJC}` : null,
+                          row.PRJCSTAGE != null ? `Δρ. ${row.PRJCSTAGE}` : null,
+                        ].filter(Boolean).join(' · ') || '—'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

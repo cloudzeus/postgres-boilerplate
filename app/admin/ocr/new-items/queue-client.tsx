@@ -8,8 +8,8 @@ import { QueueEmpty, QueueLayout, type QueueLayoutHandle } from '@/components/ad
 import type { ItemQueueGroup, QueueSuggestion } from '@/lib/ocr/queues';
 import type { MatchKind } from '@/lib/ocr/line-match';
 import {
-  CATEGORY_META, ItemPanel, docLabel, lineLabel,
-  type LineCategoryOption, type UnitOption, type VatOption,
+  CATEGORY_META, EMPTY_ANALYTICS, ItemPanel, docLabel, lineLabel,
+  type AnalyticsState, type LineCategoryOption, type UnitOption, type VatOption,
 } from './item-panel';
 import { Button } from '@/components/ui/button';
 
@@ -92,6 +92,21 @@ export function NewItemsClient({
   // Η κατηγορία δαπάνης που διάλεξε ο χρήστης — στενεύει ΚΑΙ την αναζήτηση χρεοπιστώσεων ΚΑΙ
   // τους υποψηφίους που στέλνονται στο μοντέλο. Θυμάται την τελευταία επιλογή μέσα στη συνεδρία·
   // είναι ευκολία, όχι κρίσιμη κατάσταση, γι' αυτό κάθε πρόσβαση στο storage είναι σε try/catch.
+  // Η αναλυτική ανά ομάδα. Ξεκινά από ό,τι θυμάται ο κανόνας (πρόταση, με ορατή σήμανση) και
+  // αλλάζει μόνο όταν το κάνει ο χρήστης ή όταν έρθει πρόταση AI.
+  const [analyticsByKey, setAnalyticsByKey] = React.useState<Record<string, AnalyticsState>>({});
+  const analyticsFor = React.useCallback((g: ItemQueueGroup): AnalyticsState => {
+    const saved = analyticsByKey[g.key];
+    if (saved) return saved;
+    const r = g.remembered;
+    if (!r) return EMPTY_ANALYTICS;
+    return {
+      costCntr: { id: r.costCntr, label: r.labels.costCntr, source: r.costCntr != null ? 'memory' : null },
+      prjc: { id: r.prjc, label: r.labels.prjc, source: r.prjc != null ? 'memory' : null },
+      prjcStage: { id: r.prjcStage, label: r.labels.prjcStage, source: r.prjcStage != null ? 'memory' : null },
+    };
+  }, [analyticsByKey]);
+
   const [lineCategory, setLineCategoryState] = React.useState<number | null>(null);
   React.useEffect(() => {
     try {
@@ -232,6 +247,7 @@ export function NewItemsClient({
   const match = React.useCallback(async (target: { mtrl?: number; expn?: number; lin?: number }, isService: boolean) => {
     if (!selected || busy || !canManage) return;
     const g = selected;
+    const an = analyticsFor(g);
     setBusy(true);
     try {
       const d = await post<ActionResult>('/api/admin/ocr/new-items/match', {
@@ -239,6 +255,10 @@ export function NewItemsClient({
         pattern: g.pattern,
         target: target.lin != null ? { lin: target.lin } : target.expn != null ? { expn: target.expn } : { mtrl: target.mtrl },
         isService,
+        // Έξοδο → EXPANAL, που δεν έχει αναλυτική: δεν στέλνουμε τιμές που θα πετιόνταν.
+        analytics: target.expn != null ? undefined : {
+          costCntr: an.costCntr.id, prjc: an.prjc.id, prjcStage: an.prjcStage.id,
+        },
       });
       if (!d) return;
       toast.success(
@@ -249,7 +269,7 @@ export function NewItemsClient({
     } finally {
       setBusy(false);
     }
-  }, [selected, busy, canManage, retire]);
+  }, [selected, busy, canManage, retire, analyticsFor]);
 
   const create = React.useCallback(async (input: {
     kind: MatchKind; code: string; name: string; vat: string | null; unit: string | null; price: number | null;
@@ -303,14 +323,46 @@ export function NewItemsClient({
     try {
       const d = await post<{
         suggestions: { key: string; lin: number; code: string; name: string; confidence: number; reason: string }[];
-        asked: number; skipped: number; cached: number; degraded: boolean;
-      }>('/api/admin/ocr/new-items/ai-suggest', { groups: batch, categoryId: lineCategory });
+        analytics: {
+          key: string; costCntr: number | null; prjc: number | null; prjcStage: number | null;
+          labels: { costCntr: string | null; prjc: string | null; prjcStage: string | null };
+        }[];
+        asked: number; skipped: number; cached: number; analyticsAsked: number; degraded: boolean;
+      }>('/api/admin/ocr/new-items/ai-suggest', {
+        groups: batch,
+        categoryId: lineCategory,
+        trdr: visible[0]?.trdr ?? null,
+      });
       if (!d) return;
       if (d.degraded) {
         toast.info('Το μοντέλο δεν είναι διαθέσιμη αυτή τη στιγμή — καμία πρόταση.');
         return;
       }
-      if (d.suggestions.length === 0) {
+      // Η αναλυτική είναι ΠΡΟΤΑΣΗ: μπαίνει στα πεδία σημαδεμένη ως «πρόταση AI», ο χρήστης τη
+      // δέχεται ή τη σβήνει, και μόνο η επιβεβαίωση τη γράφει (και τη διδάσκει στη μνήμη).
+      const an = d.analytics ?? [];
+      if (an.length > 0) {
+        setAnalyticsByKey((prev) => {
+          const next = { ...prev };
+          for (const a of an) {
+            const cur = next[a.key] ?? EMPTY_ANALYTICS;
+            const take = (
+              id: number | null, lbl: string | null, old: AnalyticsState['costCntr'],
+            ): AnalyticsState['costCntr'] => (
+              // Ό,τι έχει ήδη επιλέξει ο ΧΡΗΣΤΗΣ δεν το πατάει η πρόταση.
+              old.source === 'manual' || id == null ? old : { id, label: lbl, source: 'ai' }
+            );
+            next[a.key] = {
+              costCntr: take(a.costCntr, a.labels.costCntr, cur.costCntr),
+              prjc: take(a.prjc, a.labels.prjc, cur.prjc),
+              prjcStage: take(a.prjcStage, a.labels.prjcStage, cur.prjcStage),
+            };
+          }
+          return next;
+        });
+      }
+
+      if (d.suggestions.length === 0 && an.length === 0) {
         toast.info(
           d.skipped > 0
             ? `Καμία νέα πρόταση — ${d.skipped} ${d.skipped === 1 ? 'ομάδα λύθηκε' : 'ομάδες λύθηκαν'} χωρίς AI.`
@@ -336,8 +388,12 @@ export function NewItemsClient({
         for (const k of byKey.keys()) next[k] = 'lineitem';
         return next;
       });
+      const parts = [
+        d.suggestions.length ? `${d.suggestions.length} δαπάνες` : null,
+        an.length ? `${an.length} αναλυτικές` : null,
+      ].filter(Boolean).join(' · ');
       toast.success(
-        `${d.suggestions.length} ${d.suggestions.length === 1 ? 'πρόταση' : 'προτάσεις'} από το AI`,
+        `Προτάσεις από το AI: ${parts}`,
         { description: 'Έλεγξέ τες και επιβεβαίωσε — η επιβεβαίωση διδάσκει τον κανόνα για την επόμενη φορά.' },
       );
     } finally {
@@ -430,6 +486,11 @@ export function NewItemsClient({
           lineCategories={lineCategories}
           lineCategory={lineCategory}
           onLineCategory={setLineCategory}
+          analytics={analyticsFor(selected)}
+          onAnalytics={(v) => setAnalyticsByKey((prev) => ({ ...prev, [selected.key]: v }))}
+          // Μια γραμμή αντιστοιχισμένη σε ΕΞΟΔΟ καταλήγει στην «Ανάλυση εξόδων» (EXPANAL), που
+          // δεν έχει κέντρο κόστους / έργο / δραστηριότητα. Το λέμε αντί να δεχτούμε τιμή που θα χανόταν.
+          analyticsSupported={category !== 'expense'}
         />
       ) : (
         <QueueEmpty

@@ -19,6 +19,9 @@ import {
   softoneFetchLookups,
   softoneFetchMyDataClassCategories,
   softoneFetchMyDataClassTypes,
+  softoneFetchCostCenters,
+  softoneFetchProjectStages,
+  softoneFetchProjects,
   softoneFetchPurchaseDocTypes,
   softoneFetchTraders,
   softoneFetchVatCategories,
@@ -27,7 +30,8 @@ import {
 /** Ο βοηθητικός πίνακας, όπως τον ξέρει το UI και το αποτέλεσμα του «Συγχρονισμός όλων». */
 export type SyncTable =
   | 'vat' | 'lookups' | 'expenses' | 'items' | 'traders' | 'purdoc' | 'docseries'
-  | 'lineitems' | 'linecategories' | 'mydataclasses';
+  | 'lineitems' | 'linecategories' | 'mydataclasses'
+  | 'costcenters' | 'projects' | 'projectstages';
 
 export type SyncActor = { id: string; email: string };
 
@@ -507,6 +511,97 @@ export async function syncMyDataClasses(actor: SyncActor): Promise<SyncPayload> 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Αναλυτική ανά γραμμή: κέντρα κόστους, έργα, δραστηριότητες
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function syncCostCenters(actor: SyncActor): Promise<SyncPayload> {
+  const rows = await softoneFetchCostCenters();
+  if (rows.length === 0) throw new Error('Δεν επιστράφηκαν κέντρα κόστους');
+
+  const existing = new Set((await prisma.softoneCostCenter.findMany({ select: { costcntr: true } })).map((v) => v.costcntr));
+  const now = new Date();
+  let created = 0;
+  let updated = 0;
+  for (const r of rows) {
+    const data = {
+      code: r.code, name: r.name, name2: r.name2, sohCode: r.sohCode, acnmsk: r.acnmsk,
+      isActive: true, syncedAt: now,
+    };
+    await prisma.softoneCostCenter.upsert({ where: { costcntr: r.costcntr }, update: data, create: { costcntr: r.costcntr, ...data } });
+    if (existing.has(r.costcntr)) updated++; else created++;
+  }
+  const deactivated = (await prisma.softoneCostCenter.updateMany({
+    where: { costcntr: { notIn: rows.map((r) => r.costcntr) }, isActive: true },
+    data: { isActive: false },
+  })).count;
+
+  const syncedAt = now.toISOString();
+  await setSetting('integrations.softoneCostCentersLastSync', syncedAt, actor.id);
+  await logAudit({
+    userId: actor.id, userEmail: actor.email,
+    action: 'metadata.costcenters.sync_softone', resource: 'setting',
+    metadata: { total: created + updated, created, updated, deactivated },
+  });
+  return { created, updated, skipped: 0, total: created + updated, syncedAt, detail: { deactivated } };
+}
+
+export async function syncProjects(actor: SyncActor): Promise<SyncPayload> {
+  const rows = await softoneFetchProjects();
+  if (rows.length === 0) throw new Error('Δεν επιστράφηκαν έργα');
+
+  const existing = new Set((await prisma.softoneProject.findMany({ select: { prjc: true } })).map((v) => v.prjc));
+  const now = new Date();
+  let created = 0;
+  let updated = 0;
+  for (const r of rows) {
+    const data = { code: r.code, name: r.name, trdr: r.trdr, prjType: r.prjType, isActive: true, syncedAt: now };
+    await prisma.softoneProject.upsert({ where: { prjc: r.prjc }, update: data, create: { prjc: r.prjc, ...data } });
+    if (existing.has(r.prjc)) updated++; else created++;
+  }
+  const deactivated = (await prisma.softoneProject.updateMany({
+    where: { prjc: { notIn: rows.map((r) => r.prjc) }, isActive: true },
+    data: { isActive: false },
+  })).count;
+
+  const syncedAt = now.toISOString();
+  await setSetting('integrations.softoneProjectsLastSync', syncedAt, actor.id);
+  await logAudit({
+    userId: actor.id, userEmail: actor.email,
+    action: 'metadata.projects.sync_softone', resource: 'setting',
+    metadata: { total: created + updated, created, updated, deactivated },
+  });
+  return { created, updated, skipped: 0, total: created + updated, syncedAt, detail: { deactivated } };
+}
+
+export async function syncProjectStages(actor: SyncActor): Promise<SyncPayload> {
+  const rows = await softoneFetchProjectStages();
+  if (rows.length === 0) throw new Error('Δεν επιστράφηκαν δραστηριότητες');
+
+  const existing = new Set((await prisma.softoneProjectStage.findMany({ select: { prjcStage: true } })).map((v) => v.prjcStage));
+  const now = new Date();
+  let created = 0;
+  let updated = 0;
+  for (const r of rows) {
+    const data = { code: r.code, name: r.name, isActive: true, syncedAt: now };
+    await prisma.softoneProjectStage.upsert({ where: { prjcStage: r.prjcStage }, update: data, create: { prjcStage: r.prjcStage, ...data } });
+    if (existing.has(r.prjcStage)) updated++; else created++;
+  }
+  const deactivated = (await prisma.softoneProjectStage.updateMany({
+    where: { prjcStage: { notIn: rows.map((r) => r.prjcStage) }, isActive: true },
+    data: { isActive: false },
+  })).count;
+
+  const syncedAt = now.toISOString();
+  await setSetting('integrations.softoneProjectStagesLastSync', syncedAt, actor.id);
+  await logAudit({
+    userId: actor.id, userEmail: actor.email,
+    action: 'metadata.projectstages.sync_softone', resource: 'setting',
+    metadata: { total: created + updated, created, updated, deactivated },
+  });
+  return { created, updated, skipped: 0, total: created + updated, syncedAt, detail: { deactivated } };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Ο ενορχηστρωτής
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -524,7 +619,9 @@ export async function syncMyDataClasses(actor: SyncActor): Promise<SyncPayload> 
  *  7. `docseries` Σειρές όλων των υπόλοιπων ενοτήτων.
  *  8. `linecategories` Κατηγορίες δαπανών — η ομαδοποίηση πάνω από τις χρεοπιστώσεις, άρα πριν από αυτές.
  *  9. `lineitems` Χρεοπιστώσεις (το `MTRL` των γραμμών «Ειδικών συναλλαγών»).
- * 10. `mydataclasses` Οι λίστες χαρακτηρισμού myDATA — καθαρή αναφορά, τελευταίες.
+ * 10. `mydataclasses` Οι λίστες χαρακτηρισμού myDATA — καθαρή αναφορά.
+ * 11-13. `costcenters` / `projects` / `projectstages` — η αναλυτική ανά γραμμή· ανεξάρτητες από
+ *        όλα τα υπόλοιπα, οπότε τελευταίες.
  *
  * Τρέχουν ΣΕΙΡΙΑΚΑ και ΠΟΤΕ παράλληλα: μοιράζονται ένα session SoftOne, και επτά ταυτόχρονα
  * `getBrowserInfo` στον ίδιο ERP είναι ο πιο σίγουρος τρόπος να πέσουν όλα μαζί.
@@ -540,6 +637,9 @@ export const SYNC_STEPS: { table: SyncTable; label: string; run: (actor: SyncAct
   { table: 'linecategories', label: 'Κατηγορίες δαπανών',      run: syncLineCategories },
   { table: 'lineitems',      label: 'Χρεοπιστώσεις',           run: syncLineItems },
   { table: 'mydataclasses',  label: 'Χαρακτηρισμοί myDATA',    run: syncMyDataClasses },
+  { table: 'costcenters',    label: 'Κέντρα κόστους',          run: syncCostCenters },
+  { table: 'projects',       label: 'Έργα',                    run: syncProjects },
+  { table: 'projectstages',  label: 'Δραστηριότητες',          run: syncProjectStages },
 ];
 
 export const SYNC_LABELS: Record<SyncTable, string> =

@@ -64,7 +64,17 @@
 - Οι **κατηγορίες δαπανών** που κατέβηκαν χωρίς φίλτρο `SODTYPE` (εγκατάσταση που δεν το εκθέτει) σημαδεύονται «αφιλτράριστη» στη λίστα, αντί να περνούν για επιβεβαιωμένες δαπανών.
 - Και οι τέσσερις νέοι συγχρονισμοί ζουν στο `lib/softone/resync.ts` και τρέχουν και από το **«Συγχρονισμός όλων των βοηθητικών πινάκων»**.
 
-**Schema** (προσθετικά, nullable): `PurchaseDocType.postObject/postLines`, `SoftoneDocSeries.postObject/postLines`, `OcrInvoiceItem.softoneLinMtrl`, `LineMatchRule.lin`, `SoftoneItem.myDataCode`, στήλες χαρακτηρισμού στο `SoftoneExpense`, `SoftoneLineCategory.sodtypeFiltered`, και νέοι πίνακες `SoftoneLineItem`, `SoftoneLineCategory`, `SoftoneMyDataClassType`, `SoftoneMyDataClassCategory`.
+**Αναλυτική ανά γραμμή: κέντρο κόστους, έργο, κατηγορία δραστηριότητας**
+
+- Τρία νέα μητρώα μόνο για ανάγνωση — **Κέντρα κόστους** (`PRSCOSTCNTR` → `COSTCNTR`), **Έργα** (`PRJC`) και **Δραστηριότητες** (`PRJCSTAGE`) — με δικά τους tabs στη σελίδα Είδη και ενταγμένα στο «Συγχρονισμός όλων».
+- Τρία comboboxes **ανά γραμμή** στην ουρά «Είδη & έξοδα», με αναζήτηση σε κωδικό και περιγραφή και καθαρισμό με ένα κλικ. Και τα τρία είναι **προαιρετικά**: κενά δεν εμποδίζουν ποτέ καταχώριση.
+- **Τα έργα του εκδότη πρώτα**: το `PRJC.TRDR` επιτρέπει να δείχνουμε μόνο τα έργα του συναλλασσομένου του παραστατικού, με ένα κλικ για «Όλα τα έργα».
+- **Θυμούνται**: η αναλυτική γράφεται στον ίδιο κανόνα μνήμης με το είδος (ΑΦΜ εκδότη + κείμενο γραμμής) και προ-συμπληρώνεται την επόμενη φορά — σημειωμένη ως **πρόταση** («από μνήμη — έλεγξέ το»), ποτέ σιωπηλή εγγραφή.
+- Το **«Πρόταση με AI»** καλύπτει πλέον δαπάνη **και** αναλυτική στην ίδια κλήση, με λευκή λίστα **ανά πεδίο** (ένα επινοημένο έργο δεν ακυρώνει το σωστό κέντρο κόστους) και δικό του `ocr.suggest_costcenter`.
+- Στο payload στέλνονται `COSTCNTR` / `PRJC` / `PRJCSTAGE` σε `ITELINES`, `SRVLINES` και `LINLINES`. Η «Ανάλυση εξόδων» (`EXPANAL`) **δεν έχει** αυτά τα πεδία: εκεί τα controls είναι ανενεργά με εξήγηση, αντί να δεχτούν τιμή που θα χανόταν. Η προεπισκόπηση δείχνει στήλη «Αναλυτική».
+- Η κρυφή μνήμη του AI υπογράφει πλέον **ολόκληρο** το σύνολο υποψηφίων (πριν κρατούσε μόνο τους πρώτους ~15, οπότε μια μετονομασία βαθιά στη λίστα δεν την ακύρωνε).
+
+**Schema** (προσθετικά, nullable): `PurchaseDocType.postObject/postLines`, `SoftoneDocSeries.postObject/postLines`, `OcrInvoiceItem.softoneLinMtrl`, `LineMatchRule.lin`, `SoftoneItem.myDataCode`, στήλες χαρακτηρισμού στο `SoftoneExpense`, `SoftoneLineCategory.sodtypeFiltered`, `OcrInvoiceItem.softoneCostCntr/softonePrjc/softonePrjcStage`, `LineMatchRule.costCntr/prjc/prjcStage`, και νέοι πίνακες `SoftoneCostCenter`, `SoftoneProject`, `SoftoneProjectStage`, `SoftoneLineItem`, `SoftoneLineCategory`, `SoftoneMyDataClassType`, `SoftoneMyDataClassCategory`.
 
 ## 2026-09-12 — Dashboard
 
