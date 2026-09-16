@@ -2,10 +2,15 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { FiDollarSign, FiEdit2, FiLink, FiLoader, FiPackage, FiTag, FiTool, FiX } from 'react-icons/fi';
+import {
+  FiBriefcase, FiCrosshair, FiDollarSign, FiEdit2, FiLayers, FiLink, FiLoader, FiPackage,
+  FiTag, FiTool, FiX,
+} from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { RegistrySearch } from '@/components/admin/registry-search';
+import { AnalyticsPicker, type AnalyticsValue } from '@/components/admin/analytics-picker';
+import { emitDocLinesChanged } from '@/components/admin/doc-lines-events';
 import type { MatchKind } from '@/lib/ocr/line-match';
 import { cn } from '@/lib/utils';
 
@@ -18,6 +23,13 @@ export interface LineMatch {
   name: string | null;
   isService: boolean | null;
   matchedBy: string | null;
+}
+
+/** Η αναλυτική μιας γραμμής: κέντρο κόστους, έργο, κατηγορία δραστηριότητας. */
+export interface LineAnalyticsState {
+  costCntr: AnalyticsValue;
+  prjc: AnalyticsValue;
+  prjcStage: AnalyticsValue;
 }
 
 /** Μία κατηγορία δαπάνης (LINCATEGORY) — στενεύει τη λίστα χρεοπιστώσεων. */
@@ -45,6 +57,14 @@ const MATCHED_BY: Record<string, string> = {
   code2: 'κωδικός εργοστασίου',
 };
 
+const ANALYTICS_ICON = {
+  costCntr: <FiCrosshair aria-hidden className="size-3" />,
+  prjc: <FiBriefcase aria-hidden className="size-3" />,
+  prjcStage: <FiLayers aria-hidden className="size-3" />,
+} as const;
+
+const EXPENSE_NOTE = 'Η γραμμή καταχωρείται σε «Ανάλυση εξόδων», που δεν έχει αναλυτική.';
+
 /** Σε ποια κατηγορία ανήκει μια ήδη γραμμένη αντιστοίχιση. `null` = καμία. */
 export function matchKindOf(m: LineMatch | null | undefined): MatchKind | null {
   if (!m) return null;
@@ -54,36 +74,47 @@ export function matchKindOf(m: LineMatch | null | undefined): MatchKind | null {
   return null;
 }
 
+const EMPTY: AnalyticsValue = { id: null, label: null, source: null };
+
 /**
  * Το κελί «SoftOne» του πίνακα γραμμών: δείχνει σε τι αντιστοιχεί η γραμμή
- * (`κωδικός — περιγραφή` + chip κατηγορίας) ή «χωρίς αντιστοίχιση», και — με δικαίωμα
- * `ocr.categorize` — αφήνει τον χρήστη να το διαλέξει εδώ, χωρίς να φύγει από το παραστατικό.
+ * (`κωδικός — περιγραφή` + chip κατηγορίας) και ποια αναλυτική κουβαλά, ή «χωρίς
+ * αντιστοίχιση». Με δικαίωμα `ocr.categorize` ο χρήστης τα διαλέγει ΕΔΩ, γραμμή-γραμμή,
+ * χωρίς να φύγει από το παραστατικό: είδος / υπηρεσία / έξοδο / χρεοπίστωση, και κέντρο
+ * κόστους / έργο / δραστηριότητα.
  *
  * Γράφει μέσω του ΥΠΑΡΧΟΝΤΟΣ `POST /api/admin/ocr/match-line`, που κρατά και τη μνήμη
  * (`LineMatchRule`: ΑΦΜ εκδότη + κανονικοποιημένο κείμενο) — την ίδια που γράφει η ουρά
  * «Είδη & έξοδα». Γι' αυτό το επόμενο παραστατικό του ίδιου εκδότη έρχεται συμπληρωμένο.
  */
 export function LineMatchCell({
-  lineId, match: initial, canManage, defaultKind, lineCategories,
+  lineId, docId, match: initial, analytics: initialAnalytics, canManage, defaultKind, lineCategories, trdr,
 }: {
   lineId: string;
+  docId: string;
   match: LineMatch | null;
+  analytics: LineAnalyticsState;
   /** `ocr.categorize` — χωρίς αυτό το κελί είναι μόνο για ανάγνωση. */
   canManage: boolean;
   /** Η κατηγορία που ανοίγει ο picker όταν η γραμμή δεν είναι ακόμη αντιστοιχισμένη. */
   defaultKind: MatchKind;
   lineCategories: LineCategoryOption[];
+  /** TRDR του εκδότη — δείχνει ΠΡΩΤΑ τα έργα του, όπως και η ουρά. */
+  trdr: number | null;
 }) {
   const router = useRouter();
   const [match, setMatch] = React.useState<LineMatch | null>(initial);
+  const [analytics, setAnalytics] = React.useState<LineAnalyticsState>(initialAnalytics);
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const [projectScopeAll, setProjectScopeAll] = React.useState(false);
   const current = matchKindOf(match);
   const [kind, setKind] = React.useState<MatchKind>(current ?? defaultKind);
   const [lineCategory, setLineCategory] = React.useState<number | null>(null);
 
   // Ο server ξαναέδωσε τη γραμμή (π.χ. μετά από `router.refresh()`): η στήλη είναι η αλήθεια.
   React.useEffect(() => { setMatch(initial); }, [initial]);
+  React.useEffect(() => { setAnalytics(initialAnalytics); }, [initialAnalytics]);
   // Άνοιγμα: ξεκίνα από ό,τι είναι ήδη αντιστοιχισμένο, αλλιώς από την κατηγορία του εγγράφου.
   React.useEffect(() => { if (open) setKind(matchKindOf(match) ?? defaultKind); }, [open, match, defaultKind]);
 
@@ -94,13 +125,16 @@ export function LineMatchCell({
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       const d = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      if (!res.ok) { toast.error((d.message as string) ?? 'Η αντιστοίχιση απέτυχε.'); return; }
+      if (!res.ok) { toast.error((d.message as string) ?? 'Η ενέργεια απέτυχε.'); return false; }
       done(d);
-      setOpen(false);
-      // Τα σύνολα του παραστατικού (`itemsTotal`/`itemsMatched`) ξαναγράφτηκαν στον server.
+      // Τα σύνολα του παραστατικού ξαναγράφτηκαν στον server· οι κάρτες «Έλεγχοι» και
+      // «Προεπισκόπηση καταχώρισης» φορτώνουν μόνες τους και χρειάζονται ρητό σήμα.
       router.refresh();
+      emitDocLinesChanged(docId);
+      return true;
     } catch {
-      toast.error('Σφάλμα δικτύου — η αντιστοίχιση δεν ολοκληρώθηκε.');
+      toast.error('Σφάλμα δικτύου — η ενέργεια δεν ολοκληρώθηκε.');
+      return false;
     } finally {
       setBusy(false);
     }
@@ -120,6 +154,8 @@ export function LineMatchCell({
           code: m.code ?? code, name: m.name ?? name,
           isService: m.isService ?? (picked === 'service'), matchedBy: 'manual',
         });
+        // Έξοδο ⇒ EXPANAL: ο server δεν κράτησε αναλυτική, οπότε ούτε η οθόνη τη δείχνει.
+        if (picked === 'expense') setAnalytics({ costCntr: EMPTY, prjc: EMPTY, prjcStage: EMPTY });
         toast.success(`Αντιστοιχίστηκε: ${name}`, {
           description: d.remembered === false
             ? undefined
@@ -130,35 +166,73 @@ export function LineMatchCell({
 
   const clear = () => send({ lineId, mtrl: null }, () => {
     setMatch(null);
+    setAnalytics({ costCntr: EMPTY, prjc: EMPTY, prjcStage: EMPTY });
     toast.success('Η αντιστοίχιση αφαιρέθηκε — η γραμμή γύρισε στα «Είδη & έξοδα».');
   });
 
-  const meta = current ? KIND_META[current] : null;
-  const label = match?.code || match?.name
-    ? [match.code, match.name].filter(Boolean).join(' — ')
-    : null;
+  /** Μία αλλαγή αναλυτικής γράφεται αμέσως — αισιόδοξα στην οθόνη, με επαναφορά σε αποτυχία. */
+  const setAnalytic = async (key: keyof LineAnalyticsState, v: AnalyticsValue) => {
+    const before = analytics;
+    const next = { ...analytics, [key]: v };
+    setAnalytics(next);
+    const ok = await send(
+      {
+        lineId,
+        analyticsOnly: true,
+        analytics: { costCntr: next.costCntr.id, prjc: next.prjc.id, prjcStage: next.prjcStage.id },
+      },
+      (d) => {
+        toast.success('Η αναλυτική αποθηκεύτηκε.', {
+          description: d.remembered ? 'Θα προταθεί ξανά στην ίδια περιγραφή του ίδιου εκδότη.' : undefined,
+        });
+      },
+    );
+    if (!ok) setAnalytics(before);
+  };
 
-  const display = meta && label ? (
-    <span className="flex min-w-0 flex-wrap items-center gap-1">
-      <span
-        className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-        style={{ backgroundColor: meta.bg, color: meta.fg }}
-      >
-        {meta.icon} {meta.label}
-      </span>
-      <span className="min-w-0 truncate text-[12px] text-foreground" title={label}>{label}</span>
-      {match?.matchedBy && MATCHED_BY[match.matchedBy] && (
-        <span className="shrink-0 text-[10px] text-muted-foreground">· {MATCHED_BY[match.matchedBy]}</span>
+  const meta = current ? KIND_META[current] : null;
+  const label = match?.code || match?.name ? [match.code, match.name].filter(Boolean).join(' — ') : null;
+  const analyticsSupported = current !== 'expense';
+  const shown = ([
+    ['costCntr', analytics.costCntr], ['prjc', analytics.prjc], ['prjcStage', analytics.prjcStage],
+  ] as const).filter(([, v]) => v.id != null);
+
+  const display = (
+    <span className="flex min-w-0 flex-col gap-0.5">
+      {meta && label ? (
+        <span className="flex min-w-0 flex-wrap items-center gap-1">
+          <span
+            className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+            style={{ backgroundColor: meta.bg, color: meta.fg }}
+          >
+            {meta.icon} {meta.label}
+          </span>
+          <span className="min-w-0 truncate text-[12px] text-foreground" title={label}>{label}</span>
+          {match?.matchedBy && MATCHED_BY[match.matchedBy] && (
+            <span className="shrink-0 text-[10px] text-muted-foreground">· {MATCHED_BY[match.matchedBy]}</span>
+          )}
+        </span>
+      ) : (
+        <span className="text-[12px] text-muted-foreground">Χωρίς αντιστοίχιση</span>
+      )}
+      {shown.length > 0 && (
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
+          {shown.map(([k, v]) => (
+            <span key={k} className="inline-flex min-w-0 items-center gap-1">
+              {ANALYTICS_ICON[k]}
+              <span className="truncate" title={v.label ?? String(v.id)}>{v.label ?? v.id}</span>
+              {v.source && v.source !== 'manual' && <span style={{ color: '#B45309' }}>(από μνήμη)</span>}
+            </span>
+          ))}
+        </span>
       )}
     </span>
-  ) : (
-    <span className="text-[12px] text-muted-foreground">Χωρίς αντιστοίχιση</span>
   );
 
   if (!canManage) return <div className="flex min-w-0 items-center">{display}</div>;
 
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
+    <div className="flex min-w-0 items-start gap-1.5">
       <div className="min-w-0 flex-1">{display}</div>
       {match && (
         <button
@@ -184,7 +258,10 @@ export function LineMatchCell({
             {match ? 'Αλλαγή' : 'Αντιστοίχιση'}
           </button>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-80">
+        <PopoverContent align="end" className="w-[22rem] max-h-[70vh] overflow-y-auto">
+          <p className="text-caption font-semibold uppercase tracking-wider text-muted-foreground">
+            Είδος / έξοδο
+          </p>
           <div role="group" aria-label="Κατηγορία μητρώου" className="flex rounded-lg border border-border p-0.5">
             {SEGMENTS.map((k) => (
               <button
@@ -234,13 +311,39 @@ export function LineMatchCell({
             id={`line-registry-${lineId}`}
             category={lineCategory}
             label={KIND_META[kind].label}
-            onPick={(p) => pick(p.id, p.kind, p.code, p.name)}
+            onPick={async (p) => { await pick(p.id, p.kind, p.code, p.name); }}
           />
 
-          <p className="text-caption text-muted-foreground">
-            Η επιλογή <strong>θυμάται</strong>: η ίδια περιγραφή του ίδιου εκδότη θα έρχεται
-            αντιστοιχισμένη στο επόμενο παραστατικό.
-          </p>
+          <div className="border-t border-border pt-2">
+            <p className="text-caption font-semibold uppercase tracking-wider text-muted-foreground">
+              Αναλυτική γραμμής
+            </p>
+            <p className="mb-1.5 text-caption text-muted-foreground">
+              Προαιρετικά — δεν εμποδίζουν ποτέ την καταχώριση. Ό,τι επιβεβαιώσεις θα{' '}
+              <strong>θυμάται</strong> για την ίδια περιγραφή.
+            </p>
+            <div className="space-y-2">
+              <AnalyticsPicker
+                id={`an-cc-${lineId}`} kind="costcenters" label="Κέντρο κόστους"
+                value={analytics.costCntr} disabled={busy || !analyticsSupported}
+                onChange={(v) => void setAnalytic('costCntr', v)}
+                note={!analyticsSupported ? EXPENSE_NOTE : undefined}
+              />
+              <AnalyticsPicker
+                id={`an-pj-${lineId}`} kind="projects" label="Έργο"
+                value={analytics.prjc} disabled={busy || !analyticsSupported}
+                onChange={(v) => void setAnalytic('prjc', v)}
+                trdr={trdr}
+                scopeAll={projectScopeAll}
+                onScopeAll={setProjectScopeAll}
+              />
+              <AnalyticsPicker
+                id={`an-ps-${lineId}`} kind="projectstages" label="Κατηγορία δραστηριότητας"
+                value={analytics.prjcStage} disabled={busy || !analyticsSupported}
+                onChange={(v) => void setAnalytic('prjcStage', v)}
+              />
+            </div>
+          </div>
         </PopoverContent>
       </Popover>
     </div>

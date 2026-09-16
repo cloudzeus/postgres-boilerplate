@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { FiAlertTriangle, FiCheckCircle, FiChevronDown, FiChevronRight, FiCode, FiCopy, FiDownload, FiHelpCircle, FiRefreshCw, FiUploadCloud } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { useDocLinesChanged } from '@/components/admin/doc-lines-events';
 import type { DocumentEnvelope } from '@/lib/ocr/canonical';
 
 type PurdocHeader = Record<string, string | number>;
@@ -100,6 +101,10 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
   }, [docId, canPost]);
 
   React.useEffect(() => { void load(); }, [load]);
+  // Ο χρήστης μόλις αντιστοίχισε γραμμή: τα εμπόδια («γραμμές χωρίς αντιστοίχιση») πρέπει
+  // να ξαναμετρηθούν ΕΔΩ, αλλιώς η σελίδα λέει ότι δεν μπορεί να καταχωρίσει για κάτι που
+  // μόλις λύθηκε — και το μαθαίνει μόνο με reload.
+  useDocLinesChanged(docId, () => { void load(); });
 
   const copy = React.useCallback(async () => {
     if (!envelope) return;

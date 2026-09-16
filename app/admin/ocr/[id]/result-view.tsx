@@ -1,7 +1,10 @@
 import * as React from 'react';
 import { Prisma } from '@prisma/client';
 import { FieldCorrection } from './field-correction';
-import { LineMatchCell, matchKindOf, type LineCategoryOption, type LineMatch } from './line-match-cell';
+import {
+  LineMatchCell, matchKindOf,
+  type LineAnalyticsState, type LineCategoryOption, type LineMatch,
+} from './line-match-cell';
 import { CustomFieldsBlock, LineCustomFields, hasLineCustomFields } from '@/components/admin/custom-fields';
 import type { MatchKind } from '@/lib/ocr/line-match';
 
@@ -13,6 +16,36 @@ export interface LineMatchOptions {
   canManage: boolean;
   /** Κατηγορίες δαπανών (LINCATEGORY) για το φίλτρο των χρεοπιστώσεων. */
   lineCategories: LineCategoryOption[];
+  /**
+   * Ετικέτες «κωδικός — περιγραφή» για τα ids αναλυτικής των γραμμών (η γραμμή κρατά μόνο
+   * αριθμούς). Ο server τις φέρνει μία φορά για όλο το παραστατικό.
+   */
+  analyticsLabels: {
+    costCntr: Record<number, string>;
+    prjc: Record<number, string>;
+    prjcStage: Record<number, string>;
+  };
+  /** TRDR του εκδότη — τα έργα ΤΟΥ πρώτα στον picker, όπως και στην ουρά. */
+  trdr: number | null;
+}
+
+/**
+ * Η αναλυτική μιας γραμμής για την οθόνη. Η ΠΗΓΗ βγαίνει από το `softoneMatchedBy`: ό,τι
+ * έγραψε το πέρασμα μνήμης είναι ΠΡΟΤΑΣΗ και σημαδεύεται ως τέτοια — δεν είναι επιλογή
+ * που έκανε ο χρήστης.
+ */
+function lineAnalyticsOf(
+  it: DocWithItems['items'][number],
+  labels: LineMatchOptions['analyticsLabels'],
+): LineAnalyticsState {
+  const source = it.softoneMatchedBy === 'memory' ? 'memory' as const : 'manual' as const;
+  const one = (id: number | null, by: Record<number, string>) =>
+    (id == null ? { id: null, label: null, source: null } : { id, label: by[id] ?? String(id), source });
+  return {
+    costCntr: one(it.softoneCostCntr, labels.costCntr),
+    prjc: one(it.softonePrjc, labels.prjc),
+    prjcStage: one(it.softonePrjcStage, labels.prjcStage),
+  };
 }
 
 const lineMatchOf = (it: DocWithItems['items'][number]): LineMatch | null =>
@@ -91,13 +124,16 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
                   <td className="px-3 py-2 text-right">{fmtMoney(it.price)}</td>
                   <td className="px-3 py-2 text-right text-destructive">{fmtNum(it.discount)}</td>
                   <td className="px-3 py-2 text-right font-semibold">{fmtMoney(it.total)}</td>
-                  <td className="px-3 py-2 min-w-[240px]">
+                  <td className="px-3 py-2 min-w-[260px] align-top">
                     <LineMatchCell
                       lineId={it.id}
+                      docId={doc.id}
                       match={lineMatchOf(it)}
+                      analytics={lineAnalyticsOf(it, match.analyticsLabels)}
                       canManage={match.canManage}
                       defaultKind={defaultKind}
                       lineCategories={match.lineCategories}
+                      trdr={match.trdr}
                     />
                   </td>
                 </tr>

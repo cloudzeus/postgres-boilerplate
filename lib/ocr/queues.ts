@@ -942,6 +942,76 @@ export async function applyMatchToLine(input: {
 }
 
 /**
+ * Γράφει ΜΟΝΟ την αναλυτική (κέντρο κόστους / έργο / δραστηριότητα) μιας γραμμής, χωρίς να
+ * αγγίξει την αντιστοίχισή της — η δεύτερη μισή δουλειά που κάνει ο χρήστης πάνω στο
+ * παραστατικό. Αν η γραμμή έχει ήδη στόχο, η επιλογή μπαίνει και στη ΜΝΗΜΗ με το ίδιο
+ * κλειδί, ώστε να έρθει συμπληρωμένη στο επόμενο παραστατικό.
+ *
+ * Τα τρία πεδία είναι ΠΡΟΑΙΡΕΤΙΚΑ στο SoftOne: κενό δεν εμποδίζει ποτέ καταχώριση.
+ */
+export async function applyAnalyticsToLine(input: {
+  lineId: string;
+  analytics?: LineAnalytics;
+  userId?: string | null;
+}): Promise<{ lineId: string; docId: string; analytics: LineAnalytics; remembered: boolean }> {
+  const lineId = String(input.lineId ?? '').trim();
+  if (!lineId) throw new QueueError('missing_lineId', 'Λείπει η γραμμή.');
+
+  const line = await prisma.ocrInvoiceItem.findUnique({
+    where: { id: lineId },
+    select: {
+      id: true, documentId: true, name: true,
+      softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true,
+      softoneCode: true, softoneName: true, softoneIsService: true,
+    },
+  });
+  if (!line) throw new QueueError('line_not_found', 'Η γραμμή δεν βρέθηκε.', 404);
+
+  const analytics = normalizeAnalytics(input.analytics);
+  const empty = analytics.costCntr == null && analytics.prjc == null && analytics.prjcStage == null;
+  // Το έξοδο καταχωρείται σε `EXPANAL`, που ΔΕΝ έχει πεδία αναλυτικής. Μια τιμή εκεί θα
+  // γραφόταν στη βάση και θα χανόταν σιωπηλά στην αποστολή — καλύτερα να το πούμε.
+  if (line.softoneExpn != null && !empty) {
+    throw new QueueError(
+      'analytics_unsupported',
+      'Η γραμμή καταχωρείται σε «Ανάλυση εξόδων», που δεν έχει κέντρο κόστους / έργο / δραστηριότητα.',
+    );
+  }
+
+  await prisma.ocrInvoiceItem.update({
+    where: { id: lineId },
+    data: {
+      softoneCostCntr: analytics.costCntr, softonePrjc: analytics.prjc, softonePrjcStage: analytics.prjcStage,
+    },
+  });
+
+  // Χωρίς στόχο δεν υπάρχει κανόνας να θυμηθεί: ένας κανόνας με κενό `mtrl/expn/lin` δεν
+  // αντιστοιχίζει τίποτα, απλώς λερώνει τη μνήμη.
+  const hasTarget = line.softoneMtrl != null || line.softoneExpn != null || line.softoneLinMtrl != null;
+  const doc = hasTarget
+    ? await prisma.ocrDocument.findUnique({ where: { id: line.documentId }, select: { issuerAfm: true } })
+    : null;
+  const pattern = hasTarget ? normalizeLineText(line.name) : '';
+  if (hasTarget && pattern) {
+    await rememberLineMatch({
+      afm: doc?.issuerAfm ?? '',
+      pattern,
+      match: {
+        mtrl: line.softoneMtrl, expn: line.softoneExpn, lin: line.softoneLinMtrl,
+        code: line.softoneCode, name: line.softoneName,
+        isService: !!line.softoneIsService,
+        kind: line.softoneLinMtrl != null ? 'lineitem' : line.softoneExpn != null ? 'expense'
+          : line.softoneIsService ? 'service' : 'product',
+      },
+      analytics,
+      userId: input.userId,
+    });
+  }
+
+  return { lineId, docId: line.documentId, analytics, remembered: hasTarget && !!pattern };
+}
+
+/**
  * Καθαρίζει την αντιστοίχιση ΜΙΑΣ γραμμής: η γραμμή γυρίζει στην ουρά «Είδη & έξοδα».
  *
  * Καθαρίζονται ΚΑΙ το έξοδο ΚΑΙ η χρεοπίστωση (αλλιώς η γραμμή έμενε «αντιστοιχισμένη» και

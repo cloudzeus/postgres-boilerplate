@@ -60,7 +60,8 @@ vi.mock('@/lib/softone', () => ({
 import { normalizeLineText } from '../line-match';
 import { matchDocItems } from '../softone-match';
 import {
-  applyMatchToLine, applyMatchToGroup, clearLineMatch, QueueError, UNMATCHED_LINE_WHERE,
+  applyAnalyticsToLine, applyMatchToLine, applyMatchToGroup, clearLineMatch, QueueError,
+  UNMATCHED_LINE_WHERE,
 } from '../queues';
 
 /** Το ΑΚΡΙΒΕΣ κείμενο της γραμμής, όπως το τυπώνει ο εκδότης — σε δύο διαφορετικά παραστατικά. */
@@ -329,5 +330,72 @@ describe('ο βρόχος εκπαίδευσης — το ΕΠΟΜΕΝΟ παρ�
 
     expect(r).toEqual({ matched: 1, total: 1 });
     expect(db.ocrInvoiceItem.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('applyAnalyticsToLine — κέντρο κόστους / έργο / δραστηριότητα ανά γραμμή', () => {
+  it('γράφει ΜΟΝΟ τις τρεις στήλες και δεν αγγίζει την αντιστοίχιση', async () => {
+    seedDoc('doc1', 'l1');
+    await applyMatchToLine({ lineId: 'l1', target: { mtrl: ITEM.mtrl } });
+
+    const r = await applyAnalyticsToLine({ lineId: 'l1', analytics: { costCntr: 5, prjc: 7, prjcStage: 3 } });
+
+    expect(r.analytics).toEqual({ costCntr: 5, prjc: 7, prjcStage: 3 });
+    expect(lastUpdateFor('l1')).toEqual({ softoneCostCntr: 5, softonePrjc: 7, softonePrjcStage: 3 });
+    expect(store.lines.get('l1')).toMatchObject({ softoneMtrl: ITEM.mtrl, softoneMatchedBy: 'manual' });
+  });
+
+  it('μπαίνει στη ΜΝΗΜΗ του ίδιου κλειδιού, ώστε να έρθει έτοιμη στο επόμενο παραστατικό', async () => {
+    seedDoc('doc1', 'l1');
+    await applyMatchToLine({ lineId: 'l1', target: { mtrl: ITEM.mtrl } });
+    await applyAnalyticsToLine({ lineId: 'l1', analytics: { costCntr: 5 }, userId: 'u1' });
+
+    expect(store.rules).toHaveLength(1);
+    expect(store.rules[0]).toMatchObject({ afm: AFM, pattern: normalizeLineText(PRINTED), mtrl: ITEM.mtrl, costCntr: 5 });
+
+    // Το επόμενο παραστατικό: το ΠΡΑΓΜΑΤΙΚΟ πέρασμα μνήμης φέρνει και την αναλυτική.
+    seedDoc('doc2', 'l2');
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { id: 'l2', code: null, name: PRINTED, softoneMatchedBy: null, softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null },
+    ]);
+    db.softoneItem.findMany.mockResolvedValue([ITEM]);
+    await matchDocItems('doc2');
+    expect(lastUpdateFor('l2')).toMatchObject({ softoneMtrl: ITEM.mtrl, softoneCostCntr: 5, softoneMatchedBy: 'memory' });
+  });
+
+  it('καθαρισμός τιμής: `null` γράφεται κανονικά (η αναλυτική είναι προαιρετική)', async () => {
+    seedDoc('doc1', 'l1');
+    await applyMatchToLine({ lineId: 'l1', target: { mtrl: ITEM.mtrl }, analytics: { costCntr: 5 } });
+    await applyAnalyticsToLine({ lineId: 'l1', analytics: { costCntr: null } });
+    expect(store.lines.get('l1')).toMatchObject({ softoneCostCntr: null });
+    expect(store.rules[0]).toMatchObject({ costCntr: null });
+  });
+
+  it('ΕΞΟΔΟ: αρνείται αντί να γράψει τιμή που το EXPANAL θα πετούσε σιωπηλά', async () => {
+    seedDoc('doc1', 'l1');
+    await applyMatchToLine({ lineId: 'l1', target: { expn: EXPENSE.expn } });
+    db.ocrInvoiceItem.update.mockClear();
+
+    await expect(applyAnalyticsToLine({ lineId: 'l1', analytics: { costCntr: 5 } })).rejects.toMatchObject({
+      code: 'analytics_unsupported', status: 400,
+    });
+    expect(db.ocrInvoiceItem.update).not.toHaveBeenCalled();
+    // Κενή αναλυτική σε γραμμή εξόδου δεν είναι λάθος — δεν γράφεται τίποτα επιβλαβές.
+    await expect(applyAnalyticsToLine({ lineId: 'l1', analytics: {} })).resolves.toMatchObject({ docId: 'doc1' });
+  });
+
+  it('ΑΤΑΙΡΙΑΣΤΗ γραμμή: γράφει τις στήλες αλλά ΔΕΝ φτιάχνει κανόνα χωρίς στόχο', async () => {
+    seedDoc('doc1', 'l1');
+    const r = await applyAnalyticsToLine({ lineId: 'l1', analytics: { prjc: 7 } });
+    expect(r.remembered).toBe(false);
+    expect(store.lines.get('l1')).toMatchObject({ softonePrjc: 7 });
+    expect(store.rules).toHaveLength(0);
+  });
+
+  it('η επόμενη αντιστοίχιση της ίδιας γραμμής κουβαλά την αναλυτική στη μνήμη', async () => {
+    seedDoc('doc1', 'l1');
+    await applyAnalyticsToLine({ lineId: 'l1', analytics: { prjc: 7 } });
+    await applyMatchToLine({ lineId: 'l1', target: { mtrl: ITEM.mtrl }, analytics: { prjc: 7 } });
+    expect(store.rules[0]).toMatchObject({ mtrl: ITEM.mtrl, prjc: 7 });
   });
 });

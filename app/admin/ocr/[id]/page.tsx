@@ -51,6 +51,31 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
     })
     : [];
 
+  // Οι γραμμές κρατούν ΑΡΙΘΜΟΥΣ αναλυτικής (`softoneCostCntr` κ.λπ.). Οι ετικέτες
+  // «κωδικός — περιγραφή» έρχονται με τρία ερωτήματα για ΟΛΟ το παραστατικό, όχι ανά γραμμή.
+  const items = doc.items;
+  const ids = (pick: (i: (typeof items)[number]) => number | null) =>
+    Array.from(new Set(items.map(pick).filter((v): v is number => v != null)));
+  const [ccRows, pjRows, psRows] = await Promise.all([
+    ids((i) => i.softoneCostCntr).length
+      ? prisma.softoneCostCenter.findMany({
+        where: { costcntr: { in: ids((i) => i.softoneCostCntr) } }, select: { costcntr: true, code: true, name: true },
+      })
+      : Promise.resolve([]),
+    ids((i) => i.softonePrjc).length
+      ? prisma.softoneProject.findMany({
+        where: { prjc: { in: ids((i) => i.softonePrjc) } }, select: { prjc: true, code: true, name: true },
+      })
+      : Promise.resolve([]),
+    ids((i) => i.softonePrjcStage).length
+      ? prisma.softoneProjectStage.findMany({
+        where: { prjcStage: { in: ids((i) => i.softonePrjcStage) } }, select: { prjcStage: true, code: true, name: true },
+      })
+      : Promise.resolve([]),
+  ]);
+  const byId = <T,>(rows: T[], key: (r: T) => number): Record<number, string> =>
+    Object.fromEntries(rows.map((r) => [key(r), `${(r as { code: string }).code} — ${(r as { name: string }).name}`]));
+
   // Only a COMPLETED document shows the run card, so only a COMPLETED document pays for its data —
   // a failed or still-processing upload would fetch runs and every template for nothing.
   const completed = doc.status === 'COMPLETED';
@@ -168,6 +193,12 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
         match={{
           canManage,
           lineCategories: lineCategories.map((c) => ({ id: c.mtrCategory, label: c.name || c.code })),
+          analyticsLabels: {
+            costCntr: byId(ccRows, (r) => r.costcntr),
+            prjc: byId(pjRows, (r) => r.prjc),
+            prjcStage: byId(psRows, (r) => r.prjcStage),
+          },
+          trdr: doc.softoneTrdr ?? null,
         }}
       />
     </div>

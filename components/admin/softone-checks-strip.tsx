@@ -9,6 +9,7 @@ import { FiPlusCircle } from 'react-icons/fi';
 import { cn } from '@/lib/utils';
 import { SoftoneMatchPicker } from '@/components/admin/softone-match-picker';
 import { CreateSoftoneItemModal } from '@/components/admin/create-softone-item-modal';
+import { emitDocLinesChanged, useDocLinesChanged } from '@/components/admin/doc-lines-events';
 
 type Checks = {
   duplicate: { checked: boolean; exists: boolean; ref: string | null };
@@ -37,6 +38,8 @@ export function SoftoneChecksStrip({ docId }: { docId: string }) {
     } finally { setLoading(false); }
   }, [docId]);
   React.useEffect(() => { void load(); }, [load]);
+  // Αντιστοίχιση από τον πίνακα γραμμών: οι τρεις έλεγχοι ξαναμετρούν χωρίς reload.
+  useDocLinesChanged(docId, () => { void load(); });
 
   if (loading) {
     return <div className="h-[52px] animate-pulse rounded-xl border border-border bg-muted/30" />;
@@ -61,7 +64,11 @@ export function SoftoneChecksStrip({ docId }: { docId: string }) {
     const res = await fetch('/api/admin/ocr/match-line', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lineId, mtrl }),
     });
-    if (res.ok) { toast.success(`Αντιστοιχίστηκε: ${name}`); void load(); } else toast.error('Αποτυχία');
+    if (res.ok) {
+      toast.success(`Αντιστοιχίστηκε: ${name}`);
+      void load();
+      emitDocLinesChanged(docId);   // ...και η προεπισκόπηση καταχώρισης δίπλα.
+    } else toast.error('Αποτυχία');
   };
 
   return (
