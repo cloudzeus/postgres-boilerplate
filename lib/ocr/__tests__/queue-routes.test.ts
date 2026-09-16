@@ -212,12 +212,14 @@ describe('dry-run', () => {
   });
 
   /**
-   * Η τιμή μιας γραμμής τιμολογίου ΑΓΟΡΑΣ είναι κόστος: πάει στο `PRICEW` («Χονδρικής»). Το
-   * `PRICER` («Λιανικής») δεν το υπολογίζει ο ERP (`calculated: false`), οπότε το βγάζουμε εμείς
-   * από το ΦΠΑ που διάλεξε ο χρήστης — και το ποσοστό το διαβάζουμε από το μητρώο, όχι από τον client.
+   * Η τιμή μιας γραμμής τιμολογίου ΑΓΟΡΑΣ είναι **κόστος**: πάει στο `PRICEW` («Χονδρικής»).
+   *
+   * Το `PRICER` («Λιανικής») ΔΕΝ στέλνεται ΠΟΤΕ. Η εφαρμογή καταχωρεί αγορές/έξοδα/πάγια και δεν
+   * πουλά τίποτα· τιμή λιανικής είναι εμπορική απόφαση με περιθώριο, όχι `κόστος × (1 + ΦΠΑ)`.
+   * Και επειδή το πεδίο είναι `calculated: false`, ό,τι στείλουμε ΜΕΝΕΙ — δηλαδή θα γραφόταν
+   * τιμή πώλησης με μηδενικό περιθώριο σαν να την είχε ορίσει άνθρωπος.
    */
-  it('η τιμή γράφεται ως PRICEW και η λιανική υπολογίζεται από το ΦΠΑ του μητρώου', async () => {
-    db.vatCategory.findUnique.mockResolvedValue({ rate: 24 });
+  it('η τιμή γράφεται ΜΟΝΟ ως PRICEW — καμία τιμή λιανικής', async () => {
     const res = await createItem(post({
       afm: AFM, pattern: 'υγρο αζωτο kg', kind: 'product',
       code: '76-71106', name: 'ΥΓΡΟ ΑΖΩΤΟ', vat: '1300', unit: '101', price: 10, dryRun: true,
@@ -225,21 +227,9 @@ describe('dry-run', () => {
     const row = (await res.json()).payload.DATA.ITEM[0];
 
     expect(row.PRICEW).toBe(10);
-    expect(row.PRICER).toBe(12.4);
-    expect(db.vatCategory.findUnique.mock.calls[0][0].where).toEqual({ code: '1300' });
-    expectNoWrites();
-  });
-
-  it('κατηγορία ΦΠΑ χωρίς ποσοστό ⇒ καμία λιανική, μόνο χονδρική', async () => {
-    db.vatCategory.findUnique.mockResolvedValue({ rate: null });
-    const res = await createItem(post({
-      afm: AFM, pattern: 'x', kind: 'service',
-      code: 'Y-1', name: 'ΥΠΗΡΕΣΙΑ', vat: '1400', unit: '101', price: 10, dryRun: true,
-    }));
-    const row = (await res.json()).payload.DATA.ITEM[0];
-
-    expect(row.PRICEW).toBe(10);
     expect(row).not.toHaveProperty('PRICER');
+    // Το ΦΠΑ παραμένει κανονική ιδιότητα του είδους και φεύγει ως `VAT`.
+    expect(row.VAT).toBe('1300');
     expectNoWrites();
   });
 

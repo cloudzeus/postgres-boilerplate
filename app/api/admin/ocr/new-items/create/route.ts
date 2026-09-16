@@ -91,17 +91,11 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  // Το ΠΟΣΟΣΤΟ ΦΠΑ δεν έρχεται από τον client: το διαβάζουμε από το μητρώο `VatCategory` με τον
-  // κωδικό που διάλεξε ο χρήστης. Έτσι η λιανική που θα γραφτεί βγαίνει από ΜΙΑ πηγή αλήθειας —
-  // και μια κατηγορία χωρίς ποσοστό (π.χ. «Άρθρο 39α») απλώς δεν παράγει λιανική.
-  const vatRate = await prisma.vatCategory
-    .findUnique({ where: { code: vat }, select: { rate: true } })
-    .then((r) => r?.rate ?? null)
-    .catch(() => null);
-
   const itemInput = {
     code: b.code, name: b.name, isService, vat, unit,
-    price: b.price ?? null, vatRate,
+    // ΜΟΝΟ χονδρική: το σύστημα καταχωρεί αγορές/έξοδα/πάγια και δεν πουλά — δεν έχει καμία
+    // βάση να ορίσει τιμή λιανικής (δες `buildItemPayload`).
+    price: b.price ?? null,
     group: b.group || null, category: b.category || null,
   };
 

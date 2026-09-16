@@ -16,6 +16,7 @@ import { COUNTRY_NAMES_EL, countryLabel } from '@/lib/countries';
 import { VAT_COUNTRY_CODES, viesPrefix } from '@/lib/ocr/validate';
 import { applyVatPrefix, vatPrefixFor } from '@/lib/ocr/vat-prefix';
 import { validCoords, formatCoords } from '@/lib/coords';
+import { planRegistryFill, registryValue, type FieldSource } from '@/lib/ocr/registry-fill';
 import type { TraderCodeSamples, TraderGroup } from '@/lib/ocr/queues';
 
 export interface TaxOffice { code: string; name: string }
@@ -282,6 +283,15 @@ export function TraderPanel({
   /** Ποια διεύθυνση έχει ήδη ζητηθεί αυτόματα — καμία επανάληψη σε re-render. */
   const autoGeo = React.useRef<string | null>(null);
 
+  /**
+   * Πεδία που **κατέχει ο χρήστης**: ό,τι πληκτρολόγησε ή επέλεξε ρητά. Δεν τα ξαναγράφει ποτέ
+   * το μητρώο. Δηλώνεται ΡΗΤΑ και δεν συμπεραίνεται από σύγκριση τιμών — δύο πηγές μπορεί
+   * κάλλιστα να συμφωνούν κατά λέξη.
+   */
+  const [userOwned, setUserOwned] = React.useState<Set<FieldKey>>(() => new Set());
+  /** Η προέλευση όσων πεδίων κρατούν αυτή τη στιγμή τιμή μητρώου — για τη σήμανση στο UI. */
+  const [fieldSource, setFieldSource] = React.useState<Partial<Record<FieldKey, FieldSource>>>({});
+
   const [showSearch, setShowSearch] = React.useState(false);
   const [ignoring, setIgnoring] = React.useState(false);
   const [reason, setReason] = React.useState('');
@@ -299,6 +309,7 @@ export function TraderPanel({
     setVies(null); setViesBusy(false);
     setGeo(null); setGeoBusy(false); setGeoMiss(false); setGeoDown(false);
     setCoords(null); setErpCodeError(null); setCodeOffer(null);
+    setUserOwned(new Set()); setFieldSource({});
     lastProposal.current = '';
   }, [group, taxOffices]);
 
@@ -364,7 +375,20 @@ export function TraderPanel({
   // Το μήνυμα του ίδιου του SoftOne υπερισχύει: είναι η τελευταία λέξη για το πεδίο.
   const errorOf = (k: FieldKey) =>
     (k === 'code' && erpCodeError) ? erpCodeError : ((touched[k] || submitted) ? errors[k] : undefined);
-  const set = (k: FieldKey, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  /**
+   * Αλλαγή πεδίου **από τον χρήστη** (πληκτρολόγηση, «Χρήση», «Εφαρμογή», «Επαναφορά»): το πεδίο
+   * γίνεται δικό του και το μητρώο δεν το ακουμπά ξανά.
+   */
+  const set = (k: FieldKey, v: string, source: FieldSource | null = null) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    setUserOwned((prev) => (prev.has(k) ? prev : new Set(prev).add(k)));
+    setFieldSource((prev) => {
+      if (prev[k] === source) return prev;
+      const next = { ...prev };
+      if (source) next[k] = source; else delete next[k];
+      return next;
+    });
+  };
   const blur = (k: FieldKey) => setTouched((t) => ({ ...t, [k]: true }));
   /** Κοινά props πεδίου: τιμή, blur-validation και σύνδεση με το μήνυμα σφάλματος. */
   const bind = (k: FieldKey, id: string) => ({
@@ -375,6 +399,103 @@ export function TraderPanel({
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => set(k, e.target.value),
     onBlur: () => blur(k),
   });
+
+  /**
+   * **Αυτόματη εφαρμογή του μητρώου.** Μόλις απαντήσει η ΑΑΔΕ (ή το VIES για ξένο εκδότη), τα
+   * πεδία της φόρμας γεμίζουν από εκεί — χωρίς κλικ ανά πεδίο.
+   *
+   * Δεν είναι σιωπηλή αντικατάσταση: κάθε πεδίο που γράφεται σημαδεύεται με την προέλευσή του,
+   * ο πίνακας σύγκρισης μένει ορατός, και δίπλα σε κάθε πεδίο υπάρχει «Επαναφορά τιμής
+   * παραστατικού». Ό,τι έχει αγγίξει ο χρήστης (`userOwned`) ΔΕΝ ξαναγράφεται ποτέ.
+   *
+   * ΑΦΜ που δεν βρέθηκε, ανενεργό, ή υπηρεσία που δεν απάντησε: **τίποτα δεν γράφεται και
+   * τίποτα δεν σβήνεται** — οι τιμές του OCR μένουν στη θέση τους (το `planRegistryFill`
+   * αγνοεί κενές τιμές μητρώου).
+   */
+  React.useEffect(() => {
+    if (aadeState !== 'ready' || !aade) return;
+    const plan = planRegistryFill<FieldKey>({
+      userOwned,
+      registry: {
+        name: aade.name,
+        // Η Δ.Ο.Υ. γράφεται ως ΚΩΔΙΚΟΣ SoftOne: ό,τι έδωσε η ΑΑΔΕ, αλλιώς ταίριασμα περιγραφής.
+        doyCode: aade.doyCode || matchDoy(aade.doyDescr ?? null, taxOffices) || null,
+        profession: aade.profession,
+        address: aade.address,
+        zip: aade.zip,
+        city: aade.city,
+      },
+    });
+    if (plan.applied.length === 0) return;
+    setForm((f) => ({ ...f, ...plan.values }));
+    setFieldSource((prev) => {
+      const next = { ...prev };
+      for (const k of plan.applied) next[k] = 'aade';
+      return next;
+    });
+    // `userOwned` ΔΕΝ μπαίνει στα deps: η εφαρμογή τρέχει όταν έρθει το μητρώο, όχι κάθε φορά
+    // που ο χρήστης αγγίζει ένα πεδίο (κάτι που θα ξαναέγραφε τα υπόλοιπα κάτω από τα χέρια του).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aade, aadeState, taxOffices]);
+
+  /** Το ίδιο για ξένο εκδότη: ό,τι επιστρέφει το VIES. Το «---» δεν είναι τιμή. */
+  React.useEffect(() => {
+    if (!vies || vies.valid !== true) return;
+    const plan = planRegistryFill<FieldKey>({
+      userOwned,
+      registry: { name: vies.name, address: vies.address },
+    });
+    if (plan.applied.length === 0) return;
+    setForm((f) => ({ ...f, ...plan.values }));
+    setFieldSource((prev) => {
+      const next = { ...prev };
+      for (const k of plan.applied) next[k] = 'vies';
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vies]);
+
+  /** Η τιμή που διάβασε το OCR για ένα πεδίο — `null` όταν το παραστατικό δεν έδινε τίποτα. */
+  const ocrValueOf = (k: FieldKey): string | null => {
+    if (k === 'name') return registryValue(group.name);
+    if (k === 'profession') return registryValue(group.profession);
+    if (k === 'address') return registryValue(group.address);
+    // Δ.Ο.Υ.: το OCR δίνει ΠΕΡΙΓΡΑΦΗ· επαναφέρουμε τον κωδικό της, αν αναγνωρίζεται.
+    if (k === 'doyCode') return matchDoy(group.doy ?? null, taxOffices) || null;
+    // Τ.Κ. και πόλη δεν υπάρχουν καθόλου στην ομάδα: το OCR δίνει μόνο ελεύθερη διεύθυνση.
+    return null;
+  };
+
+  /**
+   * Η σήμανση προέλευσης κάτω από ένα πεδίο: από πού ήρθε η τιμή και πώς γυρνά πίσω σε αυτήν
+   * του παραστατικού. Χωρίς αυτό, η αυτόματη εφαρμογή θα ήταν σιωπηλή αντικατάσταση.
+   */
+  const RegistryMark = ({ k }: { k: FieldKey }) => {
+    const src = fieldSource[k];
+    if (!src) return null;
+    const ocr = ocrValueOf(k);
+    const label = src === 'aade' ? 'από την ΑΑΔΕ' : 'από το VIES';
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span
+          className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+          style={{ backgroundColor: '#EAF4FC', color: '#0078D4' }}
+        >
+          {label}
+        </span>
+        {ocr && ocr !== form[k] && (
+          <Button
+            type="button" variant="ghost" size="xs"
+            className="cursor-pointer"
+            onClick={() => set(k, ocr, 'ocr')}
+            title={ocr}
+          >
+            <FiRefreshCw aria-hidden className="size-3" /> Επαναφορά τιμής παραστατικού
+          </Button>
+        )}
+      </div>
+    );
+  };
 
   const payload = () => ({
     kind: form.kind,
@@ -510,6 +631,12 @@ export function TraderPanel({
    * Διεύθυνση → χώρα / πόλη / Τ.Κ. / συντεταγμένες. Δεν γράφει ΤΙΠΟΤΑ πάνω σε ό,τι
    * πληκτρολόγησε ο χρήστης: χώρα/πόλη/Τ.Κ. μένουν ΠΡΟΤΑΣΕΙΣ με «Εφαρμογή».
    *
+   * ΠΡΟΤΕΡΑΙΟΤΗΤΑ ΑΝΑΜΕΣΑ ΣΤΙΣ ΔΥΟ ΑΥΤΟΜΑΤΕΣ ΠΗΓΕΣ (πόλη / Τ.Κ. / χώρα): **μόνο το μητρώο
+   * (ΑΑΔΕ/VIES) εφαρμόζεται αυτόματα**· ο geocoder ποτέ. Έτσι δεν υπάρχει περίπτωση δύο
+   * αυτόματες πηγές να διεκδικούν το ίδιο πεδίο. Ο geocoder είναι η ΜΟΝΗ πηγή για ξένους
+   * εκδότες (όπου η ΑΑΔΕ δεν ισχύει) και για πόλη/Τ.Κ. που η ΑΑΔΕ δεν έδωσε — και εκεί
+   * χρειάζεται ένα κλικ, το οποίο κάνει το πεδίο κτήμα του χρήστη.
+   *
    * Εξαίρεση οι **συντεταγμένες**: δεν είναι πεδίο που γράφει άνθρωπος, οπότε
    * συμπληρώνονται μόνο ΟΤΑΝ ΕΙΝΑΙ ΑΔΕΙΕΣ (`cur ?? c`) — ποτέ πάνω σε υπάρχουσα τιμή.
    *
@@ -580,17 +707,38 @@ export function TraderPanel({
   };
 
   // Σημασιολογία `||` παντού: μια κενή τιμή της ΑΑΔΕ ΔΕΝ σβήνει ό,τι έφερε το OCR.
+  /**
+   * «Χρήση όλων από ΑΑΔΕ»: πλέον είναι ΕΠΑΝΑΛΗΨΗ της αυτόματης εφαρμογής — χρήσιμο μετά από
+   * «Επαναφορά τιμής παραστατικού» σε ένα ή περισσότερα πεδία. Επειδή το πατά ο χρήστης,
+   * παρακάμπτει το `userOwned`: το ζήτησε ρητά.
+   */
   const applyAll = () => {
     if (!aade) return;
-    setForm((f) => ({
-      ...f,
-      name: aade.name || f.name,
-      doyCode: aade.doyCode || matchDoy(aade.doyDescr, taxOffices) || f.doyCode,
-      profession: aade.profession || f.profession,
-      address: aade.address || f.address,
-      zip: aade.zip || f.zip,
-      city: aade.city || f.city,
-    }));
+    const plan = planRegistryFill<FieldKey>({
+      registry: {
+        name: aade.name,
+        doyCode: aade.doyCode || matchDoy(aade.doyDescr ?? null, taxOffices) || null,
+        profession: aade.profession,
+        address: aade.address,
+        zip: aade.zip,
+        city: aade.city,
+      },
+    });
+    if (plan.applied.length === 0) {
+      toast.info('Η ΑΑΔΕ δεν έδωσε καμία τιμή για αυτά τα πεδία.');
+      return;
+    }
+    setForm((f) => ({ ...f, ...plan.values }));
+    setUserOwned((prev) => {
+      const next = new Set(prev);
+      for (const k of plan.applied) next.add(k);
+      return next;
+    });
+    setFieldSource((prev) => {
+      const next = { ...prev };
+      for (const k of plan.applied) next[k] = 'aade';
+      return next;
+    });
     toast.success('Συμπληρώθηκαν τα στοιχεία της ΑΑΔΕ');
   };
 
@@ -612,19 +760,19 @@ export function TraderPanel({
   const addedPrefix = effectiveAfm !== group.afm ? vatPrefixFor(activeCountry) : null;
 
   const rows: { key: FieldKey; label: string; ocr: string | null; aadeValue: string | null; apply?: () => void }[] = [
-    { key: 'name', label: 'Επωνυμία', ocr: group.name, aadeValue: aade?.name || null, apply: () => aade?.name && set('name', aade.name) },
+    { key: 'name', label: 'Επωνυμία', ocr: group.name, aadeValue: aade?.name || null, apply: () => aade?.name && set('name', aade.name, 'aade') },
     {
       key: 'doyCode', label: 'Δ.Ο.Υ.', ocr: group.doy, aadeValue: aade?.doyDescr ?? null,
       apply: () => {
         const code = aade?.doyCode ?? matchDoy(aade?.doyDescr ?? null, taxOffices);
-        if (code) set('doyCode', code);
+        if (code) set('doyCode', code, 'aade');
         else toast.error('Η Δ.Ο.Υ. της ΑΑΔΕ δεν βρέθηκε στο μητρώο SoftOne.');
       },
     },
-    { key: 'profession', label: 'Επάγγελμα', ocr: group.profession, aadeValue: aade?.profession ?? null, apply: () => aade?.profession && set('profession', aade.profession) },
-    { key: 'address', label: 'Διεύθυνση', ocr: group.address, aadeValue: aade?.address ?? null, apply: () => aade?.address && set('address', aade.address) },
-    { key: 'zip', label: 'Τ.Κ.', ocr: null, aadeValue: aade?.zip ?? null, apply: () => aade?.zip && set('zip', aade.zip) },
-    { key: 'city', label: 'Πόλη', ocr: null, aadeValue: aade?.city ?? null, apply: () => aade?.city && set('city', aade.city) },
+    { key: 'profession', label: 'Επάγγελμα', ocr: group.profession, aadeValue: aade?.profession ?? null, apply: () => aade?.profession && set('profession', aade.profession, 'aade') },
+    { key: 'address', label: 'Διεύθυνση', ocr: group.address, aadeValue: aade?.address ?? null, apply: () => aade?.address && set('address', aade.address, 'aade') },
+    { key: 'zip', label: 'Τ.Κ.', ocr: null, aadeValue: aade?.zip ?? null, apply: () => aade?.zip && set('zip', aade.zip, 'aade') },
+    { key: 'city', label: 'Πόλη', ocr: null, aadeValue: aade?.city ?? null, apply: () => aade?.city && set('city', aade.city, 'aade') },
   ];
 
   return (
@@ -742,7 +890,7 @@ export function TraderPanel({
                       className="cursor-pointer"
                       disabled={!r.value}
                       aria-label={`Χρήση τιμής VIES για «${r.label}»`}
-                      onClick={() => r.value && set(r.key, r.value)}
+                      onClick={() => r.value && set(r.key, r.value, 'vies')}
                     >
                       Χρήση
                     </Button>
@@ -958,6 +1106,7 @@ export function TraderPanel({
         <div className="grid gap-2.5 sm:grid-cols-2">
           <Field label="Επωνυμία" required error={errorOf('name')} id="tp-name" className="sm:col-span-2">
             <Input {...bind('name', 'tp-name')} className="h-8 text-[13px]" />
+            <RegistryMark k="name" />
           </Field>
 
           <Field
@@ -1040,14 +1189,17 @@ export function TraderPanel({
                 onChange={(e) => set('doyCode', e.target.value)}
               />
             )}
+            <RegistryMark k="doyCode" />
           </Field>
           )}
 
           <Field label="Επάγγελμα" id="tp-prof" error={errorOf('profession')} className="sm:col-span-2">
             <Input {...bind('profession', 'tp-prof')} className="h-8 text-[13px]" />
+            <RegistryMark k="profession" />
           </Field>
 
           <Field label="Διεύθυνση" id="tp-addr" error={errorOf('address')} className="sm:col-span-2">
+            <RegistryMark k="address" />
             <div className="flex items-center gap-2">
               <Input {...bind('address', 'tp-addr')} className="h-8 flex-1 text-[13px]" />
               <Button
@@ -1086,12 +1238,12 @@ export function TraderPanel({
                 <button
                   type="button"
                   onClick={() => {
-                    setForm((f) => ({
-                      ...f,
-                      country: geo.countryCode && COUNTRY_NAMES_EL[geo.countryCode] ? geo.countryCode : f.country,
-                      city: geo.city || f.city,
-                      zip: geo.zip || f.zip,
-                    }));
+                    // Ρητή επιλογή χρήστη: τα πεδία γίνονται ΔΙΚΑ ΤΟΥ (`set`), οπότε ούτε η ΑΑΔΕ
+                    // ούτε το VIES θα τα ξαναγράψουν μετά. Δύο αυτόματες πηγές δεν μαλώνουν ποτέ
+                    // για το ίδιο πεδίο: ο geocoder ΔΕΝ εφαρμόζει μόνος του κείμενο — μόνο προτείνει.
+                    if (geo.countryCode && COUNTRY_NAMES_EL[geo.countryCode]) set('country', geo.countryCode);
+                    if (geo.city) set('city', geo.city);
+                    if (geo.zip) set('zip', geo.zip);
                     const c = validCoords(geo.lat, geo.lng);
                     if (c) setCoords(c);
                     toast.success('Συμπληρώθηκαν τα στοιχεία της διεύθυνσης');
@@ -1144,10 +1296,12 @@ export function TraderPanel({
 
           <Field label="Τ.Κ." id="tp-zip" error={errorOf('zip')}>
             <Input {...bind('zip', 'tp-zip')} inputMode="numeric" className="h-8 text-[13px]" />
+            <RegistryMark k="zip" />
           </Field>
 
           <Field label="Πόλη" id="tp-city" error={errorOf('city')}>
             <Input {...bind('city', 'tp-city')} className="h-8 text-[13px]" />
+            <RegistryMark k="city" />
           </Field>
 
           <Field

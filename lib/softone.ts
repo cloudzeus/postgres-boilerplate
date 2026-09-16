@@ -5,7 +5,6 @@ import { getSetting, setSetting } from '@/lib/settings';
 import { validCoords } from '@/lib/coords';
 import { nextTraderCode, type NextCodeResult } from '@/lib/trader-code';
 import { proposeItemCode, type ItemCodeKind, type ItemCodeProposal } from '@/lib/item-code';
-import { retailFromWholesale } from '@/lib/price';
 
 /**
  * SoftOne ERP Web Services client (Soft1).
@@ -822,15 +821,9 @@ export interface CreateItemInput {
   unit: string;         // MTRUNIT id (smallint as string)
   /**
    * Τιμή **ΧΟΝΔΡΙΚΗΣ** (καθαρή, χωρίς ΦΠΑ) → `ITEM.PRICEW`. Αυτή είναι η τιμή που κουβαλά μια
-   * γραμμή τιμολογίου ΑΓΟΡΑΣ: κόστος, όχι λιανική.
+   * γραμμή τιμολογίου ΑΓΟΡΑΣ: κόστος. Είναι και η ΜΟΝΗ τιμή που ξέρουμε.
    */
   price?: number | null;
-  /**
-   * Το ποσοστό ΦΠΑ της κατηγορίας που διάλεξε ο χρήστης (π.χ. 24). Από αυτό υπολογίζεται η
-   * **λιανική** (`ITEM.PRICER`), επειδή ο ERP ΔΕΝ την υπολογίζει (`calculated: false`).
-   * `null` ⇒ δεν στέλνεται λιανική καθόλου.
-   */
-  vatRate?: number | null;
   // Optional classification (FK ids from the aux tables).
   group?: string | null;       // MTRGROUP
   category?: string | null;    // MTRCATEGORY
@@ -942,11 +935,15 @@ export function buildItemPayload(input: CreateItemInput): { OBJECT: 'ITEM'; KEY:
     MTRUNIT4: input.unit,
     ISACTIVE: 1,
   };
-  // ΧΟΝΔΡΙΚΗ όπως δόθηκε (δεν «βελτιώνουμε» αριθμό που έγραψε άνθρωπος) και ΛΙΑΝΙΚΗ υπολογισμένη
-  // από το ΦΠΑ της φόρμας. Δες `lib/price.ts` για το γιατί δεν την αφήνουμε στον ERP.
+  // ΜΟΝΟ χονδρική, όπως δόθηκε (δεν «βελτιώνουμε» αριθμό που έγραψε άνθρωπος).
+  //
+  // ΓΙΑΤΙ ΔΕΝ ΣΤΕΛΝΕΤΑΙ `PRICER`: η εφαρμογή καταχωρεί παραστατικά **αγορών, εξόδων και
+  // παγίων** — δεν πουλά τίποτα. Τιμή λιανικής είναι **εμπορική απόφαση με περιθώριο**, όχι
+  // αριθμητικό παράγωγο του κόστους· ένα `κόστος × (1 + ΦΠΑ)` θα έγραφε τιμή πώλησης με
+  // **μηδενικό περιθώριο** και μάλιστα σαν να την είχε ορίσει άνθρωπος. Το `PRICER` είναι
+  // `calculated: false` στο schema του `ITEM`, δηλαδή ό,τι στείλουμε **μένει** — λόγος
+  // παραπάνω να μη στείλουμε τίποτα. Την τιμολόγηση την κάνει ο χρήστης μέσα στο SoftOne.
   if (input.price != null) row.PRICEW = input.price;
-  const retail = retailFromWholesale(input.price ?? null, input.vatRate ?? null);
-  if (retail != null) row.PRICER = retail;
   if (input.group) row.MTRGROUP = input.group;
   if (input.category) row.MTRCATEGORY = input.category;
   if (input.manufacturer) row.MTRMANFCTR = input.manufacturer;
@@ -2052,7 +2049,8 @@ export async function softoneCreateItemCategory(input: {
   const row = back.find((r) => Number(r.MTRCATEGORY) === id);
   if (!row || str(row.NAME).toUpperCase() !== name.toUpperCase()) {
     throw new SoftoneError(
-      `Η κατηγορία δεν επιβεβαιώθηκε στο SoftOne (MTRCATEGORY ${id}, περιγραφή «${row?.NAME ?? '—'}»).`,
+      `Η κατηγορία ΔΕΝ δημιουργήθηκε: δεν επιβεβαιώθηκε στο SoftOne μετά την εγγραφή `
+      + `(MTRCATEGORY ${id}, περιγραφή «${row?.NAME ?? '—'}»). Δοκίμασε ξανά ή φτιάξ' την μέσα στο SoftOne.`,
     );
   }
   return { mtrCategory: id, code: row.CODE || code, name: row.NAME || name };

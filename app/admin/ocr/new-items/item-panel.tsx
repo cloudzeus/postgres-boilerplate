@@ -13,7 +13,6 @@ import { AnalyticsPicker, type AnalyticsValue } from '@/components/admin/analyti
 import type { ItemQueueGroup, QueueSuggestion } from '@/lib/ocr/queues';
 import type { MatchKind } from '@/lib/ocr/line-match';
 import { cn } from '@/lib/utils';
-import { retailFromWholesale } from '@/lib/price';
 
 export interface VatOption { code: string; label: string; rate: number | null }
 export interface UnitOption { code: string; label: string }
@@ -327,22 +326,6 @@ export function ItemPanel({
   const isProposedCode = !!lastProposal.current && form.code.trim() === lastProposal.current;
   const codeChip = codeProposal ? CODE_CHIP[codeProposal.source] : null;
 
-  // ── Λιανική: χονδρική × (1 + ΦΠΑ) ─────────────────────────────────────
-  const selectedVat = vats.find((v) => v.code === form.vat) ?? null;
-  const wholesale = form.price.trim() ? Number(form.price.replace(',', '.')) : null;
-  const retail = retailFromWholesale(
-    wholesale != null && Number.isFinite(wholesale) ? wholesale : null,
-    selectedVat?.rate ?? null,
-  );
-  const retailFmt = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-  const retailText = retail == null ? '' : retailFmt.format(retail);
-  const retailHint = wholesale == null || !Number.isFinite(wholesale)
-    ? 'Συμπλήρωσε τιμή χονδρικής για να υπολογιστεί.'
-    : !form.vat
-      ? 'Επίλεξε κατηγορία ΦΠΑ για να υπολογιστεί.'
-      : selectedVat?.rate == null
-        ? 'Η κατηγορία ΦΠΑ δεν έχει ποσοστό — δεν θα σταλεί τιμή λιανικής.'
-        : `Χονδρική × (1 + ${selectedVat.rate}%) — αυτή η τιμή θα γραφτεί στο πεδίο «Λιανικής».`;
 
   const body = React.useMemo(() => ({
     afm: group.afm,
@@ -405,8 +388,11 @@ export function ItemPanel({
         body: JSON.stringify({ name, code: newCat.code.trim() || null }),
       });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; category?: ClassOption };
+      // ΑΠΟΤΥΧΙΑ = ΤΙΠΟΤΑ ΔΕΝ ΔΗΜΙΟΥΡΓΗΘΗΚΕ. Ο server πετά και όταν το `setData` γυρίσει
+      // «επιτυχία» αλλά η ανάγνωση πίσω δεν βρει τη γραμμή — εδώ φαίνεται ως σφάλμα πεδίου, η
+      // λίστα ΔΕΝ αλλάζει και καμία κατηγορία δεν επιλέγεται.
       if (!res.ok || !d.ok || !d.category) {
-        setCatError(d.message ?? 'Η δημιουργία κατηγορίας απέτυχε.');
+        setCatError(d.message ?? 'Η κατηγορία δεν δημιουργήθηκε.');
         return;
       }
       onCategoryCreated?.(d.category);
@@ -833,7 +819,7 @@ export function ItemPanel({
               {needsUnit && (
                 <Field
                   id="ni-price" label="Τιμή χονδρικής (προαιρετικό)" error={null}
-                  hint="Καθαρή τιμή, χωρίς ΦΠΑ — όπως τη χρέωσε ο προμηθευτής. Γράφεται στο πεδίο «Χονδρικής»."
+                  hint="Καθαρή τιμή, χωρίς ΦΠΑ — όπως τη χρέωσε ο προμηθευτής. Γράφεται στο πεδίο «Χονδρικής». Τιμή λιανικής δεν στέλνεται: την ορίζει ο χρήστης στο SoftOne."
                 >
                   <Input
                     id="ni-price" value={form.price} disabled={locked} inputMode="decimal" placeholder="0,00"
@@ -843,20 +829,6 @@ export function ItemPanel({
                 </Field>
               )}
 
-              {/* Η ΛΙΑΝΙΚΗ δεν πληκτρολογείται: την υπολογίζουμε από τη χονδρική και το ΦΠΑ που
-                  διάλεξε ο χρήστης, γιατί ο ERP ΔΕΝ την υπολογίζει (`PRICER.calculated = false`).
-                  Χωρίς επιλεγμένο ΦΠΑ δεν δείχνουμε αριθμό — καλύτερα τίποτα παρά λάθος. */}
-              {needsUnit && (
-                <Field
-                  id="ni-retail" label="Τιμή λιανικής (υπολογισμένη)" error={null}
-                  hint={retailHint}
-                >
-                  <Input
-                    id="ni-retail" value={retailText} readOnly aria-readonly
-                    className="h-9 bg-neutral-4 text-right text-[13px] tabular-nums"
-                  />
-                </Field>
-              )}
             </div>
 
             {/* ── Ομάδα & εμπορική κατηγορία (μόνο για είδος/υπηρεσία → object ITEM) ── */}
