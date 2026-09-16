@@ -10,6 +10,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { docTypeOf } from '@/lib/ocr/canonical';
+import { customValueText } from '@/lib/ocr/custom-value';
 import { ReextractDialog } from './reextract-dialog';
 import type { ExtractDocType } from '@/lib/ocr/templates';
 
@@ -142,7 +143,10 @@ export function OcrResultModal({ open, documentId, onClose }: ResultModalProps) 
     const present = raw != null && raw !== '' && !(Array.isArray(raw) && raw.length === 0);
     return {
       ...s,
-      value: present ? (s.format ? s.format(raw) : String(raw)) : null,
+      // ΠΟΤΕ `String(raw)`: μια εξαγωγή μπορεί κάλλιστα να γυρίσει λίστα ή ένθετο
+      // αντικείμενο και ο χρήστης έβλεπε `[object Object]`. Ίδια μορφοποίηση με τα
+      // «Ειδικά πεδία» των άλλων δύο οθονών (`lib/ocr/custom-value.ts`).
+      value: present ? (s.format ? s.format(raw) : customValueText(raw)) : null,
       present,
       missing: s.required && !present,
     };

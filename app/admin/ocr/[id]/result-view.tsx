@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Prisma } from '@prisma/client';
 import { FieldCorrection } from './field-correction';
 import { LineMatchCell, matchKindOf, type LineCategoryOption, type LineMatch } from './line-match-cell';
+import { CustomFieldsBlock, LineCustomFields, hasLineCustomFields } from '@/components/admin/custom-fields';
 import type { MatchKind } from '@/lib/ocr/line-match';
 
 type DocWithItems = Prisma.OcrDocumentGetPayload<{ include: { items: true } }>;
@@ -79,7 +80,7 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
             <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">Δεν εξήχθησαν γραμμές.</td></tr>
           ) : doc.items.map((it, idx) => {
             const line = (data.items?.[idx] ?? {}) as any;
-            const lineCf = lineCustomFieldsText(line.customFields as Record<string, unknown> | undefined);
+            const lineCf = (line.customFields ?? null) as Record<string, unknown> | null;
             return (
               <React.Fragment key={it.id}>
                 <tr className="hover:bg-muted/30">
@@ -100,12 +101,10 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
                     />
                   </td>
                 </tr>
-                {lineCf.length > 0 && (
+                {hasLineCustomFields(lineCf) && (
                   <tr key={`${it.id}-cf`} className="bg-muted/20">
                     <td colSpan={8} className="px-3 py-1.5 text-[11px] text-muted-foreground">
-                      {lineCf.map((e) => (
-                        <span key={e.label} className="mr-3"><strong className="text-foreground">{e.label}:</strong> {e.text}</span>
-                      ))}
+                      <LineCustomFields cf={lineCf} />
                     </td>
                   </tr>
                 )}
@@ -221,36 +220,6 @@ export function OcrResultView({ doc, match }: { doc: DocWithItems; match: LineMa
           />
         </div>
       )}
-    </section>
-  );
-}
-
-function lineCustomFieldsText(cf: Record<string, unknown> | undefined): { label: string; text: string }[] {
-  if (!cf) return [];
-  const human = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-  return Object.entries(cf)
-    .map(([k, v]) => ({ label: human(k), text: Array.isArray(v) ? v.join(', ') : v == null || v === '' ? '' : String(v) }))
-    .filter((e) => e.text !== '');
-}
-
-function CustomFieldsBlock({ data }: { data: Record<string, any> }) {
-  const cf = (data?.customFields ?? {}) as Record<string, unknown>;
-  const entries = Object.entries(cf);
-  if (entries.length === 0) return null;
-  const human = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-  return (
-    <section className="overflow-hidden rounded-lg border border-border bg-card">
-      <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-foreground">
-        Ειδικά πεδία
-      </header>
-      <dl className="grid grid-cols-1 gap-x-3 gap-y-1.5 p-3 sm:grid-cols-2">
-        {entries.map(([k, v]) => (
-          <div key={k} className="flex flex-col">
-            <dt className="text-[11px] font-semibold text-muted-foreground">{human(k)}</dt>
-            <dd className="text-[12px] text-foreground">{v == null || v === '' ? '—' : String(v)}</dd>
-          </div>
-        ))}
-      </dl>
     </section>
   );
 }

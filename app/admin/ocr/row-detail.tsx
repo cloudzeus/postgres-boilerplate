@@ -11,6 +11,7 @@ import { reconcileInvoice, analyzeLine } from '@/lib/ocr/invoice-math';
 import { docTypeOf } from '@/lib/ocr/canonical';
 import { SoftoneChecksStrip } from '@/components/admin/softone-checks-strip';
 import { ZoomablePreview } from '@/components/admin/zoomable-preview';
+import { CustomFieldsBlock, LineCustomFields, hasLineCustomFields } from '@/components/admin/custom-fields';
 import { type OcrRow, type SeriesOption } from './ocr-table';
 
 /* ------------------------------------------------------------------ */
@@ -154,36 +155,6 @@ const BADGE_STYLE = {
   fail:    { backgroundColor: '#fef3c7', color: '#78350f', borderColor: '#fbbf24' }, // amber-100 / amber-900 / amber-400
   neutral: { backgroundColor: '#f3f4f6', color: '#374151', borderColor: '#d1d5db' }, // gray-100 / gray-700 / gray-300
 } as const;
-
-function CustomFieldsBlock({ data }: { data: Record<string, any> }) {
-  const cf = (data?.customFields ?? {}) as Record<string, unknown>;
-  const entries = Object.entries(cf);
-  if (entries.length === 0) return null;
-  const human = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-  return (
-    <section className="overflow-hidden rounded-lg border border-border bg-card">
-      <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-foreground">
-        Ειδικά πεδία
-      </header>
-      <dl className="grid grid-cols-1 gap-x-3 gap-y-1.5 p-3 sm:grid-cols-2">
-        {entries.map(([k, v]) => (
-          <div key={k} className="flex flex-col">
-            <dt className="text-[11px] font-semibold text-muted-foreground">{human(k)}</dt>
-            <dd className="text-[12px] text-foreground">{v == null || v === '' ? '—' : String(v)}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
-  );
-}
-
-function lineCustomFieldsText(cf: Record<string, unknown> | undefined): { label: string; text: string }[] {
-  if (!cf) return [];
-  const human = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-  return Object.entries(cf)
-    .map(([k, v]) => ({ label: human(k), text: Array.isArray(v) ? v.join(', ') : v == null || v === '' ? '' : String(v) }))
-    .filter((e) => e.text !== '');
-}
 
 function CheckRow({ ok, label, got, exp }: { ok: boolean | null | undefined; label: string; got: string; exp: string }) {
   const style = ok == null ? BADGE_STYLE.neutral : ok ? BADGE_STYLE.ok : BADGE_STYLE.fail;
@@ -561,7 +532,7 @@ export function OcrRowDetail({
                       ) : items.map((it, i) => {
                         const la = analyzeLine(it);
                         const dTitle = la.discountKind === 'percent' ? 'Έκπτωση επί τοις %' : la.discountKind === 'amount' ? 'Έκπτωση ως ποσό' : undefined;
-                        const lineCf = lineCustomFieldsText(it.customFields);
+                        const lineCf = (it.customFields ?? null) as Record<string, unknown> | null;
                         return (
                         <React.Fragment key={i}>
                         <tr className={cn('hover:bg-sisyphus-500/5', !la.consistent ? 'bg-amber-500/5' : 'odd:bg-muted/20')}>
@@ -590,12 +561,10 @@ export function OcrRowDetail({
                             </td>
                           )}
                         </tr>
-                        {lineCf.length > 0 && (
+                        {hasLineCustomFields(lineCf) && (
                           <tr className="bg-sisyphus-500/5">
                             <td colSpan={ro ? 8 : 9} className="px-3 py-1.5 text-[11px] text-muted-foreground">
-                              {lineCf.map((e) => (
-                                <span key={e.label} className="mr-3"><strong className="text-foreground">{e.label}:</strong> {e.text}</span>
-                              ))}
+                              <LineCustomFields cf={lineCf} />
                             </td>
                           </tr>
                         )}
