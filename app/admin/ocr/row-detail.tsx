@@ -188,9 +188,6 @@ function CheckRow({ ok, label, got, exp }: { ok: boolean | null | undefined; lab
 /* Main component                                                      */
 /* ------------------------------------------------------------------ */
 
-/** Ετικέτες ομάδων του επιλογέα σειράς. «Άλλη ενότητα» = ανενεργή σειρά εκτός 1251/1653. */
-
-
 export function OcrRowDetail({
   row, canCategorize, canPost, seriesOptions = [],
 }: { row: OcrRow; canCategorize: boolean; canPost: boolean; seriesOptions?: SeriesOption[] }) {

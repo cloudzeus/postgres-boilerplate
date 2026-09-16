@@ -71,7 +71,7 @@ export interface OcrRow {
 
 /**
  * Μια σειρά παραστατικών SoftOne στον επιλογέα «Τύπος παραστατικού»: αγορών
- * (`PurchaseDocType`, SOSOURCE 1251) ή πιστωτών (`SoftoneDocSeries`, SOSOURCE 1653).
+ * (`PurchaseDocType`, SOSOURCE 1251) ή οποιασδήποτε άλλης ενότητας (`SoftoneDocSeries`).
  */
 export interface SeriesOption {
   code: string;
