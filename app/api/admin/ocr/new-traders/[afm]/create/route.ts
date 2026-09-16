@@ -7,9 +7,12 @@ import { parseAfmParam, vatCountry } from '@/lib/ocr/validate';
 import { applyVatPrefix } from '@/lib/ocr/vat-prefix';
 import { applyTraderToDocs, TRADER_KIND_LABEL } from '@/lib/ocr/queues';
 import {
-  buildTraderPayload, softoneCreateTrader, softoneFetchCountries,
-  matchCountryId, TRADER_KIND_SODTYPE, type SoftoneCountry,
+  buildTraderPayload, softoneCreateTrader, softoneFetchCountries, softoneNextTraderCode,
+  matchCountryId, isMissingCodeError, isDuplicateCodeError, clearTraderCodeCache,
+  TRADER_KIND_SODTYPE, type SoftoneCountry,
 } from '@/lib/softone';
+import { traderCodeMaskKey } from '@/lib/trader-code';
+import { getSetting } from '@/lib/settings';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,6 +30,9 @@ const Body = z.object({
   email: z.string().trim().max(120).nullable().optional(),
   /** ISO-2 χώρα έδρας· κενό ⇒ την παίρνουμε από το ίδιο το ΑΦΜ. */
   country: z.string().trim().regex(/^[A-Za-z]{2}$/, 'Κωδικός χώρας 2 γραμμάτων').nullable().optional(),
+  /** Συντεταγμένες έδρας → `TRDR.LATITUDE` / `LONGITUDE`. Άγνωστο = απών, ποτέ 0. */
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
   dryRun: z.boolean().optional(),
 });
 
@@ -62,6 +68,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
     phone: b.phone ?? null,
     email: b.email ?? null,
     country,
+    // Το `traderRow` γράφει LATITUDE/LONGITUDE μόνο για έγκυρο ΖΕΥΓΟΣ — μια μισή
+    // συντεταγμένη ή (0,0) παραλείπεται εντελώς.
+    latitude: b.latitude ?? null,
+    longitude: b.longitude ?? null,
   };
 
   // Το μητρώο χωρών φορτώνεται ΜΙΑ φορά ανά αίτημα (cached 24h μέσα στη διεργασία).
@@ -86,7 +96,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
     // είναι αυτό που αντιστοιχεί στο object — αλλιώς πετάει.
     ({ trdr, code } = await softoneCreateTrader(b.kind, input, countries));
   } catch (e) {
-    return NextResponse.json({ error: 'softone_error', message: (e as Error).message }, { status: 502 });
+    const message = (e as Error).message;
+    // Η εγκατάσταση απαιτεί κωδικό για αυτόν τον τύπο: δεν είναι «σφάλμα SoftOne»
+    // για γενικό banner — είναι σφάλμα ΠΕΔΙΟΥ. Ο καλών το κολλά πάνω στο «Κωδικός»
+    // με ΑΥΤΟΥΣΙΟ το μήνυμα του ERP.
+    if (isMissingCodeError(message)) {
+      return NextResponse.json(
+        { error: 'code_required', field: 'code', kind: b.kind, message, suggestion: await suggest(b.kind) },
+        { status: 422 },
+      );
+    }
+    // Ο κωδικός πιάστηκε στο μεσοδιάστημα (άλλος χρήστης / άλλη καρτέλα). ΔΕΝ
+    // ξαναδοκιμάζουμε σε βρόχο — μια δεύτερη προσπάθεια κινδυνεύει να δημιουργήσει
+    // διπλή εγγραφή. Επιστρέφουμε τον ΝΕΟ επόμενο ελεύθερο και αποφασίζει ο χρήστης.
+    if (isDuplicateCodeError(message)) {
+      clearTraderCodeCache(b.kind);
+      return NextResponse.json(
+        { error: 'code_taken', field: 'code', kind: b.kind, message, suggestion: await suggest(b.kind) },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({ error: 'softone_error', message }, { status: 502 });
   }
 
   const kind = TRADER_KIND_LABEL[b.kind];
@@ -112,4 +142,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
   }).catch(() => null);
 
   return NextResponse.json({ ok: true, trdr, code, name: b.name, afm: vatId, kind, country, docsUpdated, warnings });
+}
+
+/**
+ * Ο επόμενος ελεύθερος κωδικός για τον τύπο — ΜΟΝΟ για να τον προτείνουμε μετά από
+ * άρνηση του SoftOne. Ποτέ δεν πετάει: χωρίς πρόταση, το UI δείχνει απλώς το μήνυμα.
+ */
+async function suggest(kind: 'supplier' | 'creditor' | 'debtor'): Promise<string | null> {
+  try {
+    const mask = await getSetting<string>(traderCodeMaskKey(kind), '').catch(() => '');
+    const mirror = await prisma.softoneTrader
+      .findMany({ where: { sodtype: TRADER_KIND_SODTYPE[kind] }, select: { code: true } })
+      .catch(() => [] as { code: string }[]);
+    const r = await softoneNextTraderCode(kind, { mask: mask ?? '', fallbackCodes: mirror.map((m) => m.code) });
+    return r.code;
+  } catch {
+    return null;
+  }
 }

@@ -2,6 +2,8 @@ import 'server-only';
 import iconv from 'iconv-lite';
 import { gunzipSync } from 'node:zlib';
 import { getSetting, setSetting } from '@/lib/settings';
+import { validCoords } from '@/lib/coords';
+import { nextTraderCode, type NextCodeResult } from '@/lib/trader-code';
 
 /**
  * SoftOne ERP Web Services client (Soft1).
@@ -1110,7 +1112,102 @@ export interface CreateSupplierInput {
    * παραλείπεται και ο καλών ειδοποιείται (`country_not_found`).
    */
   country?: string | null;
+  /**
+   * Γεωγραφικό πλάτος / μήκος της έδρας → `TRDR.LATITUDE` / `TRDR.LONGITUDE`
+   * («Γεωγραφικό πλάτος» / «Γεωγραφικό μήκος», Float — υπάρχουν και στα τρία
+   * objects SUPPLIER/CREDITOR/DEBTOR, ίδιος πίνακας TRDR).
+   *
+   * ΑΓΝΩΣΤΟ ΣΗΜΑΙΝΕΙ ΠΑΡΑΛΕΙΨΗ, ΟΧΙ ΜΗΔΕΝ: το (0,0) είναι υπαρκτό σημείο στον
+   * Ατλαντικό και δεν επιτρέπεται να γραφεί ως «δεν ξέρουμε».
+   */
+  latitude?: number | null;
+  longitude?: number | null;
 }
+/**
+ * Το SoftOne αρνήθηκε τη δημιουργία επειδή ΛΕΙΠΕΙ ο κωδικός;
+ *
+ * Επιβεβαιωμένο ζωντανά (dev tenant, 2026-09-16): `setData` σε object `CREDITOR`
+ * χωρίς `CODE` γυρίζει «Δεν έχετε συμπληρώσει το πεδίο 'Κωδικός'» και ΔΕΝ δημιουργεί
+ * τίποτα. Αναγνωρίζουμε ακριβώς αυτό το μήνυμα (ελληνικά ή αγγλικά) ώστε το UI να
+ * δείξει το σφάλμα ΠΑΝΩ στο πεδίο «Κωδικός» αντί για γενικό banner.
+ *
+ * Σκόπιμα ΣΤΕΝΟ: ένα άλλο υποχρεωτικό πεδίο δεν πρέπει να περάσει για «κωδικός».
+ */
+export function isMissingCodeError(message: unknown): boolean {
+  const m = String(message ?? '');
+  if (!m) return false;
+  const mentionsCode = /Κωδικ[όο]ς?/i.test(m) || /\bcode\b/i.test(m);
+  if (!mentionsCode) return false;
+  return /δεν\s+[έε]χετε\s+συμπληρ[ωώ]σει/i.test(m)
+    || /συμπληρ[ωώ]στε/i.test(m)
+    || /(is\s+)?(required|mandatory|not\s+(filled|specified))/i.test(m);
+}
+
+/**
+ * Το SoftOne αρνήθηκε επειδή ο κωδικός **υπάρχει ήδη**;
+ *
+ * ΠΡΟΣΟΧΗ: σε αντίθεση με το {@link isMissingCodeError}, το ακριβές μήνυμα ΔΕΝ έχει
+ * παρατηρηθεί ζωντανά σε αυτή την εγκατάσταση — καλύπτουμε τις συνήθεις διατυπώσεις.
+ * Αν δεν αναγνωριστεί, η αποτυχία απλώς παραμένει γενικό σφάλμα SoftOne: δεν
+ * δημιουργείται τίποτα σε καμία περίπτωση.
+ */
+export function isDuplicateCodeError(message: unknown): boolean {
+  const m = String(message ?? '');
+  if (!m) return false;
+  const mentionsCode = /Κωδικ[όο]ς?/i.test(m) || /\bcode\b/i.test(m);
+  if (!mentionsCode) return false;
+  return /υπ[άα]ρχει\s+[ήη]δη/i.test(m)
+    || /[ήη]δη\s+υπ[άα]ρχει/i.test(m)
+    || /διπλ[όο]/i.test(m)
+    || /duplicate|already\s+exists/i.test(m);
+}
+
+/** Πόσο κρατά η λίστα κωδικών ανά τύπο — αρκετά για μια συνεδρία, όχι για μια μέρα. */
+const TRADER_CODES_TTL_MS = 60_000;
+const traderCodeCache = new Map<TraderKind, { at: number; codes: string[] }>();
+
+/** Καθαρίζει το cache κωδικών (δοκιμές / μετά από δημιουργία). */
+export function clearTraderCodeCache(kind?: TraderKind): void {
+  if (kind) traderCodeCache.delete(kind);
+  else traderCodeCache.clear();
+}
+
+/**
+ * ΟΛΟΙ οι κωδικοί συναλλασσομένων ενός τύπου, από το ίδιο το SoftOne (read-only
+ * `GetTable` στον `TRDR`, φιλτραρισμένο στο SODTYPE του τύπου).
+ *
+ * Ο τοπικός καθρέφτης μπορεί να είναι παλιός — και ένας κωδικός που δόθηκε στο
+ * μεσοδιάστημα από άλλον χρήστη θα οδηγούσε σε πρόταση που θα απορριφθεί. Το
+ * αποτέλεσμα κρατιέται 60 δευτερόλεπτα: φρέσκο όσο χρειάζεται, χωρίς ένα GetTable
+ * ανά πάτημα πλήκτρου.
+ */
+export async function softoneFetchTraderCodes(kind: TraderKind): Promise<string[]> {
+  const hit = traderCodeCache.get(kind);
+  if (hit && Date.now() - hit.at < TRADER_CODES_TTL_MS) return hit.codes;
+  const rows = await softoneGetTable('TRDR', ['CODE'], `SODTYPE=${TRADER_KIND_SODTYPE[kind]}`);
+  const codes = rows.map((r) => str(r.CODE)).filter(Boolean);
+  traderCodeCache.set(kind, { at: Date.now(), codes });
+  return codes;
+}
+
+/**
+ * Ο επόμενος ελεύθερος κωδικός για έναν τύπο, με **φρέσκα** δεδομένα από τον ERP.
+ *
+ * `fallbackCodes` (ο τοπικός καθρέφτης) χρησιμοποιείται ΜΟΝΟ όταν το SoftOne δεν
+ * απαντά — τότε το αποτέλεσμα σημειώνεται `stale: true` και το UI το λέει.
+ */
+export async function softoneNextTraderCode(
+  kind: TraderKind,
+  opts: { mask?: string | null; fallbackCodes?: readonly string[] } = {},
+): Promise<NextCodeResult & { stale: boolean }> {
+  try {
+    const codes = await softoneFetchTraderCodes(kind);
+    return { ...nextTraderCode(codes, { mask: opts.mask }), stale: false };
+  } catch {
+    return { ...nextTraderCode(opts.fallbackCodes ?? [], { mask: opts.mask }), stale: true };
+  }
+}
+
 /**
  * Συναλλασσόμενος που εκδίδει παραστατικό προς εμάς: προμηθευτής (12), πιστωτής (16) ή
  * χρεώστης (15). Ένα object μητρώου ανά τύπο, όλα πάνω στον ΙΔΙΟ πίνακα TRDR.
@@ -1144,6 +1241,12 @@ function traderRow(input: CreateTraderInput, countries: SoftoneCountry[] = []): 
   if (input.city) row.CITY = input.city;
   if (input.phone) row.PHONE01 = input.phone;
   if (input.email) row.EMAIL = input.email;
+  // Συντεταγμένες: ή και τα δύο πεδία με έγκυρο ζεύγος, ή κανένα. Ποτέ «0 = άγνωστο».
+  const coords = validCoords(input.latitude, input.longitude);
+  if (coords) {
+    row.LATITUDE = coords.lat;
+    row.LONGITUDE = coords.lng;
+  }
   return row;
 }
 
@@ -1195,7 +1298,9 @@ export async function softoneCreateTrader(
       `Η εγγραφή δεν επιβεβαιώθηκε στο SoftOne (TRDR ${trdr}, SODTYPE ${row?.SODTYPE ?? '—'} ≠ ${expected}).`,
     );
   }
-  // Το CODE έρχεται από τη γραμμή (auto-numbering όταν δεν δόθηκε).
+  // Ο νέος κωδικός έπιασε θέση: η επόμενη πρόταση πρέπει να τον δει.
+  clearTraderCodeCache(kind);
+  // Το CODE το επιβεβαιώνει η ίδια η γραμμή του TRDR, όχι η αίτησή μας.
   return { trdr, code: row.CODE || input.code || '' };
 }
 

@@ -89,6 +89,41 @@ export const TRADER_KIND_LABEL: Record<TraderKind, string> = {
 };
 
 
+/** Δείγματα κωδικών ανά τύπο συναλλασσομένου — για να ΔΕΙΞΟΥΜΕ, όχι να μαντέψουμε. */
+export type TraderCodeSamples = Record<TraderKind, string[]>;
+
+/** Πόσα δείγματα κωδικών δείχνουμε ανά τύπο. */
+const CODE_SAMPLES = 4;
+
+/**
+ * Πραγματικοί κωδικοί που ήδη χρησιμοποιούν οι συναλλασσόμενοι κάθε τύπου, από τον
+ * ΤΟΠΙΚΟ καθρέφτη (`SoftoneTrader`) — read-only, καμία κλήση στο SoftOne.
+ *
+ * Σκοπός: όταν η εγκατάσταση ΑΠΑΙΤΕΙ κωδικό (δες «Κωδικός» στη φόρμα), ο χρήστης
+ * βλέπει τι μορφή έχουν οι υπάρχοντες (π.χ. `53.90.00.0000` στους πιστωτές, που είναι
+ * λογαριασμοί λογιστικού σχεδίου). Η εφαρμογή ΔΕΝ παράγει και ΔΕΝ προτείνει κωδικό:
+ * το σχέδιο λογαριασμών είναι του λογιστή, όχι δικό μας.
+ */
+export async function loadTraderCodeSamples(): Promise<TraderCodeSamples> {
+  const empty: TraderCodeSamples = { supplier: [], creditor: [], debtor: [] };
+  const kinds = Object.keys(empty) as TraderKind[];
+  const lists = await Promise.all(
+    kinds.map((k) =>
+      prisma.softoneTrader
+        .findMany({
+          where: { sodtype: TRADER_KIND_SODTYPE[k], code: { not: '' } },
+          select: { code: true },
+          distinct: ['code'],
+          orderBy: { code: 'asc' },
+          take: CODE_SAMPLES,
+        })
+        .catch(() => [] as { code: string }[]),
+    ),
+  );
+  kinds.forEach((k, i) => { empty[k] = lists[i].map((r) => r.code).filter(Boolean); });
+  return empty;
+}
+
 export interface TraderQueueDoc {
   id: string;
   fileName: string;

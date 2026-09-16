@@ -4,14 +4,14 @@
 // τους φύλακες (permission, ΑΦΜ, SODTYPE) και ότι το dry-run δεν γράφει ΠΟΥΘΕΝΑ.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { db, rbac, s1, audit, s1read } = vi.hoisted(() => ({
+const { db, rbac, s1, audit, s1read, settings } = vi.hoisted(() => ({
   db: {
     ocrDocument: { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
     purchaseDocType: { findFirst: vi.fn(), findUnique: vi.fn() },
     softoneDocSeries: { findFirst: vi.fn() },
     ocrInvoiceItem: { findMany: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     ignoredIssuer: { findMany: vi.fn(), upsert: vi.fn(), delete: vi.fn() },
-    softoneTrader: { findUnique: vi.fn(), upsert: vi.fn() },
+    softoneTrader: { findUnique: vi.fn(), findMany: vi.fn(), upsert: vi.fn() },
     softoneItem: { findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
     softoneExpense: { findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
     lineMatchRule: { findMany: vi.fn(), upsert: vi.fn() },
@@ -27,7 +27,12 @@ const { db, rbac, s1, audit, s1read } = vi.hoisted(() => ({
   audit: { logAudit: vi.fn() },
   // Read-only SoftOne lookups: ΔΕΝ μπαίνουν στο `s1` (το `expectNoWrites` απαιτεί
   // ότι κανένα από εκείνα δεν κλήθηκε — μια ανάγνωση όμως επιτρέπεται στο dry-run).
-  s1read: { softoneFetchCountries: vi.fn() },
+  s1read: {
+    softoneFetchCountries: vi.fn(),
+    softoneNextTraderCode: vi.fn(),
+    clearTraderCodeCache: vi.fn(),
+  },
+  settings: { getSetting: vi.fn(), setSetting: vi.fn() },
 }));
 
 vi.mock('@/lib/db', () => ({ prisma: db }));
@@ -41,10 +46,12 @@ vi.mock('@/lib/softone', async (importOriginal) => ({
   ...s1,
   ...s1read,
 }));
+vi.mock('@/lib/settings', () => settings);
 
 import { POST as createTrader } from '@/app/api/admin/ocr/new-traders/[afm]/create/route';
 import { POST as linkTrader } from '@/app/api/admin/ocr/new-traders/[afm]/link/route';
 import { POST as ignoreTrader, DELETE as unignoreTrader } from '@/app/api/admin/ocr/new-traders/[afm]/ignore/route';
+import { GET as nextCode } from '@/app/api/admin/ocr/new-traders/next-code/route';
 import { POST as createItem } from '@/app/api/admin/ocr/new-items/create/route';
 import { GET as itemQueue } from '@/app/api/admin/ocr/new-items/route';
 import { PATCH as patchDoc } from '@/app/api/admin/ocr/[id]/route';
@@ -87,6 +94,9 @@ beforeEach(() => {
   db.purchaseDocType.findUnique.mockResolvedValue(null);
   db.softoneDocSeries.findFirst.mockResolvedValue(null);
   // Μητρώο χωρών SoftOne: μόνο όσα χρειάζονται οι δοκιμές (COUNTRY.COUNTRY = id).
+  settings.getSetting.mockResolvedValue('');
+  db.softoneTrader.findMany.mockResolvedValue([]);
+  s1read.softoneNextTraderCode.mockResolvedValue({ code: '53-00002', source: 'pattern', taken: 1, stale: false });
   s1read.softoneFetchCountries.mockResolvedValue([
     { id: '1000', shortcut: 'GR', name: 'ΕΛΛΑΔΑ', intcode: 'GR', intercode: 'GR' },
     { id: '1012', shortcut: 'CY', name: 'ΚΥΠΡΟΣ', intcode: 'CY', intercode: 'CY' },
@@ -174,6 +184,94 @@ describe('dry-run', () => {
     expect(body.dryRun).toBe(true);
     expect(body.payload.OBJECT).toBe('ITEM');
     expectNoWrites();
+  });
+});
+
+describe('συντεταγμένες → SoftOne', () => {
+  it('περνούν ως LATITUDE/LONGITUDE στο setData (και φαίνονται στο dry-run)', async () => {
+    const res = await createTrader(
+      post({ kind: 'supplier', name: 'ΑΛΦΑ ΑΕ', latitude: 37.9755, longitude: 23.7348, dryRun: true }),
+      ctx(AFM),
+    );
+    expect((await res.json()).payload.DATA.SUPPLIER[0])
+      .toMatchObject({ LATITUDE: 37.9755, LONGITUDE: 23.7348 });
+    expectNoWrites();
+  });
+
+  it('χωρίς συντεταγμένες τα δύο πεδία ΛΕΙΠΟΥΝ — η δημιουργία δεν μπλοκάρει', async () => {
+    const res = await createTrader(post({ kind: 'supplier', name: 'ΑΛΦΑ ΑΕ', dryRun: true }), ctx(AFM));
+    const r = (await res.json()).payload.DATA.SUPPLIER[0];
+    expect(r).not.toHaveProperty('LATITUDE');
+    expect(r).not.toHaveProperty('LONGITUDE');
+  });
+
+  it('εκτός ορίων → 400 στο ίδιο το body, χωρίς να φτάσει στο SoftOne', async () => {
+    const res = await createTrader(
+      post({ kind: 'supplier', name: 'ΑΛΦΑ ΑΕ', latitude: 137.9, longitude: 23.7 }),
+      ctx(AFM),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('invalid_body');
+    expectNoWrites();
+  });
+});
+
+describe('επόμενος ελεύθερος κωδικός', () => {
+  it('GET next-code επιστρέφει την πρόταση για τον ζητούμενο τύπο', async () => {
+    const res = await nextCode(new Request('http://localhost/api?kind=creditor'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ kind: 'creditor', code: '53-00002', source: 'pattern' });
+    // Ο τύπος περνά αυτούσιος: ένας πιστωτής δεν παίρνει την αρίθμηση των προμηθευτών.
+    expect(s1read.softoneNextTraderCode.mock.calls[0][0]).toBe('creditor');
+  });
+
+  it('η μάσκα των ρυθμίσεων φτάνει στη λογική πρότασης', async () => {
+    settings.getSetting.mockResolvedValue('53-00001');
+    await nextCode(new Request('http://localhost/api?kind=debtor'));
+    expect(s1read.softoneNextTraderCode.mock.calls[0][1]).toMatchObject({ mask: '53-00001' });
+  });
+
+  it('άγνωστος τύπος → 400 χωρίς να ρωτηθεί το SoftOne', async () => {
+    const res = await nextCode(new Request('http://localhost/api?kind=customer'));
+    expect(res.status).toBe(400);
+    expect(s1read.softoneNextTraderCode).not.toHaveBeenCalled();
+  });
+});
+
+describe('το SoftOne απαιτεί «Κωδικό»', () => {
+  it('γίνεται 422 code_required με το ΑΥΤΟΥΣΙΟ μήνυμα του ERP, όχι γενικό 502', async () => {
+    const message = "Δεν έχετε συμπληρώσει το πεδίο 'Κωδικός'";
+    s1.softoneCreateTrader.mockRejectedValue(new Error(message));
+    const res = await createTrader(post({ kind: 'creditor', name: 'ΑΛΦΑ ΑΕ' }), ctx(AFM));
+
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({
+      error: 'code_required', field: 'code', kind: 'creditor', message, suggestion: '53-00002',
+    });
+    // Τίποτα δεν δημιουργήθηκε: ο καθρέφτης και τα έγγραφα μένουν ανέγγιχτα.
+    expect(db.softoneTrader.upsert).not.toHaveBeenCalled();
+    expect(db.ocrDocument.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('κωδικός που πιάστηκε στο μεσοδιάστημα → 409 με ΝΕΑ πρόταση, ΚΑΜΙΑ επανάληψη', async () => {
+    const message = 'Ο κωδικός 53-00002 υπάρχει ήδη';
+    s1.softoneCreateTrader.mockRejectedValue(new Error(message));
+    s1read.softoneNextTraderCode.mockResolvedValue({ code: '53-00003', source: 'pattern', taken: 2, stale: false });
+
+    const res = await createTrader(post({ kind: 'creditor', name: 'ΑΛΦΑ ΑΕ', code: '53-00002' }), ctx(AFM));
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'code_taken', field: 'code', message, suggestion: '53-00003' });
+    // ΜΙΑ και μόνη προσπάθεια δημιουργίας — ποτέ δεύτερη «στα τυφλά».
+    expect(s1.softoneCreateTrader).toHaveBeenCalledTimes(1);
+    expect(db.softoneTrader.upsert).not.toHaveBeenCalled();
+  });
+
+  it('κάθε άλλο σφάλμα SoftOne παραμένει 502 softone_error', async () => {
+    s1.softoneCreateTrader.mockRejectedValue(new Error('Η εγγραφή δεν επιβεβαιώθηκε στο SoftOne'));
+    const res = await createTrader(post({ kind: 'supplier', name: 'ΑΛΦΑ ΑΕ' }), ctx(AFM));
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toBe('softone_error');
   });
 });
 

@@ -23,7 +23,9 @@ vi.mock('@/lib/settings', () => ({
 
 import {
   buildTraderPayload, softoneCreateSupplier, softoneCreateCreditor, softoneCreateDebtor,
-  softoneCreateTrader, softoneFindTraderByAfm, TRADER_KIND_SODTYPE, ISSUER_SODTYPES,
+  softoneCreateTrader, softoneFindTraderByAfm, isMissingCodeError, isDuplicateCodeError,
+  softoneFetchTraderCodes, softoneNextTraderCode, clearTraderCodeCache,
+  TRADER_KIND_SODTYPE, ISSUER_SODTYPES,
 } from '@/lib/softone';
 
 type Call = { service: string; body: Record<string, unknown> };
@@ -73,6 +75,85 @@ describe('buildTraderPayload', () => {
     expect(r).not.toHaveProperty('EMAIL');
     expect(r).not.toHaveProperty('CITY');
   });
+
+  it('στέλνει LATITUDE/LONGITUDE ως Float όταν υπάρχει έγκυρο ζεύγος', () => {
+    const r = row(buildTraderPayload('supplier', { ...INPUT, latitude: 37.9755, longitude: 23.7348 }));
+    expect(r).toMatchObject({ LATITUDE: 37.9755, LONGITUDE: 23.7348 });
+  });
+
+  it.each([
+    ['μισό ζεύγος (μόνο lat)', { latitude: 37.9755, longitude: null }],
+    ['μισό ζεύγος (μόνο lng)', { latitude: null, longitude: 23.7348 }],
+    ['άγνωστο = (0,0) — ΠΟΤΕ δεν γράφεται ως πραγματικό σημείο', { latitude: 0, longitude: 0 }],
+    ['εκτός ορίων', { latitude: 137.9, longitude: 23.7 }],
+    ['χωρίς συντεταγμένες', {}],
+  ])('παραλείπει και τα δύο πεδία: %s', (_label, coords) => {
+    const r = row(buildTraderPayload('creditor', { ...INPUT, ...coords }));
+    expect(r).not.toHaveProperty('LATITUDE');
+    expect(r).not.toHaveProperty('LONGITUDE');
+  });
+});
+
+describe('isMissingCodeError', () => {
+  it('αναγνωρίζει το ΑΥΤΟΥΣΙΟ μήνυμα του SoftOne (επιβεβαιωμένο ζωντανά σε πιστωτή)', () => {
+    expect(isMissingCodeError("Δεν έχετε συμπληρώσει το πεδίο 'Κωδικός'")).toBe(true);
+    expect(isMissingCodeError('Δεν εχετε συμπληρωσει το πεδιο «Κωδικος»')).toBe(true);
+    expect(isMissingCodeError('Field Code is required')).toBe(true);
+  });
+
+  it('ΔΕΝ μπερδεύει άλλο υποχρεωτικό πεδίο με τον κωδικό', () => {
+    expect(isMissingCodeError("Δεν έχετε συμπληρώσει το πεδίο 'Επωνυμία'")).toBe(false);
+    expect(isMissingCodeError('Ο κωδικός χώρας δεν βρέθηκε στο μητρώο')).toBe(false);
+    expect(isMissingCodeError('')).toBe(false);
+    expect(isMissingCodeError(null)).toBe(false);
+  });
+});
+
+describe('isDuplicateCodeError', () => {
+  it('αναγνωρίζει τις συνήθεις διατυπώσεις «υπάρχει ήδη»', () => {
+    expect(isDuplicateCodeError('Ο κωδικός 53-00002 υπάρχει ήδη')).toBe(true);
+    expect(isDuplicateCodeError('Υπάρχει ήδη εγγραφή με αυτόν τον κωδικό')).toBe(true);
+    expect(isDuplicateCodeError('Duplicate code')).toBe(true);
+  });
+
+  it('δεν συγχέεται με την έλλειψη κωδικού — είναι άλλη ενέργεια για τον χρήστη', () => {
+    expect(isDuplicateCodeError("Δεν έχετε συμπληρώσει το πεδίο 'Κωδικός'")).toBe(false);
+    expect(isDuplicateCodeError('Το ΑΦΜ υπάρχει ήδη')).toBe(false);
+  });
+});
+
+describe('softoneFetchTraderCodes / softoneNextTraderCode', () => {
+  beforeEach(() => clearTraderCodeCache());
+
+  it('διαβάζει ΜΟΝΟ τους κωδικούς του SODTYPE του τύπου (read-only GetTable)', async () => {
+    queue = [{ success: true, data: [['53-00001'], ['53-00002']] }];
+    await expect(softoneFetchTraderCodes('creditor')).resolves.toEqual(['53-00001', '53-00002']);
+    expect(calls[0].body).toMatchObject({ TABLE: 'TRDR', FIELDS: 'CODE', FILTER: 'SODTYPE=16' });
+  });
+
+  it('cache-άρει: δεύτερη κλήση μέσα στο παράθυρο δεν ξαναρωτά το SoftOne', async () => {
+    queue = [{ success: true, data: [['0001']] }];
+    await softoneFetchTraderCodes('supplier');
+    await softoneFetchTraderCodes('supplier');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('προτείνει τον επόμενο ελεύθερο από τα ΦΡΕΣΚΑ δεδομένα του ERP', async () => {
+    queue = [{ success: true, data: [['53-00001']] }];
+    await expect(softoneNextTraderCode('creditor')).resolves
+      .toMatchObject({ code: '53-00002', source: 'pattern', stale: false });
+  });
+
+  it('SoftOne εκτός: πέφτει στον τοπικό καθρέφτη και το ΔΗΛΩΝΕΙ (stale)', async () => {
+    queue = [{ success: false, error: 'down' }];
+    await expect(softoneNextTraderCode('creditor', { fallbackCodes: ['53-00004'] })).resolves
+      .toMatchObject({ code: '53-00005', stale: true });
+  });
+
+  it('χωρίς κανένα δεδομένο και χωρίς μάσκα δεν προτείνει τίποτα', async () => {
+    queue = [{ success: true, data: [] }];
+    await expect(softoneNextTraderCode('debtor')).resolves.toMatchObject({ code: null, source: 'none' });
+  });
 });
 
 describe('softoneCreateTrader', () => {
@@ -82,6 +163,7 @@ describe('softoneCreateTrader', () => {
       { success: true, data: [['5001', 'Π.0042', '12']] },
     ];
 
+    clearTraderCodeCache();
     const res = await softoneCreateSupplier({ ...INPUT, phone: '2101234567', email: 'a@b.gr' });
 
     expect(calls.map((c) => c.service)).toEqual(['setData', 'GetTable']);

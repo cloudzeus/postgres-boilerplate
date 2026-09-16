@@ -7,6 +7,7 @@ const { db } = vi.hoisted(() => ({
     ocrDocument: { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
     ocrInvoiceItem: { findMany: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     ignoredIssuer: { findMany: vi.fn() },
+    softoneTrader: { findMany: vi.fn() },
     softoneItem: { findMany: vi.fn(), findUnique: vi.fn() },
     softoneExpense: { findMany: vi.fn(), findUnique: vi.fn() },
     softoneLineItem: { findMany: vi.fn(), findUnique: vi.fn() },
@@ -33,6 +34,7 @@ import { clearClassificationCache } from '../mydata-labels';
 import {
   loadTraderQueue, applyTraderToDocs, loadItemQueue, suggestForGroup,
   applyMatchToGroup, skipGroup, countQueues, QueueError, TRADER_KIND_LABEL,
+  loadTraderCodeSamples,
 } from '../queues';
 
 // Το `issuerAfm` είναι ΣΤΗΛΗ (γράφεται στην εξαγωγή): εδώ το παράγουμε από το ίδιο fixture
@@ -495,5 +497,26 @@ describe('countQueues', () => {
 
     expect(await countQueues()).toEqual({ traders: 0, items: 0 });
     expect(db.ocrDocument.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('loadTraderCodeSamples', () => {
+  it('δείχνει ΥΠΑΡΧΟΝΤΕΣ κωδικούς ανά SODTYPE — δεν παράγει κανέναν', async () => {
+    db.softoneTrader.findMany.mockImplementation(async ({ where }: { where: { sodtype: number } }) =>
+      where.sodtype === 16 ? [{ code: '53.90.00.0000' }, { code: '53.90.00.0001' }] : [{ code: '0001' }]);
+
+    const samples = await loadTraderCodeSamples();
+    expect(samples.creditor).toEqual(['53.90.00.0000', '53.90.00.0001']);
+    expect(samples.supplier).toEqual(['0001']);
+    // Μόνο ανάγνωση: κανένα upsert, καμία «πρόταση» κωδικού.
+    expect(db.softoneTrader.findMany).toHaveBeenCalledTimes(3);
+    for (const call of db.softoneTrader.findMany.mock.calls) {
+      expect(call[0]).toMatchObject({ select: { code: true }, distinct: ['code'] });
+    }
+  });
+
+  it('χωρίς καθρέφτη επιστρέφει άδειες λίστες αντί να πέσει', async () => {
+    db.softoneTrader.findMany.mockRejectedValue(new Error('db down'));
+    await expect(loadTraderCodeSamples()).resolves.toEqual({ supplier: [], creditor: [], debtor: [] });
   });
 });
