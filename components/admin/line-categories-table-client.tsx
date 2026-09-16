@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
-import { FiRefreshCw, FiCheck, FiSlash } from 'react-icons/fi';
+import { FiRefreshCw, FiCheck, FiSlash, FiAlertTriangle } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,8 @@ export type LineCategoryRecord = {
   vat: string | null;
   acnmsk: string | null;
   lineItems: number;
+  /** `false` = η γραμμή ήρθε από εφεδρεία χωρίς φίλτρο SODTYPE, άρα μπορεί να μην είναι δαπάνης. */
+  sodtypeFiltered: boolean;
   isActive: boolean;
 };
 
@@ -56,7 +58,17 @@ export function LineCategoriesTableClient({
     },
     {
       accessorKey: 'name', header: 'Περιγραφή', size: 360,
-      cell: ({ row }) => <span className="text-[12px] font-medium text-foreground">{row.original.name || '—'}</span>,
+      cell: ({ row }) => (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="text-[12px] font-medium text-foreground">{row.original.name || '—'}</span>
+          {!row.original.sodtypeFiltered && (
+            <span className="inline-flex items-center gap-1 text-[11px]" style={{ color: '#B45309' }}
+              title="Κατέβηκε χωρίς φίλτρο SODTYPE — μπορεί να μην είναι κατηγορία δαπάνης">
+              <FiAlertTriangle className="h-3 w-3" aria-hidden /> αφιλτράριστη
+            </span>
+          )}
+        </span>
+      ),
     },
     {
       accessorKey: 'lineItems', header: 'Χρεοπιστώσεις', size: 130,
@@ -103,6 +115,12 @@ export function LineCategoriesTableClient({
     <div className="space-y-2">
       <p className="text-[12px] text-muted-foreground">
         Η κατηγορία δαπάνης είναι το φίλτρο της αναζήτησης χρεοπιστώσεων στην ουρά «Είδη &amp; έξοδα».
+        {rows.some((r) => !r.sodtypeFiltered) && (
+          <span style={{ color: '#B45309' }}>
+            {' '}Κάποιες γραμμές κατέβηκαν <strong>χωρίς φίλτρο SODTYPE</strong> (η εγκατάσταση δεν το
+            εκθέτει) και μπορεί να είναι κατηγορίες ειδών, υπηρεσιών ή παγίων.
+          </span>
+        )}
       </p>
       <DataTable
         columns={columns}

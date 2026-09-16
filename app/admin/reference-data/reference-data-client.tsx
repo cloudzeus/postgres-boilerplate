@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SoftoneResyncPanel } from '@/components/admin/softone-resync';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
@@ -183,6 +184,19 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
 
   return (
     <div className="space-y-4">
+      {canManage && (
+        <div className="rounded-md border border-border bg-background p-3">
+          <SoftoneResyncPanel
+            title="Συγχρονισμός όλων των βοηθητικών πινάκων"
+            description={
+              'Τρέχει με τη σειρά και τους επτά συγχρονισμούς SoftOne: κατηγορίες ΦΠΑ, βοηθητικοί πίνακες, '
+              + 'έξοδα, είδη & υπηρεσίες, συναλλασσόμενοι, τύποι παραστατικών αγορών, σειρές παραστατικών. '
+              + 'Αν κάποιος αποτύχει, οι υπόλοιποι συνεχίζουν. Ασφαλές να ξανατρέξει.'
+            }
+          />
+        </div>
+      )}
+
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
         {stats.map((s) => {
           const st = SOURCE_STYLE[s.source] ?? DEFAULT_STYLE;

@@ -1186,7 +1186,10 @@ export interface TraderLookupRow {
  * preferring a formal supplier when the ΑΦΜ exists as both. Used by the OCR
  * pipeline to tag scanned documents with their SoftOne trader.
  */
-export async function softoneFindTraderByAfm(afm: string): Promise<TraderLookupRow | null> {
+export async function softoneFindTraderByAfm(
+  afm: string,
+  opts: { prefer?: readonly number[] } = {},
+): Promise<TraderLookupRow | null> {
   const clean = String(afm).replace(/[^0-9A-Za-z]/g, '').toUpperCase();
   if (!clean) return null;
   // Ένας ΞΕΝΟΣ εκδότης μπορεί να είναι ήδη καταχωρισμένος είτε με το πρόθεμα
@@ -1201,9 +1204,15 @@ export async function softoneFindTraderByAfm(afm: string): Promise<TraderLookupR
   );
   const valid = rows.filter((o) => Number.isFinite(Number(o.TRDR)));
   if (valid.length === 0) return null;
-  // SUPPLIER_SODTYPES is ordered 12 → 16, so its index is the preference order.
-  const pref: readonly number[] = SUPPLIER_SODTYPES;
-  valid.sort((a, b) => pref.indexOf(Number(a.SODTYPE)) - pref.indexOf(Number(b.SODTYPE)));
+  // Η προτίμηση είναι ΡΗΤΗ όταν ο καλών ξέρει τι θέλει: η κεφαλίδα ενός `LINCREDOC` δέχεται
+  // ΠΙΣΤΩΤΗ (16), οπότε η προεπιλεγμένη προτίμηση «πρώτα προμηθευτής» θα έδινε λάθος TRDR.
+  // Χωρίς `prefer`, η σειρά του SUPPLIER_SODTYPES (12 → 16) είναι η σειρά προτίμησης.
+  const pref: readonly number[] = opts.prefer?.length ? opts.prefer : SUPPLIER_SODTYPES;
+  const rank = (v: unknown) => {
+    const i = pref.indexOf(Number(v));
+    return i === -1 ? pref.length : i;
+  };
+  valid.sort((a, b) => rank(a.SODTYPE) - rank(b.SODTYPE));
   const r = valid[0];
   const sodtype = Number(r.SODTYPE);
   return {
@@ -1521,22 +1530,28 @@ const mapLineCategory = (o: Record<string, string>): LineCategoryRow => ({
 /**
  * Διαβάζει τις κατηγορίες δαπανών (MTRCATEGORY SODTYPE 53). Ο πίνακας MTRCATEGORY είναι ΚΟΙΝΟΣ
  * για είδη/υπηρεσίες/χρεοπιστώσεις/πάγια και είναι company-scoped, γι' αυτό φιλτράρουμε και τα δύο.
- * Αν η εγκατάσταση δεν εκθέτει στήλη SODTYPE, ξαναδοκιμάζουμε ΧΩΡΙΣ αυτήν — αλλά μόνο όταν το
- * σφάλμα αφορά όντως τη στήλη, ώστε ένα σφάλμα δικτύου να μην περνά για «όλες οι κατηγορίες».
+ *
+ * Αν η εγκατάσταση δεν εκθέτει στήλη SODTYPE, ΔΕΝ κατεβάζουμε σιωπηλά ΟΛΕΣ τις κατηγορίες σαν να
+ * ήταν δαπανών: η εφεδρεία είναι ΡΗΤΗ (`allowUnfiltered`) και το αποτέλεσμα σημαδεύεται με
+ * `filtered: false`, ώστε να φαίνεται στο UI ότι ο κατάλογος μπορεί να περιέχει και κατηγορίες
+ * ειδών / υπηρεσιών / παγίων.
  */
-export async function softoneFetchLineCategories(): Promise<LineCategoryRow[]> {
+export async function softoneFetchLineCategories(
+  opts: { allowUnfiltered?: boolean } = {},
+): Promise<{ rows: LineCategoryRow[]; filtered: boolean }> {
   const cfg = await loadSoftoneConfig().catch(() => null);
   const company = cfg?.company ? ` AND COMPANY=${cfg.company}` : '';
   try {
     const rows = await softoneGetTable(
       'MTRCATEGORY', LINCATEGORY_FIELDS, `SODTYPE=${LINEITEM_SODTYPE} AND ISACTIVE=1${company}`,
     );
-    return rows.map(mapLineCategory).filter((r) => Number.isFinite(r.mtrCategory));
+    return { rows: rows.map(mapLineCategory).filter((r) => Number.isFinite(r.mtrCategory)), filtered: true };
   } catch (e) {
     const msg = String((e as Error)?.message ?? '');
-    if (!/SODTYPE/i.test(msg)) throw e;
+    // Μόνο σφάλμα που αφορά όντως τη στήλη, και μόνο αν το ζήτησε ρητά ο καλών.
+    if (!opts.allowUnfiltered || !/SODTYPE/i.test(msg)) throw e;
     const rows = await softoneGetTable('MTRCATEGORY', LINCATEGORY_FIELDS, `ISACTIVE=1${company}`);
-    return rows.map(mapLineCategory).filter((r) => Number.isFinite(r.mtrCategory));
+    return { rows: rows.map(mapLineCategory).filter((r) => Number.isFinite(r.mtrCategory)), filtered: false };
   }
 }
 

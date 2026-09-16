@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { emptyDocument, type DocumentJson } from '../canonical';
 import { buildPurdocPayload, postingBlockers, postingWarnings, type PurdocContext, type PostingDoc } from '../purdoc-payload';
-import { defaultPostingTarget, resolvePostingTarget, type PostingTarget } from '../posting-target';
+import { defaultPostingTarget, objectsForSosource, resolvePostingTarget, type PostingTarget } from '../posting-target';
 
 /** Ο στόχος μιας σειράς αγοράς εμπορευμάτων: PURDOC με πίνακα ανά γραμμή (η σημερινή συμπεριφορά). */
 const PURCHASE: PostingTarget = defaultPostingTarget({ sosource: 1251, name: 'Τιμολόγιο Αγοράς' });
@@ -39,6 +39,9 @@ const postingDoc = (over: Partial<PostingDoc> = {}): PostingDoc => ({
   softoneTrdr: 12345,
   softoneSeries: '7001',
   seriesSource: 1251,
+  seriesKnown: true,
+  seriesEnabled: true,
+  traderSodtype: 12,
   ...over,
 });
 
@@ -149,48 +152,56 @@ describe('postingBlockers', () => {
 describe('defaultPostingTarget', () => {
   it('1653 «Παραστατικά πιστωτών» → LINCREDOC / LINLINES', () => {
     expect(defaultPostingTarget({ sosource: 1653, name: 'Τιμολόγιο Δαπανών (Λήψη)' }))
-      .toMatchObject({ object: 'LINCREDOC', lines: 'LINLINES', source: 'default' });
+      .toMatchObject({ object: 'LINCREDOC', lines: 'LINLINES', source: 'default', supported: true });
   });
 
   it('1253 «Λοιπές συναλλαγές προμηθευτών» → LINSUPDOC / LINLINES', () => {
     expect(defaultPostingTarget({ sosource: 1253, name: 'Δαπάνες' }))
-      .toMatchObject({ object: 'LINSUPDOC', lines: 'LINLINES' });
+      .toMatchObject({ object: 'LINSUPDOC', lines: 'LINLINES', supported: true });
   });
 
-  it('σειρά αγορών που μυρίζει δαπάνη/υπηρεσία → LINSUPDOC / LINLINES', () => {
-    expect(defaultPostingTarget({ sosource: 1251, name: 'Τιμολόγιο Δαπανών ΚΕ.Π.Υ.Ο' }))
-      .toMatchObject({ object: 'LINSUPDOC', lines: 'LINLINES' });
-    expect(defaultPostingTarget({ sosource: 1251, name: 'Υπηρεσίες Ε.Ε.' }))
-      .toMatchObject({ object: 'LINSUPDOC', lines: 'LINLINES' });
+  it('1251 «Αγορές» → PURDOC / AUTO, ΑΝΕΞΑΡΤΗΤΑ από το πόσο «δαπάνη» ακούγεται η περιγραφή', () => {
+    // Το SERIES μιας κεφαλίδας ανήκει σε ΜΙΑ ενότητα: μια σειρά αγορών δεν γίνεται ποτέ ειδική
+    // συναλλαγή, όσο κι αν λέγεται «Τιμολόγιο Λήψης Υπηρεσιών».
+    for (const name of ['Τιμολόγιο Αγοράς', 'Τιμολόγιο Δαπανών ΚΕ.Π.Υ.Ο', 'Τιμολόγιο Λήψης Υπηρεσιών', 'Αγορά Παγίων']) {
+      expect(defaultPostingTarget({ sosource: 1251, name }))
+        .toMatchObject({ object: 'PURDOC', lines: 'AUTO', supported: true });
+    }
   });
 
-  it('σειρά αγορών παγίων → PURDOC / ASSLINES· καθαρή αγορά → PURDOC / AUTO', () => {
-    expect(defaultPostingTarget({ sosource: 1251, name: 'Αγορά Παγίων' }))
-      .toMatchObject({ object: 'PURDOC', lines: 'ASSLINES' });
-    expect(defaultPostingTarget({ sosource: 1251, name: 'Τιμολόγιο Αγοράς' }))
-      .toMatchObject({ object: 'PURDOC', lines: 'AUTO' });
+  it('άγνωστη ενότητα → ΔΕΝ υποστηρίζεται (δεν μαντεύουμε object)', () => {
+    expect(defaultPostingTarget({ sosource: 1261 })).toMatchObject({ supported: false });
+    expect(defaultPostingTarget({ sosource: null })).toMatchObject({ supported: false });
   });
 
-  it('τα μοτίβα δεν κοιτούν τόνους ή πεζά', () => {
-    expect(defaultPostingTarget({ sosource: 1251, name: 'τιμολόγιο δαπανών' }))
-      .toMatchObject({ object: 'LINSUPDOC' });
+  it('objectsForSosource: ένα object ανά ενότητα, κενό για τις υπόλοιπες', () => {
+    expect(objectsForSosource(1251)).toEqual(['PURDOC']);
+    expect(objectsForSosource(1253)).toEqual(['LINSUPDOC']);
+    expect(objectsForSosource(1653)).toEqual(['LINCREDOC']);
+    expect(objectsForSosource(1261)).toEqual([]);
   });
 
-  it('άγνωστη ενότητα → η γενική (PURDOC / AUTO), ώστε τίποτα να μην αλλάξει σιωπηλά', () => {
-    expect(defaultPostingTarget({ sosource: 9999 })).toMatchObject({ object: 'PURDOC', lines: 'AUTO' });
-    expect(defaultPostingTarget({ sosource: null })).toMatchObject({ object: 'PURDOC', lines: 'AUTO' });
+  it('τα πάγια ΔΕΝ προσφέρονται (λείπουν WHOUSE/ASSDEPR και μητρώο παγίων)', () => {
+    expect(resolvePostingTarget({ sosource: 1251, postLines: 'ASSLINES' }))
+      .toMatchObject({ object: 'PURDOC', lines: 'AUTO', source: 'default' });
   });
 });
 
 describe('resolvePostingTarget', () => {
-  it('η ρύθμιση της σειράς νικά την προεπιλογή', () => {
-    expect(resolvePostingTarget({ sosource: 1251, name: 'Τιμολόγιο Αγοράς', postObject: 'LINSUPDOC', postLines: 'LINLINES' }))
-      .toMatchObject({ object: 'LINSUPDOC', lines: 'LINLINES', source: 'configured' });
+  it('η ρύθμιση πίνακα γραμμών νικά την προεπιλογή', () => {
+    expect(resolvePostingTarget({ sosource: 1251, name: 'Τιμολόγιο Αγοράς', postLines: 'ITELINES' }))
+      .toMatchObject({ object: 'PURDOC', lines: 'ITELINES', source: 'configured' });
   });
 
-  it('πίνακας που δεν υπάρχει στο object → ο μοναδικός έγκυρος, ποτέ σκουπίδι', () => {
-    expect(resolvePostingTarget({ sosource: 1251, postObject: 'LINSUPDOC', postLines: 'EXPANAL' }))
-      .toMatchObject({ object: 'LINSUPDOC', lines: 'LINLINES' });
+  it('ρύθμιση object εκτός ενότητας αγνοείται — ποτέ σειρά 1251 σε LINSUPDOC', () => {
+    const t = resolvePostingTarget({ sosource: 1251, postObject: 'LINSUPDOC', postLines: 'LINLINES' });
+    expect(t).toMatchObject({ object: 'PURDOC', lines: 'AUTO', source: 'default' });
+    expect(t.reason).toMatch(/αγνοήθηκε/);
+  });
+
+  it('πίνακας που δεν υπάρχει στο object → η προεπιλογή, ποτέ σκουπίδι', () => {
+    expect(resolvePostingTarget({ sosource: 1653, postLines: 'EXPANAL' }))
+      .toMatchObject({ object: 'LINCREDOC', lines: 'LINLINES' });
   });
 
   it('άκυρες τιμές αγνοούνται και ισχύει η προεπιλογή', () => {
@@ -198,9 +209,9 @@ describe('resolvePostingTarget', () => {
       .toMatchObject({ object: 'LINCREDOC', lines: 'LINLINES', source: 'default' });
   });
 
-  it('μόνο πίνακας χωρίς object → κρατά το object της προεπιλογής', () => {
-    expect(resolvePostingTarget({ sosource: 1251, name: 'Τιμολόγιο Αγοράς', postLines: 'ASSLINES' }))
-      .toMatchObject({ object: 'PURDOC', lines: 'ASSLINES', source: 'configured' });
+  it('μη υποστηριζόμενη ενότητα μένει μη υποστηριζόμενη ό,τι κι αν ρυθμιστεί', () => {
+    expect(resolvePostingTarget({ sosource: 1261, postObject: 'PURDOC', postLines: 'ITELINES' }))
+      .toMatchObject({ supported: false });
   });
 });
 
@@ -232,15 +243,6 @@ describe('buildPurdocPayload — LINLINES / ASSLINES', () => {
     expect(postingBlockers(doc(), postingDoc(), c)).toContain('lines_need_lineitem');
   });
 
-  it('ASSLINES: όλα τα είδη πάνε στα πάγια, ανεξάρτητα από το isService', () => {
-    const payload = buildPurdocPayload(doc(), ctx({
-      target: resolvePostingTarget({ sosource: 1251, postObject: 'PURDOC', postLines: 'ASSLINES' }),
-      lines: [{ rowIndex: 0, mtrl: 555 }, { rowIndex: 1, mtrl: 666, isService: true }],
-    }));
-    expect(payload.DATA.ASSLINES).toHaveLength(2);
-    expect(payload.DATA.SRVLINES).toBeUndefined();
-  });
-
   it('MYDATACODE μόνο εκεί όπου ο πίνακας το έχει', () => {
     const item = buildPurdocPayload(doc(), ctx({ lines: [{ rowIndex: 0, mtrl: 555, myDataCode: 'category2_1' }] }));
     expect(item.DATA.ITELINES?.[0]).toMatchObject({ MYDATACODE: 'category2_1' });
@@ -257,7 +259,7 @@ describe('postingBlockers — στόχος', () => {
 
   it('έξοδο σε σειρά με πίνακα ειδών → lines_need_mtrl', () => {
     const c = ctx({
-      target: resolvePostingTarget({ sosource: 1251, postObject: 'PURDOC', postLines: 'ITELINES' }),
+      target: resolvePostingTarget({ sosource: 1251, postLines: 'ITELINES' }),
       lines: [{ rowIndex: 0, expn: 91 }, { rowIndex: 1, expn: 92 }],
     });
     expect(postingBlockers(doc(), postingDoc(), c)).toContain('lines_need_mtrl');
@@ -286,5 +288,32 @@ describe('postingWarnings', () => {
       .toContain('mydata_from_master');
     expect(postingWarnings(ctx({ lines: [{ rowIndex: 0, mtrl: 555 }] })))
       .not.toContain('mydata_from_master');
+  });
+});
+
+describe('postingBlockers — σειρά και συναλλασσόμενος', () => {
+  it('σειρά εκτός μητρώου → series_unknown (δεν σιωπά πίσω από την προεπιλογή)', () => {
+    expect(postingBlockers(doc(), postingDoc({ seriesKnown: false }), ctx())).toContain('series_unknown');
+    expect(postingBlockers(doc(), postingDoc({ seriesEnabled: false }), ctx())).toContain('series_unknown');
+  });
+
+  it('ενότητα χωρίς υποστηριζόμενο object → series_module_unsupported', () => {
+    const c = ctx({ target: defaultPostingTarget({ sosource: 1261 }) });
+    expect(postingBlockers(doc(), postingDoc({ seriesSource: 1261 }), c)).toContain('series_module_unsupported');
+  });
+
+  // Το read-back ΔΕΝ μπορεί να το πιάσει: συγκρίνει το TRDR με ό,τι στείλαμε.
+  it('προμηθευτής (12) σε σειρά πιστωτών → trader_kind_mismatch', () => {
+    const c = ctx({ target: defaultPostingTarget({ sosource: 1653 }), lines: [{ rowIndex: 0, lin: 7, linMtrType: 0 }, { rowIndex: 1, lin: 8, linMtrType: 0 }] });
+    expect(postingBlockers(doc(), postingDoc({ seriesSource: 1653, traderSodtype: 12 }), c)).toContain('trader_kind_mismatch');
+    expect(postingBlockers(doc(), postingDoc({ seriesSource: 1653, traderSodtype: 16 }), c)).not.toContain('trader_kind_mismatch');
+  });
+
+  it('πιστωτής (16) σε παραστατικό αγορών → trader_kind_mismatch', () => {
+    expect(postingBlockers(doc(), postingDoc({ traderSodtype: 16 }), ctx())).toContain('trader_kind_mismatch');
+  });
+
+  it('άγνωστος τύπος συναλλασσομένου → ΔΕΝ κρίνουμε', () => {
+    expect(postingBlockers(doc(), postingDoc({ traderSodtype: null }), ctx())).not.toContain('trader_kind_mismatch');
   });
 });

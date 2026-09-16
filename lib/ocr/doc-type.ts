@@ -5,6 +5,7 @@ import {
   type ClassifyResult, type SeriesCandidate,
 } from './doc-type-classify';
 import { callTextLLM, callTextViaVision, resolveCfg } from './extract';
+import { alignTraderToTarget } from './softone-match';
 
 /**
  * Ενεργοποιημένες σειρές: αγορών (PurchaseDocType, SOSOURCE 1251) ∪ πιστωτών
@@ -106,6 +107,9 @@ export async function classifyDocument(docId: string): Promise<{ code: string; c
         seriesBy: 'auto',
       },
     });
+    // Τώρα που ξέρουμε τη σειρά, ξέρουμε και τι ΤΥΠΟ συναλλασσομένου θέλει η κεφαλίδα της:
+    // μια σειρά πιστωτών χρειάζεται πιστωτή, όχι τον προμηθευτή που προτίμησε η αντιστοίχιση.
+    await alignTraderToTarget(docId);
     return { code: r.code, confidence: r.confidence };
   } catch (e) {
     console.error('[doc-type] classify failed', docId, (e as Error).message);

@@ -39,6 +39,7 @@ export default async function ReferenceDataPage() {
         icon={<FiDatabase />}
         title="Μητρώα αναφοράς"
         description="Lookup tables που τροφοδοτούν αναζητήσεις και autocomplete. Τα ΓΕΜΗ metadata ανανεώνονται από Open Data ΓΕΜΗ."
+        helpAnchor="softone-resync"
       />
       <ReferenceDataClient
         canManage={canManage}

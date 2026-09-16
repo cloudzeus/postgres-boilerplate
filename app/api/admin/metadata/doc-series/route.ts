@@ -3,14 +3,14 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
-import { POST_OBJECTS, POST_LINE_TABLES } from '@/lib/ocr/posting-target';
+import { POST_LINE_TABLES } from '@/lib/ocr/posting-target';
 
 const Body = z.object({
   source: z.enum(['series', 'purchase']),
   id: z.number().int().positive(),
   enabled: z.boolean().optional(),
-  // Στόχος καταχώρισης. `null` = «η προεπιλογή της ενότητας» (βλ. lib/ocr/posting-target.ts).
-  postObject: z.enum(POST_OBJECTS).nullable().optional(),
+  // Πίνακας γραμμών· `null` = «η προεπιλογή της ενότητας» (βλ. lib/ocr/posting-target.ts).
+  // Το SoftOne object ΔΕΝ ρυθμίζεται: το ορίζει η ενότητα (SOSOURCE) της σειράς.
   postLines: z.enum(POST_LINE_TABLES).nullable().optional(),
 });
 
@@ -20,14 +20,13 @@ export async function PATCH(req: Request) {
   const u = await requirePermission('metadata.manage');
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
-  const { source, id, enabled, postObject, postLines } = parsed.data;
-  if (enabled === undefined && postObject === undefined && postLines === undefined) {
+  const { source, id, enabled, postLines } = parsed.data;
+  if (enabled === undefined && postLines === undefined) {
     return NextResponse.json({ error: 'nothing_to_change' }, { status: 400 });
   }
 
   const data = {
     ...(enabled === undefined ? {} : { enabled }),
-    ...(postObject === undefined ? {} : { postObject }),
     ...(postLines === undefined ? {} : { postLines }),
   };
   const select = { id: true, code: true, name: true, postObject: true, postLines: true } as const;

@@ -60,6 +60,7 @@ export default async function ItemsPage() {
         }))}
         lineCategories={lineCategories.map((c) => ({
           mtrCategory: c.mtrCategory, code: c.code, name: c.name, vat: c.vat, acnmsk: c.acnmsk,
+          sodtypeFiltered: c.sodtypeFiltered,
           lineItems: lineItemsPerCategory.get(c.mtrCategory) ?? 0,
           isActive: c.isActive,
         }))}

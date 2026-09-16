@@ -1910,6 +1910,9 @@ model SoftoneLineCategory {
   name        String                    // NAME (περιγραφή)
   vat         String?                   // VAT (προεπιλεγμένη κατηγορία ΦΠΑ της κατηγορίας)
   acnmsk      String?                   // ACNMSK (λογαριασμός γενικής)
+  // `false` = η εγκατάσταση δεν εξέθεσε SODTYPE στον MTRCATEGORY, οπότε ο κατάλογος μπορεί να
+  // περιέχει και κατηγορίες ειδών/υπηρεσιών/παγίων. Το UI το λέει αντί να το κρύβει.
+  sodtypeFiltered Boolean @default(true)
   isActive    Boolean  @default(true)
   syncedAt    DateTime @default(now())
 

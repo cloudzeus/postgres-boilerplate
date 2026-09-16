@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db';
-import { softoneFindTraderByAfm, softoneCheckPurchaseDoc } from '@/lib/softone';
+import { SODTYPE_LABEL, softoneFindTraderByAfm, softoneCheckPurchaseDoc } from '@/lib/softone';
+import { SODTYPE_FOR_OBJECT, resolvePostingTarget } from '@/lib/ocr/posting-target';
 import { normalizeLineText } from '@/lib/ocr/line-match';
 
 /**
@@ -248,4 +249,65 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
   await writeDocTally(docId, items.length, matched);
 
   return { matched, total: items.length };
+}
+
+/**
+ * Ευθυγραμμίζει τον συναλλασσόμενο του εγγράφου με ΤΟΝ ΤΥΠΟ που δέχεται ο στόχος της σειράς του.
+ *
+ * Ο ίδιος εκδότης υπάρχει συχνά δύο φορές στο SoftOne — μία ως προμηθευτής (SODTYPE 12) και μία
+ * ως πιστωτής (16) — και η αντιστοίχιση στο σάρωμα προτιμά τον προμηθευτή, γιατί τότε ακόμη δεν
+ * ξέρουμε σε ποια σειρά θα ταξινομηθεί το παραστατικό. Μόλις η σειρά γίνει γνωστή, ξέρουμε και τι
+ * θέλει η κεφαλίδα: `LINCREDOC.TRDR` δέχεται ΠΙΣΤΩΤΗ, `PURDOC`/`LINSUPDOC` ΠΡΟΜΗΘΕΥΤΗ.
+ *
+ * Ψάχνει ΜΟΝΟ στον τοπικό καθρέφτη — καμία κλήση SoftOne, καμία εγγραφή προς το ERP. Αν δεν
+ * υπάρχει ο σωστός τύπος, δεν αλλάζει τίποτα: ο έλεγχος `trader_kind_mismatch` θα το πει δυνατά
+ * στην προεπισκόπηση, και ο χρήστης θα διαλέξει συναλλασσόμενο μόνος του.
+ */
+export async function alignTraderToTarget(docId: string): Promise<boolean> {
+  try {
+    const doc = await prisma.ocrDocument.findUnique({
+      where: { id: docId },
+      select: { issuerAfm: true, softoneTrdr: true, softoneSeries: true, seriesSource: true },
+    });
+    if (!doc?.softoneTrdr || !doc.issuerAfm || !doc.softoneSeries || !doc.seriesSource) return false;
+
+    const row = doc.seriesSource === 1251
+      ? await prisma.purchaseDocType.findUnique({
+          where: { code: doc.softoneSeries },
+          select: { name: true, section: true, postObject: true, postLines: true },
+        })
+      : await prisma.softoneDocSeries.findUnique({
+          where: { sosource_code: { sosource: doc.seriesSource, code: doc.softoneSeries } },
+          select: { name: true, section: true, postObject: true, postLines: true },
+        });
+    const target = resolvePostingTarget({ sosource: doc.seriesSource, ...(row ?? {}) });
+    if (!target.supported) return false;
+
+    const want = SODTYPE_FOR_OBJECT[target.object];
+    const current = await prisma.softoneTrader.findUnique({
+      where: { trdr: doc.softoneTrdr }, select: { sodtype: true },
+    });
+    if (current?.sodtype === want) return false;
+
+    const alt = await prisma.softoneTrader.findFirst({
+      where: { afm: doc.issuerAfm, sodtype: want, isActive: true },
+      select: { trdr: true, code: true, name: true, sodtype: true },
+    });
+    if (!alt) return false;
+
+    await prisma.ocrDocument.update({
+      where: { id: docId },
+      data: {
+        softoneTrdr: alt.trdr,
+        softoneCode: alt.code,
+        softoneName: alt.name,
+        softoneKind: SODTYPE_LABEL[alt.sodtype] ?? `Τύπος ${alt.sodtype}`,
+      },
+    });
+    return true;
+  } catch (e) {
+    // Best-effort, όπως όλη η συσχέτιση: μια αποτυχία εδώ δεν ρίχνει τη σάρωση.
+    console.error('[softone-match] trader alignment failed', docId, (e as Error).message);
+    return false;
+  }
 }
