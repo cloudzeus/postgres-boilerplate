@@ -1290,6 +1290,11 @@ export async function softoneCreateTrader(
     throw new SoftoneError(res.error ?? `setData ${object} απέτυχε (code ${res.errorcode ?? '?'})`);
   }
   const trdr = Number(res.id);
+  // Ο κωδικός ΕΠΙΑΣΕ θέση τη στιγμή που το setData πέτυχε — όχι όταν επιβεβαιωθεί.
+  // Το καθάρισμα γίνεται εδώ, ΠΡΙΝ τον read-back: αν ο read-back πετάξει (δίκτυο,
+  // λάθος SODTYPE), ο μόλις δεσμευμένος κωδικός θα έμενε στη μνήμη ως ελεύθερος
+  // για έως 60s και η επόμενη πρόταση θα συγκρουόταν μαζί του.
+  clearTraderCodeCache(kind);
   const back = await softoneGetTable('TRDR', ['TRDR', 'CODE', 'SODTYPE'], `TRDR=${trdr}`);
   const row = back.find((r) => Number(r.TRDR) === trdr) ?? back[0];
   const expected = TRADER_KIND_SODTYPE[kind];
@@ -1298,8 +1303,6 @@ export async function softoneCreateTrader(
       `Η εγγραφή δεν επιβεβαιώθηκε στο SoftOne (TRDR ${trdr}, SODTYPE ${row?.SODTYPE ?? '—'} ≠ ${expected}).`,
     );
   }
-  // Ο νέος κωδικός έπιασε θέση: η επόμενη πρόταση πρέπει να τον δει.
-  clearTraderCodeCache(kind);
   // Το CODE το επιβεβαιώνει η ίδια η γραμμή του TRDR, όχι η αίτησή μας.
   return { trdr, code: row.CODE || input.code || '' };
 }

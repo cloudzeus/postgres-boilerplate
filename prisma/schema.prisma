@@ -2062,6 +2062,9 @@ model GeocodeCache {
   hits        Int      @default(0)
   createdAt   DateTime @default(now())
   usedAt      DateTime @default(now())
+  // Πότε ρωτήθηκε ΤΕΛΕΥΤΑΙΑ ο πάροχος. Από εδώ μετριέται το παράθυρο επανελέγχου
+  // των αστοχιών (`MISS_RETRY_DAYS`) — το `usedAt` χτυπιέται σε κάθε ανάγνωση.
+  checkedAt   DateTime @default(now())
 
   @@index([usedAt])
 }

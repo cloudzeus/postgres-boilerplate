@@ -112,20 +112,37 @@ const GEOCODE_TIMEOUT_MS = 8_000;
 /** Το Nominatim απαιτεί αναγνωρίσιμο User-Agent (usage policy). */
 const NOMINATIM_UA = 'DGEspa-OCR/1.0 (gkozyris@i4ria.com)';
 
-/** `fetch` με προθεσμία — επιστρέφει `null` αντί να πετάξει. */
-async function fetchJson(url: string, headers: Record<string, string> = {}): Promise<any | null> {
+/**
+ * Ο πάροχος **δεν απάντησε**: δίκτυο κάτω, προθεσμία, 429 (rate limit), 4xx/5xx,
+ * ή σώμα που δεν είναι JSON.
+ *
+ * Είναι ΡΗΤΑ διαφορετικό από «ο πάροχος απάντησε ότι δεν ξέρει τη διεύθυνση».
+ * Η μνήμη ({@link ../geocode-cache}) γράφει μόνο το δεύτερο: μια στιγμιαία
+ * αστοχία δικτύου δεν επιτρέπεται να κλειδώσει μια διεύθυνση ως «δεν βρέθηκε».
+ */
+export class GeocodeUnavailableError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'GeocodeUnavailableError';
+  }
+}
+
+/**
+ * `fetch` με προθεσμία. Πετάει {@link GeocodeUnavailableError} όταν ο πάροχος δεν
+ * απάντησε — ΠΟΤΕ `null`: το `null` θα ήταν αδιάκριτο από «κανένα αποτέλεσμα».
+ */
+async function fetchJson(url: string, headers: Record<string, string> = {}): Promise<any> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), GEOCODE_TIMEOUT_MS);
   try {
     const res = await fetch(url, { headers, cache: 'no-store', signal: ac.signal });
-    if (!res.ok) {
-      console.warn(`[geocode] HTTP ${res.status}`);
-      return null;
-    }
+    // Κάθε non-2xx είναι «δεν απάντησε»: το 429 και το 5xx είναι προφανώς παροδικά,
+    // αλλά και ένα 403 (λάθος/ληγμένο κλειδί) δεν λέει τίποτα για τη ΔΙΕΥΘΥΝΣΗ.
+    if (!res.ok) throw new GeocodeUnavailableError(`HTTP ${res.status}`);
     return await res.json();
   } catch (e) {
-    console.warn('[geocode] αποτυχία:', (e as Error).message);
-    return null;
+    if (e instanceof GeocodeUnavailableError) throw e;
+    throw new GeocodeUnavailableError((e as Error)?.message || 'fetch failed');
   } finally {
     clearTimeout(timer);
   }
@@ -256,24 +273,49 @@ async function nominatimParts(q: string, countryHint?: string): Promise<AddressP
 }
 
 /**
+ * Το αποτέλεσμα του geocoder, με τις ΤΡΕΙΣ περιπτώσεις ξεχωριστές.
+ *
+ * Ο λόγος που δεν είναι απλώς `AddressParts | null`: το `null` έκρυβε μαζί
+ * «ο πάροχος είπε ότι δεν υπάρχει τέτοια διεύθυνση» και «ο πάροχος δεν μίλησε».
+ * Η πρώτη είναι απάντηση και αξίζει να μπει στη μνήμη· η δεύτερη είναι βλάβη και
+ * ΔΕΝ πρέπει να γραφτεί πουθενά — αλλιώς ένα δευτερόλεπτο κακού δικτύου αφήνει
+ * μια διεύθυνση σημειωμένη «δεν βρέθηκε» για πάντα.
+ */
+export type GeocodeOutcome =
+  /** Ο πάροχος αναγνώρισε τη διεύθυνση. */
+  | { status: 'match'; parts: AddressParts }
+  /** Ο πάροχος ΑΠΑΝΤΗΣΕ και δεν έχει τέτοια διεύθυνση. Έγκυρη, μόνιμη απάντηση. */
+  | { status: 'no_match'; parts: null }
+  /** Ο πάροχος ΔΕΝ απάντησε (δίκτυο / προθεσμία / 429 / 5xx). Δεν ξέρουμε τίποτα. */
+  | { status: 'unavailable'; parts: null; reason: string };
+
+/**
  * Αναλύει μια ΕΛΕΥΘΕΡΗ διεύθυνση σε χώρα / πόλη / Τ.Κ.
  *
  * Πάροχος: **MapTiler** όταν υπάρχει `MAPTILER_API_KEY` (το ίδιο κλειδί που
  * χρησιμοποιεί ήδη η εφαρμογή για χάρτες), αλλιώς **Nominatim** (OpenStreetMap,
- * χωρίς κλειδί). Καμία επανάληψη, προθεσμία 8s και ΠΟΤΕ exception προς το UI:
- * μια αποτυχία είναι απλώς `null`.
+ * χωρίς κλειδί). Καμία επανάληψη, προθεσμία 8s και ΠΟΤΕ exception προς τον καλούντα:
+ * μια βλάβη γυρίζει ως `status: 'unavailable'` — δες {@link GeocodeOutcome}.
  */
 export async function geocodeAddressParts(
   q: string,
   opts: { countryHint?: string } = {},
-): Promise<AddressParts | null> {
+): Promise<GeocodeOutcome> {
   // Το OCR ενώνει συχνά τις γραμμές της διεύθυνσης χωρίς διαχωριστικό
   // («…PlaceDublin 2Ireland»): κανένας πάροχος δεν το αναγνωρίζει έτσι.
   const query = splitGluedAddress(String(q ?? ''));
-  if (!query) return null;
+  // Κενή διεύθυνση: δεν υπάρχει τίποτα να ρωτηθεί — δεν είναι βλάβη.
+  if (!query) return { status: 'no_match', parts: null };
   // Διαβάζεται εδώ (όχι module-level) ώστε να ακολουθεί το περιβάλλον εκτέλεσης.
   const key = process.env.MAPTILER_API_KEY ?? '';
-  return key
-    ? maptilerParts(query, key, opts.countryHint)
-    : nominatimParts(query, opts.countryHint);
+  try {
+    const parts = key
+      ? await maptilerParts(query, key, opts.countryHint)
+      : await nominatimParts(query, opts.countryHint);
+    return parts ? { status: 'match', parts } : { status: 'no_match', parts: null };
+  } catch (e) {
+    const reason = (e as Error)?.message || 'unknown';
+    console.warn('[geocode] ο πάροχος δεν απάντησε:', reason);
+    return { status: 'unavailable', parts: null, reason };
+  }
 }

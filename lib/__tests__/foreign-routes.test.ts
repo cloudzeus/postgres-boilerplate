@@ -26,6 +26,7 @@ vi.mock('@/lib/db', () => ({ prisma: db }));
 
 import { GET as vies } from '@/app/api/admin/vies/route';
 import { POST as geocode } from '@/app/api/admin/geocode/route';
+import { MISS_RETRY_DAYS } from '@/lib/geocode-cache';
 
 const viesReq = (vat: string) =>
   new Request(`http://localhost/api/admin/vies?vat=${encodeURIComponent(vat)}`);
@@ -144,6 +145,99 @@ describe('POST /api/admin/geocode', () => {
       .toEqual({ found: false, cached: false });
     expect(await (await geocode(post({ address: 'ααα βββ' }))).json())
       .toEqual({ found: false, cached: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Βλάβη του παρόχου ≠ «δεν βρέθηκε» ────────────────────────────────────────
+  //
+  // Το πιο επικίνδυνο σενάριο της ουράς: ο geocoder τρέχει ΑΥΤΟΜΑΤΑ σε κάθε άνοιγμα
+  // εκδότη. Αν μια στιγμιαία βλάβη γραφόταν ως μόνιμη αστοχία, ένα λεπτό κακού
+  // δικτύου θα άδειαζε χώρα/πόλη/ΤΚ/συντεταγμένες για ΚΑΘΕ εκδότη που ανοίχτηκε όσο
+  // κρατούσε — χωρίς κανέναν τρόπο να διορθωθεί από την εφαρμογή.
+  const outages: [string, () => void][] = [
+    ['δίκτυο κάτω (TypeError: fetch failed)', () => fetchMock.mockRejectedValue(new TypeError('fetch failed'))],
+    ['προθεσμία / abort', () => fetchMock.mockRejectedValue(Object.assign(new Error('aborted'), { name: 'AbortError' }))],
+    ['HTTP 429 (rate limit)', () => fetchMock.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) })],
+    ['HTTP 500', () => fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) })],
+  ];
+
+  it.each(outages)('%s → ΚΑΜΙΑ εγγραφή στη μνήμη', async (_label, arrange) => {
+    arrange();
+    const res = await geocode(post({ address: 'Makariou 1, Nicosia' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ found: false, cached: false, unavailable: true });
+    expect(db.geocodeCache.upsert).not.toHaveBeenCalled();
+    expect(cacheRows.size).toBe(0);
+  });
+
+  it.each(outages)('%s → η επόμενη κλήση ΞΑΝΑΡΩΤΑ τον πάροχο', async (_label, arrange) => {
+    arrange();
+    await geocode(post({ address: 'Makariou 1, Nicosia' }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Ο πάροχος συνήλθε: η ίδια διεύθυνση πρέπει να λυθεί κανονικά, χωρίς χειρωνακτικό SQL.
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(jsonRes([{
+      display_name: 'Makariou 1', lat: '35.1721', lon: '33.3642',
+      address: { city: 'Λευκωσία', country: 'Κύπρος', country_code: 'cy' },
+    }]));
+    expect(await (await geocode(post({ address: 'Makariou 1, Nicosia' }))).json())
+      .toMatchObject({ found: true, cached: false, city: 'Λευκωσία' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(cacheRows.size).toBe(1);
+  });
+
+  it('η ΓΝΗΣΙΑ αστοχία γράφεται και ξαναχρησιμοποιείται (αντίθετα από τη βλάβη)', async () => {
+    fetchMock.mockResolvedValue(jsonRes([]));
+    expect(await (await geocode(post({ address: 'ααα βββ' }))).json())
+      .toEqual({ found: false, cached: false });
+    expect(db.geocodeCache.upsert).toHaveBeenCalledTimes(1);
+    expect(cacheRows.size).toBe(1);
+    expect([...cacheRows.values()][0]).toMatchObject({ found: false });
+
+    expect(await (await geocode(post({ address: 'ααα βββ' }))).json())
+      .toEqual({ found: false, cached: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('μια παλιά αστοχία ξαναρωτιέται μετά το παράθυρο επανελέγχου', async () => {
+    fetchMock.mockResolvedValue(jsonRes([]));
+    await geocode(post({ address: 'ααα βββ' }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Γυρνάμε το ρολόι της εγγραφής πίσω πέρα από το παράθυρο.
+    const [key, row] = [...cacheRows.entries()][0];
+    cacheRows.set(key, { ...row, checkedAt: new Date(Date.now() - (MISS_RETRY_DAYS + 1) * 86_400_000) });
+
+    fetchMock.mockResolvedValue(jsonRes([{
+      display_name: 'ααα βββ', address: { city: 'Λευκωσία', country: 'Κύπρος', country_code: 'cy' },
+    }]));
+    expect(await (await geocode(post({ address: 'ααα βββ' }))).json())
+      .toMatchObject({ found: true, cached: false });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('η ΕΠΙΤΥΧΙΑ δεν λήγει ποτέ, όσο παλιά κι αν είναι', async () => {
+    fetchMock.mockResolvedValue(jsonRes([{
+      display_name: 'Makariou 1', address: { city: 'Λευκωσία', country: 'Κύπρος', country_code: 'cy' },
+    }]));
+    await geocode(post({ address: 'Makariou 1' }));
+    const [key, row] = [...cacheRows.entries()][0];
+    cacheRows.set(key, { ...row, checkedAt: new Date(2000, 0, 1) });
+    expect(await (await geocode(post({ address: 'Makariou 1' }))).json())
+      .toMatchObject({ found: true, cached: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('δύο ταυτόχρονες κλήσεις για την ίδια διεύθυνση = ΜΙΑ κλήση στον πάροχο', async () => {
+    fetchMock.mockResolvedValue(jsonRes([{
+      display_name: 'Makariou 1', address: { city: 'Λευκωσία', country: 'Κύπρος', country_code: 'cy' },
+    }]));
+    const both = await Promise.all([
+      geocode(post({ address: 'Makariou 1, Nicosia' })),
+      geocode(post({ address: 'MAKARIOU 1 nicosia' })),
+    ]);
+    for (const r of both) expect((await r.json()).found).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

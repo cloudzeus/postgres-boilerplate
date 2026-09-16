@@ -1,7 +1,14 @@
 // Ο geocoder της ουράς «Νέοι συναλλασσόμενοι»: και οι δύο πάροχοι με mocked
 // `fetch`, ώστε καμία δοκιμή να μη βγαίνει στο δίκτυο.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { geocodeAddressParts, validCoords } from '../geocode';
+import { geocodeAddressParts, validCoords, type GeocodeOutcome } from '../geocode';
+
+/** Τα μέρη μιας επιτυχίας — πετάει αν ο geocoder δεν είπε `match`. */
+const partsOf = async (p: Promise<GeocodeOutcome>) => {
+  const r = await p;
+  expect(r.status).toBe('match');
+  return r.parts;
+};
 
 /** Τυπική απάντηση MapTiler: το feature είναι διεύθυνση, τα υπόλοιπα στο `context`. */
 const MAPTILER_OK = {
@@ -44,7 +51,7 @@ describe('geocodeAddressParts — MapTiler (με κλειδί)', () => {
 
   it('βγάζει χώρα / πόλη / ΤΚ από το context', async () => {
     fetchMock.mockResolvedValue(jsonRes(MAPTILER_OK));
-    await expect(geocodeAddressParts('Friedrichstraße 1, Berlin')).resolves.toEqual({
+    await expect(partsOf(geocodeAddressParts('Friedrichstraße 1, Berlin'))).resolves.toEqual({
       countryCode: 'DE',
       country: 'Deutschland',
       city: 'Berlin',
@@ -81,7 +88,7 @@ describe('geocodeAddressParts — MapTiler (με κλειδί)', () => {
         { id: 'country.2', text: 'Κύπρος', country_code: 'cy' },
       ],
     }] }));
-    await expect(geocodeAddressParts('1065 Nicosia')).resolves.toMatchObject({
+    await expect(partsOf(geocodeAddressParts('1065 Nicosia'))).resolves.toMatchObject({
       countryCode: 'CY', city: 'Λευκωσία', zip: '1065',
     });
   });
@@ -93,7 +100,7 @@ describe('geocodeAddressParts — MapTiler (με κλειδί)', () => {
       text: 'Dublin',
       context: [{ id: 'country.9', text: 'Ireland' }],
     }] }));
-    await expect(geocodeAddressParts('Dublin 2')).resolves.toMatchObject({
+    await expect(partsOf(geocodeAddressParts('Dublin 2'))).resolves.toMatchObject({
       countryCode: 'IE', country: 'Ireland', city: 'Dublin',
     });
   });
@@ -105,7 +112,7 @@ describe('geocodeAddressParts — MapTiler (με κλειδί)', () => {
       text: 'Kalamazoo',
       context: [{ id: 'country.9', text: 'Ουτοπία' }],
     }] }));
-    await expect(geocodeAddressParts('Kalamazoo')).resolves.toMatchObject({
+    await expect(partsOf(geocodeAddressParts('Kalamazoo'))).resolves.toMatchObject({
       countryCode: null, city: 'Kalamazoo',
     });
   });
@@ -117,16 +124,16 @@ describe('geocodeAddressParts — MapTiler (με κλειδί)', () => {
       .toContain('Velasco, Clanwilliam Place, Dublin 2, Ireland');
   });
 
-  it('κανένα feature → null', async () => {
+  it('κανένα feature → no_match (ο πάροχος ΑΠΑΝΤΗΣΕ)', async () => {
     fetchMock.mockResolvedValue(jsonRes({ features: [] }));
-    await expect(geocodeAddressParts('—')).resolves.toBeNull();
+    await expect(geocodeAddressParts('—')).resolves.toEqual({ status: 'no_match', parts: null });
   });
 });
 
 describe('geocodeAddressParts — Nominatim (χωρίς κλειδί)', () => {
   it('βγάζει χώρα / πόλη / ΤΚ από το address object', async () => {
     fetchMock.mockResolvedValue(jsonRes(NOMINATIM_OK));
-    await expect(geocodeAddressParts('Friedrichstraße 1, Berlin')).resolves.toEqual({
+    await expect(partsOf(geocodeAddressParts('Friedrichstraße 1, Berlin'))).resolves.toEqual({
       countryCode: 'DE',
       country: 'Deutschland',
       city: 'Berlin',
@@ -144,31 +151,47 @@ describe('geocodeAddressParts — Nominatim (χωρίς κλειδί)', () => {
     fetchMock.mockResolvedValue(jsonRes([{
       display_name: 'X', address: { village: 'Χωριό', country: 'Ελλάδα', country_code: 'gr' },
     }]));
-    expect((await geocodeAddressParts('X'))?.city).toBe('Χωριό');
+    expect((await geocodeAddressParts('X')).parts?.city).toBe('Χωριό');
   });
 
-  it('άδειο αποτέλεσμα → null', async () => {
+  it('άδειο αποτέλεσμα → no_match', async () => {
     fetchMock.mockResolvedValue(jsonRes([]));
-    await expect(geocodeAddressParts('X')).resolves.toBeNull();
+    await expect(geocodeAddressParts('X')).resolves.toEqual({ status: 'no_match', parts: null });
   });
 });
 
-describe('geocodeAddressParts — αποτυχίες δεν φτάνουν ΠΟΤΕ στο UI', () => {
-  it('timeout / abort → null (MapTiler)', async () => {
+// Η κρίσιμη διάκριση: «ο πάροχος είπε όχι» ≠ «ο πάροχος δεν μίλησε». Το δεύτερο
+// ΔΕΝ επιτρέπεται να γραφτεί στη μνήμη ως μόνιμη αστοχία — δες `geocode-cache`.
+describe('geocodeAddressParts — βλάβη ≠ «δεν βρέθηκε»', () => {
+  it('timeout / abort → unavailable (MapTiler)', async () => {
     vi.stubEnv('MAPTILER_API_KEY', 'test-key');
     fetchMock.mockRejectedValue(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
-    await expect(geocodeAddressParts('Οδός 1')).resolves.toBeNull();
+    await expect(geocodeAddressParts('Οδός 1')).resolves.toMatchObject({ status: 'unavailable', parts: null });
   });
-  it('timeout / abort → null (Nominatim)', async () => {
+  it('timeout / abort → unavailable (Nominatim)', async () => {
     fetchMock.mockRejectedValue(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
-    await expect(geocodeAddressParts('Οδός 1')).resolves.toBeNull();
+    await expect(geocodeAddressParts('Οδός 1')).resolves.toMatchObject({ status: 'unavailable' });
   });
-  it('HTTP 500 → null', async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
-    await expect(geocodeAddressParts('Οδός 1')).resolves.toBeNull();
+  it('«fetch failed» (δίκτυο κάτω) → unavailable', async () => {
+    fetchMock.mockRejectedValue(new TypeError('fetch failed'));
+    await expect(geocodeAddressParts('Οδός 1')).resolves.toMatchObject({ status: 'unavailable', reason: 'fetch failed' });
   });
-  it('κενή διεύθυνση δεν χτυπά καν τον πάροχο', async () => {
-    await expect(geocodeAddressParts('   ')).resolves.toBeNull();
+  it.each([429, 500, 502, 403])('HTTP %i → unavailable, ΟΧΙ no_match', async (status) => {
+    fetchMock.mockResolvedValue({ ok: false, status, json: async () => ({}) });
+    await expect(geocodeAddressParts('Οδός 1')).resolves.toMatchObject({
+      status: 'unavailable', reason: `HTTP ${status}`,
+    });
+  });
+  it('χαλασμένο JSON σε 200 → unavailable', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => { throw new SyntaxError('Unexpected token <'); } });
+    await expect(geocodeAddressParts('Οδός 1')).resolves.toMatchObject({ status: 'unavailable' });
+  });
+  it('καμία αποτυχία δεν φτάνει ως exception στον καλούντα', async () => {
+    fetchMock.mockRejectedValue(new TypeError('fetch failed'));
+    await expect(geocodeAddressParts('Οδός 1')).resolves.toBeDefined();
+  });
+  it('κενή διεύθυνση δεν χτυπά καν τον πάροχο (no_match, όχι βλάβη)', async () => {
+    await expect(geocodeAddressParts('   ')).resolves.toEqual({ status: 'no_match', parts: null });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -177,7 +200,7 @@ describe('συντεταγμένες', () => {
   it('MapTiler: το center είναι [lng, lat] και ΔΕΝ αντιστρέφεται', async () => {
     vi.stubEnv('MAPTILER_API_KEY', 'test-key');
     fetchMock.mockResolvedValue(jsonRes(MAPTILER_OK));
-    const r = await geocodeAddressParts('Friedrichstraße 1, Berlin');
+    const r = (await geocodeAddressParts('Friedrichstraße 1, Berlin')).parts;
     expect(r?.lat).toBe(52.517);
     expect(r?.lng).toBe(13.3888);
   });
@@ -185,7 +208,7 @@ describe('συντεταγμένες', () => {
   it('χωρίς center → null, όχι 0 (το 0 θα γραφόταν στο SoftOne ως πραγματικό σημείο)', async () => {
     vi.stubEnv('MAPTILER_API_KEY', 'test-key');
     fetchMock.mockResolvedValue(jsonRes({ features: [{ ...MAPTILER_OK.features[0], center: undefined }] }));
-    const r = await geocodeAddressParts('Friedrichstraße 1, Berlin');
+    const r = (await geocodeAddressParts('Friedrichstraße 1, Berlin')).parts;
     expect(r?.lat).toBeNull();
     expect(r?.lng).toBeNull();
   });

@@ -101,6 +101,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
     // για γενικό banner — είναι σφάλμα ΠΕΔΙΟΥ. Ο καλών το κολλά πάνω στο «Κωδικός»
     // με ΑΥΤΟΥΣΙΟ το μήνυμα του ERP.
     if (isMissingCodeError(message)) {
+      // Ίδια φροντίδα με το 409 παρακάτω: η πρόταση πρέπει να βγει από ΦΡΕΣΚΑ
+      // δεδομένα. Χωρίς αυτό, η cached λίστα κωδικών (60s) μπορεί να προτείνει
+      // κωδικό που πιάστηκε στο μεσοδιάστημα — και μάλιστα με `stale: false`.
+      clearTraderCodeCache(b.kind);
       return NextResponse.json(
         { error: 'code_required', field: 'code', kind: b.kind, message, suggestion: await suggest(b.kind) },
         { status: 422 },

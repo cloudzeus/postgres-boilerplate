@@ -25,10 +25,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'invalid_body', issues: parsed.error.issues }, { status: 400 });
   }
 
-  const { found, parts, cached } = await cachedGeocodeAddressParts(parsed.data.address, {
+  const { found, parts, cached, unavailable } = await cachedGeocodeAddressParts(parsed.data.address, {
     countryHint: parsed.data.countryHint ?? null,
   });
-  // Καμία αποτυχία δεν γίνεται 5xx: το UI δείχνει απλώς «δεν βρέθηκε».
-  if (!found || !parts) return NextResponse.json({ found: false, cached });
+  // Καμία αποτυχία δεν γίνεται 5xx. Ξεχωρίζουμε όμως τις δύο περιπτώσεις: το
+  // `unavailable` σημαίνει ότι ο πάροχος δεν μίλησε — τίποτα δεν μπήκε στη μνήμη και
+  // μια νέα προσπάθεια έχει νόημα. Χωρίς αυτό, το UI θα έλεγε ψέματα «δεν βρέθηκε».
+  if (!found || !parts) {
+    return NextResponse.json(unavailable ? { found: false, cached, unavailable: true } : { found: false, cached });
+  }
   return NextResponse.json({ found: true, cached, ...parts });
 }

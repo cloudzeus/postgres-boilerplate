@@ -56,6 +56,8 @@ interface GeoParts {
   lng: number | null;
   /** `true` = ήρθε από τη μνήμη του server, χωρίς κλήση (και χρέωση) στον πάροχο. */
   cached?: boolean;
+  /** `true` = ο πάροχος δεν απάντησε· δεν είναι «δεν βρέθηκε» και αξίζει νέα προσπάθεια. */
+  unavailable?: boolean;
 }
 
 /** Οι συντεταγμένες που θα γραφούν στο SoftOne — δεν ζουν στο `FormState`: δεν πληκτρολογούνται. */
@@ -79,15 +81,17 @@ const KIND_LABEL: Record<TraderKind, string> = {
 const KINDS: readonly TraderKind[] = ['supplier', 'creditor', 'debtor'];
 
 /**
- * Τύποι για τους οποίους αυτή η εγκατάσταση ΑΠΟΔΕΔΕΙΓΜΕΝΑ απαιτεί κωδικό.
+ * Τύποι για τους οποίους αυτή η εγκατάσταση ΑΠΑΙΤΕΙ κωδικό — δηλαδή όλοι.
  *
  * Επιβεβαιωμένο ζωντανά (2026-09-16): `POST …/create` για **πιστωτή** χωρίς κωδικό
- * γύρισε 502 με το μήνυμα του ίδιου του SoftOne «Δεν έχετε συμπληρώσει το πεδίο
- * 'Κωδικός'» και δεν δημιουργήθηκε τίποτα. Για προμηθευτή/χρεώστη ΔΕΝ έχει
- * επιβεβαιωθεί τίποτα — δεν τους μπλοκάρουμε και δεν τους υποσχόμαστε αυτόματη
- * αρίθμηση· αν το SoftOne τους ζητήσει κωδικό, το μήνυμά του έρχεται στο πεδίο.
+ * γύρισε το μήνυμα του ίδιου του SoftOne «Δεν έχετε συμπληρώσει το πεδίο 'Κωδικός'»
+ * και δεν δημιουργήθηκε τίποτα. Το ίδιο λέει και το schema του object: το `CODE` του
+ * `TRDR` είναι `required: true`, `readOnly: false`, `calculated: false`, με default
+ * `""` σε **SUPPLIER**, **CREDITOR** και **CUSTOMER** — και ο DEBTOR μοιράζεται τον
+ * ίδιο `TRDR`. Δεν έχει νόημα να στείλουμε προμηθευτή ή χρεώστη σε ένα ταξίδι μέχρι
+ * τον ERP για να γυρίσει με το ίδιο 422: το ζητάμε από την αρχή, στη φόρμα.
  */
-const CODE_REQUIRED_KINDS: readonly TraderKind[] = ['creditor'];
+const CODE_REQUIRED_KINDS: readonly TraderKind[] = ['supplier', 'creditor', 'debtor'];
 
 /** Ό,τι επιστρέφει το `GET /api/admin/ocr/new-traders/next-code`. */
 interface CodeSuggestion {
@@ -124,6 +128,10 @@ function codeHint(kind: TraderKind, s: CodeSuggestion | null, busy: boolean): st
 /** Ετικέτα γενικής για το δείγμα κωδικών («κωδικοί πιστωτών»). */
 const KIND_GENITIVE: Record<TraderKind, string> = {
   supplier: 'προμηθευτών', creditor: 'πιστωτών', debtor: 'χρεωστών',
+};
+/** Ετικέτα αιτιατικής («υποχρεωτικός για πιστωτή»). */
+const KIND_ACCUSATIVE: Record<TraderKind, string> = {
+  supplier: 'προμηθευτή', creditor: 'πιστωτή', debtor: 'χρεώστη',
 };
 /** Χρώματα chip ανά τύπο (inline hex — ο JIT δεν κρατά δυναμικές κλάσεις). */
 export const KIND_COLORS: Record<TraderKind, { bg: string; fg: string }> = {
@@ -201,7 +209,7 @@ function validate(f: FormState): Partial<Record<FieldKey, string>> {
   if (f.code.trim().length > 30) e.code = 'Έως 30 χαρακτήρες.';
   // Δεν εφευρίσκουμε κωδικό· απλώς δεν στέλνουμε αίτημα που ξέρουμε ότι θα απορριφθεί.
   else if (!f.code.trim() && CODE_REQUIRED_KINDS.includes(f.kind)) {
-    e.code = 'Ο κωδικός είναι υποχρεωτικός για πιστωτή — το SoftOne δεν τον αποδίδει μόνο του εδώ.';
+    e.code = `Ο κωδικός είναι υποχρεωτικός για ${KIND_ACCUSATIVE[f.kind]} — το SoftOne δεν τον αποδίδει μόνο του εδώ.`;
   }
   // Ο κανόνας «5 ψηφία» είναι ΕΛΛΗΝΙΚΟΣ: ένας ξένος Τ.Κ. (π.χ. «EC1A 1BB») δεν τον περνά.
   const zip = f.zip.trim();
@@ -256,6 +264,8 @@ export function TraderPanel({
   const [geo, setGeo] = React.useState<GeoParts | null>(null);
   const [geoBusy, setGeoBusy] = React.useState(false);
   const [geoMiss, setGeoMiss] = React.useState(false);
+  /** `true` = ο πάροχος δεν απάντησε (δίκτυο/quota). ΔΕΝ σημαίνει «δεν βρέθηκε». */
+  const [geoDown, setGeoDown] = React.useState(false);
   /** Συντεταγμένες που θα σταλούν στο SoftOne. `null` ⇒ τα δύο πεδία παραλείπονται. */
   const [coords, setCoords] = React.useState<Coords>(null);
   /** Το ΑΥΤΟΥΣΙΟ μήνυμα του SoftOne όταν απαίτησε ή απέρριψε κωδικό — κολλάει στο πεδίο. */
@@ -287,7 +297,7 @@ export function TraderPanel({
     setShowSearch(false); setIgnoring(false); setReason('');
     setDryOpen(false); setDryPayload(null); setDryError(null);
     setVies(null); setViesBusy(false);
-    setGeo(null); setGeoBusy(false); setGeoMiss(false);
+    setGeo(null); setGeoBusy(false); setGeoMiss(false); setGeoDown(false);
     setCoords(null); setErpCodeError(null); setCodeOffer(null);
     lastProposal.current = '';
   }, [group, taxOffices]);
@@ -508,7 +518,7 @@ export function TraderPanel({
   const runGeocode = React.useCallback(async (address: string) => {
     const q = address.trim();
     if (!q) return;
-    setGeoBusy(true); setGeo(null); setGeoMiss(false);
+    setGeoBusy(true); setGeo(null); setGeoMiss(false); setGeoDown(false);
     try {
       const res = await fetch('/api/admin/geocode', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -522,9 +532,13 @@ export function TraderPanel({
         setGeo(d as GeoParts);
         const c = validCoords(d.lat, d.lng);
         if (c) setCoords((cur) => cur ?? c);
+      } else if (!res.ok || d?.unavailable) {
+        // Ο πάροχος δεν μίλησε: τίποτα δεν μπήκε στη μνήμη του server, άρα το
+        // «Νέα αναζήτηση» έχει πραγματικό νόημα. Δεν το λέμε «δεν βρέθηκε».
+        setGeoDown(true);
       } else setGeoMiss(true);
     } catch {
-      setGeoMiss(true);
+      setGeoDown(true);
     } finally {
       setGeoBusy(false);
     }
@@ -972,7 +986,7 @@ export function TraderPanel({
                 {geoBusy
                   ? <FiLoader aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" />
                   : <FiMapPin aria-hidden className="size-3.5" />}
-                {geo || geoMiss ? 'Νέα αναζήτηση' : 'Συμπλήρωση από διεύθυνση'}
+                {geo || geoMiss || geoDown ? 'Νέα αναζήτηση' : 'Συμπλήρωση από διεύθυνση'}
               </Button>
             </div>
           </Field>
@@ -981,6 +995,12 @@ export function TraderPanel({
           {geoMiss && (
             <p className="text-[12px] text-muted-foreground sm:col-span-2" role="status">
               Η διεύθυνση δεν αναγνωρίστηκε — συμπλήρωσε χώρα/πόλη/Τ.Κ. χειροκίνητα.
+            </p>
+          )}
+          {geoDown && (
+            <p className="text-[12px] text-amber-700 sm:col-span-2" role="status">
+              Η υπηρεσία διευθύνσεων δεν απάντησε — δοκίμασε «Νέα αναζήτηση» ή συμπλήρωσε
+              χώρα/πόλη/Τ.Κ. χειροκίνητα. Τίποτα δεν αποθηκεύτηκε ως «δεν βρέθηκε».
             </p>
           )}
           {geo && (
