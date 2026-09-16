@@ -103,6 +103,12 @@ export const SETTING_CATALOG: SettingDef[] = [
   { key: 'integrations.gemiApiKey',     category: 'integrations', label: 'ΓΕΜΗ API Key', description: 'API Key για το Γενικό Εμπορικό Μητρώο (Μητρώο Επιχειρήσεων).', type: 'password', isSecret: true },
   // Διακόπτης ασφαλείας: όσο είναι κλειστός, ΚΑΜΙΑ εγγραφή παραστατικού δεν φεύγει προς το SoftOne.
   { key: 'softone.postingEnabled',      category: 'integrations', label: 'Καταχώριση παραστατικών στο SoftOne', description: 'Όσο είναι κλειστό, η καταχώριση κάνει μόνο προεπισκόπηση (dry-run).', type: 'boolean', defaultValue: false },
+  // Μάσκα κωδικού συναλλασσομένου ανά τύπο: χρησιμοποιείται ΜΟΝΟ όταν δεν υπάρχει
+  // ούτε ένας κωδικός αυτού του τύπου στο SoftOne ώστε να συμπεραθεί το σχήμα.
+  // Κενό = καμία πρόταση· η εφαρμογή δεν εφευρίσκει ποτέ αρίθμηση από μόνη της.
+  { key: 'softone.traderCodeMask.supplier', category: 'integrations', label: 'Μάσκα κωδικού προμηθευτή', description: 'Ο ΠΡΩΤΟΣ κωδικός προμηθευτή (π.χ. 0001). Χρησιμοποιείται μόνο όταν δεν υπάρχει κανένας προμηθευτής στο SoftOne για να συμπεραθεί το σχήμα. Κενό = καμία πρόταση.', type: 'text', defaultValue: '' },
+  { key: 'softone.traderCodeMask.creditor', category: 'integrations', label: 'Μάσκα κωδικού πιστωτή',   description: 'Ο ΠΡΩΤΟΣ κωδικός πιστωτή (π.χ. 53-00001). Χρησιμοποιείται μόνο όταν δεν υπάρχει κανένας πιστωτής στο SoftOne για να συμπεραθεί το σχήμα. Κενό = καμία πρόταση.', type: 'text', defaultValue: '' },
+  { key: 'softone.traderCodeMask.debtor',   category: 'integrations', label: 'Μάσκα κωδικού χρεώστη',   description: 'Ο ΠΡΩΤΟΣ κωδικός χρεώστη. Χρησιμοποιείται μόνο όταν δεν υπάρχει κανένας χρεώστης στο SoftOne για να συμπεραθεί το σχήμα. Κενό = καμία πρόταση.', type: 'text', defaultValue: '' },
 
   // Backups
   { key: 'backups.enabled',       category: 'backups', label: 'Ενεργό αυτόματο backup',  description: 'Ενεργοποιεί το ημερήσιο cron backup της βάσης.', type: 'boolean', defaultValue: true },
