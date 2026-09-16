@@ -1,13 +1,15 @@
 // Ο geocoder της ουράς «Νέοι συναλλασσόμενοι»: και οι δύο πάροχοι με mocked
 // `fetch`, ώστε καμία δοκιμή να μη βγαίνει στο δίκτυο.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { geocodeAddressParts } from '../geocode';
+import { geocodeAddressParts, validCoords } from '../geocode';
 
 /** Τυπική απάντηση MapTiler: το feature είναι διεύθυνση, τα υπόλοιπα στο `context`. */
 const MAPTILER_OK = {
   features: [{
     place_name: 'Friedrichstraße 1, 10117 Berlin, Deutschland',
     place_type: ['address'],
+    // MapTiler δίνει [lng, lat] — η σειρά ελέγχεται ρητά παρακάτω.
+    center: [13.3888, 52.517],
     text: 'Friedrichstraße',
     context: [
       { id: 'postal_code.123', text: '10117' },
@@ -20,6 +22,7 @@ const MAPTILER_OK = {
 
 const NOMINATIM_OK = [{
   display_name: 'Friedrichstraße 1, Mitte, Berlin, 10117, Deutschland',
+  lat: '52.517', lon: '13.3888',
   address: {
     road: 'Friedrichstraße', suburb: 'Mitte', city: 'Berlin',
     postcode: '10117', country: 'Deutschland', country_code: 'de',
@@ -47,6 +50,8 @@ describe('geocodeAddressParts — MapTiler (με κλειδί)', () => {
       city: 'Berlin',
       zip: '10117',
       formatted: 'Friedrichstraße 1, 10117 Berlin, Deutschland',
+      lat: 52.517,
+      lng: 13.3888,
     });
     const url = String(fetchMock.mock.calls[0][0]);
     expect(url).toContain('api.maptiler.com/geocoding/');
@@ -127,6 +132,8 @@ describe('geocodeAddressParts — Nominatim (χωρίς κλειδί)', () => {
       city: 'Berlin',
       zip: '10117',
       formatted: 'Friedrichstraße 1, Mitte, Berlin, 10117, Deutschland',
+      lat: 52.517,
+      lng: 13.3888,
     });
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toContain('nominatim.openstreetmap.org');
@@ -163,5 +170,34 @@ describe('geocodeAddressParts — αποτυχίες δεν φτάνουν ΠΟ�
   it('κενή διεύθυνση δεν χτυπά καν τον πάροχο', async () => {
     await expect(geocodeAddressParts('   ')).resolves.toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('συντεταγμένες', () => {
+  it('MapTiler: το center είναι [lng, lat] και ΔΕΝ αντιστρέφεται', async () => {
+    vi.stubEnv('MAPTILER_API_KEY', 'test-key');
+    fetchMock.mockResolvedValue(jsonRes(MAPTILER_OK));
+    const r = await geocodeAddressParts('Friedrichstraße 1, Berlin');
+    expect(r?.lat).toBe(52.517);
+    expect(r?.lng).toBe(13.3888);
+  });
+
+  it('χωρίς center → null, όχι 0 (το 0 θα γραφόταν στο SoftOne ως πραγματικό σημείο)', async () => {
+    vi.stubEnv('MAPTILER_API_KEY', 'test-key');
+    fetchMock.mockResolvedValue(jsonRes({ features: [{ ...MAPTILER_OK.features[0], center: undefined }] }));
+    const r = await geocodeAddressParts('Friedrichstraße 1, Berlin');
+    expect(r?.lat).toBeNull();
+    expect(r?.lng).toBeNull();
+  });
+
+  it('validCoords απορρίπτει (0,0), εκτός ορίων και μη αριθμούς', () => {
+    expect(validCoords(52.517, 13.3888)).toEqual({ lat: 52.517, lng: 13.3888 });
+    expect(validCoords(0, 0)).toBeNull();
+    expect(validCoords(91, 0)).toBeNull();
+    expect(validCoords(0, 181)).toBeNull();
+    expect(validCoords(null, undefined)).toBeNull();
+    expect(validCoords('abc', 'def')).toBeNull();
+    // Το 0 σε ΜΙΑ μόνο συντεταγμένη είναι έγκυρο (ισημερινός / Γκρίνουιτς).
+    expect(validCoords(0, 13.3888)).toEqual({ lat: 0, lng: 13.3888 });
   });
 });

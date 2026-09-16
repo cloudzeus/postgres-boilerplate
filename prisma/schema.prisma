@@ -2034,3 +2034,34 @@ model IgnoredIssuer {
   createdById String?
   createdAt   DateTime @default(now())
 }
+
+// Μνήμη geocoding: μια διεύθυνση ρωτιέται ΜΙΑ φορά τον πάροχο (MapTiler/Nominatim).
+//
+// Γιατί πίνακας και όχι στήλη JSON: οι ομάδες της ουράς «Νέοι συναλλασσόμενοι» δεν
+// έχουν δική τους γραμμή — φτιάχνονται στη μνήμη από τα `OcrDocument` ανά ΑΦΜ. Το
+// μόνο «backing data» θα ήταν τα ίδια τα έγγραφα (N γραμμές ανά εκδότη ⇒ N αντίγραφα
+// της ίδιας απάντησης). Ένας πίνακας με κλειδί την ΚΑΝΟΝΙΚΟΠΟΙΗΜΕΝΗ διεύθυνση
+// μοιράζεται την απάντηση και ανάμεσα σε διαφορετικούς εκδότες της ίδιας διεύθυνσης,
+// επιβιώνει restart και — το σημαντικότερο για το quota — κρατά ΚΑΙ τις αστοχίες
+// (`found = false`), που αλλιώς θα ξαναρωτιόντουσαν σε κάθε άνοιγμα του panel.
+model GeocodeCache {
+  id          String   @id @default(cuid())
+  // Κανονικοποιημένη διεύθυνση + προαιρετικό country hint — δες `geocodeCacheKey`.
+  key         String   @unique
+  address     String
+  countryHint String?
+  // `false` = ο πάροχος δεν αναγνώρισε τη διεύθυνση. Cache-άρεται κι αυτό.
+  found       Boolean  @default(false)
+  countryCode String?
+  country     String?
+  city        String?
+  zip         String?
+  formatted   String?
+  lat         Float?
+  lng         Float?
+  hits        Int      @default(0)
+  createdAt   DateTime @default(now())
+  usedAt      DateTime @default(now())
+
+  @@index([usedAt])
+}

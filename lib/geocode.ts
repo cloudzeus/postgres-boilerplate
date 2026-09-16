@@ -1,7 +1,10 @@
 // MapTiler geocoding helpers. Uses MAPTILER_API_KEY from env.
 // Docs: https://docs.maptiler.com/cloud/api/geocoding/
 import { COUNTRY_NAMES_EL } from './countries';
+import { validCoords } from './coords';
 import { splitGluedAddress } from './ocr/address';
+
+export { validCoords } from './coords';
 
 const MAPTILER_KEY = process.env.MAPTILER_API_KEY ?? '';
 
@@ -95,6 +98,13 @@ export interface AddressParts {
   zip: string | null;
   /** Πλήρης διεύθυνση όπως την κανονικοποίησε ο πάροχος. */
   formatted: string;
+  /**
+   * Γεωγραφικό πλάτος / μήκος του αποτελέσματος — `null` όταν ο πάροχος δεν έδωσε
+   * σημείο. Γράφονται στα `TRDR.LATITUDE` / `TRDR.LONGITUDE` του SoftOne, οπότε
+   * ΠΟΤΕ δεν «στρογγυλοποιούνται» σε 0: άγνωστο σημαίνει `null`.
+   */
+  lat: number | null;
+  lng: number | null;
 }
 
 /** Πόσο περιμένουμε τον geocoder πριν τα παρατήσουμε. Καμία επανάληψη. */
@@ -199,6 +209,10 @@ async function maptilerParts(q: string, key: string, countryHint?: string): Prom
     });
   }
 
+  // `center` του MapTiler είναι [lng, lat] — η σειρά είναι εύκολο να αντιστραφεί κατά λάθος.
+  const center = Array.isArray(f.center) ? f.center : [];
+  const coords = validCoords(center[1], center[0]);
+
   const pick = (...types: string[]) => entries.find((e) => types.includes(e.type));
   const country = pick('country');
   const countryCode =
@@ -211,6 +225,8 @@ async function maptilerParts(q: string, key: string, countryHint?: string): Prom
     city: pick('place', 'municipality', 'locality')?.text ?? null,
     zip: pick('postal_code')?.text ?? null,
     formatted: trimOrNull(f.place_name) ?? q,
+    lat: coords?.lat ?? null,
+    lng: coords?.lng ?? null,
   };
 }
 
@@ -227,12 +243,15 @@ async function nominatimParts(q: string, countryHint?: string): Promise<AddressP
   if (!a) return null;
   const countryCode = String(a.country_code ?? '').toUpperCase();
   if (!countryCode) return null;
+  const coords = validCoords(r.lat, r.lon);
   return {
     countryCode,
     country: trimOrNull(a.country) ?? countryCode,
     city: trimOrNull(a.city) ?? trimOrNull(a.town) ?? trimOrNull(a.village) ?? trimOrNull(a.municipality),
     zip: trimOrNull(a.postcode),
     formatted: trimOrNull(r.display_name) ?? q,
+    lat: coords?.lat ?? null,
+    lng: coords?.lng ?? null,
   };
 }
 

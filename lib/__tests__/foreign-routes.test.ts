@@ -2,8 +2,27 @@
 // ανάλυση διεύθυνσης. Καλούνται ΑΠΕΥΘΕΙΑΣ ως handlers, με mocked rbac/fetch.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-const { rbac } = vi.hoisted(() => ({ rbac: { requirePermission: vi.fn(), hasPermission: vi.fn() } }));
+const { rbac, db, cacheRows } = vi.hoisted(() => {
+  // Η μνήμη geocoding ζει σε ένα Map: έτσι οι δοκιμές ελέγχουν ΠΡΑΓΜΑΤΙΚΗ
+  // συμπεριφορά μνήμης (δεύτερη κλήση = καμία επίσκεψη στον πάροχο).
+  const cacheRows = new Map<string, Record<string, unknown>>();
+  return {
+    cacheRows,
+    rbac: { requirePermission: vi.fn(), hasPermission: vi.fn() },
+    db: {
+      geocodeCache: {
+        findUnique: vi.fn(async ({ where }: { where: { key: string } }) => cacheRows.get(where.key) ?? null),
+        update: vi.fn(async () => null),
+        upsert: vi.fn(async ({ where, create }: { where: { key: string }; create: Record<string, unknown> }) => {
+          cacheRows.set(where.key, { ...create });
+          return create;
+        }),
+      },
+    },
+  };
+});
 vi.mock('@/lib/rbac', () => rbac);
+vi.mock('@/lib/db', () => ({ prisma: db }));
 
 import { GET as vies } from '@/app/api/admin/vies/route';
 import { POST as geocode } from '@/app/api/admin/geocode/route';
@@ -17,6 +36,7 @@ const jsonRes = (body: unknown) => ({ ok: true, status: 200, json: async () => b
 let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.clearAllMocks();
+  cacheRows.clear();
   rbac.requirePermission.mockResolvedValue({ id: 'u1', email: 'a@b.gr' });
   fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
@@ -91,7 +111,40 @@ describe('POST /api/admin/geocode', () => {
     fetchMock.mockResolvedValue(jsonRes([]));
     const res = await geocode(post({ address: 'ααα' }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ found: false });
+    expect(await res.json()).toEqual({ found: false, cached: false });
+  });
+
+  it('επιστρέφει συντεταγμένες όταν τις δίνει ο πάροχος', async () => {
+    fetchMock.mockResolvedValue(jsonRes([{
+      display_name: 'Makariou 1', lat: '35.1721', lon: '33.3642',
+      address: { city: 'Λευκωσία', country: 'Κύπρος', country_code: 'cy' },
+    }]));
+    expect(await (await geocode(post({ address: 'Makariou 1, Nicosia' }))).json())
+      .toMatchObject({ found: true, lat: 35.1721, lng: 33.3642 });
+  });
+
+  it('η ΙΔΙΑ διεύθυνση ρωτά τον πάροχο ΜΙΑ φορά (quota)', async () => {
+    fetchMock.mockResolvedValue(jsonRes([{
+      display_name: 'Makariou 1', lat: '35.1721', lon: '33.3642',
+      address: { city: 'Λευκωσία', country: 'Κύπρος', country_code: 'cy' },
+    }]));
+    const first = await (await geocode(post({ address: 'Makariou 1, Nicosia' }))).json();
+    expect(first).toMatchObject({ found: true, cached: false });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Ίδια διεύθυνση με άλλα σημεία στίξης / πεζά-κεφαλαία = ΙΔΙΟ κλειδί.
+    const second = await (await geocode(post({ address: 'MAKARIOU  1 -- nicosia.' }))).json();
+    expect(second).toMatchObject({ found: true, cached: true, city: 'Λευκωσία', lat: 35.1721 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('θυμάται ΚΑΙ την αστοχία — μια άγνωστη διεύθυνση δεν ξαναρωτιέται', async () => {
+    fetchMock.mockResolvedValue(jsonRes([]));
+    expect(await (await geocode(post({ address: 'ααα βββ' }))).json())
+      .toEqual({ found: false, cached: false });
+    expect(await (await geocode(post({ address: 'ααα βββ' }))).json())
+      .toEqual({ found: false, cached: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('κενή / υπερμεγέθης διεύθυνση → 400 χωρίς κλήση παρόχου', async () => {
