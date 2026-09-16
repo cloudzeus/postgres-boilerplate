@@ -5,6 +5,12 @@ import { softoneFetchExpenses } from '@/lib/softone';
 import { setSetting } from '@/lib/settings';
 import { logAudit } from '@/lib/audit';
 
+/** Ο χαρακτηρισμός myDATA του ΜΗΤΡΩΟΥ (δύο ζεύγη: εσόδων και εξόδων). Η εφαρμογή τον δείχνει μόνο. */
+const cls = (r: { classType: number | null; classTypeX: number | null; classCategory: number | null; classCategoryX: number | null; myDataVprc: number | null }) => ({
+  classType: r.classType, classTypeX: r.classTypeX,
+  classCategory: r.classCategory, classCategoryX: r.classCategoryX, myDataVprc: r.myDataVprc,
+});
+
 // Pulls the active expenses (object EXPENSES → table EXPN) from SoftOne and upserts
 // them into the SoftoneExpense mirror. Rows that SoftOne no longer returns as active
 // are deactivated locally (never deleted — invoice lines may still point at them).
@@ -32,8 +38,8 @@ export async function POST() {
   for (const r of rows) {
     await prisma.softoneExpense.upsert({
       where: { expn: r.expn },
-      update: { code: r.code, name: r.name || r.code, vat: r.vat, isActive: true, syncedAt: now },
-      create: { expn: r.expn, code: r.code, name: r.name || r.code, vat: r.vat, isActive: true, syncedAt: now },
+      update: { code: r.code, name: r.name || r.code, vat: r.vat, isActive: true, syncedAt: now, ...cls(r) },
+      create: { expn: r.expn, code: r.code, name: r.name || r.code, vat: r.vat, isActive: true, syncedAt: now, ...cls(r) },
     });
     if (existing.has(r.expn)) updated++; else created++;
   }

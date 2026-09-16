@@ -8,9 +8,10 @@ import { buildReviewFlags } from '@/lib/templates/run-logic';
 import type { DocumentJson } from './canonical';
 import { loadDocumentJson } from './document';
 import {
-  buildPurdocPayload, postingBlockers,
-  type BlockerCode, type PurdocContext, type PurdocPayload,
+  buildPurdocPayload, postingBlockers, postingWarnings,
+  type BlockerCode, type PostingPayload, type PurdocContext, type PurdocLineCtx, type WarningCode,
 } from './purdoc-payload';
+import { describeTargetShort, resolvePostingTarget, type PostingTarget } from './posting-target';
 
 /** Ο διακόπτης ασφαλείας. Κλειστός = καμία εγγραφή δεν φεύγει προς το SoftOne (μόνο dry-run). */
 export const POSTING_ENABLED_KEY = 'softone.postingEnabled';
@@ -41,8 +42,23 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   unmatched_lines: 'Υπάρχουν γραμμές χωρίς αντιστοίχιση σε είδος ή έξοδο',
   no_vat_category: 'Συντελεστής ΦΠΑ γραμμής χωρίς κωδικό στο μητρώο ΦΠΑ',
   totals_mismatch: 'Το άθροισμα των γραμμών δεν συμφωνεί με την καθαρή αξία',
+  lines_need_mtrl: 'Ο πίνακας γραμμών της σειράς δέχεται μόνο είδη, υπηρεσίες ή πάγια — υπάρχει γραμμή αντιστοιχισμένη σε έξοδο ή χρεοπίστωση',
+  lines_need_expn: 'Ο πίνακας «Έξοδα» (EXPANAL) δέχεται μόνο έξοδα — υπάρχει γραμμή αντιστοιχισμένη σε είδος, υπηρεσία ή χρεοπίστωση',
+  lines_need_lineitem: 'Οι «Ειδικές συναλλαγές» (LINLINES) δέχονται μόνο ΧΡΕΟΠΙΣΤΩΣΕΙΣ — υπάρχει γραμμή αντιστοιχισμένη σε είδος, υπηρεσία ή έξοδο',
+  lines_lineitem_unsupported: 'Η σειρά καταχωρεί σε παραστατικό αγορών, που δεν έχει γραμμές χρεοπίστωσης — άλλαξε τον πίνακα γραμμών σε «Ειδικές συναλλαγές» ή αντιστοίχισε τη γραμμή σε είδος/υπηρεσία/έξοδο',
+  lines_no_mtrtype: 'Χρεοπίστωση χωρίς «Τύπο» (MTRTYPE) στο μητρώο — συγχρόνισε ξανά τις χρεοπιστώσεις',
   posting_disabled: 'Η καταχώριση είναι απενεργοποιημένη (Ρυθμίσεις → Διασυνδέσεις)',
   already_posted: 'Έχει ήδη καταχωριστεί στο SoftOne',
+};
+
+/**
+ * Παρατηρήσεις που ΔΕΝ εμποδίζουν. Ο χαρακτηρισμός myDATA είναι ιδιότητα του ΜΗΤΡΩΟΥ στο SoftOne
+ * (είδος / υπηρεσία / χρεοπίστωση / έξοδο) — η εφαρμογή δεν τον ορίζει ανά γραμμή και δεν τον
+ * εφευρίσκει· διόρθωσή του σημαίνει διόρθωση του μητρώου στο ERP.
+ */
+export const POST_WARNING_TEXT: Record<WarningCode, string> = {
+  no_mydata_classification: 'Υπάρχει γραμμή της οποίας το μητρώο στο SoftOne δεν έχει χαρακτηρισμό myDATA — θα καταχωριστεί αχαρακτήριστη',
+  mydata_from_master: 'Ο πίνακας γραμμών δεν έχει πεδίο χαρακτηρισμού: ο χαρακτηρισμός myDATA θα προκύψει από το μητρώο του κάθε κωδικού',
 };
 
 /** Το ίδιο μήνυμα, με τον αριθμό του παραστατικού που ΥΠΑΡΧΕΙ ήδη στο SoftOne. */
@@ -91,8 +107,28 @@ type Gathered = {
   document: DocumentJson;
   ctx: PurdocContext;
   blockers: BlockerCode[];
-  payload: PurdocPayload;
+  warnings: WarningCode[];
+  payload: PostingPayload;
 };
+
+/**
+ * Πού καταχωρείται ΑΥΤΟ το έγγραφο: η σειρά του λέει το object και τον πίνακα γραμμών.
+ * Οι σειρές αγορών ζουν σε άλλο μητρώο (`PurchaseDocType`, SOSOURCE 1251) από τις υπόλοιπες
+ * (`SoftoneDocSeries`) — ο ίδιος κωδικός υπάρχει και στα δύο, οπότε ψάχνουμε με ΑΜΦΟΤΕΡΑ.
+ */
+async function loadTarget(code: string | null, sosource: number | null): Promise<PostingTarget> {
+  if (!code) return resolvePostingTarget({ sosource });
+  const row = sosource === 1251
+    ? await prisma.purchaseDocType.findUnique({
+        where: { code },
+        select: { name: true, section: true, postObject: true, postLines: true },
+      })
+    : await prisma.softoneDocSeries.findUnique({
+        where: { sosource_code: { sosource: sosource ?? 0, code } },
+        select: { name: true, section: true, postObject: true, postLines: true },
+      });
+  return resolvePostingTarget({ sosource, ...(row ?? {}) });
+}
 
 /**
  * Everything the posting decision needs, read once: the document row, the canonical JSON, the
@@ -109,12 +145,14 @@ async function gather(id: string): Promise<Gathered> {
   });
   if (!doc) throw new PostError('not_found', POST_ERROR_TEXT.not_found);
 
-  const [document, items, vats] = await Promise.all([
+  const [document, items, vats, target] = await Promise.all([
     loadDocumentJson(id),
     prisma.ocrInvoiceItem.findMany({
       where: { documentId: id },
       orderBy: { rowIndex: 'asc' },
-      select: { rowIndex: true, softoneMtrl: true, softoneExpn: true, softoneIsService: true },
+      select: {
+        rowIndex: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneIsService: true,
+      },
     }),
     // Η σειρά ΔΕΝ είναι διακοσμητική: δύο ενεργές εγγραφές με τον ίδιο συντελεστή (π.χ. κανονικό /
     // κανονικό νησιών) λύνονται από την πρώτη — άρα η ταξινόμηση πρέπει να είναι ρητή και σταθερή,
@@ -124,7 +162,34 @@ async function gather(id: string): Promise<Gathered> {
       orderBy: [{ order: 'asc' }, { code: 'asc' }],
       select: { code: true, rate: true },
     }),
+    loadTarget(doc.softoneSeries, doc.seriesSource),
   ]);
+
+  // Ο ΧΑΡΑΚΤΗΡΙΣΜΟΣ myDATA και το MTRTYPE της χρεοπίστωσης ζουν στα μητρώα, όχι στη γραμμή.
+  // Τα διαβάζουμε μαζικά για όσους κωδικούς ταίριαξαν — μία ερώτηση ανά μητρώο, όχι ανά γραμμή.
+  const mtrls = items.map((i) => i.softoneMtrl).filter((v): v is number => v != null);
+  const lins = items.map((i) => i.softoneLinMtrl).filter((v): v is number => v != null);
+  const expns = items.map((i) => i.softoneExpn).filter((v): v is number => v != null);
+  const [itemRows, linRows, expenseRows] = await Promise.all([
+    mtrls.length
+      ? prisma.softoneItem.findMany({ where: { mtrl: { in: mtrls } }, select: { mtrl: true, myDataCode: true } })
+      : Promise.resolve([]),
+    lins.length
+      ? prisma.softoneLineItem.findMany({
+          where: { mtrl: { in: lins } },
+          select: { mtrl: true, mtrType: true, classType: true, classCategory: true, myDataCode: true },
+        })
+      : Promise.resolve([]),
+    expns.length
+      ? prisma.softoneExpense.findMany({
+          where: { expn: { in: expns } },
+          select: { expn: true, classTypeX: true, classCategoryX: true },
+        })
+      : Promise.resolve([]),
+  ]);
+  const itemById = new Map(itemRows.map((r) => [r.mtrl, r]));
+  const linById = new Map(linRows.map((r) => [r.mtrl, r]));
+  const expenseById = new Map(expenseRows.map((r) => [r.expn, r]));
 
   const vatIdByRate: Record<number, number> = {};
   for (const v of vats) {
@@ -137,10 +202,34 @@ async function gather(id: string): Promise<Gathered> {
 
   const series = Number(doc.softoneSeries);
   const seriesOk = Number.isFinite(series) && series > 0;
+  const lineCtx: PurdocLineCtx[] = items.map((i) => {
+    const item = i.softoneMtrl != null ? itemById.get(i.softoneMtrl) : undefined;
+    const lin = i.softoneLinMtrl != null ? linById.get(i.softoneLinMtrl) : undefined;
+    const expense = i.softoneExpn != null ? expenseById.get(i.softoneExpn) : undefined;
+    const myDataCode = item?.myDataCode ?? lin?.myDataCode ?? null;
+    // «Αχαρακτήριστο» = το μητρώο στο οποίο ταίριαξε η γραμμή δεν κουβαλά ΚΑΝΕΝΑ στοιχείο
+    // χαρακτηρισμού. Το κρίνουμε μόνο για γραμμές που όντως ταίριαξαν κάπου.
+    const matched = item ?? lin ?? expense;
+    const hasClass = Boolean(
+      myDataCode || lin?.classType || lin?.classCategory || expense?.classTypeX || expense?.classCategoryX,
+    );
+    return {
+      rowIndex: i.rowIndex,
+      mtrl: i.softoneMtrl,
+      expn: i.softoneExpn,
+      lin: i.softoneLinMtrl,
+      linMtrType: lin?.mtrType ?? null,
+      isService: i.softoneIsService,
+      myDataCode,
+      noClassification: Boolean(matched) && !hasClass,
+    };
+  });
+
   const ctx: PurdocContext = {
+    target,
     series: seriesOk ? series : 0,
     trdr: doc.softoneTrdr ?? 0,
-    lines: items.map((i) => ({ rowIndex: i.rowIndex, mtrl: i.softoneMtrl, expn: i.softoneExpn, isService: i.softoneIsService })),
+    lines: lineCtx,
     vatIdByRate,
     comments: document.notes,
   };
@@ -153,15 +242,23 @@ async function gather(id: string): Promise<Gathered> {
     seriesSource: doc.seriesSource,
   }, ctx);
 
-  return { doc, document, ctx, blockers, payload: buildPurdocPayload(document, ctx) };
+  return {
+    doc, document, ctx, blockers,
+    warnings: postingWarnings(ctx),
+    payload: buildPurdocPayload(document, ctx),
+  };
 }
 
 export type PostingPreview = {
   /** Ο διακόπτης `softone.postingEnabled`. */
   enabled: boolean;
   blockers: { code: BlockerCode; message: string }[];
+  /** Παρατηρήσεις που δεν εμποδίζουν (π.χ. μητρώο χωρίς χαρακτηρισμό myDATA). */
+  warnings: { code: WarningCode; message: string }[];
+  /** Πού πάει: object + πίνακας γραμμών, με ελληνική περιγραφή και το «γιατί». */
+  target: PostingTarget & { label: string };
   /** Τι ΘΑ σταλεί — υπάρχει και όταν υπάρχουν εμπόδια, για να φαίνεται τι λείπει. */
-  payload: PurdocPayload;
+  payload: PostingPayload;
   /** Σύνοψη για την κάρτα: ό,τι δεν διαβάζεται εύκολα από το raw payload. */
   summary: { series: string | null; trader: string | null; trdr: number | null; date: string | null; number: string | null; lines: number };
   /** Τι λέει ήδη η βάση: ένα POSTED έγγραφο δεν ξανα-στέλνεται (το κουμπί κλειδώνει). */
@@ -174,11 +271,13 @@ export type PostingPreview = {
  * Ό,τι επιστρέφει εδώ είναι ακριβώς ό,τι θα έστελνε το `postDocumentToSoftone`.
  */
 export async function postingPreview(id: string): Promise<PostingPreview> {
-  const { doc, document, ctx, blockers, payload } = await gather(id);
+  const { doc, document, ctx, blockers, warnings, payload } = await gather(id);
   const enabled = (await getSetting<boolean>(POSTING_ENABLED_KEY)) === true;
   return {
     enabled,
     blockers: blockers.map((code) => ({ code, message: blockerText(code) })),
+    warnings: warnings.map((code) => ({ code, message: POST_WARNING_TEXT[code] })),
+    target: { ...ctx.target, label: describeTargetShort(ctx.target) },
     payload,
     summary: {
       series: doc.softoneSeries,
@@ -197,7 +296,8 @@ const sameRef = (a: unknown, b: unknown): boolean =>
   String(a ?? '').replace(/[^0-9A-Za-zΑ-Ωα-ω]/g, '').toUpperCase() === String(b ?? '').replace(/[^0-9A-Za-zΑ-Ωα-ω]/g, '').toUpperCase();
 
 /**
- * Posts the document to SoftOne (setData on PURDOC) and PROVES it landed by reading the record back:
+ * Posts the document to SoftOne (setData on the series' own object — PURDOC, LINSUPDOC or
+ * LINCREDOC) and PROVES it landed by reading the record back:
  * SoftOne answers `success:true` even for writes it silently dropped, so the read-back is the only
  * evidence. Throws PostError for precondition failures (the runner turns those into BLOCKED);
  * a transport/verification failure marks the row FAILED and is rethrown as a plain Error.
@@ -234,9 +334,10 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
 
   await prisma.ocrDocument.update({ where: { id }, data: { postStatus: 'PENDING' } });
   try {
+    const object = ctx.target.object;
     const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>('setData', payload);
     if (res.success === false || res.id == null) {
-      throw new Error(res.error ?? `setData PURDOC απέτυχε (code ${res.errorcode ?? '?'})`);
+      throw new Error(res.error ?? `setData ${object} απέτυχε (code ${res.errorcode ?? '?'})`);
     }
     const ref = String(res.id);
     // Το παραστατικό ΥΠΑΡΧΕΙ πλέον στο SoftOne. Το `postedRef` αποθηκεύεται ΑΜΕΣΩΣ, πριν από την
@@ -244,8 +345,9 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
     // — αλλά με τον αριθμό της στο χέρι, ώστε ένας άνθρωπος να τη βρει αντί να την ξαναστείλει.
     await prisma.ocrDocument.update({ where: { id }, data: { postedRef: ref } });
 
-    const tables = await softoneGetData('PURDOC', ref);
-    const row = tables.PURDOC?.[0] ?? tables.FINDOC?.[0] ?? Object.values(tables).find((t) => t.length)?.[0];
+    // Η επαλήθευση διαβάζει ΤΟ ΙΔΙΟ object που γράφτηκε — αλλιώς «επιβεβαιώνει» άλλο παραστατικό.
+    const tables = await softoneGetData(object, ref);
+    const row = tables[object]?.[0] ?? tables.FINDOC?.[0] ?? Object.values(tables).find((t) => t.length)?.[0];
     if (!row) {
       throw new Error(`Η καταχώριση δεν επιβεβαιώθηκε: το SoftOne δεν επέστρεψε το παραστατικό ${ref}`);
     }

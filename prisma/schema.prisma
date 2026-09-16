@@ -450,6 +450,9 @@ model PurchaseDocType {
   isActive  Boolean  @default(true)
   enabled   Boolean  @default(false)   // on/off: τη χρησιμοποιούμε στην εφαρμογή (χειροκίνητο, δεν το αγγίζει το sync)
   order     Int      @default(0)
+  // Στόχος καταχώρισης (lib/ocr/posting-target.ts). NULL = η προεπιλογή της ενότητας.
+  postObject String?                   // PURDOC | LINSUPDOC | LINCREDOC
+  postLines  String?                   // AUTO | ITELINES | SRVLINES | ASSLINES | EXPANAL | LINLINES
 
   @@index([order])
 }
@@ -468,6 +471,9 @@ model SoftoneDocSeries {
   isActive  Boolean  @default(true)    // ενεργή στο SoftOne (από sync)
   enabled   Boolean  @default(false)   // on/off: τη χρησιμοποιούμε στην εφαρμογή (χειροκίνητο, δεν το αγγίζει το sync)
   order     Int      @default(0)
+  // Στόχος καταχώρισης (lib/ocr/posting-target.ts). NULL = η προεπιλογή της ενότητας.
+  postObject String?                   // PURDOC | LINSUPDOC | LINCREDOC
+  postLines  String?                   // AUTO | ITELINES | SRVLINES | ASSLINES | EXPANAL | LINLINES
 
   @@unique([sosource, code])
   @@index([sosource])
@@ -514,6 +520,7 @@ model SoftoneItem {
   price      Float?                    // PRICER (λιανικής)
   isService  Boolean @default(false)   // SODTYPE=52
   isActive   Boolean @default(true)
+  myDataCode String?                   // MYDATACODE («Κατηγορία myDATA») — χαρακτηρισμός του μητρώου
 
   @@index([name])
   @@index([code])
@@ -1370,10 +1377,14 @@ model OcrInvoiceItem {
   softoneMatchedBy String?                              // code2 | code1 | code | manual | memory | skipped
   // Αντιστοίχιση σε έξοδο SoftOne (EXPENSES/EXPN) αντί για είδος.
   softoneExpn      Int?
+  // Αντιστοίχιση σε ΧΡΕΟΠΙΣΤΩΣΗ SoftOne (LINEITEM → MTRL με SODTYPE 53). Ξεχωριστή στήλη από το
+  // `softoneMtrl`: και οι δύο κρατούν MTRL, αλλά μόνο η χρεοπίστωση μπαίνει σε γραμμή LINLINES.
+  softoneLinMtrl   Int?
 
   @@index([documentId])
   @@index([softoneMtrl])
   @@index([softoneExpn])
+  @@index([softoneLinMtrl])
 }
 
 // ============================================================
@@ -1853,9 +1864,87 @@ model SoftoneExpense {
   vat      String?                    // VAT (κατηγορία ΦΠΑ)
   isActive Boolean  @default(true)
   syncedAt DateTime @default(now())
+  // Χαρακτηρισμός myDATA του ΜΗΤΡΩΟΥ (όχι της γραμμής). Το EXPN κρατά δύο ζεύγη: εσόδων και
+  // εξόδων (…X). Για παραστατικά που λαμβάνουμε ισχύει το ζεύγος ΕΞΟΔΩΝ.
+  classType       Int?                // CLASSTYPE       (εσόδων)
+  classTypeX      Int?                // CLASSTYPEX      (εξόδων)
+  classCategory   Int?                // CLASSCATEGORY   (εσόδων)
+  classCategoryX  Int?                // CLASSCATEGORYEX (εξόδων)
+  myDataVprc      Int?                // MYDATAVPRC (κατηγορία φόρων)
 
   @@index([name])
   @@index([code])
+}
+
+// Χρεοπιστώσεις SoftOne — object LINEITEM (EditMaster «Χρεοπιστώσεις») → πίνακας MTRL με
+// SODTYPE 53 (51 είδη · 52 υπηρεσίες · 53 χρεοπιστώσεις · 54 πάγια). Είναι ΑΥΤΕΣ που δέχεται το
+// `MTRL` μιας γραμμής LINLINES («Ειδικές συναλλαγές»), όχι τα είδη/υπηρεσίες ούτε τα έξοδα.
+model SoftoneLineItem {
+  id       Int      @id @default(autoincrement())
+  mtrl     Int      @unique           // SoftOne MTRL id (SODTYPE 53)
+  code     String                     // CODE
+  name     String                     // NAME
+  vat      String?                    // VAT (κατηγορία ΦΠΑ)
+  mtrType  Int?                       // MTRTYPE («Τύπος», editor $LINTYPE) — το θέλει η γραμμή LINLINES
+  mtrCategory Int?                    // MTRCATEGORY → SoftoneLineCategory.mtrCategory (κατηγορία δαπάνης)
+  isActive Boolean  @default(true)
+  syncedAt DateTime @default(now())
+  // Χαρακτηρισμός myDATA του ΜΗΤΡΩΟΥ — η γραμμή LINLINES δεν έχει πεδίο χαρακτηρισμού.
+  classType     Int?                  // CLASSTYPE
+  classCategory Int?                  // CLASSCATEGORY
+  myDataCode    String?               // MYDATACODE («Στοιχεία εσόδων / εξόδων»)
+  myDataVprc    Int?                  // MYDATAVPRC
+
+  @@index([name])
+  @@index([code])
+  @@index([mtrCategory])
+}
+
+// Κατηγορίες δαπανών SoftOne — object LINCATEGORY (EditMaster «Κατηγορίες δαπανών») → πίνακας
+// MTRCATEGORY με SODTYPE 53. Είναι η ομαδοποίηση ΠΑΝΩ από τις χρεοπιστώσεις (`LINEITEM.MTRCATEGORY`),
+// όχι ξεχωριστή λίστα δαπανών· τη χρησιμοποιεί η ουρά για να στενέψει την αναζήτηση χρεοπίστωσης.
+model SoftoneLineCategory {
+  id          Int      @id @default(autoincrement())
+  mtrCategory Int      @unique          // SoftOne MTRCATEGORY id (SODTYPE 53)
+  code        String                    // CODE (σύντμηση)
+  name        String                    // NAME (περιγραφή)
+  vat         String?                   // VAT (προεπιλεγμένη κατηγορία ΦΠΑ της κατηγορίας)
+  acnmsk      String?                   // ACNMSK (λογαριασμός γενικής)
+  isActive    Boolean  @default(true)
+  syncedAt    DateTime @default(now())
+
+  @@index([name])
+  @@index([code])
+}
+
+// Λίστες χαρακτηρισμού myDATA (EditLists MYDATACLTYPE / MYDATACLCATEGORY). Μητρώα ΑΝΑΦΟΡΑΣ:
+// δείχνουν τι σημαίνει ο χαρακτηρισμός που κουβαλά κάθε είδος/υπηρεσία/χρεοπίστωση/έξοδο.
+// Η εφαρμογή ΔΕΝ ορίζει χαρακτηρισμό ανά γραμμή — τον ορίζει το μητρώο στο SoftOne.
+model SoftoneMyDataClassType {
+  id         Int      @id @default(autoincrement())
+  sotype     Int                       // SOTYPE (πλευρά: εσόδων/εξόδων)
+  code       Int                       // MYDATACLTYPE
+  myDataCode String?                   // MYDATACODE (π.χ. «category2_1»)
+  sohCode    String?                   // SOHCODE (ομαδοποίηση myDATA)
+  name       String
+  isVat      Boolean  @default(false)  // ISVAT («Αφορά περιοδική»)
+  syncedAt   DateTime @default(now())
+
+  @@unique([sotype, code])
+  @@index([name])
+}
+
+model SoftoneMyDataClassCategory {
+  id         Int      @id @default(autoincrement())
+  sotype     Int                       // SOTYPE
+  code       Int                       // MYDATACLCATEGORY
+  myDataCode String?
+  sohCode    String?
+  name       String
+  syncedAt   DateTime @default(now())
+
+  @@unique([sotype, code])
+  @@index([name])
 }
 
 // Μνήμη αντιστοίχισης γραμμών: (ΑΦΜ εκδότη ή '' για γενικό, κανονικοποιημένο κείμενο) → είδος/υπηρεσία/έξοδο.
@@ -1867,6 +1956,7 @@ model LineMatchRule {
   pattern     String                     // normalizeLineText του ονόματος της γραμμής
   mtrl        Int?                       // SoftoneItem.mtrl
   expn        Int?                       // SoftoneExpense.expn
+  lin         Int?                       // SoftoneLineItem.mtrl (χρεοπίστωση)
   isService   Boolean  @default(false)
   timesUsed   Int      @default(0)
   createdById String?

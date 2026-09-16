@@ -61,11 +61,23 @@ describe('buildExpensePayload', () => {
 
 describe('softoneFetchExpenses', () => {
   it('διαβάζει τα ενεργά έξοδα από τον πίνακα EXPN', async () => {
-    queue = [{ success: true, data: [['3', 'ΕΞ03', 'Ναύλοι', '1300', '1'], ['0', '', '', '', '1']] }];
+    // Οι στήλες χαρακτηρισμού myDATA (CLASSTYPE… ) ζουν στο ΜΗΤΡΩΟ — τις καθρεφτίζουμε για να
+    // μπορεί η εφαρμογή να δείξει πώς θα χαρακτηριστεί μια γραμμή, χωρίς να την ορίζει.
+    queue = [{ success: true, data: [
+      ['3', 'ΕΞ03', 'Ναύλοι', '1300', '1', '0', '5', '0', '2', '0'],
+      ['0', '', '', '', '1', '', '', '', '', ''],
+    ] }];
     const rows = await softoneFetchExpenses();
-    expect(calls[0].body).toMatchObject({ service: 'GetTable', TABLE: 'EXPN', FIELDS: 'EXPN,CODE,NAME,VAT,ISACTIVE', FILTER: 'ISACTIVE=1' });
+    expect(calls[0].body).toMatchObject({
+      service: 'GetTable', TABLE: 'EXPN', FILTER: 'ISACTIVE=1',
+      FIELDS: 'EXPN,CODE,NAME,VAT,ISACTIVE,CLASSTYPE,CLASSTYPEX,CLASSCATEGORY,CLASSCATEGORYEX,MYDATAVPRC',
+    });
     // EXPN=0 δεν είναι υπαρκτό κλειδί αλλά είναι πεπερασμένος αριθμός — κρατιέται όπως στα είδη.
-    expect(rows[0]).toEqual({ expn: 3, code: 'ΕΞ03', name: 'Ναύλοι', vat: '1300', isActive: true });
+    // Τα '0' των FK στηλών γίνονται null: το SoftOne γράφει 0 για «κενό».
+    expect(rows[0]).toEqual({
+      expn: 3, code: 'ΕΞ03', name: 'Ναύλοι', vat: '1300', isActive: true,
+      classType: null, classTypeX: 5, classCategory: null, classCategoryX: 2, myDataVprc: null,
+    });
   });
 });
 

@@ -1,8 +1,15 @@
 // lib/ocr/purdoc-payload.ts — ΚΑΘΑΡΟ (χωρίς prisma / δίκτυο).
-// Ο μεταφραστής «κανονικό έγγραφο (§17.1) → SoftOne PURDOC setData payload» και οι προϋποθέσεις
-// που πρέπει να ισχύουν για να επιτραπεί η καταχώριση. Ζει χωριστά από το `post-softone.ts` ώστε
+// Ο μεταφραστής «κανονικό έγγραφο (§17.1) → SoftOne setData payload» και οι προϋποθέσεις που
+// πρέπει να ισχύουν για να επιτραπεί η καταχώριση. Ζει χωριστά από το `post-softone.ts` ώστε
 // να δοκιμάζεται και να εμφανίζεται (dry-run) χωρίς να μπορεί καν να αγγίξει το SoftOne.
+//
+// Ο ΣΤΟΧΟΣ ΔΕΝ ΕΙΝΑΙ ΣΤΑΘΕΡΟΣ: το object και ο πίνακας γραμμών έρχονται από τη σειρά του
+// εγγράφου (`lib/ocr/posting-target.ts`), όχι από το τι ταίριαξε η κάθε γραμμή. Ένα τιμολόγιο
+// δαπανών πάει σε `LINSUPDOC`/`LINLINES`, μια αγορά εμπορευμάτων σε `PURDOC`/`ITELINES`.
 import type { DocumentJson } from './canonical';
+import {
+  LINES_FOR_OBJECT, POST_LINES_LABEL, type PostLineTable, type PostingTarget,
+} from './posting-target';
 
 /** Η πρώτη νέα γραμμή. Το SoftOne θέλει LINENUM που δεν υπάρχει ήδη στο παραστατικό. */
 export const FIRST_LINENUM = 9000001;
@@ -10,15 +17,31 @@ export const FIRST_LINENUM = 9000001;
 /** Ό,τι ξέρει η εφαρμογή για μια γραμμή, πέρα από το ίδιο το έγγραφο (από `OcrInvoiceItem`). */
 export type PurdocLineCtx = {
   rowIndex: number;
+  /** MTRL είδους/υπηρεσίας/παγίου (μητρώο `SoftoneItem`). */
   mtrl?: number | null;
+  /** EXPN εξόδου (μητρώο `SoftoneExpense`). */
   expn?: number | null;
+  /** MTRL ΧΡΕΟΠΙΣΤΩΣΗΣ (μητρώο `SoftoneLineItem`) — το μόνο που δέχεται γραμμή LINLINES. */
+  lin?: number | null;
+  /** MTRTYPE της χρεοπίστωσης· η γραμμή LINLINES το απαιτεί. */
+  linMtrType?: number | null;
   isService?: boolean | null;
+  /**
+   * MYDATACODE του ΜΗΤΡΩΟΥ στο οποίο ταίριαξε η γραμμή. Στέλνεται μόνο εκεί όπου ο πίνακας
+   * γραμμών το έχει (ITELINES / SRVLINES / ASSLINES) — το EXPANAL και το LINLINES δεν έχουν
+   * πεδίο χαρακτηρισμού, εκεί τον εφαρμόζει το SoftOne από το μητρώο.
+   */
+  myDataCode?: string | null;
+  /** `true` όταν το μητρώο δεν κουβαλά κανέναν χαρακτηρισμό myDATA (προειδοποίηση, όχι εμπόδιο). */
+  noClassification?: boolean;
 };
 
 export type PurdocContext = {
-  /** SoftOne SERIES (αριθμός σειράς αγορών). */
+  /** Πού καταχωρείται: object + πίνακας γραμμών, από τη σειρά του εγγράφου. */
+  target: PostingTarget;
+  /** SoftOne SERIES (αριθμός σειράς). */
   series: number;
-  /** SoftOne TRDR του προμηθευτή. */
+  /** SoftOne TRDR του συναλλασσομένου (προμηθευτή ή πιστωτή). */
   trdr: number;
   /** Προαιρετικό COMPANY — κανονικά το session είναι ήδη δεμένο σε εταιρία. */
   company?: number | null;
@@ -28,6 +51,12 @@ export type PurdocContext = {
   comments?: string | null;
 };
 
+/**
+ * Η κεφαλίδα. ΙΔΙΑ και στα τρία objects (DB πίνακας FINDOC) — επαληθευμένο στο schema.
+ * Στέλνουμε ΜΟΝΟ ό,τι πραγματικά ξέρουμε· τα υπόλοιπα «required» πεδία (FISCPRD, PERIOD, BRANCH,
+ * SOCURRENCY, TRDRRATE, GLUPD, …) έχουν defaults στο SoftOne και τα συμπληρώνει το ίδιο.
+ * Δεν μαντεύουμε χρήση, υποκατάστημα ή ισοτιμίες.
+ */
 export type PurdocHeader = {
   SERIES: number;
   TRNDATE: string;
@@ -38,19 +67,38 @@ export type PurdocHeader = {
   MYDATAMARK?: string;
   MYDATAUID?: string;
 };
-export type PurdocItemLine = { LINENUM: number; MTRL: number; QTY1: number; PRICE: number; DISC1PRC: number; VAT?: number; COMMENTS?: string };
-export type PurdocExpenseLine = { LINENUM: number; EXPN: number; VAT?: number; EXPVAL: number };
 
-export type PurdocPayload = {
-  OBJECT: 'PURDOC';
+/** Γραμμή ειδών/υπηρεσιών/παγίων (DB MTRLINES) σε PURDOC. */
+export type PurdocItemLine = {
+  LINENUM: number; MTRL: number; QTY1: number; PRICE: number; DISC1PRC: number;
+  VAT?: number; COMMENTS?: string; MYDATACODE?: string;
+};
+/** Γραμμή ανάλυσης εξόδων (EXPANAL) — δεν έχει ποσότητα/τιμή, μόνο αξία. */
+export type PurdocExpenseLine = { LINENUM: number; EXPN: number; VAT?: number; EXPVAL: number };
+/** Γραμμή ειδικών συναλλαγών (LINLINES): `MTRL` = ΧΡΕΟΠΙΣΤΩΣΗ, με τον τύπο της. */
+export type PurdocLinLine = {
+  LINENUM: number; MTRL: number; MTRTYPE: number; QTY1: number; PRICE: number; DISC1PRC: number;
+  NETLINEVAL: number; VAT?: number; COMMENTS?: string;
+};
+
+export type PostingObjectName = 'PURDOC' | 'LINSUPDOC' | 'LINCREDOC';
+
+export type PostingPayload = {
+  OBJECT: PostingObjectName;
   KEY: '';
   DATA: {
-    PURDOC: PurdocHeader[];
+    PURDOC?: PurdocHeader[];
+    LINSUPDOC?: PurdocHeader[];
+    LINCREDOC?: PurdocHeader[];
     ITELINES?: PurdocItemLine[];
     SRVLINES?: PurdocItemLine[];
+    ASSLINES?: PurdocItemLine[];
     EXPANAL?: PurdocExpenseLine[];
+    LINLINES?: PurdocLinLine[];
   };
 };
+/** Παλιό όνομα, διατηρείται για τους υπάρχοντες καλούντες. */
+export type PurdocPayload = PostingPayload;
 
 /** Τα πεδία του `OcrDocument` που κρίνουν αν επιτρέπεται η καταχώριση. */
 export type PostingDoc = {
@@ -71,7 +119,15 @@ export type BlockerCode =
   | 'no_lines'
   | 'unmatched_lines'
   | 'no_vat_category'
-  | 'totals_mismatch';
+  | 'totals_mismatch'
+  | 'lines_need_mtrl'
+  | 'lines_need_expn'
+  | 'lines_need_lineitem'
+  | 'lines_lineitem_unsupported'
+  | 'lines_no_mtrtype';
+
+/** Μη-αποτρεπτικές παρατηρήσεις: φαίνονται στην προεπισκόπηση, δεν κλειδώνουν το κουμπί. */
+export type WarningCode = 'no_mydata_classification' | 'mydata_from_master';
 
 const num = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 const text = (v: unknown): string | undefined => {
@@ -88,13 +144,33 @@ const vatIdFor = (rate: number | null, map: Record<number, number>): number | un
   return typeof id === 'number' && Number.isFinite(id) ? id : undefined;
 };
 
+/** Ο πίνακας που θα δεχτεί ΑΥΤΗ τη γραμμή, όταν ο στόχος είναι `AUTO` (μόνο PURDOC). */
+const autoTableFor = (m: PurdocLineCtx): 'ITELINES' | 'SRVLINES' | 'EXPANAL' | null => {
+  if (m.mtrl != null) return m.isService ? 'SRVLINES' : 'ITELINES';
+  if (m.expn != null) return 'EXPANAL';
+  return null; // χρεοπίστωση ή τίποτα — δεν χωράει σε PURDOC
+};
+
+/** Το «τι ταίριαξε» της γραμμής ταιριάζει με τον πίνακα που ζήτησε η σειρά; */
+function lineFits(table: PostLineTable, m: PurdocLineCtx): boolean {
+  switch (table) {
+    case 'ITELINES': case 'SRVLINES': case 'ASSLINES': return m.mtrl != null;
+    case 'EXPANAL': return m.expn != null;
+    case 'LINLINES': return m.lin != null;
+    case 'AUTO': return autoTableFor(m) != null;
+  }
+}
+
 /**
- * Χτίζει το payload του `setData` για object PURDOC. ΔΕΝ κρίνει αν επιτρέπεται η καταχώριση —
- * αυτό είναι δουλειά του `postingBlockers`, ώστε το dry-run να δείχνει payload ΚΑΙ εμπόδια μαζί.
+ * Χτίζει το payload του `setData` για τον στόχο της σειράς. ΔΕΝ κρίνει αν επιτρέπεται η
+ * καταχώριση — αυτό είναι δουλειά του `postingBlockers`, ώστε το dry-run να δείχνει payload ΚΑΙ
+ * εμπόδια μαζί. Γραμμές που δεν χωρούν στον στόχο ΠΑΡΑΛΕΙΠΟΝΤΑΙ εδώ και γίνονται εμπόδιο εκεί:
+ * το payload της προεπισκόπησης δείχνει τι θα έφευγε, τα εμπόδια γιατί δεν φεύγει.
  * Κενοί πίνακες παραλείπονται (το SoftOne διαβάζει ένα άδειο array ως «σβήσε τις γραμμές»).
  */
-export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): PurdocPayload {
+export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): PostingPayload {
   const byRow = new Map<number, PurdocLineCtx>(ctx.lines.map((l) => [l.rowIndex, l]));
+  const { object, lines: table } = ctx.target;
 
   const header: PurdocHeader = {
     SERIES: ctx.series,
@@ -111,54 +187,91 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
   const uid = text(document.digital.uid);
   if (uid) header.MYDATAUID = uid;
 
-  const items: PurdocItemLine[] = [];
-  const services: PurdocItemLine[] = [];
+  const items: Record<'ITELINES' | 'SRVLINES' | 'ASSLINES', PurdocItemLine[]> = {
+    ITELINES: [], SRVLINES: [], ASSLINES: [],
+  };
   const expenses: PurdocExpenseLine[] = [];
+  const linLines: PurdocLinLine[] = [];
 
   document.lines.forEach((line, i) => {
     const match = byRow.get(i);
     if (!match) return;
     const vat = vatIdFor(line.vatRate, ctx.vatIdByRate);
-    if (match.mtrl != null) {
-      const target = match.isService ? services : items;
-      const row: PurdocItemLine = {
-        LINENUM: FIRST_LINENUM + target.length,
-        MTRL: match.mtrl,
+    const name = text(line.name);
+    const target = table === 'AUTO' ? autoTableFor(match) : table;
+    if (!target || !lineFits(target, match)) return;
+
+    if (target === 'LINLINES') {
+      const row: PurdocLinLine = {
+        LINENUM: FIRST_LINENUM + linLines.length,
+        MTRL: match.lin as number,
+        MTRTYPE: num(match.linMtrType, 0),
         QTY1: num(line.quantity, 1),
         PRICE: num(line.unitPrice, 0),
         DISC1PRC: num(line.discount, 0),
+        NETLINEVAL: num(line.net, 0),
       };
       if (vat != null) row.VAT = vat;
-      const name = text(line.name);
       if (name) row.COMMENTS = name;
-      target.push(row);
+      linLines.push(row);
       return;
     }
-    if (match.expn != null) {
+    if (target === 'EXPANAL') {
       expenses.push({
         LINENUM: FIRST_LINENUM + expenses.length,
-        EXPN: match.expn,
+        EXPN: match.expn as number,
         ...(vat != null ? { VAT: vat } : {}),
         EXPVAL: num(line.net, 0),
       });
+      return;
     }
+    const bucket = items[target];
+    const row: PurdocItemLine = {
+      LINENUM: FIRST_LINENUM + bucket.length,
+      MTRL: match.mtrl as number,
+      QTY1: num(line.quantity, 1),
+      PRICE: num(line.unitPrice, 0),
+      DISC1PRC: num(line.discount, 0),
+    };
+    if (vat != null) row.VAT = vat;
+    if (name) row.COMMENTS = name;
+    // Ο χαρακτηρισμός myDATA υπάρχει ΜΟΝΟ σε αυτούς τους τρεις πίνακες γραμμών.
+    const cls = text(match.myDataCode);
+    if (cls) row.MYDATACODE = cls;
+    bucket.push(row);
   });
 
-  const DATA: PurdocPayload['DATA'] = { PURDOC: [header] };
-  if (items.length) DATA.ITELINES = items;
-  if (services.length) DATA.SRVLINES = services;
+  const DATA: PostingPayload['DATA'] = { [object]: [header] };
+  if (items.ITELINES.length) DATA.ITELINES = items.ITELINES;
+  if (items.SRVLINES.length) DATA.SRVLINES = items.SRVLINES;
+  if (items.ASSLINES.length) DATA.ASSLINES = items.ASSLINES;
   if (expenses.length) DATA.EXPANAL = expenses;
-  return { OBJECT: 'PURDOC', KEY: '', DATA };
+  if (linLines.length) DATA.LINLINES = linLines;
+  return { OBJECT: object, KEY: '', DATA };
 }
 
 /** Ανοχή αθροίσματος γραμμών έναντι της τυπωμένης καθαρής αξίας. */
 const NET_TOLERANCE = 0.05;
 
+/** Το εμπόδιο που αντιστοιχεί σε «γραμμή που δεν χωράει στον πίνακα Χ». */
+const mismatchCode = (table: PostLineTable): BlockerCode => {
+  switch (table) {
+    case 'LINLINES': return 'lines_need_lineitem';
+    case 'EXPANAL': return 'lines_need_expn';
+    case 'AUTO': return 'lines_lineitem_unsupported';
+    default: return 'lines_need_mtrl';
+  }
+};
+
 /**
  * Κάθε λόγος για τον οποίο η καταχώριση δεν πρέπει να γίνει, με σταθερή σειρά (το UI τα δείχνει
  * ως λίστα). Επιστρέφει κωδικούς· τα ελληνικά κείμενα ζουν στο `POST_ERROR_TEXT`.
  */
-export function postingBlockers(document: DocumentJson, doc: PostingDoc, ctx: Pick<PurdocContext, 'lines' | 'vatIdByRate'>): BlockerCode[] {
+export function postingBlockers(
+  document: DocumentJson,
+  doc: PostingDoc,
+  ctx: Pick<PurdocContext, 'lines' | 'vatIdByRate' | 'target'>,
+): BlockerCode[] {
   const out: BlockerCode[] = [];
   if (doc.status !== 'COMPLETED') out.push('not_completed');
   if (!doc.category) out.push('no_category');
@@ -167,15 +280,22 @@ export function postingBlockers(document: DocumentJson, doc: PostingDoc, ctx: Pi
   if (!trnDate(document.date)) out.push('no_date');
   if (!text(document.type.number)) out.push('no_number');
 
+  const table = ctx.target.lines;
   const byRow = new Map<number, PurdocLineCtx>(ctx.lines.map((l) => [l.rowIndex, l]));
   if (document.lines.length === 0) {
     out.push('no_lines');
   } else {
-    const unmatched = document.lines.some((_, i) => {
-      const m = byRow.get(i);
-      return !m || (m.mtrl == null && m.expn == null);
-    });
+    const matched = document.lines.map((_, i) => byRow.get(i));
+    const unmatched = matched.some((m) => !m || (m.mtrl == null && m.expn == null && m.lin == null));
     if (unmatched) out.push('unmatched_lines');
+    // Αντιστοιχισμένη γραμμή που δεν εκφράζεται στον πίνακα της σειράς: ΔΕΝ τη ρίχνουμε σιωπηλά
+    // και δεν εφευρίσκουμε κωδικό — το λέμε δυνατά (π.χ. έξοδο EXPN σε σειρά που στέλνει LINLINES).
+    const misfit = matched.some((m) => m && (m.mtrl != null || m.expn != null || m.lin != null) && !lineFits(table, m));
+    if (misfit) out.push(mismatchCode(table));
+    // Η γραμμή LINLINES απαιτεί MTRTYPE· λείπει όταν το μητρώο χρεοπιστώσεων δεν το συγχρόνισε.
+    if (table === 'LINLINES' && matched.some((m) => m?.lin != null && m.linMtrType == null)) {
+      out.push('lines_no_mtrtype');
+    }
     const missingVat = document.lines.some((line) => vatIdFor(line.vatRate, ctx.vatIdByRate) == null);
     if (missingVat) out.push('no_vat_category');
   }
@@ -186,3 +306,22 @@ export function postingBlockers(document: DocumentJson, doc: PostingDoc, ctx: Pi
   }
   return out;
 }
+
+/**
+ * Παρατηρήσεις που ΔΕΝ εμποδίζουν: ο χρήστης πρέπει να τις δει πριν πατήσει «Καταχώριση», αλλά
+ * δεν είναι λάθος του παραστατικού — είναι κατάσταση του μητρώου στο SoftOne.
+ */
+export function postingWarnings(ctx: Pick<PurdocContext, 'lines' | 'target'>): WarningCode[] {
+  const out: WarningCode[] = [];
+  const hasLines = ctx.lines.length > 0;
+  if (hasLines && ctx.lines.some((l) => l.noClassification)) out.push('no_mydata_classification');
+  // Οι πίνακες χωρίς πεδίο MYDATACODE: ο χαρακτηρισμός έρχεται αποκλειστικά από το μητρώο.
+  if (hasLines && (ctx.target.lines === 'LINLINES' || ctx.target.lines === 'EXPANAL')) {
+    out.push('mydata_from_master');
+  }
+  return out;
+}
+
+/** Οι πίνακες γραμμών που δέχεται το object του στόχου — για μηνύματα και UI. */
+export const linesAllowedFor = (target: PostingTarget): string =>
+  LINES_FOR_OBJECT[target.object].map((t) => POST_LINES_LABEL[t]).join(' · ');

@@ -23,6 +23,8 @@ export async function POST() {
   const data = rows.map((r) => ({
     mtrl: r.mtrl, code: r.code, code1: r.code1, code2: r.code2,
     name: r.name || r.code, name2: r.name2, price: r.price, isService: r.isService, isActive: r.isActive,
+    // Χαρακτηρισμός myDATA του μητρώου — τον δείχνουμε, δεν τον ορίζουμε εμείς.
+    myDataCode: r.myDataCode,
   }));
 
   const result = await prisma.$transaction(async (tx) => {

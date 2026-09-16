@@ -660,9 +660,11 @@ export interface ItemRow {
   price: number | null;
   isService: boolean;
   isActive: boolean;
+  /** MYDATACODE — ο χαρακτηρισμός myDATA που κουβαλά ΤΟ ΜΗΤΡΩΟ (όχι η γραμμή παραστατικού). */
+  myDataCode: string | null;
 }
 
-const MTRL_FIELDS = ['MTRL', 'CODE', 'CODE1', 'CODE2', 'NAME', 'NAME1', 'PRICER', 'SODTYPE', 'ISACTIVE'];
+const MTRL_FIELDS = ['MTRL', 'CODE', 'CODE1', 'CODE2', 'NAME', 'NAME1', 'PRICER', 'SODTYPE', 'ISACTIVE', 'MYDATACODE'];
 
 function mapItem(o: Record<string, string>): ItemRow {
   const price = o.PRICER === '' ? null : Number(String(o.PRICER).replace(',', '.'));
@@ -676,6 +678,7 @@ function mapItem(o: Record<string, string>): ItemRow {
     price: Number.isFinite(price as number) ? (price as number) : null,
     isService: o.SODTYPE === '52',
     isActive: o.ISACTIVE !== '0',
+    myDataCode: idOrNull(o.MYDATACODE),
   };
 }
 
@@ -1291,10 +1294,29 @@ export interface ExpenseRow {
   /** VAT — κωδικός κατηγορίας ΦΠΑ (προαιρετικό στο SoftOne). */
   vat: string | null;
   isActive: boolean;
+  /**
+   * Χαρακτηρισμός myDATA του μητρώου. Το EXPN κρατά ΔΥΟ ζεύγη: εσόδων (`CLASSTYPE`/
+   * `CLASSCATEGORY`) και εξόδων (`CLASSTYPEX`/`CLASSCATEGORYEX`). Για παραστατικά που
+   * ΛΑΜΒΑΝΟΥΜΕ ισχύει το ζεύγος των εξόδων.
+   */
+  classType: number | null;
+  classTypeX: number | null;
+  classCategory: number | null;
+  classCategoryX: number | null;
+  myDataVprc: number | null;
 }
 
 // Πεδία του EXPN που καθρεφτίζουμε τοπικά (επαληθευμένα στο schema του object EXPENSES).
-const EXPN_FIELDS = ['EXPN', 'CODE', 'NAME', 'VAT', 'ISACTIVE'];
+const EXPN_FIELDS = [
+  'EXPN', 'CODE', 'NAME', 'VAT', 'ISACTIVE',
+  'CLASSTYPE', 'CLASSTYPEX', 'CLASSCATEGORY', 'CLASSCATEGORYEX', 'MYDATAVPRC',
+];
+
+/** '0' / '' / μη αριθμός → null. Το SoftOne γράφει 0 στα «κενά» FK. */
+const intOrNull = (v: unknown): number | null => {
+  const n = Number(str(v));
+  return Number.isFinite(n) && n !== 0 ? n : null;
+};
 
 function mapExpense(o: Record<string, string>): ExpenseRow {
   return {
@@ -1303,6 +1325,11 @@ function mapExpense(o: Record<string, string>): ExpenseRow {
     name: o.NAME,
     vat: idOrNull(o.VAT),
     isActive: o.ISACTIVE !== '0',
+    classType: intOrNull(o.CLASSTYPE),
+    classTypeX: intOrNull(o.CLASSTYPEX),
+    classCategory: intOrNull(o.CLASSCATEGORY),
+    classCategoryX: intOrNull(o.CLASSCATEGORYEX),
+    myDataVprc: intOrNull(o.MYDATAVPRC),
   };
 }
 
@@ -1415,4 +1442,143 @@ export async function softoneCreateExpense(
     throw new Error(`Το έξοδο ${expn} δεν βρέθηκε μετά τη δημιουργία (setData EXPENSES)`);
   }
   return { expn, code: row.CODE, name: row.NAME, templateExpn: template.expn };
+}
+
+// ============================================================
+// Χρεοπιστώσεις — object LINEITEM (EditMaster) → πίνακας MTRL με SODTYPE 53
+// Κατηγορίες δαπανών — object LINCATEGORY → πίνακας MTRCATEGORY με SODTYPE 53
+// Λίστες χαρακτηρισμού myDATA — EditLists MYDATACLTYPE / MYDATACLCATEGORY
+// ============================================================
+
+/** MTRL.SODTYPE / MTRCATEGORY.SODTYPE: 51 είδη · 52 υπηρεσίες · 53 ΧΡΕΟΠΙΣΤΩΣΕΙΣ · 54 πάγια. */
+export const LINEITEM_SODTYPE = 53;
+
+export interface LineItemRow {
+  /** MTRL της χρεοπίστωσης — ΑΥΤΟ μπαίνει στο `MTRL` μιας γραμμής LINLINES. */
+  mtrl: number;
+  code: string;
+  name: string;
+  vat: string | null;
+  /** MTRTYPE («Τύπος», editor $LINTYPE) — απαιτούμενο πεδίο της γραμμής LINLINES. */
+  mtrType: number | null;
+  /** MTRCATEGORY → κατηγορία δαπάνης. */
+  mtrCategory: number | null;
+  classType: number | null;
+  classCategory: number | null;
+  myDataCode: string | null;
+  myDataVprc: number | null;
+  isActive: boolean;
+}
+
+const LINEITEM_FIELDS = [
+  'MTRL', 'CODE', 'NAME', 'VAT', 'MTRTYPE', 'MTRCATEGORY', 'ISACTIVE',
+  'CLASSTYPE', 'CLASSCATEGORY', 'MYDATACODE', 'MYDATAVPRC',
+];
+
+function mapLineItem(o: Record<string, string>): LineItemRow {
+  return {
+    mtrl: Number(o.MTRL),
+    code: o.CODE,
+    name: o.NAME,
+    vat: idOrNull(o.VAT),
+    // ΟΧΙ `intOrNull`: το MTRTYPE 0 είναι έγκυρος τύπος (είναι και το default της γραμμής).
+    mtrType: Number.isFinite(Number(str(o.MTRTYPE))) && str(o.MTRTYPE) !== '' ? Number(str(o.MTRTYPE)) : null,
+    mtrCategory: intOrNull(o.MTRCATEGORY),
+    classType: intOrNull(o.CLASSTYPE),
+    classCategory: intOrNull(o.CLASSCATEGORY),
+    myDataCode: idOrNull(o.MYDATACODE),
+    myDataVprc: intOrNull(o.MYDATAVPRC),
+    isActive: o.ISACTIVE !== '0',
+  };
+}
+
+/** Διαβάζει το μητρώο χρεοπιστώσεων (MTRL SODTYPE 53, ενεργές) με GetTable. Μόνο ΑΝΑΓΝΩΣΗ. */
+export async function softoneFetchLineItems(): Promise<LineItemRow[]> {
+  const rows = await softoneGetTable('MTRL', LINEITEM_FIELDS, `SODTYPE=${LINEITEM_SODTYPE} AND ISACTIVE=1`);
+  return rows.map(mapLineItem).filter((r) => Number.isFinite(r.mtrl));
+}
+
+export interface LineCategoryRow {
+  mtrCategory: number;
+  code: string;
+  name: string;
+  vat: string | null;
+  acnmsk: string | null;
+  isActive: boolean;
+}
+
+const LINCATEGORY_FIELDS = ['MTRCATEGORY', 'CODE', 'NAME', 'VAT', 'ACNMSK', 'ISACTIVE'];
+
+const mapLineCategory = (o: Record<string, string>): LineCategoryRow => ({
+  mtrCategory: Number(o.MTRCATEGORY),
+  code: o.CODE,
+  name: o.NAME,
+  vat: idOrNull(o.VAT),
+  acnmsk: idOrNull(o.ACNMSK),
+  isActive: o.ISACTIVE !== '0',
+});
+
+/**
+ * Διαβάζει τις κατηγορίες δαπανών (MTRCATEGORY SODTYPE 53). Ο πίνακας MTRCATEGORY είναι ΚΟΙΝΟΣ
+ * για είδη/υπηρεσίες/χρεοπιστώσεις/πάγια και είναι company-scoped, γι' αυτό φιλτράρουμε και τα δύο.
+ * Αν η εγκατάσταση δεν εκθέτει στήλη SODTYPE, ξαναδοκιμάζουμε ΧΩΡΙΣ αυτήν — αλλά μόνο όταν το
+ * σφάλμα αφορά όντως τη στήλη, ώστε ένα σφάλμα δικτύου να μην περνά για «όλες οι κατηγορίες».
+ */
+export async function softoneFetchLineCategories(): Promise<LineCategoryRow[]> {
+  const cfg = await loadSoftoneConfig().catch(() => null);
+  const company = cfg?.company ? ` AND COMPANY=${cfg.company}` : '';
+  try {
+    const rows = await softoneGetTable(
+      'MTRCATEGORY', LINCATEGORY_FIELDS, `SODTYPE=${LINEITEM_SODTYPE} AND ISACTIVE=1${company}`,
+    );
+    return rows.map(mapLineCategory).filter((r) => Number.isFinite(r.mtrCategory));
+  } catch (e) {
+    const msg = String((e as Error)?.message ?? '');
+    if (!/SODTYPE/i.test(msg)) throw e;
+    const rows = await softoneGetTable('MTRCATEGORY', LINCATEGORY_FIELDS, `ISACTIVE=1${company}`);
+    return rows.map(mapLineCategory).filter((r) => Number.isFinite(r.mtrCategory));
+  }
+}
+
+export interface MyDataClassRow {
+  /** SOTYPE — η πλευρά (εσόδων / εξόδων) στην οποία ανήκει ο χαρακτηρισμός. */
+  sotype: number;
+  code: number;
+  myDataCode: string | null;
+  sohCode: string | null;
+  name: string;
+  isVat?: boolean;
+}
+
+/** EditList MYDATACLTYPE «Τύπος χαρακτηρισμού» — μητρώο ΑΝΑΦΟΡΑΣ, μόνο ανάγνωση. */
+export async function softoneFetchMyDataClassTypes(): Promise<MyDataClassRow[]> {
+  const rows = await softoneGetTable(
+    'MYDATACLTYPE', ['SOTYPE', 'MYDATACLTYPE', 'MYDATACODE', 'SOHCODE', 'NAME', 'ISVAT'], '',
+  );
+  return rows
+    .map((o) => ({
+      sotype: Number(str(o.SOTYPE)) || 0,
+      code: Number(str(o.MYDATACLTYPE)),
+      myDataCode: idOrNull(o.MYDATACODE),
+      sohCode: idOrNull(o.SOHCODE),
+      name: cleanS1Label(o.NAME) || str(o.MYDATACODE),
+      isVat: str(o.ISVAT) === '1',
+    }))
+    .filter((r) => Number.isFinite(r.code) && r.name);
+}
+
+/** EditList MYDATACLCATEGORY «Κατηγορία χαρακτηρισμού» — μητρώο ΑΝΑΦΟΡΑΣ, μόνο ανάγνωση. */
+export async function softoneFetchMyDataClassCategories(): Promise<MyDataClassRow[]> {
+  const rows = await softoneGetTable(
+    'MYDATACLCATEGORY', ['SOTYPE', 'MYDATACLCATEGORY', 'MYDATACODE', 'SOHCODE', 'NAME'], '',
+  );
+  return rows
+    .map((o) => ({
+      sotype: Number(str(o.SOTYPE)) || 0,
+      code: Number(str(o.MYDATACLCATEGORY)),
+      myDataCode: idOrNull(o.MYDATACODE),
+      sohCode: idOrNull(o.SOHCODE),
+      name: cleanS1Label(o.NAME) || str(o.MYDATACODE),
+    }))
+    .filter((r) => Number.isFinite(r.code) && r.name);
 }

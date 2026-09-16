@@ -8,6 +8,11 @@ const { db, softone, settings, documentMod } = vi.hoisted(() => ({
     ocrDocument: { findUnique: vi.fn(), update: vi.fn() },
     ocrInvoiceItem: { findMany: vi.fn() },
     vatCategory: { findMany: vi.fn() },
+    purchaseDocType: { findUnique: vi.fn() },
+    softoneDocSeries: { findUnique: vi.fn() },
+    softoneItem: { findMany: vi.fn() },
+    softoneLineItem: { findMany: vi.fn() },
+    softoneExpense: { findMany: vi.fn() },
     templateRun: { findFirst: vi.fn(), update: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -46,6 +51,12 @@ beforeEach(() => {
   db.ocrDocument.update.mockResolvedValue({});
   db.ocrInvoiceItem.findMany.mockResolvedValue([{ rowIndex: 0, softoneMtrl: 555, softoneExpn: null, softoneIsService: false }]);
   db.vatCategory.findMany.mockResolvedValue([{ code: '1', rate: 24 }, { code: '4', rate: 0 }]);
+  // Σειρά αγοράς εμπορευμάτων → PURDOC με πίνακα ανά γραμμή (η προεπιλογή της ενότητας 1251).
+  db.purchaseDocType.findUnique.mockResolvedValue({ name: 'Τιμολόγιο Αγοράς', section: 'Τιμολόγιο Αγοράς', postObject: null, postLines: null });
+  db.softoneDocSeries.findUnique.mockResolvedValue(null);
+  db.softoneItem.findMany.mockResolvedValue([{ mtrl: 555, myDataCode: 'category2_1' }]);
+  db.softoneLineItem.findMany.mockResolvedValue([]);
+  db.softoneExpense.findMany.mockResolvedValue([]);
   documentMod.loadDocumentJson.mockResolvedValue(document());
   settings.getSetting.mockResolvedValue(false);
 });
@@ -58,10 +69,71 @@ describe('postingPreview (dry-run)', () => {
     expect(db.ocrDocument.update).not.toHaveBeenCalled();
     expect(preview.blockers).toEqual([]);
     expect(preview.enabled).toBe(false);
-    expect(preview.payload?.DATA.PURDOC[0]).toMatchObject({ SERIES: 7001, TRDR: 12345, FINCODE: '17', TRNDATE: '2026-03-14' });
+    expect(preview.payload?.DATA.PURDOC?.[0]).toMatchObject({ SERIES: 7001, TRDR: 12345, FINCODE: '17', TRNDATE: '2026-03-14' });
     expect(preview.payload?.DATA.ITELINES).toEqual([
-      { LINENUM: 9000001, MTRL: 555, QTY1: 2, PRICE: 50, DISC1PRC: 0, VAT: 1, COMMENTS: 'Είδος Α' },
+      { LINENUM: 9000001, MTRL: 555, QTY1: 2, PRICE: 50, DISC1PRC: 0, VAT: 1, COMMENTS: 'Είδος Α', MYDATACODE: 'category2_1' },
     ]);
+    expect(preview.target).toMatchObject({ object: 'PURDOC', lines: 'AUTO', source: 'default' });
+  });
+
+  // Ο στόχος έρχεται από τη ΣΕΙΡΑ, όχι από το τι ταίριαξε η γραμμή: το ίδιο έγγραφο με σειρά
+  // πιστωτών γίνεται «Ειδικές συναλλαγές» και ΔΕΝ πάει ποτέ σε παραστατικό αγορών.
+  it('σειρά πιστωτών (1653) → LINCREDOC / LINLINES, με τη χρεοπίστωση στο MTRL', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ ...READY_DOC, softoneSeries: '1001', seriesSource: 1653 });
+    db.softoneDocSeries.findUnique.mockResolvedValue({ name: 'Τιμολόγιο Δαπανών (Λήψη)', section: '1001', postObject: null, postLines: null });
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { rowIndex: 0, softoneMtrl: null, softoneExpn: null, softoneLinMtrl: 777, softoneIsService: null },
+    ]);
+    db.softoneItem.findMany.mockResolvedValue([]);
+    db.softoneLineItem.findMany.mockResolvedValue([
+      { mtrl: 777, mtrType: 1, classType: 5, classCategory: 2, myDataCode: 'category2_5' },
+    ]);
+
+    const preview = await postingPreview('d1');
+
+    expect(preview.blockers).toEqual([]);
+    expect(preview.target).toMatchObject({ object: 'LINCREDOC', lines: 'LINLINES' });
+    expect(preview.payload.OBJECT).toBe('LINCREDOC');
+    expect(preview.payload.DATA.LINCREDOC?.[0]).toMatchObject({ SERIES: 1001, TRDR: 12345 });
+    expect(preview.payload.DATA.LINLINES).toEqual([
+      { LINENUM: 9000001, MTRL: 777, MTRTYPE: 1, QTY1: 2, PRICE: 50, DISC1PRC: 0, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Είδος Α' },
+    ]);
+    // Το LINLINES δεν έχει πεδίο χαρακτηρισμού — δεν στέλνουμε MYDATACODE εκεί.
+    expect(preview.payload.DATA.LINLINES?.[0]).not.toHaveProperty('MYDATACODE');
+    expect(preview.warnings.map((w) => w.code)).toContain('mydata_from_master');
+  });
+
+  it('γραμμή σε έξοδο ενώ η σειρά στέλνει LINLINES → εμπόδιο, όχι σιωπηλή απώλεια', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ ...READY_DOC, softoneSeries: '1001', seriesSource: 1653 });
+    db.softoneDocSeries.findUnique.mockResolvedValue({ name: 'Τιμολόγιο Δαπανών (Λήψη)', section: '1001', postObject: null, postLines: null });
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { rowIndex: 0, softoneMtrl: null, softoneExpn: 91, softoneLinMtrl: null, softoneIsService: null },
+    ]);
+    db.softoneItem.findMany.mockResolvedValue([]);
+    db.softoneExpense.findMany.mockResolvedValue([{ expn: 91, classTypeX: null, classCategoryX: null }]);
+
+    const preview = await postingPreview('d1');
+    expect(preview.blockers.map((b) => b.code)).toContain('lines_need_lineitem');
+    expect(preview.blockers.find((b) => b.code === 'lines_need_lineitem')?.message).toMatch(/ΧΡΕΟΠΙΣΤΩΣΕΙΣ/);
+    // Καμία γραμμή δεν χώρεσε: το payload το λέει καθαρά αντί να «καθαρίσει» το πρόβλημα.
+    expect(preview.payload.DATA.LINLINES).toBeUndefined();
+  });
+
+  it('ρητή ρύθμιση σειράς νικά την προεπιλογή της ενότητας', async () => {
+    db.purchaseDocType.findUnique.mockResolvedValue({ name: 'Τιμολόγιο Αγοράς', section: '', postObject: 'LINSUPDOC', postLines: 'LINLINES' });
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { rowIndex: 0, softoneMtrl: null, softoneExpn: null, softoneLinMtrl: 777, softoneIsService: null },
+    ]);
+    db.softoneItem.findMany.mockResolvedValue([]);
+    db.softoneLineItem.findMany.mockResolvedValue([{ mtrl: 777, mtrType: 0, classType: null, classCategory: null, myDataCode: null }]);
+
+    const preview = await postingPreview('d1');
+    expect(preview.target).toMatchObject({ object: 'LINSUPDOC', lines: 'LINLINES', source: 'configured' });
+    expect(preview.payload.OBJECT).toBe('LINSUPDOC');
+    expect(preview.payload.DATA.LINSUPDOC?.[0]).toMatchObject({ SERIES: 7001 });
+    // Μητρώο χωρίς κανέναν χαρακτηρισμό: προειδοποίηση, ΟΧΙ εμπόδιο.
+    expect(preview.blockers).toEqual([]);
+    expect(preview.warnings.map((w) => w.code)).toContain('no_mydata_classification');
   });
 
   it('εμπόδια σε ελληνικά, με payload για να φαίνεται τι ΘΑ έφευγε', async () => {
@@ -198,6 +270,24 @@ describe('postDocumentToSoftone', () => {
     expect(softone.softoneGetData).not.toHaveBeenCalled();
     const last = db.ocrDocument.update.mock.calls.at(-1)?.[0];
     expect(last.data.postStatus).toBe('FAILED');
+  });
+
+  it('το read-back διαβάζει ΤΟ ΙΔΙΟ object που γράφτηκε', async () => {
+    settings.getSetting.mockResolvedValue(true);
+    db.ocrDocument.findUnique.mockResolvedValue({ ...READY_DOC, softoneSeries: '1001', seriesSource: 1653 });
+    db.softoneDocSeries.findUnique.mockResolvedValue({ name: 'Τιμολόγιο Δαπανών (Λήψη)', section: '1001', postObject: null, postLines: null });
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { rowIndex: 0, softoneMtrl: null, softoneExpn: null, softoneLinMtrl: 777, softoneIsService: null },
+    ]);
+    db.softoneItem.findMany.mockResolvedValue([]);
+    db.softoneLineItem.findMany.mockResolvedValue([{ mtrl: 777, mtrType: 1, classType: 1, classCategory: 1, myDataCode: 'x' }]);
+    softone.softoneCall.mockResolvedValue({ success: true, id: 4242 });
+    softone.softoneGetData.mockResolvedValue({ LINCREDOC: [{ FINDOC: '4242', FINCODE: '17', TRDR: '12345' }] });
+
+    await postDocumentToSoftone('d1');
+
+    expect(softone.softoneCall).toHaveBeenCalledWith('setData', expect.objectContaining({ OBJECT: 'LINCREDOC' }));
+    expect(softone.softoneGetData).toHaveBeenCalledWith('LINCREDOC', '4242');
   });
 
   it('ο τύπος του σφάλματος είναι PostError για τις προϋποθέσεις', async () => {
