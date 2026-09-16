@@ -1,40 +1,89 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { z } from 'zod';
 import { requirePermission } from '@/lib/rbac';
+import { logAudit } from '@/lib/audit';
+import { applyMatchToLine, clearLineMatch, QueueError } from '@/lib/ocr/queues';
 
-// Manually links an invoice line to a SoftOne item (or clears it).
-// POST { lineId, mtrl }  (mtrl null → clear)
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+/**
+ * Χειροκίνητη αντιστοίχιση ΜΙΑΣ γραμμής παραστατικού — η ενέργεια της σελίδας
+ * `/admin/ocr/<id>` και των μικρών picker της ίδιας σελίδας.
+ *
+ * `POST { lineId, mtrl }` (η αρχική μορφή, αμετάβλητη) ή `{ lineId, expn }` /
+ * `{ lineId, lin }` για έξοδο και χρεοπίστωση. Κανένας στόχος (ή `mtrl: null`) ⇒ καθαρισμός.
+ *
+ * Το βαρύ μέρος — ανάγνωση μητρώου, καθάρισμα των ΑΛΛΩΝ στηλών, και κυρίως η ΜΝΗΜΗ
+ * (`LineMatchRule`, ΑΦΜ εκδότη + κανονικοποιημένο κείμενο) — ζει στο `lib/ocr/queues.ts`,
+ * το ίδιο αρχείο που εξυπηρετεί την ουρά «Είδη & έξοδα». Μία απόφαση, ένας γραφέας.
+ */
+const Body = z.object({
+  lineId: z.string().trim().min(1),
+  mtrl: z.number().int().positive().nullish(),
+  expn: z.number().int().positive().nullish(),
+  lin: z.number().int().positive().nullish(),
+  isService: z.boolean().optional(),
+  analytics: z.object({
+    costCntr: z.number().int().positive().nullish(),
+    prjc: z.number().int().positive().nullish(),
+    prjcStage: z.number().int().positive().nullish(),
+  }).optional(),
+});
+
 export async function POST(req: Request) {
-  await requirePermission('ocr.categorize');
-  const { lineId, mtrl } = await req.json().catch(() => ({}));
-  if (!lineId) return NextResponse.json({ error: 'missing_lineId' }, { status: 400 });
-
-  if (mtrl == null) {
-    await prisma.ocrInvoiceItem.update({
-      where: { id: String(lineId) },
-      // Καθαρίζουμε ΚΑΙ το έξοδο ΚΑΙ τη χρεοπίστωση: αλλιώς μια γραμμή αντιστοιχισμένη σε EXPN
-      // ή σε χρεοπίστωση έμενε «αντιστοιχισμένη» και δεν επέστρεφε ποτέ στην ουρά (spec §3).
-      // ΚΑΙ την αναλυτική: κέντρο κόστους / έργο / δραστηριότητα επιλέχθηκαν ΓΙΑ ΤΗΝ ΠΡΟΗΓΟΥΜΕΝΗ
-      // αντιστοίχιση. Μια γραμμή που γυρίζει στην ουρά αποσυνδεδεμένη δεν πρέπει να κουβαλά τον
-      // επιμερισμό του κωδικού που μόλις αναιρέθηκε — θα έφευγε αθόρυβα στο επόμενο payload.
-      data: {
-        softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneCode: null,
-        softoneName: null, softoneIsService: null, softoneMatchedBy: null,
-        softoneCostCntr: null, softonePrjc: null, softonePrjcStage: null,
-      },
-    });
-    return NextResponse.json({ ok: true, cleared: true });
+  const u = await requirePermission('ocr.categorize');
+  const parsed = Body.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    // Ο παλιός κωδικός για το πιο συχνό λάθος, ώστε να μη χαλάσει κανένας καλών.
+    const missingLine = parsed.error.issues.some((i) => i.path[0] === 'lineId');
+    return NextResponse.json(
+      missingLine ? { error: 'missing_lineId' } : { error: 'invalid_body', issues: parsed.error.issues },
+      { status: 400 },
+    );
   }
+  const b = parsed.data;
+  const hasTarget = b.mtrl != null || b.expn != null || b.lin != null;
 
-  const item = await prisma.softoneItem.findUnique({ where: { mtrl: Number(mtrl) } });
-  if (!item) return NextResponse.json({ error: 'item_not_found' }, { status: 404 });
+  try {
+    if (!hasTarget) {
+      const r = await clearLineMatch(b.lineId);
+      await logAudit({
+        userId: u.id, userEmail: u.email,
+        action: 'ocr.line.unmatch', resource: 'ocr_line', resourceId: b.lineId,
+        metadata: { docId: r.docId },
+      }).catch(() => null);
+      return NextResponse.json({ ok: true, cleared: true });
+    }
 
-  await prisma.ocrInvoiceItem.update({
-    where: { id: String(lineId) },
-    data: {
-      softoneMtrl: item.mtrl, softoneExpn: null, softoneLinMtrl: null, softoneCode: item.code, softoneName: item.name,
-      softoneIsService: item.isService, softoneMatchedBy: 'manual',
-    },
-  });
-  return NextResponse.json({ ok: true, match: { mtrl: item.mtrl, code: item.code, name: item.name, isService: item.isService } });
+    const r = await applyMatchToLine({
+      lineId: b.lineId,
+      target: { mtrl: b.mtrl ?? null, expn: b.expn ?? null, lin: b.lin ?? null },
+      isService: b.isService,
+      // Έξοδο → EXPANAL, που δεν έχει αναλυτική: δεν γράφουμε τιμές που θα πετιόνταν.
+      analytics: b.expn != null ? undefined : b.analytics,
+      userId: u.id,
+    });
+    await logAudit({
+      userId: u.id, userEmail: u.email,
+      action: 'ocr.line.match', resource: 'ocr_line', resourceId: b.lineId,
+      metadata: {
+        docId: r.docId, mtrl: r.mtrl, expn: r.expn, lin: r.lin, code: r.code, name: r.name,
+        afm: r.afm, pattern: r.pattern, remembered: r.remembered, ...r.analytics,
+      },
+    }).catch(() => null);
+    return NextResponse.json({
+      ok: true,
+      // Το αρχικό σχήμα απάντησης μένει ως έχει — απλώς πλουσιότερο.
+      match: { mtrl: r.mtrl, expn: r.expn, lin: r.lin, code: r.code, name: r.name, isService: r.isService },
+      kind: r.kind,
+      docId: r.docId,
+      remembered: r.remembered,
+    });
+  } catch (e) {
+    if (e instanceof QueueError) {
+      return NextResponse.json({ error: e.code, message: e.message }, { status: e.status });
+    }
+    throw e;
+  }
 }

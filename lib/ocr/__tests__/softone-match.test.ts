@@ -26,7 +26,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   db.ocrInvoiceItem.update.mockResolvedValue({});
   db.ocrDocument.update.mockResolvedValue({});
-  db.ocrDocument.findUnique.mockResolvedValue({ extractedData: { vatNumber: '094073495' } });
+  // Ο ΑΦΜ εκδότη διαβάζεται από τη ΣΤΗΛΗ `issuerAfm` (κανονικοποιημένη, με πρόθεμα χώρας
+  // όπου υπάρχει) — το ίδιο κλειδί που γράφει η μνήμη. Το JSON δεν το ξαναπαράγει.
+  db.ocrDocument.findUnique.mockResolvedValue({ issuerAfm: '094073495' });
   db.softoneItem.findMany.mockResolvedValue([]);
   db.softoneExpense.findMany.mockResolvedValue([]);
   db.lineMatchRule.findMany.mockResolvedValue([]);

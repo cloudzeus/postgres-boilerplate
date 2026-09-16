@@ -9,6 +9,7 @@ import { setPath } from '@/lib/ocr/canonical';
 import { SODTYPE_LABEL, TRADER_KIND_SODTYPE, type TraderKind } from '@/lib/softone';
 import {
   groupLines,
+  normalizeLineText,
   scoreCandidates,
   suggestTraderKind,
   type MatchCandidate,
@@ -358,7 +359,7 @@ export async function applyTraderToDocs(
 // ============================================================
 
 /** Εκκρεμής = χωρίς είδος, έξοδο ή χρεοπίστωση, και χωρίς ρητή παράλειψη. */
-const UNMATCHED_LINE_WHERE: Prisma.OcrInvoiceItemWhereInput = {
+export const UNMATCHED_LINE_WHERE: Prisma.OcrInvoiceItemWhereInput = {
   softoneMtrl: null,
   softoneExpn: null,
   softoneLinMtrl: null,
@@ -750,6 +751,99 @@ export interface GroupMatchResult {
   analytics: LineAnalytics;
 }
 
+/** Ένας στόχος αντιστοίχισης λυμένος πάνω στο τοπικό μητρώο — κωδικός, περιγραφή, φύση. */
+export interface ResolvedMatch {
+  mtrl: number | null;
+  expn: number | null;
+  lin: number | null;
+  code: string | null;
+  name: string | null;
+  isService: boolean;
+  kind: MatchKind;
+}
+
+/**
+ * Διαβάζει τον στόχο (`mtrl` | `expn` | `lin`) από το τοπικό μητρώο SoftOne. ΜΙΑ πηγή
+ * αλήθειας για την ουρά «Είδη & έξοδα» ΚΑΙ για τη σελίδα του παραστατικού: ίδιοι κωδικοί
+ * σφάλματος, ίδιο `isService`, ίδια περιγραφή — ώστε οι δύο δρόμοι να μη διαφωνούν ποτέ.
+ */
+export async function resolveMatchTarget(target: MatchTarget, isServiceHint?: boolean): Promise<ResolvedMatch> {
+  const mtrl = target.mtrl != null ? Number(target.mtrl) : null;
+  const expn = target.expn != null ? Number(target.expn) : null;
+  const lin = target.lin != null ? Number(target.lin) : null;
+  if (mtrl == null && expn == null && lin == null) {
+    throw new QueueError('missing_target', 'Δώσε είδος (mtrl), έξοδο (expn) ή χρεοπίστωση (lin).');
+  }
+
+  if (mtrl != null) {
+    const item = await prisma.softoneItem.findUnique({ where: { mtrl } });
+    if (!item) throw new QueueError('item_not_found', `Το είδος ${mtrl} δεν βρέθηκε στο μητρώο.`, 404);
+    return {
+      mtrl, expn: null, lin: null, code: item.code, name: item.name,
+      isService: item.isService, kind: item.isService ? 'service' : 'product',
+    };
+  }
+  if (lin != null) {
+    const lineItem = await prisma.softoneLineItem.findUnique({ where: { mtrl: lin } });
+    if (!lineItem) throw new QueueError('lineitem_not_found', `Η χρεοπίστωση ${lin} δεν βρέθηκε στο μητρώο.`, 404);
+    // Μια χρεοπίστωση δεν είναι υπηρεσία: το flag αφορά μόνο τον διαχωρισμό ITELINES/SRVLINES.
+    return { mtrl: null, expn: null, lin, code: lineItem.code, name: lineItem.name, isService: false, kind: 'lineitem' };
+  }
+  const expense = await prisma.softoneExpense.findUnique({ where: { expn: expn! } });
+  if (!expense) throw new QueueError('expense_not_found', `Το έξοδο ${expn} δεν βρέθηκε στο μητρώο.`, 404);
+  return {
+    mtrl: null, expn, lin: null, code: expense.code, name: expense.name,
+    isService: !!isServiceHint, kind: 'expense',
+  };
+}
+
+/** Η αναλυτική είναι ανεξάρτητη από το τι ταίριαξε: `null` σημαίνει «κανένα», και γράφεται. */
+export function normalizeAnalytics(a: LineAnalytics | undefined): LineAnalytics {
+  const num0 = (v: number | null | undefined): number | null => (v == null || Number(v) <= 0 ? null : Number(v));
+  return { costCntr: num0(a?.costCntr), prjc: num0(a?.prjc), prjcStage: num0(a?.prjcStage) };
+}
+
+/** Τα πεδία αντιστοίχισης μιας γραμμής — γράφονται ΜΑΖΙ, ποτέ μισά. */
+function lineMatchData(m: ResolvedMatch, analytics: LineAnalytics) {
+  return {
+    softoneMtrl: m.mtrl, softoneExpn: m.expn, softoneLinMtrl: m.lin,
+    softoneCode: m.code, softoneName: m.name,
+    softoneIsService: m.isService, softoneMatchedBy: 'manual',
+    softoneCostCntr: analytics.costCntr, softonePrjc: analytics.prjc, softonePrjcStage: analytics.prjcStage,
+  };
+}
+
+/**
+ * Γράφει τη ΜΝΗΜΗ μιας χειροκίνητης απόφασης: `LineMatchRule`, unique `afm + pattern`
+ * (γενικός κανόνας = `afm: ''`). Είναι το ΜΟΝΟ σημείο που γράφει αυτόν τον κανόνα, ώστε η
+ * ουρά «Είδη & έξοδα» και η σελίδα του παραστατικού να παράγουν ΤΟ ΙΔΙΟ κλειδί και το ίδιο
+ * περιεχόμενο — αυτό είναι που κάνει το επόμενο παραστατικό του ίδιου εκδότη να συμπληρώνεται
+ * μόνο του (το πέρασμα μνήμης του `matchDocItems`).
+ *
+ * Ο ΑΦΜ πρέπει να είναι ΠΑΝΤΑ το `OcrDocument.issuerAfm` (κανονικοποιημένο, με πρόθεμα χώρας
+ * όπου υπάρχει) — όχι κάποια δεύτερη παραγωγή από το JSON.
+ */
+export async function rememberLineMatch(input: {
+  afm: string;
+  pattern: string;
+  match: ResolvedMatch;
+  analytics: LineAnalytics;
+  userId?: string | null;
+}): Promise<void> {
+  const afm = String(input.afm ?? '').trim();
+  const pattern = String(input.pattern ?? '').trim();
+  if (!pattern) return;
+  const { mtrl, expn, lin, isService } = input.match;
+  // Ο κανόνας ξαναχρησιμοποιήθηκε (ο χρήστης επιβεβαίωσε την ίδια αντιστοίχιση): +1 χρήση.
+  // Το `update` γράφει ΚΑΙ τα τρία πεδία στόχου, οπότε αλλαγή γνώμης (είδος → έξοδο) σβήνει
+  // τον παλιό στόχο αντί να αφήσει δύο.
+  await prisma.lineMatchRule.upsert({
+    where: { afm_pattern: { afm, pattern } },
+    update: { mtrl, expn, lin, isService, ...input.analytics, timesUsed: { increment: 1 } },
+    create: { afm, pattern, mtrl, expn, lin, isService, ...input.analytics, createdById: input.userId ?? null },
+  });
+}
+
 /**
  * Εφαρμόζει μία αντιστοίχιση σε ΟΛΕΣ τις γραμμές της ομάδας, γράφει τη μνήμη
  * (`LineMatchRule`, unique `afm+pattern` — γενικός κανόνας = `afm: ''`) και
@@ -767,43 +861,9 @@ export async function applyMatchToGroup(input: {
   const pattern = String(input.pattern ?? '').trim();
   if (!pattern) throw new QueueError('missing_pattern', 'Λείπει το κείμενο της ομάδας.');
 
-  const mtrl = input.target.mtrl != null ? Number(input.target.mtrl) : null;
-  const expn = input.target.expn != null ? Number(input.target.expn) : null;
-  const lin = input.target.lin != null ? Number(input.target.lin) : null;
-  if (mtrl == null && expn == null && lin == null) {
-    throw new QueueError('missing_target', 'Δώσε είδος (mtrl), έξοδο (expn) ή χρεοπίστωση (lin).');
-  }
-
-  let code: string | null = null;
-  let name: string | null = null;
-  let isService = !!input.isService;
-  if (mtrl != null) {
-    const item = await prisma.softoneItem.findUnique({ where: { mtrl } });
-    if (!item) throw new QueueError('item_not_found', `Το είδος ${mtrl} δεν βρέθηκε στο μητρώο.`, 404);
-    code = item.code;
-    name = item.name;
-    isService = item.isService;
-  } else if (lin != null) {
-    const lineItem = await prisma.softoneLineItem.findUnique({ where: { mtrl: lin } });
-    if (!lineItem) throw new QueueError('lineitem_not_found', `Η χρεοπίστωση ${lin} δεν βρέθηκε στο μητρώο.`, 404);
-    code = lineItem.code;
-    name = lineItem.name;
-    // Μια χρεοπίστωση δεν είναι υπηρεσία: το flag αφορά μόνο τον διαχωρισμό ITELINES/SRVLINES.
-    isService = false;
-  } else {
-    const expense = await prisma.softoneExpense.findUnique({ where: { expn: expn! } });
-    if (!expense) throw new QueueError('expense_not_found', `Το έξοδο ${expn} δεν βρέθηκε στο μητρώο.`, 404);
-    code = expense.code;
-    name = expense.name;
-  }
-
-  // Η αναλυτική είναι ανεξάρτητη από το τι ταίριαξε: `null` σημαίνει «κανένα», και γράφεται.
-  const num0 = (v: number | null | undefined): number | null => (v == null || Number(v) <= 0 ? null : Number(v));
-  const analytics: LineAnalytics = {
-    costCntr: num0(input.analytics?.costCntr),
-    prjc: num0(input.analytics?.prjc),
-    prjcStage: num0(input.analytics?.prjcStage),
-  };
+  const match = await resolveMatchTarget(input.target, input.isService);
+  const { mtrl, expn, lin, code, name } = match;
+  const analytics = normalizeAnalytics(input.analytics);
 
   const { lineIds, docIds } = await groupLineIds(afm, pattern);
   // Καμία γραμμή: η ομάδα έφυγε από την ουρά όσο ο χρήστης αποφάσιζε (άλλη καρτέλα, νέα
@@ -814,22 +874,95 @@ export async function applyMatchToGroup(input: {
 
   await prisma.ocrInvoiceItem.updateMany({
     where: { id: { in: lineIds } },
-    data: {
-      softoneMtrl: mtrl, softoneExpn: expn, softoneLinMtrl: lin, softoneCode: code, softoneName: name,
-      softoneIsService: isService, softoneMatchedBy: 'manual',
-      softoneCostCntr: analytics.costCntr, softonePrjc: analytics.prjc, softonePrjcStage: analytics.prjcStage,
-    },
+    data: lineMatchData(match, analytics),
   });
 
-  // Ο κανόνας ξαναχρησιμοποιήθηκε (ο χρήστης επιβεβαίωσε την ίδια αντιστοίχιση): +1 χρήση.
-  await prisma.lineMatchRule.upsert({
-    where: { afm_pattern: { afm, pattern } },
-    update: { mtrl, expn, lin, isService, ...analytics, timesUsed: { increment: 1 } },
-    create: { afm, pattern, mtrl, expn, lin, isService, ...analytics, createdById: input.userId ?? null },
-  });
+  await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId });
 
   await refreshDocTallies(docIds);
   return { linesUpdated: lineIds.length, docIds, mtrl, expn, lin, code, name, analytics };
+}
+
+/** Το αποτέλεσμα μιας αντιστοίχισης ΜΙΑΣ γραμμής, από τη σελίδα του παραστατικού. */
+export interface LineMatchResult extends ResolvedMatch {
+  lineId: string;
+  docId: string;
+  /** ΑΦΜ εκδότη και κανονικοποιημένο κείμενο — το κλειδί της μνήμης που γράφτηκε. */
+  afm: string;
+  pattern: string;
+  /** `false` όταν το κείμενο της γραμμής κανονικοποιείται σε κενό (δεν υπάρχει κλειδί μνήμης). */
+  remembered: boolean;
+  analytics: LineAnalytics;
+}
+
+/**
+ * Αντιστοιχίζει ΜΙΑ γραμμή παραστατικού — η ενέργεια της σελίδας `/admin/ocr/<id>`.
+ *
+ * Γράφει τα ΙΔΙΑ πεδία και την ΙΔΙΑ μνήμη με την ουρά: ο ΑΦΜ βγαίνει από το
+ * `OcrDocument.issuerAfm` του ΙΔΙΟΥ παραστατικού και το pattern από το `normalizeLineText`
+ * του κειμένου της γραμμής — ακριβώς όπως τα παράγει η ομαδοποίηση της ουράς. Έτσι μια
+ * απόφαση εδώ «εκπαιδεύει» το επόμενο παραστατικό του ίδιου εκδότη και το αντίστροφο.
+ */
+export async function applyMatchToLine(input: {
+  lineId: string;
+  target: MatchTarget;
+  isService?: boolean;
+  analytics?: LineAnalytics;
+  userId?: string | null;
+}): Promise<LineMatchResult> {
+  const lineId = String(input.lineId ?? '').trim();
+  if (!lineId) throw new QueueError('missing_lineId', 'Λείπει η γραμμή.');
+
+  const line = await prisma.ocrInvoiceItem.findUnique({
+    where: { id: lineId },
+    select: { id: true, documentId: true, name: true },
+  });
+  if (!line) throw new QueueError('line_not_found', 'Η γραμμή δεν βρέθηκε.', 404);
+
+  const match = await resolveMatchTarget(input.target, input.isService);
+  const analytics = normalizeAnalytics(input.analytics);
+
+  const doc = await prisma.ocrDocument.findUnique({
+    where: { id: line.documentId },
+    select: { issuerAfm: true },
+  });
+  // Ίδιο κλειδί με την ουρά: `issuerAfm` (όχι δεύτερη παραγωγή από το JSON) + normalizeLineText.
+  const afm = doc?.issuerAfm ?? '';
+  const pattern = normalizeLineText(line.name);
+
+  await prisma.ocrInvoiceItem.update({
+    where: { id: lineId },
+    data: lineMatchData(match, analytics),
+  });
+
+  if (pattern) await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId });
+
+  await refreshDocTallies([line.documentId]);
+  return { ...match, lineId, docId: line.documentId, afm, pattern, remembered: !!pattern, analytics };
+}
+
+/**
+ * Καθαρίζει την αντιστοίχιση ΜΙΑΣ γραμμής: η γραμμή γυρίζει στην ουρά «Είδη & έξοδα».
+ *
+ * Καθαρίζονται ΚΑΙ το έξοδο ΚΑΙ η χρεοπίστωση (αλλιώς η γραμμή έμενε «αντιστοιχισμένη» και
+ * δεν επέστρεφε ποτέ στην ουρά) ΚΑΙ η αναλυτική: κέντρο κόστους / έργο / δραστηριότητα
+ * επιλέχθηκαν ΓΙΑ ΤΗΝ ΠΡΟΗΓΟΥΜΕΝΗ αντιστοίχιση και δεν πρέπει να ταξιδέψουν αθόρυβα μαζί με
+ * τον επόμενο κωδικό. Η ΜΝΗΜΗ δεν σβήνεται εδώ — σβήνει/αλλάζει με την επόμενη απόφαση.
+ */
+export async function clearLineMatch(lineId: string): Promise<{ lineId: string; docId: string | null }> {
+  const id = String(lineId ?? '').trim();
+  if (!id) throw new QueueError('missing_lineId', 'Λείπει η γραμμή.');
+  const line = await prisma.ocrInvoiceItem.findUnique({ where: { id }, select: { documentId: true } });
+  await prisma.ocrInvoiceItem.update({
+    where: { id },
+    data: {
+      softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneCode: null,
+      softoneName: null, softoneIsService: null, softoneMatchedBy: null,
+      softoneCostCntr: null, softonePrjc: null, softonePrjcStage: null,
+    },
+  });
+  if (line?.documentId) await refreshDocTallies([line.documentId]);
+  return { lineId: id, docId: line?.documentId ?? null };
 }
 
 /**

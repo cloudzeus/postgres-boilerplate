@@ -172,9 +172,12 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
 
   // ── 2. Πέρασμα μνήμης (LineMatchRule) ───────────────────────────────
   if (unmatched.length > 0) {
-    const doc = await prisma.ocrDocument.findUnique({ where: { id: docId }, select: { extractedData: true } });
-    const ed = (doc?.extractedData ?? null) as { vatNumber?: unknown } | null;
-    const afm = String(ed?.vatNumber ?? '').replace(/\D+/g, '');
+    // Ο ΑΦΜ εκδότη είναι ΣΤΗΛΗ (`issuerAfm = normalizeAfm(document.issuer.vat)`) — ΤΟ ΙΔΙΟ κλειδί
+    // που γράφει η μνήμη (ουρά «Είδη & έξοδα» και σελίδα παραστατικού). Η παλιά παραγωγή από το
+    // JSON με `replace(/\D+/g,'')` έκοβε το πρόθεμα χώρας, οπότε κανόνας ξένου εκδότη
+    // (`DE144960040`) δεν μπορούσε ΠΟΤΕ να βρεθεί.
+    const doc = await prisma.ocrDocument.findUnique({ where: { id: docId }, select: { issuerAfm: true } });
+    const afm = doc?.issuerAfm ?? '';
     const patterns = Array.from(new Set(unmatched.map((u) => u.pattern)));
     const rules = await prisma.lineMatchRule.findMany({
       where: { pattern: { in: patterns }, afm: { in: afm ? [afm, ''] : [''] } },

@@ -41,6 +41,16 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
     hasPermission('ocr.post'),
   ]);
 
+  // Οι κατηγορίες δαπανών (LINCATEGORY) τροφοδοτούν ΜΟΝΟ το φίλτρο χρεοπιστώσεων του picker
+  // γραμμών — χωρίς `ocr.categorize` δεν υπάρχει picker, οπότε δεν πληρώνουμε το ερώτημα.
+  const lineCategories = canManage
+    ? await prisma.softoneLineCategory.findMany({
+      where: { isActive: true },
+      orderBy: { name: 'asc' },
+      select: { mtrCategory: true, code: true, name: true },
+    })
+    : [];
+
   // Only a COMPLETED document shows the run card, so only a COMPLETED document pays for its data —
   // a failed or still-processing upload would fetch runs and every template for nothing.
   const completed = doc.status === 'COMPLETED';
@@ -153,7 +163,13 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
 
       {completed && <DocumentJsonCard docId={doc.id} canPost={canPost} />}
 
-      <OcrResultView doc={doc} />
+      <OcrResultView
+        doc={doc}
+        match={{
+          canManage,
+          lineCategories: lineCategories.map((c) => ({ id: c.mtrCategory, label: c.name || c.code })),
+        }}
+      />
     </div>
   );
 }

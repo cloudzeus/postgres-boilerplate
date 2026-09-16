@@ -1,8 +1,44 @@
 import * as React from 'react';
 import { Prisma } from '@prisma/client';
 import { FieldCorrection } from './field-correction';
+import { LineMatchCell, matchKindOf, type LineCategoryOption, type LineMatch } from './line-match-cell';
+import type { MatchKind } from '@/lib/ocr/line-match';
 
 type DocWithItems = Prisma.OcrDocumentGetPayload<{ include: { items: true } }>;
+
+/** Τι μπορεί να κάνει ο χρήστης στη στήλη «SoftOne» του πίνακα γραμμών. */
+export interface LineMatchOptions {
+  /** `ocr.categorize` — χωρίς αυτό η στήλη είναι μόνο για ανάγνωση (η ΕΝΔΕΙΞΗ μένει). */
+  canManage: boolean;
+  /** Κατηγορίες δαπανών (LINCATEGORY) για το φίλτρο των χρεοπιστώσεων. */
+  lineCategories: LineCategoryOption[];
+}
+
+const lineMatchOf = (it: DocWithItems['items'][number]): LineMatch | null =>
+  it.softoneMtrl == null && it.softoneExpn == null && it.softoneLinMtrl == null
+    ? null
+    : {
+      mtrl: it.softoneMtrl, expn: it.softoneExpn, lin: it.softoneLinMtrl,
+      code: it.softoneCode, name: it.softoneName,
+      isService: it.softoneIsService, matchedBy: it.softoneMatchedBy,
+    };
+
+/**
+ * Η κατηγορία που ανοίγει ο picker για μια ΑΤΑΙΡΙΑΣΤΗ γραμμή: η πιο συχνή ανάμεσα στις
+ * ήδη αντιστοιχισμένες γραμμές του ΙΔΙΟΥ παραστατικού — ένα τιμολόγιο εξόδων σπάνια
+ * κρύβει προϊόντα. Χωρίς καμία αντιστοίχιση πέφτουμε στο «Είδος».
+ */
+function commonKind(items: DocWithItems['items']): MatchKind {
+  const tally = new Map<MatchKind, number>();
+  for (const it of items) {
+    const k = matchKindOf(lineMatchOf(it));
+    if (k) tally.set(k, (tally.get(k) ?? 0) + 1);
+  }
+  let best: MatchKind = 'product';
+  let bestN = 0;
+  for (const [k, n] of tally) if (n > bestN) { best = k; bestN = n; }
+  return best;
+}
 
 function fmtNum(n: any): string {
   if (n == null) return '-';
@@ -21,7 +57,8 @@ function fmtMoney(n: any): string {
  * εδώ φαίνονται όλα όσα μπορεί να διορθώσει ο χρήστης στην καρτέλα «Γραμμές», μαζί με τη
  * μονάδα μέτρησης — που δεν είναι στήλη της βάσης αλλά ζει στο κανονικό JSON (`lines.unit`).
  */
-function LinesTable({ doc, data }: { doc: DocWithItems; data: any }) {
+function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match: LineMatchOptions }) {
+  const defaultKind = commonKind(doc.items);
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
       <table className="w-full text-sm">
@@ -34,11 +71,12 @@ function LinesTable({ doc, data }: { doc: DocWithItems; data: any }) {
             <th className="px-3 py-2 text-right">Τιμή</th>
             <th className="px-3 py-2 text-right">Έκπτ.</th>
             <th className="px-3 py-2 text-right">Σύνολο</th>
+            <th className="px-3 py-2">SoftOne</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
           {doc.items.length === 0 ? (
-            <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">Δεν εξήχθησαν γραμμές.</td></tr>
+            <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">Δεν εξήχθησαν γραμμές.</td></tr>
           ) : doc.items.map((it, idx) => {
             const line = (data.items?.[idx] ?? {}) as any;
             const lineCf = lineCustomFieldsText(line.customFields as Record<string, unknown> | undefined);
@@ -52,10 +90,19 @@ function LinesTable({ doc, data }: { doc: DocWithItems; data: any }) {
                   <td className="px-3 py-2 text-right">{fmtMoney(it.price)}</td>
                   <td className="px-3 py-2 text-right text-destructive">{fmtNum(it.discount)}</td>
                   <td className="px-3 py-2 text-right font-semibold">{fmtMoney(it.total)}</td>
+                  <td className="px-3 py-2 min-w-[240px]">
+                    <LineMatchCell
+                      lineId={it.id}
+                      match={lineMatchOf(it)}
+                      canManage={match.canManage}
+                      defaultKind={defaultKind}
+                      lineCategories={match.lineCategories}
+                    />
+                  </td>
                 </tr>
                 {lineCf.length > 0 && (
                   <tr key={`${it.id}-cf`} className="bg-muted/20">
-                    <td colSpan={7} className="px-3 py-1.5 text-[11px] text-muted-foreground">
+                    <td colSpan={8} className="px-3 py-1.5 text-[11px] text-muted-foreground">
                       {lineCf.map((e) => (
                         <span key={e.label} className="mr-3"><strong className="text-foreground">{e.label}:</strong> {e.text}</span>
                       ))}
@@ -71,7 +118,7 @@ function LinesTable({ doc, data }: { doc: DocWithItems; data: any }) {
   );
 }
 
-export function OcrResultView({ doc }: { doc: DocWithItems }) {
+export function OcrResultView({ doc, match }: { doc: DocWithItems; match: LineMatchOptions }) {
   const data = (doc.extractedData ?? {}) as any;
 
   if (doc.status !== 'COMPLETED') {
@@ -109,7 +156,7 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
           <Field label="Σύνολο" value={fmtMoney(data.totalAmount)} accent />
         </div>
 
-        <LinesTable doc={doc} data={data} />
+        <LinesTable doc={doc} data={data} match={match} />
 
         <BankAccounts accounts={data.bankAccounts} />
         <CustomFieldsBlock data={data} />
@@ -134,7 +181,7 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
         </div>
         </div>
 
-        {doc.items.length > 0 && <LinesTable doc={doc} data={data} />}
+        {doc.items.length > 0 && <LinesTable doc={doc} data={data} match={match} />}
 
         <BankAccounts accounts={data.bankAccounts} />
         <CustomFieldsBlock data={data} />
