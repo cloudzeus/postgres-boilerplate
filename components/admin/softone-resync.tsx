@@ -46,6 +46,14 @@ export function useSoftoneResync() {
       setSteps(list);
       setState(Object.fromEntries(list.map((s) => [s.table, 'pending' as State])));
 
+      // ΕΝΑ `runId` για ολόκληρο το πέρασμα: τα αιτήματα είναι πολλά (ένα ανά πίνακα, για να
+      // φαίνεται πρόοδος) αλλά το πέρασμα είναι ένα. Ο server το χρειάζεται για να ξέρει πότε
+      // έκλεισε ο κύκλος — τότε μόνο γράφει τη συγκεντρωτική εγγραφή ελέγχου — και για να μην
+      // μπλοκάρει τα δικά μας βήματα ως «τρέχει ήδη συγχρονισμός».
+      const runId =
+        globalThis.crypto?.randomUUID?.() ?? `run-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const pass = list.map((s) => s.table);
+
       const acc: Outcome[] = [];
       for (const step of list) {
         setState((m) => ({ ...m, [step.table]: 'running' }));
@@ -53,9 +61,12 @@ export function useSoftoneResync() {
           const r = await fetch(ENDPOINT, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ only: [step.table] }),
+            body: JSON.stringify({ only: [step.table], runId, pass }),
           });
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          if (!r.ok) {
+            const msg = await r.json().then((j) => j?.message).catch(() => null);
+            throw new Error(msg ?? `HTTP ${r.status}`);
+          }
           const report = await r.json();
           const outcome: Outcome = report.results?.[0] ?? {
             table: step.table, label: step.label, ok: false,
