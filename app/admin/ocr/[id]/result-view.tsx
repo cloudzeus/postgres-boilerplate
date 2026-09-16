@@ -1,10 +1,8 @@
 import * as React from 'react';
 import { Prisma } from '@prisma/client';
 import { FieldCorrection } from './field-correction';
-import {
-  LineMatchCell, matchKindOf,
-  type LineAnalyticsState, type LineCategoryOption, type LineMatch,
-} from './line-match-cell';
+import { LineMatchCell, type LineAnalyticsState } from './line-match-cell';
+import { matchKindOf, type LineCategoryOption, type LineMatch } from './line-match-kind';
 import { CustomFieldsBlock, LineCustomFields, hasLineCustomFields } from '@/components/admin/custom-fields';
 import type { MatchKind } from '@/lib/ocr/line-match';
 

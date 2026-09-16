@@ -11,19 +11,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { RegistrySearch } from '@/components/admin/registry-search';
 import { AnalyticsPicker, type AnalyticsValue } from '@/components/admin/analytics-picker';
 import { emitDocLinesChanged } from '@/components/admin/doc-lines-events';
+import { matchKindOf, type LineCategoryOption, type LineMatch } from './line-match-kind';
 import type { MatchKind } from '@/lib/ocr/line-match';
 import { cn } from '@/lib/utils';
-
-/** Η αντιστοίχιση μιας γραμμής όπως τη γράφει η βάση (`OcrInvoiceItem`). */
-export interface LineMatch {
-  mtrl: number | null;
-  expn: number | null;
-  lin: number | null;
-  code: string | null;
-  name: string | null;
-  isService: boolean | null;
-  matchedBy: string | null;
-}
 
 /** Η αναλυτική μιας γραμμής: κέντρο κόστους, έργο, κατηγορία δραστηριότητας. */
 export interface LineAnalyticsState {
@@ -31,9 +21,6 @@ export interface LineAnalyticsState {
   prjc: AnalyticsValue;
   prjcStage: AnalyticsValue;
 }
-
-/** Μία κατηγορία δαπάνης (LINCATEGORY) — στενεύει τη λίστα χρεοπιστώσεων. */
-export interface LineCategoryOption { id: number; label: string }
 
 /**
  * Ίδια χρώματα/ετικέτες με την ουρά «Είδη & έξοδα» (`CATEGORY_META` του item-panel):
@@ -64,15 +51,6 @@ const ANALYTICS_ICON = {
 } as const;
 
 const EXPENSE_NOTE = 'Η γραμμή καταχωρείται σε «Ανάλυση εξόδων», που δεν έχει αναλυτική.';
-
-/** Σε ποια κατηγορία ανήκει μια ήδη γραμμένη αντιστοίχιση. `null` = καμία. */
-export function matchKindOf(m: LineMatch | null | undefined): MatchKind | null {
-  if (!m) return null;
-  if (m.lin != null) return 'lineitem';
-  if (m.expn != null) return 'expense';
-  if (m.mtrl != null) return m.isService ? 'service' : 'product';
-  return null;
-}
 
 const EMPTY: AnalyticsValue = { id: null, label: null, source: null };
 

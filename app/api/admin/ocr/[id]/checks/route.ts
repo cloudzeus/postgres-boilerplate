@@ -15,13 +15,22 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       extractedData: true,
       softoneDocExists: true, softoneDocRef: true, softoneDocChecked: true,
       softoneTrdr: true, softoneCode: true, softoneName: true, softoneKind: true, softoneChecked: true,
-      items: { orderBy: { rowIndex: 'asc' }, select: { id: true, code: true, name: true, softoneMtrl: true } },
+      items: {
+        orderBy: { rowIndex: 'asc' },
+        select: { id: true, code: true, name: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true },
+      },
     },
   });
   if (!doc) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
   const ed = (doc.extractedData ?? {}) as Record<string, unknown>;
-  const unmatched = doc.items.filter((i) => i.softoneMtrl == null);
+  // Αντιστοιχισμένη = έχει είδος/υπηρεσία (MTRL), ΕΞΟΔΟ (EXPN) ή ΧΡΕΟΠΙΣΤΩΣΗ (LIN) — ίδιος
+  // κανόνας με το `refreshDocTallies` και με την ουρά «Είδη & έξοδα». Μετρώντας μόνο το
+  // `softoneMtrl`, η λωρίδα έλεγχων έλεγε «χωρίς αντιστοίχιση» για γραμμές που ο χρήστης είχε
+  // ήδη λύσει ως έξοδο, και τις ξαναπρότεινε για αντιστοίχιση.
+  const unmatched = doc.items.filter(
+    (i) => i.softoneMtrl == null && i.softoneExpn == null && i.softoneLinMtrl == null,
+  );
 
   return NextResponse.json({
     duplicate: {
