@@ -1,35 +1,15 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { getSetting } from '@/lib/settings';
 import { softoneNextItemCode } from '@/lib/softone';
-import { itemCodeMaskKey, type ItemCodeKind } from '@/lib/item-code';
+import { itemCodeMaskKey } from '@/lib/item-code';
+import { mirrorItemCodes } from '@/lib/item-code-mirror';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const Query = z.enum(['product', 'service', 'expense', 'lineitem']);
-
-/** Οι κωδικοί του μητρώου από τον ΤΟΠΙΚΟ καθρέφτη — εφεδρεία όταν το SoftOne δεν απαντά. */
-async function mirrorCodes(kind: ItemCodeKind): Promise<string[]> {
-  try {
-    if (kind === 'expense') {
-      const rows = await prisma.softoneExpense.findMany({ select: { code: true } });
-      return rows.map((r) => r.code);
-    }
-    if (kind === 'lineitem') {
-      const rows = await prisma.softoneLineItem.findMany({ select: { code: true } });
-      return rows.map((r) => r.code);
-    }
-    const rows = await prisma.softoneItem.findMany({
-      where: { isService: kind === 'service' }, select: { code: true },
-    });
-    return rows.map((r) => r.code);
-  } catch {
-    return [];
-  }
-}
 
 /**
  * GET ?kind=service&supplierCode=ABC123 — ο **προτεινόμενος** κωδικός για νέα εγγραφή μητρώου.
@@ -53,7 +33,7 @@ export async function GET(req: Request) {
 
   const [mask, fallbackCodes] = await Promise.all([
     getSetting<string>(itemCodeMaskKey(kind), '').catch(() => ''),
-    mirrorCodes(kind),
+    mirrorItemCodes(kind),
   ]);
 
   const res = await softoneNextItemCode(kind, { mask: mask ?? '', supplierCode, fallbackCodes });

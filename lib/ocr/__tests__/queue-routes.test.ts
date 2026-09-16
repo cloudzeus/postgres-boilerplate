@@ -358,6 +358,7 @@ describe('προτεινόμενος κωδικός είδους', () => {
   it('κωδικός είδους που πιάστηκε → 409 με ΝΕΑ πρόταση, καμία δεύτερη δημιουργία', async () => {
     const message = 'Ο κωδικός 00042 υπάρχει ήδη';
     s1.softoneCreateItem.mockRejectedValue(new Error(message));
+    db.softoneItem.findMany.mockResolvedValue([{ code: '00042' }]);
     s1read.softoneNextItemCode.mockResolvedValue({
       code: '00043', source: 'pattern', taken: 42, stale: false, supplierCodeTaken: true, supplierCode: 'ABC-9',
     });
@@ -369,13 +370,31 @@ describe('προτεινόμενος κωδικός είδους', () => {
 
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({
-      error: 'code_taken', field: 'code', kind: 'product', message, suggestion: '00043',
+      error: 'code_taken', field: 'code', kind: 'product', message, suggestion: '00043', stale: false,
     });
     // ΜΙΑ και μόνη προσπάθεια — και τίποτα δεν καθρεφτίστηκε τοπικά.
     expect(s1.softoneCreateItem).toHaveBeenCalledTimes(1);
     expect(db.softoneItem.upsert).not.toHaveBeenCalled();
     // Η νέα πρόταση βγήκε με ΦΡΕΣΚΑ δεδομένα.
     expect(s1read.clearItemCodeCache).toHaveBeenCalledWith('product');
+    // …και με την ΙΔΙΑ εφεδρεία που έχει το `GET next-code`: ο τοπικός καθρέφτης. Χωρίς αυτόν,
+    // ένα SoftOne που δεν απαντά θα πρότεινε τον πρώτο κωδικό της μάσκας ως «ελεύθερο».
+    expect(s1read.softoneNextItemCode.mock.calls.at(-1)?.[1]).toMatchObject({ fallbackCodes: ['00042'] });
+  });
+
+  /** Η επαναπρόταση από τον καθρέφτη ΔΕΝ είναι βεβαιότητα — το `stale` φτάνει μέχρι το UI. */
+  it('409 από μπαγιάτικα δεδομένα κουβαλά το `stale` στην απάντηση', async () => {
+    s1.softoneCreateItem.mockRejectedValue(new Error('Ο κωδικός 00042 υπάρχει ήδη'));
+    s1read.softoneNextItemCode.mockResolvedValue({
+      code: '00043', source: 'pattern', taken: 42, stale: true, supplierCodeTaken: false, supplierCode: null,
+    });
+
+    const res = await createItem(post({
+      afm: AFM, pattern: 'υγρο αζωτο', kind: 'product',
+      code: '00042', name: 'ΥΓΡΟ ΑΖΩΤΟ', vat: '1', unit: '101',
+    }));
+
+    expect(await res.json()).toMatchObject({ suggestion: '00043', stale: true });
   });
 
   it('ο κωδικός που ΜΟΛΙΣ απορρίφθηκε δεν ξαναπροτείνεται ως «κωδικός προμηθευτή»', async () => {

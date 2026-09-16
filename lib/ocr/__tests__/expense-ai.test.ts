@@ -205,7 +205,47 @@ describe('suggestExpensesWithAi', () => {
     queues.suggestForGroup.mockResolvedValue([]);
     db.softoneLineItem.findMany.mockResolvedValue([]);
     extract.callTextViaVision.mockResolvedValue({
-      content: '{"matches":[{"key":"g1","kind":"product","code":"","confidence":0.3,"reason":"δεν είμαι σίγουρος"}]}',
+      content: '{"matches":[{"key":"g1","kind":"product","code":"","confidence":0.3,"reason":"δεν είμαι καθόλου σίγουρος"}]}',
+    });
+
+    const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+
+    // Ο ΤΥΠΟΣ πέφτει, αλλά η αιτιολόγηση ΕΠΙΖΕΙ ως παρατήρηση: δεν επιλέγει τίποτα (ούτε τύπο
+    // ούτε κωδικό) και φτάνει στον χρήστη.
+    expect(r.suggestions).toEqual([
+      {
+        key: 'g1', kind: null, lin: null, code: null, name: null,
+        confidence: 0.3, reason: 'δεν είμαι καθόλου σίγουρος', myDataType: null,
+      },
+    ]);
+  });
+
+  /**
+   * Το prompt ΖΗΤΑΕΙ ρητά αυτή τη μορφή απάντησης για τα πάγια (χαμηλό confidence + εξήγηση στο
+   * `reason`). Αν ο αγωγός την πετούσε, το prompt θα ζητούσε κάτι που δεν φτάνει ποτέ πουθενά.
+   */
+  it('ΠΑΓΙΟ: η απάντηση επιβιώνει ως ΠΑΡΑΤΗΡΗΣΗ και δεν επιλέγει τίποτα', async () => {
+    queues.suggestForGroup.mockResolvedValue([]);
+    db.softoneLineItem.findMany.mockResolvedValue([]);
+    extract.callTextViaVision.mockResolvedValue({
+      content: '{"matches":[{"key":"g1","kind":"","code":"","confidence":0.2,'
+        + '"reason":"πρόκειται για πάγιο εξοπλισμό που αποσβένεται, όχι για έξοδο"}]}',
+    });
+
+    const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΗΛΕΚΤΡΟΝΙΚΟΣ ΥΠΟΛΟΓΙΣΤΗΣ')] });
+
+    expect(r.suggestions).toHaveLength(1);
+    expect(r.suggestions[0]).toMatchObject({
+      key: 'g1', kind: null, lin: null, code: null, name: null,
+      reason: 'πρόκειται για πάγιο εξοπλισμό που αποσβένεται, όχι για έξοδο',
+    });
+  });
+
+  it('αιτιολόγηση που δεν λέει τίποτα (χωρίς τύπο και κωδικό) πετιέται', async () => {
+    queues.suggestForGroup.mockResolvedValue([]);
+    db.softoneLineItem.findMany.mockResolvedValue([]);
+    extract.callTextViaVision.mockResolvedValue({
+      content: '{"matches":[{"key":"g1","kind":"product","code":"","confidence":0.2,"reason":"—"}]}',
     });
 
     const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });

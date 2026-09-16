@@ -12,10 +12,15 @@ import { prisma } from '@/lib/db';
 import { callTextLLM, callTextViaVision, resolveCfg } from './extract';
 import { suggestForGroup, type QueueSuggestion } from './queues';
 import { resolveOwnCompany, type OwnCompanyProfile } from './own-company';
+import { AI_CONFIDENT_SCORE, bestSuggestionScore } from './ai-apply';
 import type { MatchKind } from './line-match';
 
-/** Πάνω από αυτό το σκορ ο φθηνός δρόμος θεωρείται αρκετός — καμία κλήση μοντέλου. */
-export const CONFIDENT_SCORE = 0.8;
+/**
+ * Πάνω από αυτό το σκορ ο φθηνός δρόμος θεωρείται αρκετός — καμία κλήση μοντέλου. Ένα κατώφλι,
+ * μοιρασμένο με την ουρά (`lib/ocr/ai-apply.ts`): το UI δεν πρέπει να στέλνει ομάδες που ο
+ * server θα παραλείψει ούτως ή άλλως.
+ */
+export const CONFIDENT_SCORE = AI_CONFIDENT_SCORE;
 /** Πόσες ομάδες το πολύ σε μία κλήση. */
 export const MAX_GROUPS = 20;
 /** Πόσους υποψήφιους στέλνουμε όταν ΔΕΝ έχει επιλεγεί κατηγορία δαπάνης. */
@@ -42,6 +47,15 @@ export interface AiGroupInput {
   supplier?: string | null;
 }
 
+/**
+ * Η απάντηση του μοντέλου για μία ομάδα. Τρεις μορφές, όλες νόμιμες:
+ *
+ *  • **πρόταση δαπάνης** (`lin`/`code`/`name`) — μπαίνει ως υποψηφιότητα προς επιβεβαίωση·
+ *  • **μόνο τύπος** (`kind`) — η ομάδα παύει να είναι «χωρίς κατηγορία»·
+ *  • **σκέτη ΠΑΡΑΤΗΡΗΣΗ** (`kind: null`, `code: null`, με `reason`) — δεν επιλέγει τίποτα,
+ *    εμφανίζεται ως σημείωση. Εδώ προσγειώνεται το ΠΑΓΙΟ, που το prompt ζητά ρητά να δηλωθεί
+ *    με χαμηλή βεβαιότητα και εξήγηση στο `reason`.
+ */
 export interface AiSuggestion {
   key: string;
   /**
@@ -106,6 +120,17 @@ export const clearExpenseAiCache = (): void => cache.clear();
 
 // ── Καθαρός parser ─────────────────────────────────────────────────────────
 
+/**
+ * Πόσους χαρακτήρες χρειάζεται μια αιτιολόγηση για να σταθεί **μόνη της** ως παρατήρηση, χωρίς
+ * τύπο και χωρίς κωδικό. Ένα «—» ή ένα «ok» δεν είναι πληροφορία για τον χρήστη· μια πρόταση
+ * σαν «πρόκειται για πάγιο εξοπλισμό που αποσβένεται» είναι.
+ */
+export const MIN_NOTE_REASON = 12;
+
+/** `true` όταν η αιτιολόγηση αξίζει να φτάσει στον χρήστη ακόμη και χωρίς καμία πρόταση. */
+export const standsAlone = (reason: string): boolean =>
+  String(reason ?? '').trim().length >= MIN_NOTE_REASON;
+
 export interface ParsedAnswer {
   key: string;
   /** Ο τύπος όπως τον έγραψε το μοντέλο — ΔΕΝ έχει ελεγχθεί ακόμη. */
@@ -141,8 +166,10 @@ export function parseAiAnswer(raw: string): ParsedAnswer[] {
     const key = String(row.key ?? '').trim();
     const code = String(row.code ?? '').trim();
     const kind = String(row.kind ?? '').trim().toLowerCase();
-    // Μια απάντηση χωρίς ΟΥΤΕ τύπο ΟΥΤΕ κωδικό δεν λέει τίποτα.
-    if (!key || (!code && !kind)) continue;
+    const reason = String(row.reason ?? '').trim().slice(0, 300);
+    // Χωρίς ΟΥΤΕ τύπο ΟΥΤΕ κωδικό μένει μόνο η αιτιολόγηση — και κρατιέται ΜΟΝΟ αν στέκει μόνη
+    // της ως παρατήρηση (ο δρόμος που ζητά το prompt για τα ΠΑΓΙΑ). Αλλιώς δεν λέει τίποτα.
+    if (!key || (!code && !kind && !standsAlone(reason))) continue;
     const c = Number(row.confidence);
     out.push({
       key,
@@ -150,15 +177,14 @@ export function parseAiAnswer(raw: string): ParsedAnswer[] {
       code,
       mydata: String(row.mydata ?? '').trim(),
       confidence: Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0.5,
-      reason: String(row.reason ?? '').trim().slice(0, 300),
+      reason,
     });
   }
   return out;
 }
 
 /** Η καλύτερη ντετερμινιστική πρόταση μιας ομάδας — αυτή κρίνει αν χρειάζεται μοντέλο. */
-const bestScore = (suggestions: QueueSuggestion[]): number =>
-  suggestions.reduce((max, s) => Math.max(max, s.by === 'memory' ? 1 : s.score), 0);
+const bestScore = (suggestions: QueueSuggestion[]): number => bestSuggestionScore(suggestions);
 
 type Candidate = { mtrl: number; code: string; name: string; category: string | null };
 
@@ -262,8 +288,9 @@ const SYSTEM = [
   '  • Αν δεν βρίσκεις κωδικό που να ταιριάζει, άφησε το "code" κενό και δώσε μόνο το "kind".',
   '  • Αν δεν είσαι σίγουρος για τον τύπο, βάλε ΧΑΜΗΛΟ confidence — μη μαντεύεις.',
   '  • ΠΑΓΙΟ (εξοπλισμός που αποσβένεται): η εφαρμογή ΔΕΝ καταχωρεί ακόμη πάγια και δεν υπάρχει',
-  '    τέτοιο "kind". Βάλε ΧΑΜΗΛΟ confidence και γράψε ρητά στο "reason" ότι πρόκειται για πάγιο,',
-  '    ώστε να το δει ο χρήστης — μην το στριμώξεις σε "product" ή "expense".',
+  '    τέτοιο "kind". Βάλε ΧΑΜΗΛΟ confidence, άσε ΚΕΝΟ το "code" και γράψε ρητά στο "reason" ότι',
+  '    πρόκειται για πάγιο — η πρόταση εμφανίζεται τότε ως ΠΑΡΑΤΗΡΗΣΗ και τη διαβάζει ο χρήστης.',
+  '    Μην το στριμώξεις σε "product" ή "expense".',
   '  • Το "reason" στα ελληνικά, έως 25 λέξεις, π.χ. «παροχή τρίτων, ομάδα 62 — υπηρεσία cloud',
   '    που καταναλώνεται, δεν αποθεματοποιείται».',
 ].join('\n');
@@ -300,7 +327,7 @@ async function loadIssuers(groups: readonly AiGroupInput[]): Promise<Map<string,
  * Φραγμένη σε {@link MAX_MYDATA_TYPES} + {@link MAX_MYDATA_CATEGORIES} γραμμές: οι πλήρεις
  * λίστες (123 + 30) θα κόστιζαν σε κάθε κλήση περισσότερο απ' όσο αξίζουν.
  */
-async function loadMyDataLists(): Promise<{ prompt: string; allowed: Set<string> }> {
+async function loadMyDataLists(): Promise<{ prompt: string; allowedTypes: Set<string> }> {
   const [types, cats] = await Promise.all([
     prisma.softoneMyDataClassType
       .findMany({ select: { code: true, name: true, myDataCode: true }, orderBy: { code: 'asc' }, take: MAX_MYDATA_TYPES })
@@ -309,23 +336,25 @@ async function loadMyDataLists(): Promise<{ prompt: string; allowed: Set<string>
       .findMany({ select: { code: true, name: true, myDataCode: true }, orderBy: { code: 'asc' }, take: MAX_MYDATA_CATEGORIES })
       .catch(() => [] as { code: number; name: string; myDataCode: string | null }[]),
   ]);
-  const allowed = new Set<string>();
-  const line = (r: { code: number; name: string; myDataCode: string | null }) => {
-    allowed.add(String(r.code));
-    return `${r.code} — ${r.name}${r.myDataCode ? ` (${r.myDataCode})` : ''}`;
-  };
-  const typeLines = types.map(line);
+  // ΔΥΟ λίστες, ΔΥΟ σύνολα. Ένα κοινό `Set` θα δεχόταν κωδικό **κατηγορίας** στη θέση του
+  // **τύπου** — δύο διαφορετικοί πίνακες του SoftOne με επικαλυπτόμενη αρίθμηση.
+  const allowedTypes = new Set<string>();
+  const line = (r: { code: number; name: string; myDataCode: string | null }) =>
+    `${r.code} — ${r.name}${r.myDataCode ? ` (${r.myDataCode})` : ''}`;
+  const typeLines = types.map((r) => { allowedTypes.add(String(r.code)); return line(r); });
   const catLines = cats.map(line);
   if (typeLines.length === 0 && catLines.length === 0) {
-    return { prompt: 'Χαρακτηρισμοί myDATA: δεν έχουν συγχρονιστεί — άφησε το "mydata" κενό.', allowed };
+    return { prompt: 'Χαρακτηρισμοί myDATA: δεν έχουν συγχρονιστεί — άφησε το "mydata" κενό.', allowedTypes };
   }
   return {
     prompt: [
-      'Χαρακτηρισμοί myDATA (κωδικός — περιγραφή) — ΜΟΝΟ από εδώ:',
+      'Χαρακτηρισμοί myDATA (κωδικός — περιγραφή) — το "mydata" ΜΟΝΟ από εδώ:',
       ...typeLines,
-      ...(catLines.length ? ['Κατηγορίες myDATA:', ...catLines] : []),
+      ...(catLines.length
+        ? ['Κατηγορίες myDATA (μόνο ως συμφραζόμενο — ΜΗΝ τις βάζεις στο "mydata"):', ...catLines]
+        : []),
     ].join('\n'),
-    allowed,
+    allowedTypes,
   };
 }
 
@@ -454,8 +483,11 @@ export async function suggestExpensesWithAi(input: {
     // Ο ΤΥΠΟΣ δηλώνεται μόνο πάνω από το κατώφλι βεβαιότητας: χαμηλή βεβαιότητα ⇒ «χωρίς
     // κατηγορία», που είναι μια χρήσιμη απάντηση, όχι ένα λάθος chip.
     const kind = a.confidence >= MIN_KIND_CONFIDENCE ? KIND_WORDS[a.kind] ?? null : null;
-    // Ούτε τύπος ούτε κωδικός ⇒ η απάντηση δεν προσθέτει τίποτα.
-    if (!c && !kind) continue;
+    // Ούτε τύπος ούτε κωδικός: η απάντηση κρατιέται ΜΟΝΟ αν κουβαλά αιτιολόγηση που στέκει
+    // μόνη της — τότε είναι ΠΑΡΑΤΗΡΗΣΗ, όχι επιλογή. Αυτός είναι ο δρόμος που ζητά ρητά το
+    // prompt για τα ΠΑΓΙΑ («χαμηλό confidence + γράψε στο reason ότι είναι πάγιο»): πριν, η
+    // απάντηση πετιόταν εδώ και ο χρήστης δεν έβλεπε ποτέ τον λόγο που του γράφτηκε.
+    if (!c && !kind && !standsAlone(a.reason)) continue;
     seen.add(a.key);
     const suggestion: AiSuggestion = {
       key: a.key,
@@ -466,7 +498,7 @@ export async function suggestExpensesWithAi(input: {
       confidence: a.confidence,
       reason: a.reason || 'πρόταση μοντέλου',
       // Και ο χαρακτηρισμός περνά από λευκή λίστα: δεκτός μόνο αν τον στείλαμε εμείς.
-      myDataType: a.mydata && myData.allowed.has(a.mydata.trim()) ? a.mydata.trim() : null,
+      myDataType: a.mydata && myData.allowedTypes.has(a.mydata.trim()) ? a.mydata.trim() : null,
     };
     out.push(suggestion);
     cache.set(cacheKey(fresh.find((g) => g.key === a.key)!, categoryId, signature), { at: now, value: suggestion });

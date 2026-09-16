@@ -14,28 +14,48 @@ describe('χωρίς απόδειξη → χωρίς κατηγορία', () => 
   });
 
   it('ασύμφωνοι προορισμοί ⇒ κανένας τύπος (η ομάδα δεν έχει έναν προορισμό)', () => {
-    expect(inferLineKind({ lineTables: ['LINLINES', 'ITELINES'] })).toBeNull();
+    expect(inferLineKind({ lineTables: ['LINLINES', 'EXPANAL'] })).toBeNull();
   });
 
   it('ο προορισμός «ανά γραμμή» (AUTO) δεν λέει τίποτα', () => {
     expect(inferLineKind({ lineTables: ['AUTO'] })).toBeNull();
   });
+
+  /**
+   * Η ΑΓΝΩΣΤΗ σειρά είναι διαφωνία, όχι σιωπή: ένα γνωστό παραστατικό ΔΕΝ αποφασίζει για μια
+   * ομάδα που εμφανίζεται και σε παραστατικά των οποίων τον προορισμό δεν ξέρουμε.
+   */
+  it('έστω ΕΝΑ άγνωστο παραστατικό ακυρώνει τον κανόνα του προορισμού', () => {
+    expect(inferLineKind({ lineTables: ['LINLINES', null] })).toBeNull();
+    expect(inferLineKind({ lineTables: [null, 'EXPANAL', null, null] })).toBeNull();
+    expect(inferLineKind({ lineTables: [null] })).toBeNull();
+  });
+
+  /**
+   * `ITELINES` και `SRVLINES` δέχονται ΚΑΙ ΤΑ ΔΥΟ οποιοδήποτε `MTRL` (είδος **ή** υπηρεσία) —
+   * δες `lineFits` / `lines_need_mtrl`. Άρα δεν ορίζουν μητρώο και δεν δηλώνουν τύπο.
+   */
+  it('ITELINES / SRVLINES δεν ξεχωρίζουν είδος από υπηρεσία ⇒ κανένας τύπος', () => {
+    expect(inferLineKind({ lineTables: ['ITELINES'] })).toBeNull();
+    expect(inferLineKind({ lineTables: ['SRVLINES'] })).toBeNull();
+    expect(inferLineKind({ lineTables: ['ITELINES', 'SRVLINES'] })).toBeNull();
+  });
 });
 
 describe('ιεραρχία αποδείξεων', () => {
   it('η μνήμη είναι η ισχυρότερη — νικά ακόμη και τον προορισμό', () => {
-    expect(inferLineKind({ memoryKind: 'expense', lineTables: ['ITELINES'] })).toBe('expense');
+    expect(inferLineKind({ memoryKind: 'product', lineTables: ['LINLINES'] })).toBe('product');
   });
 
   it('ήδη ταιριασμένη υπηρεσία σε γραμμή της ομάδας', () => {
     expect(inferLineKind({ matchedService: true })).toBe('service');
   });
 
+  // Μόνο οι δύο πίνακες που ΟΡΙΖΟΥΝ μητρώο: `LINLINES` ⇒ χρεοπίστωση, `EXPANAL` ⇒ έξοδο.
   it('ο προορισμός της σειράς ΕΙΝΑΙ δομή του ERP, όχι εικασία', () => {
     expect(inferLineKind({ lineTables: ['LINLINES'] })).toBe('lineitem');
     expect(inferLineKind({ lineTables: ['EXPANAL'] })).toBe('expense');
-    expect(inferLineKind({ lineTables: ['ITELINES'] })).toBe('product');
-    expect(inferLineKind({ lineTables: ['SRVLINES'] })).toBe('service');
+    expect(inferLineKind({ lineTables: ['LINLINES', 'LINLINES'] })).toBe('lineitem');
   });
 
   it('αναμφισβήτητη λέξη υπηρεσίας — τελευταία και μόνη γλωσσική ένδειξη', () => {
@@ -59,7 +79,13 @@ describe('looksLikeService — σκόπιμα ΣΤΕΝΟ', () => {
 
 describe('ο χάρτης πίνακα → μητρώο είναι ΠΛΗΡΗΣ', () => {
   it('κάθε πίνακας γραμμών έχει ρητή απάντηση (ακόμη κι αν είναι «δεν ξέρω»)', () => {
-    expect(Object.keys(KIND_FOR_LINE_TABLE).sort())
-      .toEqual(['AUTO', 'EXPANAL', 'ITELINES', 'LINLINES', 'SRVLINES']);
+    expect(KIND_FOR_LINE_TABLE).toEqual({
+      AUTO: null,
+      // Δέχονται και τα δύο οποιοδήποτε MTRL (είδος ή υπηρεσία) — δεν ορίζουν μητρώο.
+      ITELINES: null,
+      SRVLINES: null,
+      EXPANAL: 'expense',
+      LINLINES: 'lineitem',
+    });
   });
 });

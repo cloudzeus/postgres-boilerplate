@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { QueueEmpty, QueueLayout, type QueueLayoutHandle } from '@/components/admin/queue-layout';
 import type { ItemQueueGroup, QueueSuggestion } from '@/lib/ocr/queues';
 import type { MatchKind } from '@/lib/ocr/line-match';
+import { applyAiCategories, needsAi } from '@/lib/ocr/ai-apply';
 import {
   CATEGORY_META, EMPTY_ANALYTICS, ItemPanel, UNCLASSIFIED_META, docLabel, lineLabel,
   type AnalyticsState, type ClassOption, type CreateOutcome, type LineCategoryOption,
@@ -311,13 +312,15 @@ export function NewItemsClient({
         body: JSON.stringify({ afm: g.afm, pattern: g.pattern, ...input }),
       });
       const d = (await res.json().catch(() => ({}))) as ActionResult & {
-        message?: string; error?: string; suggestion?: string | null;
+        message?: string; error?: string; suggestion?: string | null; stale?: boolean;
       };
       if (res.status === 409 && d.error === 'code_taken') {
         return {
           codeTaken: {
             message: d.message || 'Ο κωδικός υπάρχει ήδη στο SoftOne.',
             suggestion: d.suggestion ? String(d.suggestion) : null,
+            // Ο server λέει αν η νέα πρόταση βγήκε από τον καθρέφτη· το panel το επαναλαμβάνει.
+            stale: d.stale === true,
           },
         };
       }
@@ -356,24 +359,37 @@ export function NewItemsClient({
   // ── Πρόταση δαπάνης με AI ────────────────────────────────────────────
   // Τρέχει ΜΟΝΟ με κλικ, ΜΟΝΟ για ομάδες που δεν έλυσε το string-matching, και προτείνει:
   // η αντιστοίχιση γίνεται πάντα με ρητή επιβεβαίωση του χρήστη (και τότε γράφεται ο κανόνας).
+  // Ό,τι έχει ήδη αποφασιστεί (χρήστης ή δομή του ERP) ούτε ρωτιέται ούτε ξαναγράφεται.
   const [aiBusy, setAiBusy] = React.useState(false);
   const [aiAsked, setAiAsked] = React.useState(0);
   const aiSuggest = React.useCallback(async () => {
     if (aiBusy || !canManage) return;
-    // Στέλνουμε τις ορατές ομάδες που έχουν ήδη υπολογισμένες (ή καθόλου) προτάσεις.
-    const batch = visible.slice(0, AI_BATCH).map((g) => ({
+    // ΜΟΝΟ οι ομάδες που είναι πραγματικά άλυτες — όχι ό,τι φαίνεται στη λίστα. Μια ομάδα που
+    // έχει ήδη κατηγορία (από τη μνήμη, από τη δομή του ERP ή από τον ίδιο τον χρήστη) ΚΑΙ
+    // σίγουρη πρόταση κωδικού δεν έχει ερώτημα: θα πληρώναμε για απάντηση που υπάρχει, με
+    // κίνδυνο να την αντικαταστήσει μια εικασία βεβαιότητας 0,6.
+    const askable = visible.filter((g) => needsAi({
+      category: categories[g.key] ?? g.category, suggestions: g.suggestions,
+    }));
+    const batch = askable.slice(0, AI_BATCH).map((g) => ({
       key: g.key, afm: g.afm, pattern: g.pattern, sample: g.sample, code: g.code,
       // Ο εκδότης είναι συμφραζόμενο για τον συλλογισμό: «ΤΑΒΕΡΝΑ» δεν πουλά αποθέματα σε γραφείο.
       supplier: g.supplier,
     }));
-    if (batch.length === 0) return;
+    if (batch.length === 0) {
+      toast.info('Καμία άλυτη ομάδα στη λίστα — όλες έχουν ήδη κατηγορία και σίγουρη πρόταση.');
+      return;
+    }
+    // Η ντετερμινιστική κατηγορία της κάθε ομάδας, όπως ισχύει ΤΩΡΑ: ο φύλακας που δεν αφήνει
+    // την απάντηση του μοντέλου να πατήσει απόδειξη (δες `lib/ocr/ai-apply.ts`).
+    const deterministic = new Map(askable.map((g) => [g.key, g.category] as const));
     setAiBusy(true);
     setAiAsked(batch.length);
     try {
       const d = await post<{
         suggestions: {
           key: string; kind: MatchKind | null; lin: number | null; code: string | null;
-          name: string | null; confidence: number; reason: string; myDataType?: string | null;
+          name: string | null; confidence: number; reason: string;
         }[];
         analytics: {
           key: string; costCntr: number | null; prjc: number | null; prjcStage: number | null;
@@ -438,17 +454,23 @@ export function NewItemsClient({
         const rest = g.suggestions.filter((x) => x.lin !== a.lin);
         return { ...next, suggestions: [suggestion, ...rest] };
       }));
-      // Η κατηγορία ακολουθεί ΤΟΝ ΤΥΠΟ που πρότεινε το μοντέλο — και μόνο όταν τον πρότεινε:
-      // χαμηλή βεβαιότητα γυρίζει `kind: null` και η ομάδα μένει ρητά «χωρίς κατηγορία».
-      setCategories((prev) => {
-        const next = { ...prev };
-        for (const [k, a] of byKey) if (a.kind) next[k] = a.kind;
-        return next;
-      });
-      const withKind = d.suggestions.filter((x) => x.kind).length;
+      // Η κατηγορία ακολουθεί ΤΟΝ ΤΥΠΟ που πρότεινε το μοντέλο — και μόνο όταν τον πρότεινε
+      // (χαμηλή βεβαιότητα γυρίζει `kind: null`) ΚΑΙ μόνο όπου δεν υπάρχει ήδη απόφαση:
+      // ό,τι διάλεξε ο χρήστης ή όρισε η δομή του ERP δεν το πατά ποτέ αυτόματη πηγή.
+      setCategories((prev) => applyAiCategories(prev, d.suggestions, deterministic));
+      // Ο μετρητής λέει τι ΕΓΙΝΕ, όχι τι ζητήθηκε: τύπος που μπλοκαρίστηκε από υπάρχουσα
+      // απόφαση δεν είναι κατηγοριοποίηση — ίδιος έλεγχος με το `applyAiCategories`.
+      const settles = (x: { key: string; kind: MatchKind | null }): boolean =>
+        x.kind != null && categories[x.key] == null && deterministic.get(x.key) == null;
+      const withKind = d.suggestions.filter(settles).length;
+      const withCode = d.suggestions.filter((x) => x.lin != null).length;
+      // Απάντηση που δεν επιλέγει τίποτα (τυπικά «μοιάζει με πάγιο») = ΠΑΡΑΤΗΡΗΣΗ: ο χρήστης
+      // πρέπει να ξέρει ότι ήρθε και πού να τη διαβάσει.
+      const notes = d.suggestions.filter((x) => !settles(x) && x.lin == null).length;
       const parts = [
         withKind ? `${withKind} κατηγοριοποιήσεις` : null,
-        d.suggestions.filter((x) => x.lin != null).length ? `${d.suggestions.filter((x) => x.lin != null).length} δαπάνες` : null,
+        withCode ? `${withCode} δαπάνες` : null,
+        notes ? `${notes} ${notes === 1 ? 'παρατήρηση' : 'παρατηρήσεις'}` : null,
         an.length ? `${an.length} αναλυτικές` : null,
       ].filter(Boolean).join(' · ');
       toast.success(
@@ -459,7 +481,7 @@ export function NewItemsClient({
       setAiBusy(false);
       setAiAsked(0);
     }
-  }, [aiBusy, canManage, visible, lineCategory]);
+  }, [aiBusy, canManage, visible, categories, lineCategory]);
 
   /** Enter στη λίστα = αντιστοίχιση με την πρώτη πρόταση της κατηγορίας. */
   const onPrimary = React.useCallback((id: string) => {

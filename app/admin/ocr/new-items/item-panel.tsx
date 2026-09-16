@@ -149,7 +149,8 @@ const NEW_ENTITY_LABEL: Record<MatchKind, string> = {
 
 /** Τι επιστρέφει το `onCreate` όταν το SoftOne απέρριψε τον κωδικό ως πιασμένο. */
 export interface CreateOutcome {
-  codeTaken: { message: string; suggestion: string | null };
+  /** `stale` = η νέα πρόταση βγήκε από τον τοπικό καθρέφτη· μπορεί κι αυτή να είναι πιασμένη. */
+  codeTaken: { message: string; suggestion: string | null; stale: boolean };
 }
 
 function defaultVat(vats: VatOption[]): string {
@@ -238,6 +239,8 @@ export function ItemPanel({
   const [erpCodeError, setErpCodeError] = React.useState<string | null>(null);
   /** Ο ΝΕΟΣ κωδικός που προτείνει ο server μετά από 409 — ο χρήστης τον δέχεται ρητά. */
   const [codeOffer, setCodeOffer] = React.useState<string | null>(null);
+  /** Η επαναπρόταση μετά από 409 ήρθε από τον καθρέφτη (το SoftOne δεν απάντησε). */
+  const [codeOfferStale, setCodeOfferStale] = React.useState(false);
   /** Η τελευταία πρόταση που γράψαμε ΕΜΕΙΣ — για να ξέρουμε τι επιτρέπεται να αντικατασταθεί. */
   const lastProposal = React.useRef<string>('');
 
@@ -421,6 +424,7 @@ export function ItemPanel({
     if (outcome && 'codeTaken' in outcome) {
       setErpCodeError(outcome.codeTaken.message);
       setCodeOffer(outcome.codeTaken.suggestion);
+      setCodeOfferStale(outcome.codeTaken.stale);
       codeRef.current?.focus();
     }
   };
@@ -455,7 +459,13 @@ export function ItemPanel({
         {group.aiReason && (
           <p className="mt-1.5 flex items-start gap-1.5 rounded-md bg-neutral-4 px-2 py-1 text-caption text-muted-foreground">
             <FiCpu aria-hidden className="mt-0.5 size-3 shrink-0" />
-            {group.aiReason}
+            <span>
+              {/* Χωρίς κατηγορία η απάντηση του μοντέλου ΔΕΝ επέλεξε τίποτα: είναι σχόλιο —
+                  τυπικά «μοιάζει με πάγιο», που η εφαρμογή δεν καταχωρεί ακόμη. Το λέμε ρητά,
+                  ώστε να μη διαβαστεί ως αιτιολόγηση κατηγορίας που δεν υπάρχει. */}
+              {!category && <strong className="font-semibold">Παρατήρηση: </strong>}
+              {group.aiReason}
+            </span>
           </p>
         )}
       </header>
@@ -768,13 +778,22 @@ export function ItemPanel({
                 </div>
                 {/* Μετά από άρνηση του SoftOne: ο ΝΕΟΣ προτεινόμενος, με ρητή αποδοχή. */}
                 {codeOffer && codeOffer !== form.code.trim() && (
-                  <Button
-                    type="button" variant="outline" size="sm"
-                    className="h-7 w-fit cursor-pointer"
-                    onClick={() => { set('code', codeOffer); lastProposal.current = codeOffer; }}
-                  >
-                    <FiRefreshCw aria-hidden className="size-3" /> Χρήση του {codeOffer}
-                  </Button>
+                  <>
+                    <Button
+                      type="button" variant="outline" size="sm"
+                      className="h-7 w-fit cursor-pointer"
+                      onClick={() => { set('code', codeOffer); lastProposal.current = codeOffer; }}
+                    >
+                      <FiRefreshCw aria-hidden className="size-3" /> Χρήση του {codeOffer}
+                    </Button>
+                    {/* Η ίδια επιφύλαξη με την αρχική πρόταση: καθρέφτης ≠ βεβαιότητα. */}
+                    {codeOfferStale && (
+                      <p className="text-caption text-muted-foreground">
+                        Η πρόταση βγήκε από τον τοπικό καθρέφτη — το SoftOne δεν απάντησε, μπορεί
+                        να έχει πιαστεί κι αυτός.
+                      </p>
+                    )}
+                  </>
                 )}
               </Field>
 

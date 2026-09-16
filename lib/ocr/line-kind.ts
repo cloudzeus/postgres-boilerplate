@@ -15,14 +15,21 @@ import type { MatchKind } from '@/lib/ocr/line-match';
 import type { PostLineTable } from '@/lib/ocr/posting-target';
 
 /**
- * Ο πίνακας γραμμών του προορισμού ΟΡΙΖΕΙ το μητρώο: μια γραμμή που θα καταχωρηθεί σε
- * `LINLINES` **πρέπει** να δείχνει σε χρεοπίστωση (`MTRL` 53) — δεν είναι εικασία, είναι η δομή
- * του ERP. Το `AUTO` (PURDOC «ανά γραμμή») δεν λέει τίποτα: εκεί χωράνε και τα τρία.
+ * Ο πίνακας γραμμών του προορισμού ορίζει το μητρώο **μόνο όπου όντως το ορίζει**:
+ *
+ *  • `LINLINES` ⇒ χρεοπίστωση (`MTRL` 53) και `EXPANAL` ⇒ έξοδο (`EXPN`): δεν είναι εικασία,
+ *    είναι η δομή του ERP — άλλο μητρώο δεν χωράει σε αυτούς τους πίνακες.
+ *  • `ITELINES` / `SRVLINES` ⇒ **`null`**. Οι δύο πίνακες δέχονται ΚΑΙ οι δύο οποιοδήποτε
+ *    `MTRL` (δες `lineFits` στο `lib/ocr/purdoc-payload.ts` και το μήνυμα `lines_need_mtrl`:
+ *    «δέχεται μόνο είδη ή υπηρεσίες»). Μια σειρά ρυθμισμένη σε `ITELINES` λέει δηλαδή «είδος ή
+ *    υπηρεσία», ΟΧΙ «είδος» — και ένα σίγουρο chip «Προϊόν» πάνω σε υπηρεσία είναι ακριβώς ο
+ *    ισχυρισμός που αυτός ο κώδικας υπάρχει για να τον σβήσει.
+ *  • `AUTO` (PURDOC «ανά γραμμή») δεν λέει τίποτα: εκεί χωράνε και τα τρία.
  */
 export const KIND_FOR_LINE_TABLE: Record<PostLineTable, MatchKind | null> = {
   AUTO: null,
-  ITELINES: 'product',
-  SRVLINES: 'service',
+  ITELINES: null,
+  SRVLINES: null,
   EXPANAL: 'expense',
   LINLINES: 'lineitem',
 };
@@ -61,6 +68,10 @@ export interface KindEvidence {
    * Οι πίνακες γραμμών των παραστατικών της ομάδας (από τη σειρά του καθενός). Μετρά ΜΟΝΟ όταν
    * συμφωνούν όλοι: μια ομάδα που εμφανίζεται και σε αγορά και σε ειδική συναλλαγή δεν έχει
    * έναν προορισμό, άρα δεν έχει και έναν τύπο.
+   *
+   * **`null` = άγνωστη σειρά, και μετράει ως ΔΙΑΦΩΝΙΑ.** Ένα παραστατικό του οποίου δεν ξέρουμε
+   * πού καταχωρείται δεν είναι παραστατικό που «συμφωνεί»: αν το αγνοούσαμε, ένα γνωστό ανάμεσα
+   * σε τέσσερα άγνωστα θα αποφάσιζε για όλη την ομάδα.
    */
   lineTables?: (PostLineTable | null)[];
   /** Η περιγραφή-δείγμα της ομάδας, για τον τελευταίο, συντηρητικό έλεγχο λέξεων. */
@@ -72,9 +83,9 @@ export interface KindEvidence {
  *
  *  1. **Μνήμη** (`LineMatchRule`) — ο χρήστης το έχει ήδη αποφασίσει μία φορά.
  *  2. **Ήδη ταιριασμένη υπηρεσία** σε κάποια γραμμή της ομάδας.
- *  3. **Ο προορισμός της σειράς** (`LINLINES` → χρεοπίστωση, `EXPANAL` → έξοδο, `ITELINES` →
- *     είδος, `SRVLINES` → υπηρεσία) — δομή του ERP, όχι εικασία. Μόνο όταν ΟΛΑ τα παραστατικά
- *     της ομάδας συμφωνούν.
+ *  3. **Ο προορισμός της σειράς** (`LINLINES` → χρεοπίστωση, `EXPANAL` → έξοδο) — δομή του ERP,
+ *     όχι εικασία. Μόνο όταν ΟΛΑ τα παραστατικά της ομάδας έχουν **γνωστή** σειρά και
+ *     συμφωνούν· έστω και ένα άγνωστο (`null`) αρκεί για να απόσχει ο κανόνας.
  *  4. **Αναμφισβήτητη λέξη υπηρεσίας** στην περιγραφή.
  *
  * Οτιδήποτε άλλο: `null` — «χωρίς κατηγορία».
@@ -83,9 +94,12 @@ export function inferLineKind(ev: KindEvidence): MatchKind | null {
   if (ev.memoryKind) return ev.memoryKind;
   if (ev.matchedService) return 'service';
 
-  const tables = (ev.lineTables ?? []).filter((t): t is PostLineTable => t != null);
-  if (tables.length > 0) {
-    const kinds = new Set(tables.map((t) => KIND_FOR_LINE_TABLE[t]));
+  // Τα άγνωστα ΔΕΝ πετιούνται: το `null` είναι διαφωνία, όχι σιωπή. Αν τα αφαιρούσαμε πριν τον
+  // έλεγχο, ένα γνωστό παραστατικό θα αποφάσιζε για μια ομάδα με τέσσερα άγνωστα.
+  const tables = ev.lineTables ?? [];
+  const known = tables.filter((t): t is PostLineTable => t != null);
+  if (tables.length > 0 && known.length === tables.length) {
+    const kinds = new Set(known.map((t) => KIND_FOR_LINE_TABLE[t]));
     if (kinds.size === 1) {
       const only = [...kinds][0];
       if (only) return only;

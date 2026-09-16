@@ -10,6 +10,7 @@ import {
   softoneNextItemCode, isDuplicateCodeError, clearItemCodeCache,
 } from '@/lib/softone';
 import { itemCodeMaskKey, type ItemCodeKind } from '@/lib/item-code';
+import { mirrorItemCodes } from '@/lib/item-code-mirror';
 import { getSetting } from '@/lib/settings';
 
 export const runtime = 'nodejs';
@@ -173,8 +174,15 @@ async function duplicateCode(
   // Ο κωδικός που ΜΟΛΙΣ απορρίφθηκε δεν ξαναπροτείνεται: αν ήταν ο κωδικός του προμηθευτή, τον
   // αποσύρουμε από τον κανόνα 1 — μόλις αποδείχθηκε πιασμένος, ό,τι κι αν λέει το μητρώο.
   const supplierCode = b.supplierCode && b.supplierCode !== b.code ? b.supplierCode : null;
+  const next = await suggestCode(kind, supplierCode);
   return NextResponse.json(
-    { error: 'code_taken', field: 'code', kind, message, suggestion: await suggestCode(kind, supplierCode) },
+    {
+      error: 'code_taken', field: 'code', kind, message,
+      suggestion: next?.code ?? null,
+      // Η πρόταση μπορεί να βγήκε από τον ΚΑΘΡΕΦΤΗ (το SoftOne δεν απάντησε): τότε μπορεί κι
+      // αυτή να είναι πιασμένη. Το UI το λέει αντί να δείξει έναν κωδικό σαν βεβαιότητα.
+      stale: next?.stale ?? false,
+    },
     { status: 409 },
   );
 }
@@ -182,12 +190,22 @@ async function duplicateCode(
 /**
  * Ο επόμενος προτεινόμενος κωδικός του μητρώου — ΜΟΝΟ για να τον προτείνουμε μετά από άρνηση.
  * Ποτέ δεν πετάει: χωρίς πρόταση, το UI δείχνει απλώς το μήνυμα του ERP.
+ *
+ * **Ίδια εφεδρεία με το `GET .../next-code`**: ο τοπικός καθρέφτης περνιέται ως `fallbackCodes`.
+ * Χωρίς αυτόν, ένα SoftOne που δεν απαντά έδινε πρόταση από **άδεια** λίστα — δηλαδή τον πρώτο
+ * κωδικό της μάσκας, ακριβώς τη στιγμή που ο χρήστης μόλις έφαγε «ο κωδικός υπάρχει ήδη».
+ * Το `stale` φτάνει μέχρι το UI αντί να πεταχτεί εδώ.
  */
-async function suggestCode(kind: ItemCodeKind, supplierCode: string | null): Promise<string | null> {
+async function suggestCode(
+  kind: ItemCodeKind, supplierCode: string | null,
+): Promise<{ code: string | null; stale: boolean } | null> {
   try {
-    const mask = await getSetting<string>(itemCodeMaskKey(kind), '').catch(() => '');
-    const r = await softoneNextItemCode(kind, { mask: mask ?? '', supplierCode });
-    return r.code;
+    const [mask, fallbackCodes] = await Promise.all([
+      getSetting<string>(itemCodeMaskKey(kind), '').catch(() => ''),
+      mirrorItemCodes(kind),
+    ]);
+    const r = await softoneNextItemCode(kind, { mask: mask ?? '', supplierCode, fallbackCodes });
+    return { code: r.code, stale: r.stale };
   } catch {
     return null;
   }
