@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
-import { syncErrorMessage } from '@/lib/softone/sync-error';
+import { syncErrorMessage } from '@/lib/softone-sync/sync-error';
 
 // Τα τρία μητρώα της ΑΝΑΛΥΤΙΚΗΣ ανά γραμμή: κέντρα κόστους (PRSCOSTCNTR), έργα (PRJC) και
 // κατηγορίες δραστηριότητας (PRJCSTAGE). Ίδιος πίνακας, ίδιος συγχρονισμός — μόνο ανάγνωση.

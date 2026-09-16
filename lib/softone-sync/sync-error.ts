@@ -1,4 +1,4 @@
-// lib/softone/sync-error.ts — ΚΟΙΝΟ σε server και client (καμία εισαγωγή `server-only` εδώ).
+// lib/softone-sync/sync-error.ts — ΚΟΙΝΟ σε server και client (καμία εισαγωγή `server-only` εδώ).
 //
 // Η ΜΙΑ μετάφραση «σώμα σφάλματος συγχρονισμού → ελληνικό μήνυμα για τον χρήστη». Τα κουμπιά
 // ανανέωσης των μητρώων έδειχναν το `message` ΜΟΝΟ για `softone_error`: έτσι το «τρέχει ήδη

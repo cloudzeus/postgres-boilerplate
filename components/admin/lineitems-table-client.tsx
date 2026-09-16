@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
-import { syncErrorMessage } from '@/lib/softone/sync-error';
+import { syncErrorMessage } from '@/lib/softone-sync/sync-error';
 
 // Μητρώο ΧΡΕΟΠΙΣΤΩΣΕΩΝ SoftOne (object LINEITEM → MTRL με SODTYPE 53), καθρέφτης του
 // `SoftoneLineItem`. Είναι το μόνο πράγμα που δέχεται το `MTRL` μιας γραμμής «Ειδικών

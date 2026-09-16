@@ -64,7 +64,7 @@ vi.mock('@/lib/settings', async (importOriginal) => ({
   setSetting: settings.setSetting,
 }));
 
-import { SYNC_STEPS, ResyncBusyError, resyncAllSoftone, type SyncTable } from '@/lib/softone/resync';
+import { SYNC_STEPS, ResyncBusyError, resyncAllSoftone, type SyncTable } from '@/lib/softone-sync/resync';
 import { PUT as putSettings } from '@/app/api/admin/settings/route';
 import { POST as resyncRoute, GET as resyncSteps } from '@/app/api/admin/metadata/resync-all-softone/route';
 import { POST as syncItemsRoute } from '@/app/api/admin/metadata/sync-items-softone/route';
