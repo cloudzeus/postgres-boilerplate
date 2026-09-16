@@ -400,4 +400,49 @@ describe('GET /api/admin/ocr/[id]/document', () => {
     db.ocrDocument.findUnique.mockResolvedValue(null);
     expect((await getDocument(new Request('http://localhost/x'), ctx())).status).toBe(404);
   });
+
+  // Ο τελευταίος κρίκος της αλυσίδας για τους χρεώστες: το να ΥΠΑΡΧΕΙ στόχος LINDEBDOC δεν
+  // σημαίνει τίποτα αν η σειρά δεν μπορεί καν να αποθηκευτεί στο έγγραφο. Αυτό ακριβώς ήταν
+  // σπασμένο για το 1253 πριν από αυτή τη δουλειά.
+  describe('σειρά εκτός 1251/1653', () => {
+    const patchSeries = (softoneSeries: string, seriesSource: number | null) =>
+      patchDoc(patch({ softoneSeries, ...(seriesSource == null ? {} : { seriesSource }) }), ctx());
+
+    it('ενεργοποιημένη σειρά χρεωστών (1553) αποθηκεύεται κανονικά', async () => {
+      db.softoneDocSeries.findFirst.mockResolvedValue({ id: 1 });
+
+      const res = await patchSeries('6645', 1553);
+
+      expect(res.status).toBe(200);
+      // Ρωτήθηκε η ΣΩΣΤΗ ενότητα — όχι το 1653 ούτε ο κωδικός μόνος του.
+      expect(db.softoneDocSeries.findFirst.mock.calls[0][0].where)
+        .toMatchObject({ code: '6645', sosource: 1553, enabled: true, isActive: true });
+      const data = db.ocrDocument.update.mock.calls.at(-1)?.[0].data;
+      expect(data).toMatchObject({ softoneSeries: '6645', seriesSource: 1553, seriesBy: 'manual' });
+    });
+
+    it('σειρά που ΔΕΝ είναι σε χρήση απορρίπτεται, όποια ενότητα κι αν είναι', async () => {
+      db.softoneDocSeries.findFirst.mockResolvedValue(null);
+      db.purchaseDocType.findFirst.mockResolvedValue(null);
+
+      const res = await patchSeries('6645', 1553);
+
+      expect(res.status).toBe(422);
+      expect(db.ocrDocument.update).not.toHaveBeenCalled();
+    });
+
+    it('χωρίς `seriesSource` η ενότητα βρίσκεται από το ΕΝΕΡΓΟΠΟΙΗΜΕΝΟ μητρώο', async () => {
+      // Ο ίδιος κωδικός σειράς υπάρχει σε πολλές ενότητες· το «σε χρήση» είναι αυτό που κάνει
+      // την επιλογή μονοσήμαντη. Πριν, ο fallback έψαχνε ΜΟΝΟ σε 1251/1653 και γύριζε null,
+      // οπότε η σειρά απορριπτόταν ως άγνωστη.
+      db.purchaseDocType.findUnique.mockResolvedValue(null);
+      db.softoneDocSeries.findFirst.mockResolvedValue({ sosource: 1553, id: 1 });
+
+      const res = await patchSeries('6645', null);
+
+      expect(res.status).toBe(200);
+      expect(db.ocrDocument.update.mock.calls.at(-1)?.[0].data)
+        .toMatchObject({ softoneSeries: '6645', seriesSource: 1553 });
+    });
+  });
 });
