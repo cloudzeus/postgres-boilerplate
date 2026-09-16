@@ -67,13 +67,30 @@ export async function PUT(req: Request) {
   }
 
   // Η σύνδεση άλλαξε ⇒ το cached token της παλιάς συνεδρίας δεν επιτρέπεται να ξαναχρησιμοποιηθεί.
+  // Το `await` είναι ουσιαστικό: το token ζει και στο `AppSetting`, και μέχρι να σβηστεί ΕΚΕΙ
+  // κάθε επόμενο αίτημα μπορεί να το ξαναδιαβάσει και να μιλήσει στην ΠΑΛΙΑ εταιρία.
   const softoneChanged = written.some((k) => SOFTONE_CONNECTION_KEYS.has(k));
-  if (softoneChanged) clearCachedToken();
+  let tokenCleared = !softoneChanged;
+  let tokenClearError: string | null = null;
+  if (softoneChanged) {
+    try {
+      await clearCachedToken();
+      tokenCleared = true;
+    } catch (e) {
+      // Οι ρυθμίσεις ΕΧΟΥΝ ήδη γραφτεί — δεν τις γυρνάμε πίσω. Λέμε όμως καθαρά ότι το παλιό
+      // token μπορεί να επιβιώνει, ώστε ο διαχειριστής να ξαναπατήσει αποθήκευση.
+      tokenClearError = (e as Error).message;
+    }
+  }
 
   await logAudit({
     userId: u.id, userEmail: u.email,
     action: 'settings.update', resource: 'setting',
-    metadata: { keys: filtered.map((f) => f.key), softoneConnectionChanged: softoneChanged },
+    metadata: {
+      keys: filtered.map((f) => f.key),
+      softoneConnectionChanged: softoneChanged,
+      ...(tokenClearError ? { softoneTokenClearError: tokenClearError } : {}),
+    },
   });
 
   // Το UI χρειάζεται τη σημαία για να προτείνει «Συγχρονισμός όλων»: με αλλαγή εταιρίας ή
@@ -84,5 +101,9 @@ export async function PUT(req: Request) {
     updated: filtered.length,
     softoneConnectionChanged: softoneChanged,
     softoneKeysChanged: written.filter((k) => SOFTONE_CONNECTION_KEYS.has(k)),
+    softoneTokenCleared: tokenCleared,
+    ...(tokenClearError
+      ? { warning: `Οι ρυθμίσεις αποθηκεύτηκαν, αλλά το αποθηκευμένο token SoftOne δεν σβήστηκε: ${tokenClearError}` }
+      : {}),
   });
 }
