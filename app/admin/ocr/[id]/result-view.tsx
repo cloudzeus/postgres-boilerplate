@@ -16,6 +16,61 @@ function fmtMoney(n: any): string {
   return s === '-' ? s : `${s} €`;
 }
 
+/**
+ * Ο πίνακας γραμμών — ΙΔΙΟΣ για τιμολόγιο και απόδειξη. Μια απόδειξη έχει κι αυτή είδη, και
+ * εδώ φαίνονται όλα όσα μπορεί να διορθώσει ο χρήστης στην καρτέλα «Γραμμές», μαζί με τη
+ * μονάδα μέτρησης — που δεν είναι στήλη της βάσης αλλά ζει στο κανονικό JSON (`lines.unit`).
+ */
+function LinesTable({ doc, data }: { doc: DocWithItems; data: any }) {
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
+          <tr>
+            <th className="px-3 py-2">Κωδ.</th>
+            <th className="px-3 py-2">Περιγραφή</th>
+            <th className="px-3 py-2 text-right">Ποσ.</th>
+            <th className="px-3 py-2">Μον.</th>
+            <th className="px-3 py-2 text-right">Τιμή</th>
+            <th className="px-3 py-2 text-right">Έκπτ.</th>
+            <th className="px-3 py-2 text-right">Σύνολο</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {doc.items.length === 0 ? (
+            <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">Δεν εξήχθησαν γραμμές.</td></tr>
+          ) : doc.items.map((it, idx) => {
+            const line = (data.items?.[idx] ?? {}) as any;
+            const lineCf = lineCustomFieldsText(line.customFields as Record<string, unknown> | undefined);
+            return (
+              <React.Fragment key={it.id}>
+                <tr className="hover:bg-muted/30">
+                  <td className="px-3 py-2 font-mono text-xs">{it.code ?? '-'}</td>
+                  <td className="px-3 py-2 font-medium">{it.name}</td>
+                  <td className="px-3 py-2 text-right">{fmtNum(it.quantity)}</td>
+                  <td className="px-3 py-2 text-muted-foreground">{(line.unit ?? '') || '—'}</td>
+                  <td className="px-3 py-2 text-right">{fmtMoney(it.price)}</td>
+                  <td className="px-3 py-2 text-right text-destructive">{fmtNum(it.discount)}</td>
+                  <td className="px-3 py-2 text-right font-semibold">{fmtMoney(it.total)}</td>
+                </tr>
+                {lineCf.length > 0 && (
+                  <tr key={`${it.id}-cf`} className="bg-muted/20">
+                    <td colSpan={7} className="px-3 py-1.5 text-[11px] text-muted-foreground">
+                      {lineCf.map((e) => (
+                        <span key={e.label} className="mr-3"><strong className="text-foreground">{e.label}:</strong> {e.text}</span>
+                      ))}
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function OcrResultView({ doc }: { doc: DocWithItems }) {
   const data = (doc.extractedData ?? {}) as any;
 
@@ -54,52 +109,7 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
           <Field label="Σύνολο" value={fmtMoney(data.totalAmount)} accent />
         </div>
 
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2">Κωδ.</th>
-                <th className="px-3 py-2">Περιγραφή</th>
-                <th className="px-3 py-2 text-right">Ποσ.</th>
-                <th className="px-3 py-2">Μον.</th>
-                <th className="px-3 py-2 text-right">Τιμή</th>
-                <th className="px-3 py-2 text-right">Έκπτ.</th>
-                <th className="px-3 py-2 text-right">Σύνολο</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {doc.items.length === 0 ? (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">Δεν εξήχθησαν γραμμές.</td></tr>
-              ) : doc.items.map((it, idx) => {
-                const line = (data.items?.[idx] ?? {}) as any;
-                const lineCf = lineCustomFieldsText(line.customFields as Record<string, unknown> | undefined);
-                return (
-                  <React.Fragment key={it.id}>
-                    <tr className="hover:bg-muted/30">
-                      <td className="px-3 py-2 font-mono text-xs">{it.code ?? '-'}</td>
-                      <td className="px-3 py-2 font-medium">{it.name}</td>
-                      <td className="px-3 py-2 text-right">{fmtNum(it.quantity)}</td>
-                      {/* Η μονάδα ζει στο κανονικό JSON (`lines.unit`), όχι σε στήλη της βάσης. */}
-                      <td className="px-3 py-2 text-muted-foreground">{(line.unit ?? '') || '—'}</td>
-                      <td className="px-3 py-2 text-right">{fmtMoney(it.price)}</td>
-                      <td className="px-3 py-2 text-right text-destructive">{fmtNum(it.discount)}</td>
-                      <td className="px-3 py-2 text-right font-semibold">{fmtMoney(it.total)}</td>
-                    </tr>
-                    {lineCf.length > 0 && (
-                      <tr key={`${it.id}-cf`} className="bg-muted/20">
-                        <td colSpan={7} className="px-3 py-1.5 text-[11px] text-muted-foreground">
-                          {lineCf.map((e) => (
-                            <span key={e.label} className="mr-3"><strong className="text-foreground">{e.label}:</strong> {e.text}</span>
-                          ))}
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <LinesTable doc={doc} data={data} />
 
         <BankAccounts accounts={data.bankAccounts} />
         <CustomFieldsBlock data={data} />
@@ -123,6 +133,8 @@ export function OcrResultView({ doc }: { doc: DocWithItems }) {
           <span>ΣΥΝΟΛΟ:</span><span>{fmtMoney(data.totalAmount)}</span>
         </div>
         </div>
+
+        {doc.items.length > 0 && <LinesTable doc={doc} data={data} />}
 
         <BankAccounts accounts={data.bankAccounts} />
         <CustomFieldsBlock data={data} />
