@@ -7,6 +7,7 @@
 // εγγράφου (`lib/ocr/posting-target.ts`), όχι από το τι ταίριαξε η κάθε γραμμή. Ένα τιμολόγιο
 // δαπανών πάει σε `LINSUPDOC`/`LINLINES`, μια αγορά εμπορευμάτων σε `PURDOC`/`ITELINES`, ένα
 // παραστατικό χρεώστη σε `LINDEBDOC`/`LINLINES`.
+import { normalizeDocRef } from '@/lib/doc-reference';
 import type { DocumentJson } from './canonical';
 import {
   LINES_FOR_OBJECT, POST_LINES_LABEL, SODTYPE_FOR_OBJECT,
@@ -66,12 +67,21 @@ export type PurdocContext = {
  * Στέλνουμε ΜΟΝΟ ό,τι πραγματικά ξέρουμε· τα υπόλοιπα «required» πεδία (FISCPRD, PERIOD, BRANCH,
  * SOCURRENCY, TRDRRATE, GLUPD, …) έχουν defaults στο SoftOne και τα συμπληρώνει το ίδιο.
  * Δεν μαντεύουμε χρήση, υποκατάστημα ή ισοτιμίες.
+ *
+ * ΤΟ `SERIESNUM` («Αριθμός») ΔΕΝ ΣΤΕΛΝΕΤΑΙ ΠΟΤΕ: είναι ο ΔΙΚΟΣ ΜΑΣ αύξων αριθμός μέσα στη σειρά
+ * και τον δίνει το SoftOne. Τα τέσσερα παραστατικά αγορών του πελάτη το έχουν `1` ενώ ο αριθμός
+ * του προμηθευτή ζει αλλού — αν τον στέλναμε εμείς, θα χαλούσαμε τη σειριακή αρίθμηση του ERP.
  */
 export type PurdocHeader = {
   SERIES: number;
   TRNDATE: string;
   TRDR: number;
+  /** «Παραστατικό» — η ΠΛΗΡΗΣ τυπωμένη ταυτότητα του παραστατικού του εκδότη. */
   FINCODE?: string;
+  /** «Φορ/κή σειρά» — το τυπωμένο πρόθεμα σειράς του ΕΚΔΟΤΗ. */
+  TAXSERIES?: string;
+  /** «Φορ/κός αριθμός» — ο τυπωμένος αριθμός του ΕΚΔΟΤΗ. */
+  TAXSERIESNUM?: string;
   COMPANY?: number;
   COMMENTS?: string;
   MYDATAMARK?: string;
@@ -159,6 +169,130 @@ const text = (v: unknown): string | undefined => {
   return s === '' ? undefined : s;
 };
 
+/**
+ * ── Η ΑΝΑΦΟΡΑ ΤΟΥ ΠΑΡΑΣΤΑΤΙΚΟΥ ΤΟΥ ΕΚΔΟΤΗ ────────────────────────────────────────────────────
+ *
+ * Η κεφαλίδα FINDOC κρατά ΤΕΣΣΕΡΑ διαφορετικά πράγματα, και μόνο τα τρία είναι δικά μας να τα
+ * γράψουμε (μεγέθη/ιδιότητες από το cached schema, ίδια και στα τέσσερα objects):
+ *
+ *  | πεδίο          | λεζάντα         | τι είναι                                   |
+ *  |----------------|-----------------|--------------------------------------------|
+ *  | `SERIES`       | Σειρά           | η ΔΙΚΗ ΜΑΣ σειρά καταχώρισης                |
+ *  | `SERIESNUM`    | Αριθμός         | ο ΔΙΚΟΣ ΜΑΣ αύξων — τον δίνει το SoftOne    |
+ *  | `TAXSERIES`    | Φορ/κή σειρά    | η τυπωμένη σειρά ΤΟΥ ΕΚΔΟΤΗ (String 50)     |
+ *  | `TAXSERIESNUM` | Φορ/κός αριθμός | ο τυπωμένος αριθμός ΤΟΥ ΕΚΔΟΤΗ (String 50)  |
+ *  | `FINCODE`      | Παραστατικό     | η ΠΛΗΡΗΣ τυπωμένη ταυτότητα (String 30)     |
+ *
+ * Τι κάνει ο ΙΔΙΟΣ ο πελάτης — read-only `GetTable FINDOC`, ΚΑΙ ΟΙ ΤΕΣΣΕΡΙΣ γραμμές αγορών
+ * (SOSOURCE 1251) που υπάρχουν, όχι μόνο όσες βολεύουν:
+ *
+ *   1042: `FINCODE="ΤΙΜ-AA-2455"  TAXSERIES="ΤΙΜ-AA"  TAXSERIESNUM="2455"    SERIESNUM=1`
+ *   1044: `FINCODE="ΔΠ-0035656"   TAXSERIES="ΔΠ"      TAXSERIESNUM="0035656" SERIESNUM=1`
+ *   1009: `FINCODE="ΤΔΑ"          TAXSERIES="ΤΔΑ"     TAXSERIESNUM="1"       SERIESNUM=1`
+ *   1034: `FINCODE="ΔΠ"           TAXSERIES="ΔΠ"      TAXSERIESNUM="1"       SERIESNUM=1`
+ *
+ * Οι δύο πρώτες κουβαλούν την πλήρη ταυτότητα στο «Παραστατικό». Οι δύο ΤΕΛΕΥΤΑΙΕΣ όμως έχουν
+ * `FINCODE` = σκέτο τον κωδικό σειράς, ΧΩΡΙΣ αριθμό, και `TAXSERIESNUM` ίσο με τον δικό μας
+ * `SERIESNUM` — δηλαδή είναι απολύτως συμβατές με το «το ERP παράγει το FINCODE από τη μάσκα της
+ * σειράς και γεμίζει τον κενό Φορ/κό αριθμό από τον αύξοντα». Δεν μπορούμε να το αποκλείσουμε
+ * χωρίς `setData`, οπότε το λέμε όπως είναι:
+ *
+ *   ΤΟ `FINCODE` ΠΟΥ ΣΤΕΛΝΟΥΜΕ ΕΙΝΑΙ ΣΥΜΒΟΥΛΕΥΤΙΚΟ — μπορεί να το ξαναγράψει η μάσκα της σειράς.
+ *   ΤΑ `TAXSERIES`/`TAXSERIESNUM` ΕΙΝΑΙ ΑΥΤΑ ΠΟΥ ΚΡΑΤΑΝΕ ΤΗΝ ΤΑΥΤΟΤΗΤΑ ΤΟΥ ΕΚΔΟΤΗ.
+ *
+ * Γι' αυτό και η επαλήθευση μετά την εγγραφή δέχεται συμφωνία σε οποιοδήποτε από τα δύο.
+ *
+ * Δεύτερη πηγή: `docs/superpowers/specs/2026-09-09-extraction-templates-design.md:366` (§14.8, η
+ * οθόνη καταχώρισης του πελάτη). Δείχνει «Παραστατικό» με την πλήρη τυπωμένη ταυτότητα
+ * (`INV.239124`, `ΤΠΥ 276708`, `ΤΙΜ Α32-000085237`) ΚΑΙ ξεχωριστό «Φορ/κός αριθμός» — δηλαδή
+ * τεκμηριώνει ΔΥΟ από τα τρία πεδία· το «Φορ/κή σειρά» ΔΕΝ αναφέρεται εκεί καθόλου και στηρίζεται
+ * μόνο στο schema και στις τέσσερις γραμμές παραπάνω.
+ *
+ * Μέχρι τώρα στέλναμε ΜΟΝΟ `FINCODE = type.number` — δηλαδή τα σκέτα ψηφία, χωρίς το πρόθεμα, και
+ * με τα δύο φορολογικά πεδία κενά.
+ */
+export type DocReference = {
+  /** `TAXSERIES` — το τυπωμένο πρόθεμα σειράς του εκδότη, όταν το ξέρουμε. */
+  taxSeries?: string;
+  /** `TAXSERIESNUM` — ο τυπωμένος αριθμός του εκδότη, χωρίς το πρόθεμα. */
+  taxSeriesNum?: string;
+  /** `FINCODE` — η πλήρης τυπωμένη ταυτότητα («ΤΠΥ 17»), όχι τα σκέτα ψηφία. */
+  fincode?: string;
+};
+
+/** Μέγεθος πεδίου στο SoftOne — κόβουμε εμείς αντί να σκάσει το ERP σε overflow. */
+const FINCODE_MAX = 30;
+const TAXSERIES_MAX = 50;
+
+/**
+ * Όταν το πρόθεμα είναι ΗΔΗ μέσα στον αριθμό («ΤΠΥ 17» και σειρά «ΤΠΥ»), επιστρέφει ό,τι μένει
+ * («17») — αλλιώς `null`. Κενό string σημαίνει «ο αριθμός ΕΙΝΑΙ το πρόθεμα, δεν περισσεύει τίποτα».
+ * Η σύγκριση περνά από το `normalizeDocRef`: αγνοεί κενά/παύλες ΚΑΙ διπλώνει τα ελληνικά ομόγλυφα,
+ * ώστε «ΤΙΜ-ΑΑ-2455» (ελληνικά Α) με σειρά «ΤΙΜ-AA» (λατινικά A) να χωρίζεται σωστά αντί να
+ * γράψει το πρόθεμα δύο φορές.
+ */
+function stripSeriesPrefix(number: string, series: string): string | null {
+  const want = normalizeDocRef(series);
+  if (!want) return null;
+  let seen = '';
+  for (let i = 0; i < number.length; i++) {
+    seen += normalizeDocRef(number[i]);
+    if (seen.length < want.length) continue;
+    return seen === want ? number.slice(i + 1).replace(/^[^0-9A-ZΑ-Ω]+/i, '') : null;
+  }
+  return null; // ο αριθμός τελείωσε πριν συμπληρωθεί το πρόθεμα
+}
+
+/**
+ * Χωρίζει την αναφορά του εκδότη στα τρία πεδία της κεφαλίδας. ΔΕΝ εφευρίσκει τίποτα: αν το
+ * κανονικό έγγραφο δεν έχει σειρά, το `TAXSERIES` μένει κενό και ΟΛΗ η τυπωμένη αναφορά πάει στο
+ * `TAXSERIESNUM`/`FINCODE` — καλύτερα ένα γεμάτο πεδίο παρά ένα μαντεμένο πρόθεμα.
+ *
+ * Τρεις περιπτώσεις, και οι τρεις καλυμμένες από tests:
+ *  - πρόθεμα χωριστά (`series:'ΤΠΥ'`, `number:'17'`) → ΤΠΥ / 17 / «ΤΠΥ 17»
+ *  - πρόθεμα μέσα στον αριθμό (`series:'ΤΠΥ'`, `number:'ΤΠΥ 17'`) → ΤΠΥ / 17 / «ΤΠΥ 17» (όχι «ΤΠΥ ΤΠΥ 17»)
+ *  - χωρίς πρόθεμα (`series:null`, `number:'INV.239124'`) → — / INV.239124 / «INV.239124»
+ */
+export function documentReference(type: { series: string | null; number: string | null }): DocReference {
+  const series = text(type.series) ?? '';
+  const number = text(type.number) ?? '';
+  if (!series && !number) return {};
+
+  let taxSeries = series;
+  let taxSeriesNum = number;
+  let printed = number;
+
+  if (series && number) {
+    const rest = stripSeriesPrefix(number, series);
+    if (rest == null) {
+      // Ο αριθμός δεν κουβαλά το πρόθεμα: τα ενώνουμε με κενό, όπως τυπώνεται («ΤΠΥ 17»).
+      printed = `${series} ${number}`;
+    } else {
+      // Το κουβαλά: ο τυπωμένος αριθμός ΕΙΝΑΙ η πλήρης ταυτότητα, δεν διπλασιάζουμε το πρόθεμα.
+      // ΟΤΑΝ ΔΕΝ ΠΕΡΙΣΣΕΥΕΙ ΤΙΠΟΤΑ (ο αριθμός είναι σκέτο το πρόθεμα, π.χ. «ΤΔΑ»), κρατάμε
+      // ΟΛΟΚΛΗΡΟ τον αριθμό ως «Φορ/κό αριθμό» αντί να αφήσουμε το πεδίο κενό: κενό πεδίο σημαίνει
+      // ότι το SoftOne θα βάλει εκεί τον ΔΙΚΟ ΜΑΣ αύξοντα (`SERIESNUM`) — έτσι δείχνουν οι
+      // γραμμές 1009/1034 του πελάτη — και ότι ο έλεγχος διπλοεγγραφής δεν θα τρέξει καθόλου.
+      taxSeriesNum = rest === '' ? number : rest;
+      printed = number;
+    }
+  } else if (!series) {
+    taxSeries = '';
+  }
+
+  // Το «Παραστατικό» χωράει 30 χαρακτήρες: αν η πλήρης μορφή δεν χωράει, προτιμάμε τον ΑΡΙΘΜΟ
+  // (το πιο αναγνωριστικό κομμάτι) από μια κομμένη στη μέση σειρά.
+  let fincode = printed;
+  if (fincode.length > FINCODE_MAX) fincode = number;
+  if (fincode.length > FINCODE_MAX) fincode = fincode.slice(0, FINCODE_MAX);
+
+  return {
+    ...(taxSeries ? { taxSeries: taxSeries.slice(0, TAXSERIES_MAX) } : {}),
+    ...(taxSeriesNum ? { taxSeriesNum: taxSeriesNum.slice(0, TAXSERIES_MAX) } : {}),
+    ...(fincode ? { fincode } : {}),
+  };
+}
+
 /** Ημερομηνία εγγράφου → `YYYY-MM-DD` (το έγγραφο είναι ήδη κανονικοποιημένο· κόβουμε ώρα αν υπάρχει). */
 const trnDate = (date: string | null): string => (date ?? '').slice(0, 10);
 
@@ -212,8 +346,11 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
     TRDR: ctx.trdr,
   };
   if (ctx.company != null) header.COMPANY = ctx.company;
-  const fincode = text(document.type.number);
-  if (fincode) header.FINCODE = fincode;
+  // Η αναφορά του ΕΚΔΟΤΗ στα τρία πεδία της: «Φορ/κή σειρά», «Φορ/κός αριθμός», «Παραστατικό».
+  const ref = documentReference(document.type);
+  if (ref.fincode) header.FINCODE = ref.fincode;
+  if (ref.taxSeries) header.TAXSERIES = ref.taxSeries;
+  if (ref.taxSeriesNum) header.TAXSERIESNUM = ref.taxSeriesNum;
   const comments = text(ctx.comments);
   if (comments) header.COMMENTS = comments;
   const mark = text(document.digital.mark);

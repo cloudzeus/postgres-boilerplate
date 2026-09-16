@@ -26,7 +26,11 @@ type Preview = {
   /** Πού πάει: SoftOne object + πίνακας γραμμών, με ελληνική περιγραφή και το «γιατί». */
   target: { object: string; lines: string; source: 'configured' | 'default'; supported: boolean; reason: string; label: string };
   payload: { OBJECT: string; KEY: string; DATA: PayloadData };
-  summary: { series: string | null; trader: string | null; trdr: number | null; date: string | null; number: string | null; lines: number };
+  summary: {
+    series: string | null; trader: string | null; trdr: number | null; date: string | null;
+    lines: number;
+    reference: { fincode: string | null; taxSeries: string | null; taxSeriesNum: string | null };
+  };
   postStatus: string;
   postedRef: string | null;
 };
@@ -260,11 +264,33 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
           )}
 
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] sm:grid-cols-4">
-            <div><dt className="text-muted-foreground">Σειρά</dt><dd className="font-medium">{preview.summary.series ?? '—'}</dd></div>
+            <div><dt className="text-muted-foreground">Σειρά καταχώρισης</dt><dd className="font-medium">{preview.summary.series ?? '—'}</dd></div>
             <div><dt className="text-muted-foreground">Προμηθευτής</dt><dd className="font-medium">{preview.summary.trader ?? '—'}{preview.summary.trdr ? ` (${preview.summary.trdr})` : ''}</dd></div>
             <div><dt className="text-muted-foreground">Ημερομηνία</dt><dd className="font-medium">{preview.summary.date ?? '—'}</dd></div>
-            <div><dt className="text-muted-foreground">Αριθμός</dt><dd className="font-medium">{preview.summary.number ?? '—'}</dd></div>
+            <div><dt className="text-muted-foreground">Γραμμές</dt><dd className="font-medium">{preview.summary.lines}</dd></div>
           </dl>
+
+          {/* Η αναφορά του εκδότη ΑΝΑ ΠΕΔΙΟ: ο σαρωμένος αριθμός δεν πάει σε ένα πεδίο, πάει σε τρία. */}
+          <div className="rounded-lg border border-border p-2.5">
+            <p className="text-[12px] font-semibold">Αριθμός παραστατικού του προμηθευτή — πού γράφεται</p>
+            <dl className="mt-1.5 grid grid-cols-1 gap-x-4 gap-y-1 text-[12px] sm:grid-cols-3">
+              <div>
+                <dt className="text-muted-foreground">Παραστατικό <code className="text-[10px]">FINCODE</code></dt>
+                <dd className="font-medium">{preview.summary.reference.fincode ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Φορ/κή σειρά <code className="text-[10px]">TAXSERIES</code></dt>
+                <dd className="font-medium">{preview.summary.reference.taxSeries ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Φορ/κός αριθμός <code className="text-[10px]">TAXSERIESNUM</code></dt>
+                <dd className="font-medium">{preview.summary.reference.taxSeriesNum ?? '—'}</dd>
+              </div>
+            </dl>
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
+              Ο «Αριθμός» (<code className="text-[10px]">SERIESNUM</code>) της σειράς μας τον δίνει το SoftOne — δεν τον στέλνουμε.
+            </p>
+          </div>
 
           {payloadRows.length > 0 && (
             <div className="overflow-x-auto">

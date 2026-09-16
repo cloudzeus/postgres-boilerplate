@@ -3,6 +3,7 @@ import iconv from 'iconv-lite';
 import { gunzipSync } from 'node:zlib';
 import { getSetting, setSetting } from '@/lib/settings';
 import { validCoords } from '@/lib/coords';
+import { normalizeDocRef } from '@/lib/doc-reference';
 import { nextTraderCode, type NextCodeResult } from '@/lib/trader-code';
 import { proposeItemCode, type ItemCodeKind, type ItemCodeProposal } from '@/lib/item-code';
 
@@ -768,47 +769,70 @@ export async function softoneFindItemByCode(rawCode: string): Promise<ItemRow | 
   );
 }
 
-// Normalises a document number for loose comparison (digits+letters, uppercase).
-function normNum(s: string): string {
-  return String(s ?? '').toUpperCase().replace(/[^0-9A-ZΑ-Ω]/gi, '');
-}
+/** Η αναφορά του εκδότη, όπως θα γραφόταν στην κεφαλίδα — το ίδιο τρίπτυχο με την καταχώριση. */
+export type PurchaseDocRef = {
+  /** Ο τυπωμένος αριθμός, χωρίς πρόθεμα (`TAXSERIESNUM`). */
+  number: string | null;
+  /** Η πλήρης τυπωμένη ταυτότητα (`FINCODE`, π.χ. «ΤΠΥ 17»). */
+  fincode?: string | null;
+};
 
 /**
- * Checks whether a purchase invoice already exists in SoftOne for a supplier —
- * matched by TRDR + document number (FINCODE/TAXSERIESNUM) + date. Returns the
- * existing FINCODE if a likely duplicate is found (for review, never auto-block).
+ * Υπάρχει ΗΔΗ παραστατικό αυτού του προμηθευτή στο SoftOne; Το ψάχνουμε με TRDR (+ ημερομηνία)
+ * και συγκρίνουμε ΜΟΝΟ τα ΦΟΡΟΛΟΓΙΚΑ πεδία — `TAXSERIESNUM` («Φορ/κός αριθμός») και `FINCODE`
+ * («Παραστατικό»), δηλαδή ΑΚΡΙΒΩΣ εκεί που γράφει η καταχώριση τον αριθμό του εκδότη.
+ *
+ * Το `SERIESNUM` ΔΕΝ συγκρίνεται πια: είναι ο ΔΙΚΟΣ ΜΑΣ αύξων μέσα στη σειρά, οπότε ένα τιμολόγιο
+ * προμηθευτή με αριθμό «1» «ταίριαζε» με κάθε πρώτο παραστατικό της σειράς και έβγαζε ψεύτικη
+ * προειδοποίηση διπλοεγγραφής. Για τον ίδιο λόγο η χαλαρή σύγκριση (περιέχει) ισχύει μόνο από
+ * 3 χαρακτήρες και πάνω· κάτω από αυτό θέλουμε ακριβή ταύτιση.
+ *
+ * Προειδοποιητικό, ποτέ αποτρεπτικό: επιστρέφει την αναφορά του υπάρχοντος παραστατικού.
  */
 export async function softoneCheckPurchaseDoc(
   trdr: number,
-  number: string,
+  ref: PurchaseDocRef,
   dateISO?: string | null,
 ): Promise<{ exists: boolean; ref: string | null }> {
-  const n = normNum(number);
+  const n = normalizeDocRef(ref.number ?? '');
   if (!Number.isFinite(trdr) || !n) return { exists: false, ref: null };
+  // Και οι δύο γραφές που μπορεί να έχει το υπάρχον παραστατικό: σκέτος αριθμός ή πλήρης ταυτότητα.
+  const wanted = new Set([n, normalizeDocRef(ref.fincode ?? '')].filter(Boolean));
 
-  const day = dateISO ? String(dateISO).slice(0, 10) : null; // yyyy-MM-dd
+  // Η ημερομηνία θέλει ΕΙΣΑΓΩΓΙΚΑ. Χωρίς αυτά το `TRNDATE=2026-05-01` δεν ταιριάζει ΚΑΜΙΑ γραμμή
+  // (επαληθεύτηκε live: ίδιο φίλτρο με εισαγωγικά επιστρέφει το παραστατικό, χωρίς επιστρέφει 0) —
+  // δηλαδή ο έλεγχος απαντούσε σιωπηλά «δεν υπάρχει διπλοεγγραφή» για ΚΑΘΕ έγγραφο με ημερομηνία.
+  // Δεχόμαστε μόνο αυστηρό `YYYY-MM-DD`: η ημερομηνία έρχεται από OCR και μπαίνει σε φίλτρο.
+  const raw = dateISO ? String(dateISO).slice(0, 10) : '';
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+  // ΜΟΝΟ οι ενότητες στις οποίες καταχωρίζουμε: αγορές, ειδικές προμηθευτών/χρεωστών/πιστωτών.
+  // Αφιλτράριστο, το ερώτημα φτάνει και σε παραστατικά ΠΩΛΗΣΕΩΝ, όπου ο «Φορ/κός αριθμός» είναι
+  // πάντα ένας μικρός ακέραιος ίσος με τον αύξοντα — έτοιμο ψευδώς θετικό.
+  const scope = 'SOSOURCE IN (1251,1253,1553,1653)';
   const filter = day
-    ? `TRDR=${trdr} AND TRNDATE=${day}`
-    : `TRDR=${trdr}`;
+    ? `TRDR=${trdr} AND ${scope} AND TRNDATE='${day}'`
+    : `TRDR=${trdr} AND ${scope}`;
 
   let rows: Array<Record<string, string>>;
   try {
-    // Match anchored on TRDR (+ date); the supplier's number may live in any of
-    // these fields depending on tenant config, so we check them all.
-    rows = await softoneGetTable('FINDOC', ['FINDOC', 'FINCODE', 'TAXSERIESNUM', 'SERIESNUM', 'TRNDATE'], filter);
+    rows = await softoneGetTable('FINDOC', ['FINDOC', 'FINCODE', 'TAXSERIES', 'TAXSERIESNUM', 'TRNDATE'], filter);
   } catch {
     return { exists: false, ref: null };
   }
 
+  const loose = n.length >= 3;
   for (const r of rows) {
-    const fincode = normNum(r.FINCODE);
-    const taxnum = normNum(r.TAXSERIESNUM);
-    const seriesnum = normNum(r.SERIESNUM);
+    const fincode = normalizeDocRef(r.FINCODE);
+    const taxnum = normalizeDocRef(r.TAXSERIESNUM);
     const hit =
-      (fincode && (fincode === n || fincode.includes(n))) ||
-      (taxnum && (taxnum === n || taxnum.includes(n))) ||
-      (seriesnum && seriesnum === n);
-    if (hit) return { exists: true, ref: r.FINCODE || r.TAXSERIESNUM || `FINDOC ${r.FINDOC}` };
+      (fincode !== '' && (wanted.has(fincode) || (loose && fincode.includes(n)))) ||
+      (taxnum !== '' && (wanted.has(taxnum) || (loose && taxnum.includes(n))));
+    if (hit) {
+      return {
+        exists: true,
+        ref: r.FINCODE || [r.TAXSERIES, r.TAXSERIESNUM].filter(Boolean).join(' ') || `FINDOC ${r.FINDOC}`,
+      };
+    }
   }
   return { exists: false, ref: null };
 }

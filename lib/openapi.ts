@@ -1480,7 +1480,9 @@ export const openapiSpec = {
         description:
           '**Απαιτεί `ocr.post`**. Χτίζει το PURDOC payload από το κανονικό JSON και το στέλνει ΜΟΝΟ όταν η ρύθμιση ' +
           '`softone.postingEnabled` είναι ανοιχτή. Μετά το `setData` το παραστατικό διαβάζεται πίσω (`getData PURDOC`) ' +
-          'και επαληθεύονται `FINCODE`/`TRDR` — το `success:true` του SoftOne δεν αποδεικνύει εγγραφή.',
+          'και επαληθεύεται ο συναλλασσόμενος (`TRDR`) μαζί με την αναφορά του εκδότη (`FINCODE` ή `TAXSERIESNUM`) ' +
+          '— το `success:true` του SoftOne δεν αποδεικνύει εγγραφή. Ο σαρωμένος αριθμός γράφεται στα φορολογικά ' +
+          'πεδία `TAXSERIES`/`TAXSERIESNUM` και ολόκληρος στο `FINCODE`· το `SERIESNUM` το δίνει το ERP.',
         responses: {
           200: {
             description: 'Posted',

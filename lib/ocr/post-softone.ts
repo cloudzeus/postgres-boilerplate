@@ -4,12 +4,13 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getSetting } from '@/lib/settings';
 import { softoneCall, softoneGetData } from '@/lib/softone';
+import { normalizeDocRef } from '@/lib/doc-reference';
 import { buildReviewFlags } from '@/lib/templates/run-logic';
 import type { DocumentJson } from './canonical';
 import { loadDocumentJson } from './document';
 import {
-  buildPurdocPayload, postingBlockers, postingWarnings,
-  type BlockerCode, type PostingPayload, type PurdocContext, type PurdocLineCtx, type WarningCode,
+  buildPurdocPayload, documentReference, postingBlockers, postingWarnings,
+  type BlockerCode, type DocReference, type PostingPayload, type PurdocContext, type PurdocLineCtx, type WarningCode,
 } from './purdoc-payload';
 import { describeTargetShort, resolvePostingTarget, type PostingTarget } from './posting-target';
 
@@ -284,7 +285,15 @@ export type PostingPreview = {
   /** Τι ΘΑ σταλεί — υπάρχει και όταν υπάρχουν εμπόδια, για να φαίνεται τι λείπει. */
   payload: PostingPayload;
   /** Σύνοψη για την κάρτα: ό,τι δεν διαβάζεται εύκολα από το raw payload. */
-  summary: { series: string | null; trader: string | null; trdr: number | null; date: string | null; number: string | null; lines: number };
+  summary: {
+    series: string | null; trader: string | null; trdr: number | null; date: string | null;
+    lines: number;
+    /**
+     * Η αναφορά του ΕΚΔΟΤΗ όπως θα γραφτεί, ΑΝΑ ΠΕΔΙΟ: η κάρτα το δείχνει με τις λεζάντες του
+     * SoftOne, ώστε να φαίνεται ΠΟΥ πάει ο σαρωμένος αριθμός πριν ανοίξει ποτέ ο διακόπτης.
+     */
+    reference: { fincode: string | null; taxSeries: string | null; taxSeriesNum: string | null };
+  };
   /** Τι λέει ήδη η βάση: ένα POSTED έγγραφο δεν ξανα-στέλνεται (το κουμπί κλειδώνει). */
   postStatus: string;
   postedRef: string | null;
@@ -297,6 +306,7 @@ export type PostingPreview = {
 export async function postingPreview(id: string): Promise<PostingPreview> {
   const { doc, document, ctx, blockers, warnings, payload } = await gather(id);
   const enabled = (await getSetting<boolean>(POSTING_ENABLED_KEY)) === true;
+  const ref = documentReference(document.type);
   return {
     enabled,
     blockers: blockers.map((code) => ({ code, message: blockerText(code) })),
@@ -308,16 +318,42 @@ export async function postingPreview(id: string): Promise<PostingPreview> {
       trader: doc.softoneName,
       trdr: doc.softoneTrdr,
       date: document.date,
-      number: document.type.number,
       lines: ctx.lines.length,
+      reference: {
+        fincode: ref.fincode ?? null,
+        taxSeries: ref.taxSeries ?? null,
+        taxSeriesNum: ref.taxSeriesNum ?? null,
+      },
     },
     postStatus: doc.postStatus,
     postedRef: doc.postedRef,
   };
 }
 
-const sameRef = (a: unknown, b: unknown): boolean =>
-  String(a ?? '').replace(/[^0-9A-Za-zΑ-Ωα-ω]/g, '').toUpperCase() === String(b ?? '').replace(/[^0-9A-Za-zΑ-Ωα-ω]/g, '').toUpperCase();
+const sameRef = (a: unknown, b: unknown): boolean => {
+  const x = normalizeDocRef(a);
+  return x !== '' && x === normalizeDocRef(b);
+};
+
+/**
+ * Το read-back βρήκε ΤΟ ΠΑΡΑΣΤΑΤΙΚΟ ΜΑΣ; Η αναφορά του εκδότη γράφεται σε δύο πεδία που μπορούμε
+ * να ελέγξουμε, οπότε αρκεί να συμφωνήσει ΕΝΑ: το SoftOne μπορεί να ξαναγράψει το «Παραστατικό»
+ * με τη μάσκα της σειράς (βλ. γραμμές 1009/1034 του πελάτη), αλλά όχι και τα δύο. Κενή απάντηση
+ * ΔΕΝ περνά — το `sameRef` απαιτεί τιμή και στις δύο πλευρές.
+ *
+ * ΜΙΑ ΠΑΓΙΔΑ: όταν αφήσουμε κενό τον «Φορ/κό αριθμό», το SoftOne φαίνεται να τον γεμίζει από τον
+ * ΔΙΚΟ ΜΑΣ αύξοντα — οι γραμμές 1009/1034 έχουν `TAXSERIESNUM="1"` με `SERIESNUM=1`. Άρα ένα
+ * τιμολόγιο προμηθευτή με αριθμό «1», σε σειρά που δίνει `SERIESNUM=1`, θα «επιβεβαιωνόταν» ακόμη
+ * κι αν το ERP είχε πετάξει ό,τι στείλαμε. Όταν ο «Φορ/κός αριθμός» ισούται με τον αύξοντα, δεν
+ * τον δεχόμαστε ΜΟΝΟ του: θέλουμε και το «Παραστατικό» να συμφωνεί.
+ */
+const refConfirmed = (row: Record<string, unknown>, ref: DocReference, fallback: string | null): boolean => {
+  const fincodeOk = sameRef(row.FINCODE, ref.fincode ?? fallback);
+  const taxNumOk = sameRef(row.TAXSERIESNUM, ref.taxSeriesNum ?? fallback);
+  const echoesSeriesNum = row.SERIESNUM != null && sameRef(row.TAXSERIESNUM, String(row.SERIESNUM));
+  if (taxNumOk && echoesSeriesNum && !fincodeOk) return false;
+  return fincodeOk || taxNumOk;
+};
 
 /**
  * Posts the document to SoftOne (setData on the series' own object — PURDOC, LINSUPDOC,
@@ -398,10 +434,12 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
         `Η καταχώριση δεν επιβεβαιώθηκε: το SoftOne δεν επέστρεψε κεφαλίδα ${object} για το παραστατικό ${ref}`,
       );
     }
-    if (!sameRef(row.FINCODE, document.type.number) || Number(row.TRDR) !== ctx.trdr) {
+    const sent = documentReference(document.type);
+    if (!refConfirmed(row, sent, document.type.number) || Number(row.TRDR) !== ctx.trdr) {
       throw new Error(
-        `Η καταχώριση δεν επιβεβαιώθηκε: το παραστατικό ${ref} στο SoftOne έχει αριθμό «${row.FINCODE ?? '—'}» και συναλλασσόμενο ${row.TRDR ?? '—'}, ` +
-        `αντί για «${document.type.number ?? '—'}» / ${ctx.trdr}`,
+        `Η καταχώριση δεν επιβεβαιώθηκε: το παραστατικό ${ref} στο SoftOne έχει «Παραστατικό» «${row.FINCODE ?? '—'}», `
+        + `«Φορ/κό αριθμό» «${row.TAXSERIESNUM ?? '—'}» και συναλλασσόμενο ${row.TRDR ?? '—'}, `
+        + `αντί για «${sent.fincode ?? '—'}» / «${sent.taxSeriesNum ?? '—'}» / ${ctx.trdr}`,
       );
     }
 

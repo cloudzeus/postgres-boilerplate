@@ -2,7 +2,10 @@
 // Ο καθαρός μεταφραστής «κανονικό έγγραφο → PURDOC payload» και οι προϋποθέσεις καταχώρισης.
 import { describe, it, expect } from 'vitest';
 import { emptyDocument, type DocumentJson } from '../canonical';
-import { buildPurdocPayload, postingBlockers, postingWarnings, type PurdocContext, type PostingDoc } from '../purdoc-payload';
+import {
+  buildPurdocPayload, documentReference, postingBlockers, postingWarnings,
+  type PurdocContext, type PostingDoc,
+} from '../purdoc-payload';
 import {
   defaultPostingTarget, objectsForSosource, resolvePostingTarget, seriesTraderKind,
   LINES_FOR_OBJECT, POST_OBJECT_SHORT, SODTYPE_FOR_OBJECT, type PostingTarget,
@@ -59,7 +62,9 @@ describe('buildPurdocPayload', () => {
           SERIES: 7001,
           TRNDATE: '2026-03-14',
           TRDR: 12345,
-          FINCODE: '17',
+          FINCODE: 'ΤΠΥ 17',
+          TAXSERIES: 'ΤΠΥ',
+          TAXSERIESNUM: '17',
           COMMENTS: 'OCR',
           MYDATAMARK: '400001',
           MYDATAUID: 'ABC',
@@ -282,7 +287,7 @@ describe('buildPurdocPayload — LINLINES', () => {
     }));
     expect(payload.OBJECT).toBe('LINSUPDOC');
     expect(payload.DATA.PURDOC).toBeUndefined();
-    expect(payload.DATA.LINSUPDOC?.[0]).toMatchObject({ SERIES: 7001, TRDR: 12345, FINCODE: '17' });
+    expect(payload.DATA.LINSUPDOC?.[0]).toMatchObject({ SERIES: 7001, TRDR: 12345, FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17' });
     expect(payload.DATA.LINLINES).toEqual([
       { LINENUM: 9000001, MTRL: 777, MTRTYPE: 1, QTY1: 2, PRICE: 50, DISC1PRC: 0, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Είδος Α' },
       { LINENUM: 9000002, MTRL: 778, MTRTYPE: 0, QTY1: 1, PRICE: 100, DISC1PRC: 0, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Υπηρεσία Β' },
@@ -307,7 +312,7 @@ describe('buildPurdocPayload — LINLINES', () => {
 
     expect(deb.OBJECT).toBe('LINDEBDOC');
     expect(deb.DATA.LINDEBDOC?.[0]).toMatchObject({
-      SERIES: 7001, TRNDATE: '2026-03-14', TRDR: 12345, FINCODE: '17',
+      SERIES: 7001, TRNDATE: '2026-03-14', TRDR: 12345, FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17',
       MYDATAMARK: '400001', MYDATAUID: 'ABC',
     });
     // Το SODTYPE είναι read-only με default στο SoftOne — ΔΕΝ το στέλνουμε ποτέ.
@@ -468,5 +473,107 @@ describe('αναλυτική ανά γραμμή (κέντρο κόστους / 
 
   it('η αναλυτική ΔΕΝ εμποδίζει ποτέ: κενή γραμμή περνά χωρίς εμπόδιο', () => {
     expect(postingBlockers(doc(), postingDoc(), ctx())).toEqual([]);
+  });
+});
+
+describe('documentReference — η αναφορά του εκδότη στα τρία της πεδία', () => {
+  it('πρόθεμα χωριστά: «ΤΠΥ» + «17» → Φορ/κή σειρά / Φορ/κός αριθμός / πλήρες «ΤΠΥ 17»', () => {
+    expect(documentReference({ series: 'ΤΠΥ', number: '17' }))
+      .toEqual({ taxSeries: 'ΤΠΥ', taxSeriesNum: '17', fincode: 'ΤΠΥ 17' });
+  });
+
+  it('πρόθεμα ΜΕΣΑ στον αριθμό: δεν διπλασιάζεται («ΤΠΥ ΤΠΥ 17» ποτέ)', () => {
+    expect(documentReference({ series: 'ΤΠΥ', number: 'ΤΠΥ 17' }))
+      .toEqual({ taxSeries: 'ΤΠΥ', taxSeriesNum: '17', fincode: 'ΤΠΥ 17' });
+    // Ίδιο πρόθεμα με άλλο διαχωριστικό — η σύγκριση αγνοεί κενά/παύλες/τελείες.
+    expect(documentReference({ series: 'ΤΙΜ-AA', number: 'ΤΙΜ AA-2455' }))
+      .toEqual({ taxSeries: 'ΤΙΜ-AA', taxSeriesNum: '2455', fincode: 'ΤΙΜ AA-2455' });
+  });
+
+  it('χωρίς πρόθεμα: ΟΛΗ η τυπωμένη αναφορά μένει ακέραιη, δεν μαντεύουμε σειρά', () => {
+    expect(documentReference({ series: null, number: 'INV.239124' }))
+      .toEqual({ taxSeriesNum: 'INV.239124', fincode: 'INV.239124' });
+    expect(documentReference({ series: '', number: '276708' }))
+      .toEqual({ taxSeriesNum: '276708', fincode: '276708' });
+  });
+
+  it('πρόθεμα που ΜΟΙΑΖΕΙ αλλά δεν είναι: ενώνονται, δεν κόβεται τίποτα', () => {
+    expect(documentReference({ series: 'ΤΠΥ', number: 'ΤΙΜ 17' }))
+      .toEqual({ taxSeries: 'ΤΠΥ', taxSeriesNum: 'ΤΙΜ 17', fincode: 'ΤΠΥ ΤΙΜ 17' });
+  });
+
+  it('ελληνικά/λατινικά ομόγλυφα: το πρόθεμα ΔΕΝ γράφεται δύο φορές', () => {
+    // Η ΠΡΑΓΜΑΤΙΚΗ γραμμή 1042 του πελάτη είναι «ΤΙΜ-AA-2455» με ΕΛΛΗΝΙΚΟ «ΤΙΜ» και ΛΑΤΙΝΙΚΟ
+    // «AA» στο ίδιο string. Το OCR μπορεί κάλλιστα να δώσει τη σειρά με ελληνικά «Α»: χωρίς
+    // δίπλωμα ομογλύφων το πρόθεμα δεν αναγνωριζόταν και γραφόταν «ΤΙΜ-ΑΑ ΤΙΜ-AA-2455».
+    expect(documentReference({ series: 'ΤΙΜ-ΑΑ', number: 'ΤΙΜ-AA-2455' }))
+      .toEqual({ taxSeries: 'ΤΙΜ-ΑΑ', taxSeriesNum: '2455', fincode: 'ΤΙΜ-AA-2455' });
+    // Και αντίστροφα (σειρά λατινική, αριθμός ελληνικός).
+    expect(documentReference({ series: 'ΤΙΜ-AA', number: 'ΤΙΜ-ΑΑ-2455' }))
+      .toEqual({ taxSeries: 'ΤΙΜ-AA', taxSeriesNum: '2455', fincode: 'ΤΙΜ-ΑΑ-2455' });
+    // Ο τόνος δεν σπάει τη σύγκριση ούτε χάνεται χαρακτήρας.
+    expect(documentReference({ series: 'ΤΊΜ', number: 'ΤΙΜ 42' }))
+      .toEqual({ taxSeries: 'ΤΊΜ', taxSeriesNum: '42', fincode: 'ΤΙΜ 42' });
+  });
+
+  it('ο αριθμός είναι σκέτο το πρόθεμα: ο «Φορ/κός αριθμός» ΔΕΝ μένει κενός', () => {
+    // Κενό πεδίο σημαίνει ότι το ERP βάζει εκεί τον ΔΙΚΟ ΜΑΣ αύξοντα (γραμμές 1009/1034) και ότι
+    // ο έλεγχος διπλοεγγραφής παρακάμπτεται εντελώς.
+    expect(documentReference({ series: 'ΤΔΑ', number: 'ΤΔΑ' }))
+      .toEqual({ taxSeries: 'ΤΔΑ', taxSeriesNum: 'ΤΔΑ', fincode: 'ΤΔΑ' });
+  });
+
+  it('κενό έγγραφο → κανένα πεδίο (και άρα καμία κενή τιμή στην κεφαλίδα)', () => {
+    expect(documentReference({ series: null, number: null })).toEqual({});
+    expect(documentReference({ series: 'ΤΠΥ', number: null })).toEqual({ taxSeries: 'ΤΠΥ' });
+  });
+
+  it('το «Παραστατικό» χωράει 30 χαρακτήρες: προτιμά τον αριθμό από μια κομμένη σειρά', () => {
+    const series = 'ΣΕΙΡΑ-ΜΕ-ΠΟΛΥ-ΜΕΓΑΛΟ-ΟΝΟΜΑ';
+    const r = documentReference({ series, number: '2455' });
+    expect(r.taxSeries).toBe(series);
+    expect(r.taxSeriesNum).toBe('2455');
+    expect(r.fincode).toBe('2455');
+    expect((r.fincode ?? '').length).toBeLessThanOrEqual(30);
+  });
+});
+
+describe('αναφορά εκδότη στην κεφαλίδα — και στα τέσσερα objects', () => {
+  const targets = { PURDOC: PURCHASE, LINSUPDOC: LINSUP, LINCREDOC: LINCRE, LINDEBDOC: LINDEB } as const;
+  const lineCtx = { rowIndex: 0, mtrl: null, expn: null, lin: 777, linMtrType: 1 };
+  const oneLine = (d: DocumentJson): DocumentJson => ({ ...d, lines: [d.lines[0]] });
+
+  for (const [object, target] of Object.entries(targets)) {
+    it(`${object}: ΤΑΞΣΕΙΡΑ + ΦΟΡ/ΚΟΣ ΑΡΙΘΜΟΣ + ΠΑΡΑΣΤΑΤΙΚΟ, ΠΟΤΕ SERIESNUM`, () => {
+      const isPurdoc = object === 'PURDOC';
+      const payload = buildPurdocPayload(
+        oneLine(doc()),
+        ctx({ target, lines: [isPurdoc ? { rowIndex: 0, mtrl: 555, expn: null } : lineCtx] }),
+      );
+      const header = (payload.DATA as Record<string, Record<string, unknown>[]>)[object][0];
+      expect(header).toMatchObject({ FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17' });
+      // Ο δικός μας αύξων τον δίνει το ERP — δεν τον στέλνουμε ποτέ.
+      expect(header).not.toHaveProperty('SERIESNUM');
+    });
+  }
+
+  it('αριθμός με ενσωματωμένο πρόθεμα: το «Παραστατικό» κρατά την τυπωμένη μορφή', () => {
+    const payload = buildPurdocPayload(
+      oneLine(doc({ type: { label: null, series: 'ΤΙΜ Α32', number: 'ΤΙΜ Α32-000085237', myDataType: null } })),
+      ctx({ lines: [{ rowIndex: 0, mtrl: 555, expn: null }] }),
+    );
+    expect(payload.DATA.PURDOC?.[0]).toMatchObject({
+      FINCODE: 'ΤΙΜ Α32-000085237', TAXSERIES: 'ΤΙΜ Α32', TAXSERIESNUM: '000085237',
+    });
+  });
+
+  it('χωρίς σειρά: η «Φορ/κή σειρά» μένει άγραφη αντί να μαντευτεί', () => {
+    const payload = buildPurdocPayload(
+      oneLine(doc({ type: { label: null, series: null, number: 'INV.239124', myDataType: null } })),
+      ctx({ lines: [{ rowIndex: 0, mtrl: 555, expn: null }] }),
+    );
+    const header = payload.DATA.PURDOC?.[0];
+    expect(header).toMatchObject({ FINCODE: 'INV.239124', TAXSERIESNUM: 'INV.239124' });
+    expect(header).not.toHaveProperty('TAXSERIES');
   });
 });
