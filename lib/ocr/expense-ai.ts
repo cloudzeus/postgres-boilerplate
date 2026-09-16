@@ -11,9 +11,10 @@ import 'server-only';
 import { prisma } from '@/lib/db';
 import { callTextLLM, callTextViaVision, resolveCfg } from './extract';
 import { suggestForGroup, type QueueSuggestion } from './queues';
-import { resolveOwnCompany, type OwnCompanyProfile } from './own-company';
+import { resolveOwnCompany, UNKNOWN_OWN_COMPANY, type OwnCompanyProfile } from './own-company';
 import { AI_CONFIDENT_SCORE, bestSuggestionScore } from './ai-apply';
 import type { MatchKind } from './line-match';
+import { TRADER_KIND_SODTYPE } from '@/lib/softone';
 
 /**
  * Πάνω από αυτό το σκορ ο φθηνός δρόμος θεωρείται αρκετός — καμία κλήση μοντέλου. Ένα κατώφλι,
@@ -35,6 +36,13 @@ export const MAX_MYDATA_TYPES = 60;
 export const MAX_MYDATA_CATEGORIES = 30;
 /** …και όταν έχει επιλεγεί (τότε η λίστα είναι ήδη στενή και τη στέλνουμε σχεδόν ολόκληρη). */
 export const MAX_CANDIDATES_CATEGORY = 120;
+/**
+ * Πόσα ΕΞΟΔΑ (`EXPN`) στέλνουμε ως λευκή λίστα. Το μητρώο εξόδων μιας εγκατάστασης είναι
+ * **μικρό** — στον ζωντανό tenant είναι **έξι** γραμμές — και το να το στείλουμε **ολόκληρο**
+ * κοστίζει ελάχιστα και αντικαθιστά εικασία με κατάλογο. Το πλαφόν υπάρχει μόνο ως δικλείδα
+ * για εγκατάσταση με ασυνήθιστα μεγάλο μητρώο.
+ */
+export const MAX_EXPENSES = 40;
 
 export interface AiGroupInput {
   /** Κλειδί ομάδας όπως το ξέρει το UI (`afm|pattern`). */
@@ -86,6 +94,18 @@ export interface AiSuggestResult {
   cached: number;
   /** `true` όταν κανένας πάροχος δεν απάντησε — «καμία πρόταση», όχι σφάλμα. */
   degraded: boolean;
+  /**
+   * `true` όταν η ταξινόμηση έτρεξε **χωρίς να ξέρουμε τι κάνει η δική μας επιχείρηση**
+   * (`resolveOwnCompany().activity === null`).
+   *
+   * Δεν είναι λεπτομέρεια: το αν μια γραμμή είναι **προϊόν** δεν είναι ιδιότητα του πράγματος
+   * αλλά του **τι κάνει ο αγοραστής** με αυτό (δες την κεφαλίδα του `lib/ocr/own-company.ts`).
+   * Το ίδιο ψωμί είναι απόθεμα για φούρνο και έξοδο για γραφείο. Όταν λείπει, το prompt γράφει
+   * ρητά «ΑΓΝΩΣΤΗ δραστηριότητα» και το μοντέλο κρίνει χωρίς το πιο κρίσιμο δεδομένο — αλλά ο
+   * χρήστης δεν το μάθαινε πουθενά, και οι προτάσεις έμοιαζαν το ίδιο σίγουρες. Η λειτουργία
+   * **δεν** μπλοκάρει· απλώς παύει να υποβαθμίζεται σιωπηλά.
+   */
+  ownCompanyUnknown: boolean;
 }
 
 /**
@@ -297,6 +317,12 @@ const SYSTEM = [
   '    ⇒ "expense", ή "lineitem" όταν η δαπάνη καταχωρείται ως ειδική συναλλαγή.',
   '  • Υπηρεσία που καταναλώνεται και τηρείται στο μητρώο ειδών ως υπηρεσία ⇒ "service".',
   '',
+  'ΑΔΕΙΕΣ ΚΑΙ ΣΥΝΔΡΟΜΕΣ ΔΕΝ ΕΙΝΑΙ ΑΠΟΘΕΜΑ: άδεια χρήσης, συνδρομή, ανανέωση, συμβόλαιο',
+  'συντήρησης ή «πρόγραμμα αναβάθμισης» ανά serial/εγκατάσταση είναι δικαίωμα χρήσης που',
+  'καταναλώνεται — ΟΧΙ αγαθό που μπαίνει σε απογραφή. Ισχύει ΑΚΟΜΗ ΚΑΙ ΟΤΑΝ ο εκδότης είναι',
+  'προμηθευτής εμπορευμάτων: ο ίδιος οίκος πουλά και μηχανήματα και άδειες. Ένας κωδικός',
+  'σειράς (SN, P.ID) μέσα στην περιγραφή δείχνει συνήθως άδεια δεμένη σε ΥΠΑΡΧΟΥΣΑ συσκευή.',
+  '',
   'ΑΠΑΝΤΑΣ ΜΟΝΟ με JSON αυτής της μορφής, χωρίς κείμενο γύρω του:',
   '{"matches":[{"key":"<key>","kind":"product|service|expense|lineitem",',
   '"code":"<κωδικός ΜΟΝΟ από τη λίστα υποψηφίων, ή κενό>",',
@@ -315,12 +341,38 @@ const SYSTEM = [
   '    που καταναλώνεται, δεν αποθεματοποιείται».',
 ].join('\n');
 
-/** Στοιχεία εκδότη από τον τοπικό καθρέφτη — επωνυμία, δραστηριότητα, σχέση μαζί μας. */
-type IssuerInfo = { name: string | null; profession: string | null; kind: string | null };
+/**
+ * Οι καρτέλες `TRDR` που υπάρχουν για το ΑΦΜ ενός εκδότη.
+ *
+ * Στο SoftOne κάθε τύπος συναλλασσομένου είναι **ξεχωριστή γραμμή** του `TRDR`: `SODTYPE 12`
+ * προμηθευτής, `SODTYPE 16` πιστωτής. Ο διαχωρισμός είναι ο ελληνικός λογιστικός διαχωρισμός —
+ * προμηθευτής για εμπορεύματα/αποθέματα (ΕΛΠ ομάδα 2), πιστωτής για δαπάνες και παροχές τρίτων
+ * (ομάδα 6) — και τον συντηρεί σκόπιμα ο λογιστής.
+ *
+ * ⚠️ Ζει **εδώ** και όχι στο `lib/ocr/line-kind.ts` επίτηδες. Δοκιμάσαμε να την κάνουμε
+ * ντετερμινιστική βαθμίδα και **απέτυχε πάνω σε ζωντανά δεδομένα**: η καρτέλα είναι **αναγκαία,
+ * όχι ικανή** — λέει «αυτός ο οίκος μας πουλά αγαθά», ποτέ «αυτή η γραμμή είναι αγαθό». Ο ίδιος
+ * `SODTYPE 12` κουβαλά και τον κατασκευαστή σφιγκτήρων και τον προμηθευτή συστημάτων που τιμολογεί
+ * **άδειες λογισμικού ανά serial**. Το prompt είναι το μόνο σημείο όπου η καρτέλα συνδυάζεται με
+ * το **κείμενο της γραμμής**, που είναι ό,τι πραγματικά ξεχωρίζει τις δύο περιπτώσεις.
+ */
+export interface IssuerTraderCards {
+  /** Υπάρχει καρτέλα **προμηθευτή** (`SODTYPE` 12). */
+  supplier: boolean;
+  /** Υπάρχει καρτέλα **πιστωτή** (`SODTYPE` 16). */
+  creditor: boolean;
+}
+
+/** Στοιχεία εκδότη από τον τοπικό καθρέφτη — επωνυμία, δραστηριότητα, καρτέλες `TRDR`. */
+type IssuerInfo = { name: string | null; profession: string | null; cards: IssuerTraderCards };
 
 /**
- * Ποιος εκδίδει: μία ανάγνωση για όλες τις ομάδες. Η **σχέση** (προμηθευτής / πιστωτής /
- * χρεώστης) είναι αφ' εαυτής ένδειξη — καρτέλα πιστωτή σημαίνει δαπάνη, όχι εμπόρευμα.
+ * Ποιος εκδίδει: μία ανάγνωση για όλες τις ομάδες.
+ *
+ * Μαζεύουμε **όλες** τις καρτέλες κάθε ΑΦΜ, όχι την πρώτη γραμμή. Η παλιά έκδοση κρατούσε το
+ * `kind` της **πρώτης** γραμμής που γύρναγε η βάση: ένας εκδότης με καρτέλα προμηθευτή **και**
+ * πιστωτή δήλωνε αυθαίρετα τη μία από τις δύο, ανάλογα με τη σειρά των εγγραφών — ακριβώς η
+ * περίπτωση όπου η ένδειξη αυτοαναιρείται και δεν πρέπει να δηλωθεί τίποτα.
  */
 async function loadIssuers(groups: readonly AiGroupInput[]): Promise<Map<string, IssuerInfo>> {
   const afms = Array.from(new Set(groups.map((g) => g.afm).filter(Boolean)));
@@ -329,14 +381,105 @@ async function loadIssuers(groups: readonly AiGroupInput[]): Promise<Map<string,
   const rows = await prisma.softoneTrader
     .findMany({
       where: { afm: { in: afms }, isActive: true },
-      select: { afm: true, name: true, profession: true, kind: true },
+      select: { afm: true, name: true, profession: true, sodtype: true },
     })
-    .catch(() => [] as { afm: string | null; name: string; profession: string | null; kind: string }[]);
+    .catch(() => [] as { afm: string | null; name: string; profession: string | null; sodtype: number }[]);
   for (const r of rows) {
-    if (!r.afm || out.has(r.afm)) continue;
-    out.set(r.afm, { name: r.name ?? null, profession: r.profession ?? null, kind: r.kind ?? null });
+    if (!r.afm) continue;
+    const cur = out.get(r.afm)
+      ?? { name: null, profession: null, cards: { supplier: false, creditor: false } };
+    cur.name = cur.name ?? (r.name ?? null);
+    cur.profession = cur.profession ?? (r.profession ?? null);
+    if (r.sodtype === TRADER_KIND_SODTYPE.supplier) cur.cards.supplier = true;
+    if (r.sodtype === TRADER_KIND_SODTYPE.creditor) cur.cards.creditor = true;
+    out.set(r.afm, cur);
   }
   return out;
+}
+
+/**
+ * Η **σχέση** με τον εκδότη, γραμμένη ώστε να λέει τι ΣΥΝΕΠΑΓΕΤΑΙ και όχι μόνο πώς λέγεται.
+ *
+ * Το παλιό `σχέση: Πιστωτής` ήταν σκέτη ετικέτα: το μοντέλο έπρεπε να μαντέψει μόνο του τι
+ * σημαίνει λογιστικά, και δεν το μάντευε σταθερά — τα ίδια εργαλεία χειρός του ίδιου εκδότη
+ * έπαιρναν «έξοδο ομάδα 64» στη μία παρτίδα και «πάγιο» στην άλλη. Η καρτέλα **είναι** ο
+ * ελληνικός λογιστικός διαχωρισμός, οπότε τον λέμε ρητά.
+ *
+ * Σκόπιμα **μία γραμμή**: το prompt κοστίζει ήδη ~3.000–5.000 επιπλέον tokens ανά παρτίδα.
+ *
+ * ⚠️ **Η γραμμή του προμηθευτή λέει ρητά ότι είναι ΕΝΔΕΙΞΗ, όχι απόφαση.** Μια πρώτη εκδοχή
+ * έγραφε σκέτο «ΠΡΟΜΗΘΕΥΤΗΣ — αγορά για μεταπώληση, ομάδα 2» και **επαληθεύτηκε ζωντανά ότι
+ * υπερδιορθώνει**: το μοντέλο άρχισε να δηλώνει `product` με βεβαιότητα 1,00 για **κάθε** γραμμή
+ * τέτοιου εκδότη, άδειες λογισμικού ανά serial συμπεριλαμβανομένων. Είναι το ίδιο σφάλμα που
+ * βγήκε από τον ντετερμινιστικό δρόμο (δες `lib/ocr/line-kind.ts`), μεταφερμένο στο prompt: η
+ * καρτέλα είναι **αναγκαία, όχι ικανή**. Εδώ όμως το μοντέλο βλέπει **και** το κείμενο της
+ * γραμμής, οπότε το σωστό δεν είναι να κρύψουμε τη σχέση αλλά να πούμε τι βάρος έχει.
+ */
+export function issuerRelationLine(cards: IssuerTraderCards): string | null {
+  if (cards.supplier && cards.creditor) {
+    return 'σχέση: καρτέλα ΚΑΙ προμηθευτή ΚΑΙ πιστωτή — η σχέση ΔΕΝ αποφασίζει, κρίνε από τη γραμμή';
+  }
+  if (cards.supplier) {
+    // ΑΝΑΓΚΑΙΑ, ΟΧΙ ΙΚΑΝΗ — δες το σχόλιο της συνάρτησης.
+    return 'σχέση: ΠΡΟΜΗΘΕΥΤΗΣ (TRDR 12) — ο λογιστής τον έχει καταχωρήσει ως προμηθευτή ΕΜΠΟΡΕΥΜΑΤΩΝ (ΕΛΠ ομάδα 2): ισχυρή ένδειξη υπέρ του "product", αλλά κρίνε και το κείμενο της γραμμής';
+  }
+  if (cards.creditor) {
+    return 'σχέση: ΠΙΣΤΩΤΗΣ (TRDR 16) — δαπάνη ή παροχή τρίτων, ΕΛΠ ομάδα 6· ΟΧΙ απόθεμα';
+  }
+  return null;
+}
+
+/**
+ * `true` για έξοδο της πλευράς των **ΠΩΛΗΣΕΩΝ**.
+ *
+ * Το μητρώο κρατά ζευγάρια: «Μεταφορικά Αγορών» / «Μεταφορικά Πωλήσεων». Η εφαρμογή καταχωρεί
+ * **ΜΟΝΟ εισερχόμενα** παραστατικά, άρα η πλευρά των πωλήσεων δεν ισχύει ποτέ εδώ — και είναι
+ * λάθος που δύσκολα το προσέχει κανείς, γιατί η γραμμή φαίνεται απολύτως εύλογη.
+ *
+ * Το επιβάλλουμε **στον κώδικα**, όχι με πρόταση μέσα στο prompt. Η αιτιολόγηση του μοντέλου
+ * (`reason`) τυπώνεται στον χρήστη ως ο λόγος πάνω στον οποίο θα δράσει, οπότε ένα «Μεταφορικά
+ * Πωλήσεων» εκεί έχει πραγματικό κόστος. Ίδια πειθαρχία με τη λευκή λίστα myDATA, που είναι
+ * επίσης πραγματικά επιβεβλημένη: **ό,τι δεν στείλαμε δεν μπορεί να επιλεγεί**.
+ */
+const isSalesExpense = (name: string): boolean =>
+  // ΧΩΡΙΣ ΤΟΝΟΥΣ: το `'Μεταφορικά Πωλήσεων'.toUpperCase()` δίνει «ΠΩΛΉΣΕΩΝ» **με τόνο** (η JS
+  // κρατά τον τόνο στα ελληνικά κεφαλαία), που δεν ταιριάζει με το άτονο «ΠΩΛΗΣΕΩΝ». Το
+  // φίλτρο θα περνούσε σιωπηλά και η γραμμή θα έφτανε στο μοντέλο.
+  String(name ?? '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes('ΠΩΛΗΣΕΩΝ');
+
+/**
+ * Το **ΜΗΤΡΩΟ ΕΞΟΔΩΝ** (`EXPN`) της εγκατάστασης, ως λευκή λίστα για το prompt.
+ *
+ * Γιατί μπήκε: το prompt ζητούσε από το μοντέλο να συλλογιστεί σε **ομάδες ΕΛΠ** («61 αμοιβές
+ * τρίτων», «64 διάφορα έξοδα») — αφηρημένη ταξινομία, με το μοντέλο να διαλέγει ελεύθερα. Το
+ * αποτέλεσμα ήταν ασταθές: τα ίδια εργαλεία χειρός έπαιρναν «έξοδο, ομάδα 64» στη μία παρτίδα
+ * και «πάγιο» στην άλλη. Το πραγματικό μητρώο όμως είναι **έξι γραμμές**, με ονόματα που
+ * απαντούν ακριβώς στην ερώτηση («Μεταφορικά Αγορών»). Ένας κατάλογος έξι γραμμών είναι
+ * ασύγκριτα πιο αξιόπιστος από αφηρημένη ταξινομία — και το μοντέλο ή διαλέγει από αυτόν ή δεν
+ * διαλέγει τίποτα.
+ *
+ * ⚠️ Η **σύγχυση αγορών/πωλήσεων** δηλώνεται ρητά: το μητρώο κρατά ζευγάρια όπως «Μεταφορικά
+ * Αγορών» / «Μεταφορικά Πωλήσεων». Η εφαρμογή καταχωρεί **ΜΟΝΟ εισερχόμενα** παραστατικά, άρα
+ * κάθε έξοδο **ΠΩΛΗΣΕΩΝ** είναι λάθος εδώ — και λάθος που δεν θα το πρόσεχε κανείς, γιατί η
+ * γραμμή θα φαινόταν απολύτως εύλογη.
+ */
+async function loadExpenseRegistry(): Promise<{ prompt: string }> {
+  const all = await prisma.softoneExpense
+    .findMany({ where: { isActive: true }, orderBy: { code: 'asc' }, take: MAX_EXPENSES, select: { code: true, name: true } })
+    .catch(() => [] as { code: string; name: string }[]);
+  // Τα έξοδα ΠΩΛΗΣΕΩΝ δεν φεύγουν καν: αυτό που δεν στάλθηκε δεν μπορεί να επιλεγεί.
+  const rows = all.filter((r) => !isSalesExpense(r.name));
+  if (rows.length === 0) {
+    return { prompt: 'Μητρώο εξόδων (EXPN): δεν έχει συγχρονιστεί — μην επικαλείσαι συγκεκριμένο έξοδο.' };
+  }
+  return {
+    prompt: [
+      `Το ΜΗΤΡΩΟ ΕΞΟΔΩΝ (EXPN) της εγκατάστασης — ${rows.length} γραμμές, ΟΛΕΣ όσες ισχύουν εδώ:`,
+      ...rows.map((r) => `  ${r.code} — ${r.name}`),
+      'Όταν κρίνεις "expense", ονόμασε στο "reason" ΠΟΙΑ από αυτές τις γραμμές ταιριάζει.',
+      'Αν καμία δεν ταιριάζει, πες το — μην εφευρίσκεις έξοδο που δεν υπάρχει στη λίστα.',
+    ].join('\n'),
+  };
 }
 
 /**
@@ -378,13 +521,34 @@ async function loadMyDataLists(): Promise<{ prompt: string; allowedTypes: Set<st
   };
 }
 
-/** Ποιοι είμαστε, σε τρεις γραμμές prompt — με ΡΗΤΟ «άγνωστο» όπου δεν ξέρουμε. */
+/**
+ * Ποιοι είμαστε, σε λίγες γραμμές prompt — με ΡΗΤΟ «άγνωστο» όπου δεν ξέρουμε.
+ *
+ * Η **εμπορική** δραστηριότητα τυπώνεται χωριστά από την **κύρια**, γιατί το ερώτημα «για
+ * μεταπώληση ή για ανάλωση;» το απαντά η πρώτη και όχι η δεύτερη: μια εταιρεία λογισμικού με
+ * δευτερεύοντα ΚΑΔ χονδρικού εμπορίου εξοπλισμού πληροφορικής όντως μεταπωλεί υπολογιστές.
+ *
+ * Ο κενός πίνακας γράφεται **ρητά** ως «καμία εμπορική δραστηριότητα», ΟΧΙ ως σιωπή: είναι
+ * κατηγορηματικό «δεν μεταπωλούμε» και το μοντέλο πρέπει να το διαβάσει έτσι.
+ */
 function ownCompanyBlock(own: OwnCompanyProfile): string {
   const name = own.name ?? '(άγνωστη επωνυμία)';
   const afm = own.afm ?? '(άγνωστο ΑΦΜ)';
   const activity = own.activity
     ?? 'ΑΓΝΩΣΤΗ — δεν έχει καταχωρηθεί δραστηριότητα· ΜΗΝ υποθέσεις εμπορία ή μεταπώληση.';
-  return `Η ΔΙΚΗ ΜΑΣ ΕΠΙΧΕΙΡΗΣΗ (ο αγοραστής):\n  Επωνυμία: ${name}\n  ΑΦΜ: ${afm}\n  Δραστηριότητα: ${activity}`;
+  const trade = own.tradeActivities.length > 0
+    ? [
+        '  Εμπορικές δραστηριότητες (ΚΑΔ εμπορίου — ΜΟΝΟ αυτά μεταπωλούμε):',
+        ...own.tradeActivities.map((t) => `    • ${t}`),
+      ].join('\n')
+    : '  Εμπορικές δραστηριότητες: ΚΑΜΙΑ στο μητρώο — δεν μεταπωλούμε αγαθά.';
+  return [
+    'Η ΔΙΚΗ ΜΑΣ ΕΠΙΧΕΙΡΗΣΗ (ο αγοραστής):',
+    `  Επωνυμία: ${name}`,
+    `  ΑΦΜ: ${afm}`,
+    `  Κύρια δραστηριότητα: ${activity}`,
+    trade,
+  ].join('\n');
 }
 
 /**
@@ -398,7 +562,9 @@ export async function suggestExpensesWithAi(input: {
 }): Promise<AiSuggestResult> {
   const categoryId = input.categoryId ?? null;
   const groups = input.groups.slice(0, MAX_GROUPS);
-  if (groups.length === 0) return { suggestions: [], asked: 0, skipped: 0, cached: 0, degraded: false };
+  if (groups.length === 0) {
+    return { suggestions: [], asked: 0, skipped: 0, cached: 0, degraded: false, ownCompanyUnknown: false };
+  }
 
   // 1. Ο φθηνός δρόμος πρώτα — ό,τι λύνεται εδώ δεν κοστίζει τίποτα.
   const deterministic = new Map<string, QueueSuggestion[]>();
@@ -408,7 +574,8 @@ export async function suggestExpensesWithAi(input: {
   const unresolved = groups.filter((g) => bestScore(deterministic.get(g.key) ?? []) < CONFIDENT_SCORE);
   const skipped = groups.length - unresolved.length;
   if (unresolved.length === 0) {
-    return { suggestions: [], asked: 0, skipped, cached: 0, degraded: false };
+    // Καμία ερώτηση στο μοντέλο ⇒ καμία ταξινόμηση που θα μπορούσε να υποβαθμιστεί.
+    return { suggestions: [], asked: 0, skipped, cached: 0, degraded: false, ownCompanyUnknown: false };
   }
 
   // ΚΕΝΗ λίστα υποψηφίων ΔΕΝ ακυρώνει πια την κλήση: το μοντέλο μπορεί να μην έχει κωδικό να
@@ -431,17 +598,22 @@ export async function suggestExpensesWithAi(input: {
     }
     fresh.push(g);
   }
-  if (fresh.length === 0) return { suggestions: out, asked: 0, skipped, cached, degraded: false };
+  if (fresh.length === 0) return { suggestions: out, asked: 0, skipped, cached, degraded: false, ownCompanyUnknown: false };
 
   const byCode = new Map(candidates.map((c) => [c.code.trim().toUpperCase(), c]));
   const list = candidates.map((c) => `${c.code} — ${c.name}${c.category ? ` [${c.category}]` : ''}`).join('\n');
 
   // Ποιοι είμαστε, ποιος εκδίδει, και η ΠΡΑΓΜΑΤΙΚΗ ταξινομία της ΑΑΔΕ ως λευκή λίστα.
-  const [own, issuers, myData] = await Promise.all([
-    resolveOwnCompany().catch(() => ({ afm: null, name: null, activity: null })),
+  const [own, issuers, myData, expenses] = await Promise.all([
+    resolveOwnCompany().catch(() => UNKNOWN_OWN_COMPANY),
     loadIssuers(fresh),
     loadMyDataLists(),
+    loadExpenseRegistry(),
   ]);
+
+  // Η ΚΡΙΣΙΜΗ έλλειψη, δηλωμένη αντί να περάσει απαρατήρητη: χωρίς δραστηριότητα δεν απαντιέται
+  // το «για μεταπώληση ή για ανάλωση;» — και αυτό είναι όλο το ερώτημα «προϊόν ή έξοδο;».
+  const ownCompanyUnknown = own.activity == null;
 
   const lines = fresh.map((g) => {
     const iss = issuers.get(g.afm);
@@ -449,9 +621,9 @@ export async function suggestExpensesWithAi(input: {
       iss?.name ?? g.supplier ?? null,
       g.afm ? `ΑΦΜ ${g.afm}` : null,
       iss?.profession ?? null,
-      // Η ΣΧΕΣΗ με τον εκδότη είναι από μόνη της ένδειξη: καρτέλα πιστωτή σημαίνει δαπάνη,
-      // όχι εμπόρευμα (οι σειρές πιστωτών καταχωρούν σε «Ειδικές συναλλαγές»).
-      iss?.kind ? `σχέση: ${iss.kind}` : null,
+      // Η ΣΧΕΣΗ με τον εκδότη είναι από μόνη της ένδειξη, και τη γράφουμε με ό,τι ΣΥΝΕΠΑΓΕΤΑΙ
+      // υπό τα ΕΛΠ — όχι σκέτη ετικέτα που το μοντέλο πρέπει να μεταφράσει μόνο του.
+      iss ? issuerRelationLine(iss.cards) : null,
     ].filter(Boolean).join(' · ');
     return `${g.key} :: ${(g.sample ?? g.pattern).slice(0, 160)}${who ? `\n    εκδότης: ${who}` : ''}`;
   }).join('\n');
@@ -464,6 +636,8 @@ export async function suggestExpensesWithAi(input: {
     '',
     'Υποψήφιες δαπάνες / χρεοπιστώσεις (κωδικός — περιγραφή):',
     list || '(καμία)',
+    '',
+    expenses.prompt,
     '',
     myData.prompt,
     '',
@@ -491,7 +665,7 @@ export async function suggestExpensesWithAi(input: {
     } catch (e) {
       // Κανένας πάροχος: «καμία πρόταση», ΟΧΙ σφάλμα — η ουρά συνεχίζει να δουλεύει χειροκίνητα.
       console.error('[expense-ai] no model available', (e as Error).message);
-      return { suggestions: out, asked: 0, skipped, cached, degraded: true };
+      return { suggestions: out, asked: 0, skipped, cached, degraded: true, ownCompanyUnknown };
     }
   }
 
@@ -531,5 +705,5 @@ export async function suggestExpensesWithAi(input: {
     if (!seen.has(g.key)) cache.set(cacheKey(g, categoryId, signature), { at: now, value: null });
   }
 
-  return { suggestions: out, asked: fresh.length, skipped, cached, degraded: false };
+  return { suggestions: out, asked: fresh.length, skipped, cached, degraded: false, ownCompanyUnknown };
 }

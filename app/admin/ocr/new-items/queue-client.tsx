@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { FiCheckCircle, FiCpu, FiLoader } from 'react-icons/fi';
+import { FiAlertTriangle, FiCheckCircle, FiCpu, FiLoader } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { QueueEmpty, QueueLayout, type QueueLayoutHandle } from '@/components/admin/queue-layout';
 import type { ItemQueueGroup, QueueSuggestion } from '@/lib/ocr/queues';
@@ -362,6 +362,15 @@ export function NewItemsClient({
   // Ό,τι έχει ήδη αποφασιστεί (χρήστης ή δομή του ERP) ούτε ρωτιέται ούτε ξαναγράφεται.
   const [aiBusy, setAiBusy] = React.useState(false);
   const [aiAsked, setAiAsked] = React.useState(0);
+  /**
+   * Η «Πρόταση με AI» έτρεξε **χωρίς να ξέρει τι κάνει η δική μας επιχείρηση**.
+   *
+   * Δεν είναι σφάλμα και δεν μπλοκάρει τίποτα — είναι **υποβάθμιση**, και μέχρι τώρα ήταν
+   * σιωπηλή: το «προϊόν ή έξοδο;» είναι στην ουσία «για μεταπώληση ή για ανάλωση;», και αυτό
+   * δεν απαντιέται χωρίς τη δραστηριότητα του αγοραστή. Οι προτάσεις έβγαιναν το ίδιο σίγουρες
+   * σαν να το ξέραμε. Μένει ορατό μέχρι την επόμενη κλήση ή το refresh της σελίδας.
+   */
+  const [ownCompanyUnknown, setOwnCompanyUnknown] = React.useState(false);
   const aiSuggest = React.useCallback(async () => {
     if (aiBusy || !canManage) return;
     // ΜΟΝΟ οι ομάδες που είναι πραγματικά άλυτες — όχι ό,τι φαίνεται στη λίστα. Μια ομάδα που
@@ -396,12 +405,16 @@ export function NewItemsClient({
           labels: { costCntr: string | null; prjc: string | null; prjcStage: string | null };
         }[];
         asked: number; skipped: number; cached: number; analyticsAsked: number; degraded: boolean;
+        ownCompanyUnknown?: boolean;
       }>('/api/admin/ocr/new-items/ai-suggest', {
         groups: batch,
         categoryId: lineCategory,
         trdr: visible[0]?.trdr ?? null,
       });
       if (!d) return;
+      // Πριν από κάθε άλλη ανάγνωση της απάντησης: αν η ταξινόμηση έτρεξε τυφλή, ο χρήστης
+      // πρέπει να το ξέρει ΠΡΙΝ εμπιστευτεί τα chips που μόλις γέμισαν.
+      setOwnCompanyUnknown(d.ownCompanyUnknown === true);
       if (d.degraded) {
         toast.info('Το μοντέλο δεν είναι διαθέσιμη αυτή τη στιγμή — καμία πρόταση.');
         return;
@@ -494,13 +507,45 @@ export function NewItemsClient({
     );
   }, [selected, canManage, shownSuggestions, match]);
 
+  /**
+   * Η γραμμή σημείωσης πάνω από τη λίστα. Δύο ανεξάρτητοι λόγοι, και `undefined` όταν δεν
+   * υπάρχει κανένας — αλλιώς η μπάρα θα έμενε καρφωμένη άδεια πάνω από την ουρά.
+   *
+   * Το `<QueueLayout notice>` τυπώνεται μέσα σε `<p>`, οπότε εδώ μόνο inline στοιχεία.
+   */
+  const notice = React.useMemo<React.ReactNode | undefined>(() => {
+    const parts: React.ReactNode[] = [];
+    if (truncated) {
+      parts.push(
+        <span key="truncated">
+          Εμφανίζονται οι πρώτες {total} εγγραφές — ολοκλήρωσε αυτές και ανανέωσε.
+        </span>,
+      );
+    }
+    if (ownCompanyUnknown) {
+      parts.push(
+        <span key="own-company" className="inline-flex items-start gap-1.5 text-amber-700">
+          <FiAlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            <strong>Η πρόταση με AI έτρεξε χωρίς να ξέρει τι κάνει η επιχείρησή μας.</strong>{' '}
+            Το αν μια γραμμή είναι <em>προϊόν</em> ή <em>έξοδο</em> εξαρτάται από το αν την
+            αγοράσαμε <em>για μεταπώληση</em> ή <em>για ανάλωση</em> — και αυτό δεν απαντιέται
+            χωρίς τη δική μας δραστηριότητα. Συμπλήρωσε το ΑΦΜ μας στη ρύθμιση{' '}
+            <code>company.ownVat</code> (Ρυθμίσεις → Διασυνδέσεις) και βεβαιώσου ότι υπάρχει
+            καρτέλα εταιρείας με αυτό το ΑΦΜ. Έλεγξε τις κατηγορίες με προσοχή.
+          </span>
+        </span>,
+      );
+    }
+    if (parts.length === 0) return undefined;
+    return <span className="flex flex-col gap-1">{parts}</span>;
+  }, [truncated, total, ownCompanyUnknown]);
+
   return (
     <QueueLayout<ItemQueueGroup>
       header={header}
       handleRef={layout}
-      notice={truncated
-        ? `Εμφανίζονται οι πρώτες ${total} εγγραφές — ολοκλήρωσε αυτές και ανανέωσε.`
-        : undefined}
+      notice={notice}
       items={visible}
       getId={(g) => g.key}
       selectedId={selectedKey}

@@ -47,5 +47,8 @@ export async function POST(req: Request) {
     analyticsAsked: analyticsResult.asked,
     // «Υποβαθμισμένο» μόνο όταν ΚΑΜΙΑ πλευρά δεν απάντησε — αλλιώς κάτι χρήσιμο γύρισε.
     degraded: expense.degraded && analyticsResult.degraded,
+    // Η ταξινόμηση έτρεξε χωρίς να ξέρουμε τη ΔΙΚΗ ΜΑΣ δραστηριότητα — το UI το λέει, δεν το
+    // κρύβει. Δες `AiSuggestResult.ownCompanyUnknown` για το γιατί μετράει τόσο.
+    ownCompanyUnknown: expense.ownCompanyUnknown,
   });
 }

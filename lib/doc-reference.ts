@@ -13,8 +13,13 @@
  * τον αριθμό με λατινικό «A» θα έσπαγε κάθε σύγκριση: το πρόθεμα δεν θα αναγνωριζόταν μέσα στον
  * αριθμό (και θα γραφόταν διπλό), και ο έλεγχος διπλοεγγραφής δεν θα έβρισκε την υπάρχουσα γραμμή.
  * Ό,τι φαίνεται ίδιο, συγκρίνεται ίδιο.
+ *
+ * **Εξάγεται** επειδή το ίδιο πρόβλημα υπάρχει σε κάθε σύγκριση κειμένου που βγήκε από το OCR,
+ * όχι μόνο στις αναφορές παραστατικών: το `lib/ocr/line-kind.ts` ψάχνει τη λέξη «υπηρεσία» μέσα
+ * σε περιγραφές γραμμών από τον ΙΔΙΟ αγωγό, και ένα «ΥΠΗΡΕΣΙΑ» με λατινικά Υ/Ρ/Ε/Η θα του
+ * ξέφευγε. Ένα αντίγραφο του πίνακα θα απέκλινε την πρώτη φορά που κάποιος διόρθωνε το ένα.
  */
-const HOMOGLYPHS: Record<string, string> = {
+export const GREEK_LATIN_HOMOGLYPHS: Record<string, string> = {
   Α: 'A', Β: 'B', Ε: 'E', Ζ: 'Z', Η: 'H', Ι: 'I', Κ: 'K',
   Μ: 'M', Ν: 'N', Ο: 'O', Ρ: 'P', Τ: 'T', Υ: 'Y', Χ: 'X',
 };
@@ -33,7 +38,7 @@ export function normalizeDocRef(value: unknown): string {
   const up = String(value ?? '').toUpperCase();
   let out = '';
   for (const ch of up) {
-    const c = HOMOGLYPHS[ACCENTS[ch] ?? ch] ?? ACCENTS[ch] ?? ch;
+    const c = GREEK_LATIN_HOMOGLYPHS[ACCENTS[ch] ?? ch] ?? ACCENTS[ch] ?? ch;
     if (/[0-9A-ZΑ-Ω]/.test(c)) out += c;
   }
   return out;
