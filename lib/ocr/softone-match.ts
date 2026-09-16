@@ -2,20 +2,28 @@ import { prisma } from '@/lib/db';
 import { SODTYPE_LABEL, softoneFindTraderByAfm, softoneCheckPurchaseDoc } from '@/lib/softone';
 import { SODTYPE_FOR_OBJECT, resolvePostingTarget } from '@/lib/ocr/posting-target';
 import { normalizeLineText } from '@/lib/ocr/line-match';
+import { documentReference } from '@/lib/ocr/purdoc-payload';
 
 /**
- * PURDOC duplicate check fields for a scanned doc, given the matched supplier TRDR
- * and the OCR-extracted invoice number + date. Best-effort (never throws).
+ * Έλεγχος διπλοεγγραφής για ένα σαρωμένο έγγραφο: προμηθευτής + αναφορά εκδότη + ημερομηνία.
+ *
+ * Ψάχνει με ΤΗΝ ΙΔΙΑ αναφορά που θα καταχωρούσε το `buildPurdocPayload` — «Φορ/κός αριθμός» και
+ * πλήρης ταυτότητα «Παραστατικό» — αλλιώς ο έλεγχος θα κοιτούσε άλλο πεδίο από αυτό που γράφουμε
+ * και η προειδοποίηση θα ήταν αναξιόπιστη με τον ίδιο ακριβώς τρόπο. Best-effort (ποτέ δεν σκάει).
  */
 export async function buildDuplicateCheck(
   trdr: number | null,
-  invoiceNumber: unknown,
+  type: { series: string | null; number: string | null } | null,
   date: unknown,
 ): Promise<{ softoneDocExists: boolean | null; softoneDocRef: string | null; softoneDocChecked: Date }> {
-  const num = String(invoiceNumber ?? '').trim();
-  if (!trdr || !num) return { softoneDocExists: null, softoneDocRef: null, softoneDocChecked: new Date() };
+  const ref = documentReference(type ?? { series: null, number: null });
+  if (!trdr || !ref.taxSeriesNum) return { softoneDocExists: null, softoneDocRef: null, softoneDocChecked: new Date() };
   try {
-    const r = await softoneCheckPurchaseDoc(trdr, num, date ? String(date) : null);
+    const r = await softoneCheckPurchaseDoc(
+      trdr,
+      { number: ref.taxSeriesNum, fincode: ref.fincode },
+      date ? String(date) : null,
+    );
     return { softoneDocExists: r.exists, softoneDocRef: r.ref, softoneDocChecked: new Date() };
   } catch {
     return { softoneDocExists: null, softoneDocRef: null, softoneDocChecked: new Date() };

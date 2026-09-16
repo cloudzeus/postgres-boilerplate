@@ -74,7 +74,12 @@ describe('postingPreview (dry-run)', () => {
     expect(db.ocrDocument.update).not.toHaveBeenCalled();
     expect(preview.blockers).toEqual([]);
     expect(preview.enabled).toBe(false);
-    expect(preview.payload?.DATA.PURDOC?.[0]).toMatchObject({ SERIES: 7001, TRDR: 12345, FINCODE: '17', TRNDATE: '2026-03-14' });
+    expect(preview.payload?.DATA.PURDOC?.[0]).toMatchObject({
+      SERIES: 7001, TRDR: 12345, TRNDATE: '2026-03-14',
+      FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17',
+    });
+    // Η κάρτα δείχνει ΑΝΑ ΠΕΔΙΟ πού γράφεται ο αριθμός του προμηθευτή.
+    expect(preview.summary.reference).toEqual({ fincode: 'ΤΠΥ 17', taxSeries: 'ΤΠΥ', taxSeriesNum: '17' });
     expect(preview.payload?.DATA.ITELINES).toEqual([
       { LINENUM: 9000001, MTRL: 555, QTY1: 2, PRICE: 50, DISC1PRC: 0, VAT: 1, COMMENTS: 'Είδος Α', MYDATACODE: '1' },
     ]);
@@ -134,7 +139,7 @@ describe('postingPreview (dry-run)', () => {
     // Η κάρτα ονομάζει τον στόχο στα ελληνικά, με το σωστό όνομα object και πίνακα.
     expect(preview.target.label).toBe('Ειδικές συναλλαγές χρεωστών · γραμμές LINLINES');
     expect(preview.payload.OBJECT).toBe('LINDEBDOC');
-    expect(preview.payload.DATA.LINDEBDOC?.[0]).toMatchObject({ SERIES: 6645, TRDR: 12345, FINCODE: '17' });
+    expect(preview.payload.DATA.LINDEBDOC?.[0]).toMatchObject({ SERIES: 6645, TRDR: 12345, FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17' });
     expect(preview.payload.DATA.LINDEBDOC?.[0]).not.toHaveProperty('SODTYPE');
     expect(preview.payload.DATA.LINLINES).toEqual([
       { LINENUM: 9000001, MTRL: 777, MTRTYPE: 1, QTY1: 2, PRICE: 50, DISC1PRC: 0, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Είδος Α' },
@@ -297,6 +302,36 @@ describe('postDocumentToSoftone', () => {
     for (const call of db.ocrDocument.update.mock.calls) {
       expect(call[0].data).not.toHaveProperty('verifiedAt');
     }
+  });
+
+  it('read-back: αρκεί ο «Φορ/κός αριθμός» όταν το ERP έγραψε δικό του «Παραστατικό»', async () => {
+    settings.getSetting.mockResolvedValue(true);
+    softone.softoneCall.mockResolvedValue({ success: true, id: 90210 });
+    // Η μάσκα της σειράς ξαναγράφει το FINCODE — η ταυτότητα του εκδότη μένει στα φορολογικά πεδία.
+    softone.softoneGetData.mockResolvedValue({
+      PURDOC: [{ FINDOC: '90210', FINCODE: 'ΤΙΜ00000042', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17', TRDR: '12345' }],
+    });
+
+    const res = await postDocumentToSoftone('d1');
+
+    expect(res.ref).toBe('90210');
+    expect(db.ocrDocument.update.mock.calls.at(-1)?.[0].data).toMatchObject({ postStatus: 'POSTED' });
+  });
+
+  it('read-back: άλλος αριθμός ΚΑΙ στα δύο φορολογικά πεδία → η επαλήθευση σκάει', async () => {
+    settings.getSetting.mockResolvedValue(true);
+    softone.softoneCall.mockResolvedValue({ success: true, id: 90210 });
+    softone.softoneGetData.mockResolvedValue({
+      PURDOC: [{ FINDOC: '90210', FINCODE: 'ΤΠΥ 999', TAXSERIESNUM: '999', TRDR: '12345' }],
+    });
+    await expect(postDocumentToSoftone('d1')).rejects.toThrow(/δεν επιβεβαιώθηκε/);
+  });
+
+  it('read-back: κεφαλίδα ΧΩΡΙΣ καμία αναφορά δεν «επιβεβαιώνει» με κενά', async () => {
+    settings.getSetting.mockResolvedValue(true);
+    softone.softoneCall.mockResolvedValue({ success: true, id: 90210 });
+    softone.softoneGetData.mockResolvedValue({ PURDOC: [{ FINDOC: '90210', TRDR: '12345' }] });
+    await expect(postDocumentToSoftone('d1')).rejects.toThrow(/δεν επιβεβαιώθηκε/);
   });
 
   it('setData success αλλά read-back δεν ταιριάζει → FAILED, ΜΕ το postedRef φυλαγμένο', async () => {

@@ -81,7 +81,7 @@ export async function extractAndPersist(input: ExtractAndPersistInput): Promise<
 
   // PURDOC duplicate check (supplier + αριθμός παραστατικού + ημ/νία). Best-effort.
   if (softone.softoneTrdr) {
-    const dup = await buildDuplicateCheck(softone.softoneTrdr, result.document.type.number, result.document.date);
+    const dup = await buildDuplicateCheck(softone.softoneTrdr, result.document.type, result.document.date);
     await prisma.ocrDocument.update({ where: { id: documentId }, data: dup }).catch(() => null);
   }
 

@@ -107,7 +107,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     // PURDOC duplicate check (best-effort).
     if (softone.softoneTrdr) {
-      const dup = await buildDuplicateCheck(softone.softoneTrdr, result.document.type.number, result.document.date);
+      const dup = await buildDuplicateCheck(softone.softoneTrdr, result.document.type, result.document.date);
       await prisma.ocrDocument.update({ where: { id }, data: dup }).catch(() => null);
     }
 
