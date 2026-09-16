@@ -14,6 +14,8 @@ const Body = z.object({
     pattern: z.string().trim().min(1).max(200),
     sample: z.string().trim().max(400).nullish(),
     code: z.string().trim().max(60).nullish(),
+    /** Η επωνυμία του εκδότη — συμφραζόμενο για τον συλλογισμό του μοντέλου. */
+    supplier: z.string().trim().max(200).nullish(),
   })).min(1).max(MAX_GROUPS),
   categoryId: z.number().int().positive().nullish(),
   /** TRDR του εκδότη — στενεύει τα έργα σε αυτά του συναλλασσομένου. */

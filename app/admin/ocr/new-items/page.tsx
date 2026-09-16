@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { requirePermission, hasPermission } from '@/lib/rbac';
 import { PageHeader } from '@/components/admin/page-header';
 import { loadItemQueue } from '@/lib/ocr/queues';
+import { disambiguateLabels } from '@/lib/unique-labels';
 import { NewItemsClient } from './queue-client';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,7 @@ const SUGGEST_FOR = 50;
 export default async function NewItemsPage() {
   await requirePermission('ocr.read');
 
-  const [queue, canManage, vats, units, lineCategories] = await Promise.all([
+  const [queue, canManage, vats, units, groups, categories, lineCategories] = await Promise.all([
     loadItemQueue({ suggestFor: SUGGEST_FOR }),
     // Χωρίς `ocr.categorize` η σελίδα είναι μόνο για ανάγνωση (ίδιο με «Νέοι συναλλασσόμενοι»).
     hasPermission('ocr.categorize'),
@@ -31,6 +32,14 @@ export default async function NewItemsPage() {
       where: { kind: 'MTRUNIT' },
       orderBy: { order: 'asc' },
       select: { code: true, name: true },
+    }),
+    // Ομάδες / εμπορικές κατηγορίες ειδών (`ITEM.MTRGROUP` / `ITEM.MTRCATEGORY`) από τον
+    // τοπικό καθρέφτη — ο χρήστης τα διαλέγει στη φόρμα δημιουργίας.
+    prisma.softoneLookup.findMany({
+      where: { kind: 'MTRGROUP' }, orderBy: { order: 'asc' }, select: { code: true, name: true },
+    }),
+    prisma.softoneLookup.findMany({
+      where: { kind: 'MTRCATEGORY' }, orderBy: { order: 'asc' }, select: { code: true, name: true },
     }),
     // Κατηγορίες δαπανών (LINCATEGORY): το φίλτρο που κάνει τη λίστα χρεοπιστώσεων χρησιμοποιήσιμη.
     prisma.softoneLineCategory.findMany({
@@ -55,8 +64,14 @@ export default async function NewItemsPage() {
       truncated={queue.truncated}
       suggestedFor={SUGGEST_FOR}
       canManage={canManage}
-      vats={vats.map((v) => ({ code: v.code, label: v.rate != null ? `${v.descr} (${v.rate}%)` : v.descr, rate: v.rate }))}
-      units={units.map((u) => ({ code: u.code, label: u.name }))}
+      // Δύο κατηγορίες ΦΠΑ μπορούν να έχουν ΙΔΙΑ περιγραφή («Μηδενικός Συντελεστής ΦΠΑ 0%»)
+      // με διαφορετικό κωδικό: τότε — και μόνο τότε — η ετικέτα κουβαλά και τον κωδικό.
+      vats={disambiguateLabels(vats.map((v) => ({
+        code: v.code, label: v.rate != null ? `${v.descr} (${v.rate}%)` : v.descr, rate: v.rate,
+      })))}
+      units={disambiguateLabels(units.map((u) => ({ code: u.code, label: u.name })))}
+      itemGroups={disambiguateLabels(groups.map((g) => ({ code: g.code, label: g.name })))}
+      itemCategories={disambiguateLabels(categories.map((c) => ({ code: c.code, label: c.name })))}
       lineCategories={lineCategories.map((c) => ({ id: c.mtrCategory, label: c.name || c.code }))}
     />
   );

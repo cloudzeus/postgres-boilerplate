@@ -4,7 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import {
   FiAlertCircle, FiAlertTriangle, FiCheck, FiCornerDownLeft, FiDollarSign, FiExternalLink,
-  FiInfo, FiLoader, FiPackage, FiPlusCircle, FiRefreshCw, FiSkipForward, FiTag, FiTool,
+  FiCpu, FiInfo, FiLoader, FiPackage, FiPlus, FiPlusCircle, FiRefreshCw, FiSkipForward, FiTag, FiTool,
 } from 'react-icons/fi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,8 @@ import { cn } from '@/lib/utils';
 
 export interface VatOption { code: string; label: string; rate: number | null }
 export interface UnitOption { code: string; label: string }
+/** Ομάδα ή εμπορική κατηγορία είδους (`ITEM.MTRGROUP` / `ITEM.MTRCATEGORY`). */
+export interface ClassOption { code: string; label: string }
 
 /** Χρώματα κατηγορίας — inline hex, όπως και στις υπόλοιπες σελίδες δεδομένων. */
 export const CATEGORY_META: Record<MatchKind, { label: string; bg: string; fg: string }> = {
@@ -25,6 +27,12 @@ export const CATEGORY_META: Record<MatchKind, { label: string; bg: string; fg: s
   // Χρεοπίστωση (LINEITEM): ό,τι δέχεται η γραμμή «Ειδικών συναλλαγών» (LINLINES).
   lineitem: { label: 'Χρεοπίστωση', bg: '#F3EEFF', fg: '#6D28D9' },
 };
+
+/**
+ * Το chip μιας ομάδας που ΔΕΝ κατηγοριοποιήθηκε. Ουδέτερο χρώμα επίτηδες: δεν είναι σφάλμα,
+ * είναι «δεν ξέρουμε ακόμη» — και δεν πρέπει να μοιάζει με καμία από τις τέσσερις κατηγορίες.
+ */
+export const UNCLASSIFIED_META = { label: 'Χωρίς κατηγορία', bg: '#EDEDED', fg: '#5A5A5A' };
 
 /** Μία κατηγορία δαπάνης (LINCATEGORY) για το φίλτρο των χρεοπιστώσεων. */
 export interface LineCategoryOption { id: number; label: string }
@@ -76,13 +84,73 @@ const KIND_ICON: Record<MatchKind, React.ReactNode> = {
 const SEGMENTS: MatchKind[] = ['product', 'service', 'expense', 'lineitem'];
 
 
-/** Πρόταση κωδικού όταν η γραμμή δεν έχει δικό της: slug από το κείμενο. */
-function slugCode(sample: string): string {
-  const s = sample
-    .toUpperCase()
-    .replace(/[^0-9A-ZΑ-ΩΆΈΉΊΌΎΏΪΫ]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return s.slice(0, 20) || 'NEO';
+/**
+ * Ό,τι επιστρέφει το `GET /api/admin/ocr/new-items/next-code` — η ΠΡΟΤΑΣΗ κωδικού για τη νέα
+ * εγγραφή. Δύο κανόνες: ο κωδικός του προμηθευτή αν είναι ελεύθερος, αλλιώς ο επόμενος
+ * ελεύθερος της δικής μας αρίθμησης. Ποτέ slug της περιγραφής.
+ */
+interface CodeProposal {
+  code: string | null;
+  source: 'supplier' | 'pattern' | 'mask' | 'none';
+  /** `true` = η γραμμή είχε κωδικό προμηθευτή αλλά είναι ήδη πιασμένος. */
+  supplierCodeTaken: boolean;
+  supplierCode: string | null;
+  /** Πόσοι κωδικοί του μητρώου λήφθηκαν υπόψη. */
+  taken: number;
+  /** `true` = το SoftOne δεν απάντησε· η πρόταση βγήκε από τον τοπικό καθρέφτη. */
+  stale: boolean;
+}
+
+/** Το chip δίπλα στο πεδίο: ΠΟΙΟΣ από τους δύο κανόνες έδωσε τον κωδικό. */
+const CODE_CHIP: Record<CodeProposal['source'], string | null> = {
+  supplier: 'κωδικός προμηθευτή — ελεύθερος',
+  pattern: 'προτεινόμενος — επόμενος ελεύθερος',
+  mask: 'προτεινόμενος — από τη μάσκα',
+  none: null,
+};
+
+/** Τι λέει το πεδίο «Κωδικός»: από πού ήρθε η πρόταση και τι σημαίνει. */
+function codeHint(kind: MatchKind | null, p: CodeProposal | null, busy: boolean): string {
+  if (busy) return 'Αναζήτηση προτεινόμενου κωδικού…';
+  if (!kind) return 'Διάλεξε πρώτα κατηγορία — ο κωδικός εξαρτάται από το μητρώο.';
+  const of = KIND_GENITIVE[kind];
+  if (!p) return `Το SoftOne δεν αποδίδει κωδικό μόνο του — συμπλήρωσε τον κωδικό ${of}.`;
+  const stale = p.stale ? ' (από τον τοπικό καθρέφτη — το SoftOne δεν απάντησε, μπορεί να έχει πιαστεί)' : '';
+  if (p.source === 'supplier') {
+    return `Ο κωδικός του προμηθευτή από τη γραμμή είναι ελεύθερος στο μητρώο ${of} — τον κρατάμε${stale}.`;
+  }
+  const why = p.supplierCodeTaken
+    ? `Ο κωδικός «${p.supplierCode}» της γραμμής είναι ήδη πιασμένος: `
+    : '';
+  if (p.source === 'pattern') {
+    return `${why}ο επόμενος ελεύθερος μετά τους ${p.taken} υπάρχοντες κωδικούς ${of}. Άλλαξέ τον ελεύθερα${stale}.`;
+  }
+  if (p.source === 'mask') {
+    return `${why}δεν υπάρχει ακόμη κανένας κωδικός ${of} — η πρόταση έρχεται από τη μάσκα των Ρυθμίσεων${stale}.`;
+  }
+  return `${why}δεν βρέθηκε κανένας υπάρχων κωδικός ${of} ούτε μάσκα: χρειάζεται η αρίθμηση του λογιστή (Ρυθμίσεις → Διασυνδέσεις → «Μάσκα κωδικού»).`;
+}
+
+/** Γενική του μητρώου, για τα μηνύματα του πεδίου «Κωδικός». */
+const KIND_GENITIVE: Record<MatchKind, string> = {
+  product: 'ειδών', service: 'υπηρεσιών', expense: 'εξόδων', lineitem: 'χρεοπιστώσεων',
+};
+
+/**
+ * Η ετικέτα του κουμπιού που **ΑΝΟΙΓΕΙ** τη φόρμα δημιουργίας. Ονομάζει ρητά το μητρώο και
+ * τελειώνει σε «…» ώστε να διαβάζεται ως «θα ανοίξει κάτι», όχι ως η ίδια η υποβολή.
+ */
+const NEW_ENTITY_LABEL: Record<MatchKind, string> = {
+  product: 'Νέο είδος…',
+  service: 'Νέα υπηρεσία…',
+  expense: 'Νέο έξοδο…',
+  lineitem: 'Νέα χρεοπίστωση…',
+};
+
+/** Τι επιστρέφει το `onCreate` όταν το SoftOne απέρριψε τον κωδικό ως πιασμένο. */
+export interface CreateOutcome {
+  /** `stale` = η νέα πρόταση βγήκε από τον τοπικό καθρέφτη· μπορεί κι αυτή να είναι πιασμένη. */
+  codeTaken: { message: string; suggestion: string | null; stale: boolean };
 }
 
 function defaultVat(vats: VatOption[]): string {
@@ -100,10 +168,12 @@ function defaultUnit(units: UnitOption[]): string {
 export function ItemPanel({
   group, category, onCategory, suggestions, hiddenSuggestions, loadingSuggestions,
   suggestionsFailed, onRetrySuggestions, canManage, busy, onMatch, onCreate, onSkip, vats, units,
+  itemGroups = [], itemCategories = [], onCategoryCreated,
   lineCategories = [], lineCategory, onLineCategory, analytics, onAnalytics, analyticsSupported,
 }: {
   group: ItemQueueGroup;
-  category: MatchKind;
+  /** `null` = «χωρίς κατηγορία»: καμία απόδειξη ακόμη — ο χρήστης (ή το AI) αποφασίζει. */
+  category: MatchKind | null;
   onCategory: (k: MatchKind) => void;
   suggestions: QueueSuggestion[];
   hiddenSuggestions: number;
@@ -116,11 +186,23 @@ export function ItemPanel({
   busy: boolean;
   onMatch: (target: { mtrl?: number; expn?: number; lin?: number }, isService: boolean) => void | Promise<void>;
   onCreate: (input: {
-    kind: MatchKind; code: string; name: string; vat: string | null; unit: string | null; price: number | null;
-  }) => void | Promise<void>;
+    kind: MatchKind; code: string; name: string; vat: string | null; unit: string | null;
+    /** Τιμή **χονδρικής** (καθαρή) — γράφεται στο `PRICEW`. */
+    price: number | null;
+    /** Ο κωδικός της γραμμής — ο server τον χρειάζεται για να ξαναπροτείνει σωστά μετά από 409. */
+    supplierCode: string | null;
+    group: string | null;
+    category: string | null;
+  }) => void | Promise<void | CreateOutcome>;
   onSkip: () => void | Promise<void>;
   vats: VatOption[];
   units: UnitOption[];
+  /** Ομάδες ειδών (`MTRGROUP`) — ΜΟΝΟ επιλογή: το SoftOne δεν δέχεται νέα ομάδα από WS. */
+  itemGroups?: ClassOption[];
+  /** Εμπορικές κατηγορίες (`MTRCATEGORY`) — με inline δημιουργία (object `ITECATEGORY`). */
+  itemCategories?: ClassOption[];
+  /** Μια νέα κατηγορία δημιουργήθηκε: ο γονέας την προσθέτει στη λίστα. */
+  onCategoryCreated?: (option: ClassOption) => void;
   /** Κατηγορίες δαπανών (LINCATEGORY) για το φίλτρο των χρεοπιστώσεων. */
   lineCategories?: LineCategoryOption[];
   /** Η επιλεγμένη κατηγορία δαπάνης (ελέγχεται από την ουρά: τη χρειάζεται και το AI). */
@@ -135,12 +217,13 @@ export function ItemPanel({
    */
   analyticsSupported?: boolean;
 }) {
-  const cat = CATEGORY_META[category];
-  const needsUnit = category !== 'expense' && category !== 'lineitem';
+  const cat = category ? CATEGORY_META[category] : UNCLASSIFIED_META;
+  const needsUnit = category === 'product' || category === 'service';
   const locked = busy || !canManage;
   // Χρεοπιστώσεις: η δημιουργία γίνεται ΜΟΝΟ στο SoftOne — η εφαρμογή δεν γράφει ποτέ μητρώο
-  // χρεοπιστώσεων, οπότε η φόρμα «Δημιουργία» δεν εμφανίζεται εκεί.
-  const canCreate = category !== 'lineitem';
+  // χρεοπιστώσεων, οπότε η φόρμα «Δημιουργία» δεν εμφανίζεται εκεί. Χωρίς κατηγορία δεν ξέρουμε
+  // καν ΠΟΙΟ μητρώο θα γραφτεί: ζητάμε πρώτα επιλογή.
+  const canCreate = category != null && category !== 'lineitem';
   // Τα έργα του εκδότη είναι η χρήσιμη προεπιλογή· ο χρήστης βλέπει όλα με ένα κλικ.
   const [projectScopeAll, setProjectScopeAll] = React.useState(false);
   React.useEffect(() => setProjectScopeAll(false), [group.key]);
@@ -149,12 +232,27 @@ export function ItemPanel({
   const [creating, setCreating] = React.useState(false);
   const segmentRefs = React.useRef<Partial<Record<MatchKind, HTMLButtonElement | null>>>({});
   const [touched, setTouched] = React.useState<Record<string, boolean>>({});
+  /** Ο προτεινόμενος κωδικός για το τρέχον (ομάδα, μητρώο) — φορτώνεται από τον server. */
+  const [codeProposal, setCodeProposal] = React.useState<CodeProposal | null>(null);
+  const [codeBusy, setCodeBusy] = React.useState(false);
+  /** Το ΑΥΤΟΥΣΙΟ μήνυμα του SoftOne όταν απέρριψε τον κωδικό — κολλάει στο πεδίο. */
+  const [erpCodeError, setErpCodeError] = React.useState<string | null>(null);
+  /** Ο ΝΕΟΣ κωδικός που προτείνει ο server μετά από 409 — ο χρήστης τον δέχεται ρητά. */
+  const [codeOffer, setCodeOffer] = React.useState<string | null>(null);
+  /** Η επαναπρόταση μετά από 409 ήρθε από τον καθρέφτη (το SoftOne δεν απάντησε). */
+  const [codeOfferStale, setCodeOfferStale] = React.useState(false);
+  /** Η τελευταία πρόταση που γράψαμε ΕΜΕΙΣ — για να ξέρουμε τι επιτρέπεται να αντικατασταθεί. */
+  const lastProposal = React.useRef<string>('');
+
   const [form, setForm] = React.useState(() => ({
-    code: group.code ?? slugCode(group.sample),
+    // Ο κωδικός δεν «μαντεύεται» από την περιγραφή: μένει κενός ώσπου να απαντήσει ο server.
+    code: '',
     name: group.sample.trim().slice(0, 200),
     vat: defaultVat(vats),
     unit: defaultUnit(units),
     price: group.lines.find((l) => l.price != null)?.price?.toString() ?? '',
+    itemGroup: '',
+    itemCategory: '',
   }));
   const [dryPayload, setDryPayload] = React.useState<unknown>(null);
   const [dryLoading, setDryLoading] = React.useState(false);
@@ -168,14 +266,55 @@ export function ItemPanel({
     setDryPayload(null);
     setDryError(null);
     setDryOpen(false);
+    setErpCodeError(null);
+    setCodeOffer(null);
+    lastProposal.current = '';
     setForm({
-      code: group.code ?? slugCode(group.sample),
+      code: '',
       name: group.sample.trim().slice(0, 200),
       vat: defaultVat(vats),
       unit: defaultUnit(units),
       price: group.lines.find((l) => l.price != null)?.price?.toString() ?? '',
+      itemGroup: '',
+      itemCategory: '',
     });
   }, [group.key, group.code, group.sample, group.lines, vats, units]);
+
+  // Μόλις ο χρήστης αγγίξει τον κωδικό (ή αλλάξει μητρώο), το μήνυμα του ERP παύει να ισχύει.
+  React.useEffect(() => { setErpCodeError(null); setCodeOffer(null); }, [form.code, category]);
+
+  /**
+   * Ο **προτεινόμενος κωδικός** για (ομάδα, μητρώο), με φρέσκα δεδομένα από το SoftOne
+   * (read-only `GetTable`). Ξανατρέχει σε κάθε αλλαγή κατηγορίας: μια υπηρεσία (MTRL 52) δεν
+   * κληρονομεί ποτέ την αρίθμηση των ειδών (MTRL 51), ούτε των εξόδων.
+   *
+   * Η πρόταση ΔΕΝ κλειδώνει το πεδίο: γράφεται μόνο όταν αυτό είναι άδειο ή κρατά ακόμη
+   * προηγούμενη πρόταση. Ό,τι πληκτρολόγησε ο χρήστης μένει ανέγγιχτο.
+   */
+  React.useEffect(() => {
+    // Οι χρεοπιστώσεις δεν δημιουργούνται από εδώ — καμία πρόταση, καμία κλήση.
+    if (category == null || category === 'lineitem') { setCodeProposal(null); return; }
+    let ignore = false;
+    setCodeBusy(true);
+    const qs = new URLSearchParams({ kind: category });
+    if (group.code) qs.set('supplierCode', group.code);
+    fetch(`/api/admin/ocr/new-items/next-code?${qs.toString()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: CodeProposal | null) => {
+        if (ignore) return;
+        setCodeProposal(d);
+        const proposal = d?.code ? String(d.code) : '';
+        setForm((f) => {
+          const cur = f.code.trim();
+          if (cur !== '' && cur !== lastProposal.current) return f;
+          lastProposal.current = proposal;
+          return { ...f, code: proposal };
+        });
+      })
+      .catch(() => { if (!ignore) setCodeProposal(null); })
+      .finally(() => { if (!ignore) setCodeBusy(false); });
+    return () => { ignore = true; };
+  }, [group.key, group.code, category]);
 
   const set = (k: keyof typeof form, v: string) => setForm((s) => ({ ...s, [k]: v }));
 
@@ -186,17 +325,27 @@ export function ItemPanel({
     unit: !needsUnit || form.unit ? null : 'Επίλεξε μονάδα μέτρησης.',
   };
   const invalid = Object.values(errors).some(Boolean);
+  // Το πεδίο κρατά ακόμη ΑΚΡΙΒΩΣ ό,τι προτείναμε — μόλις το αλλάξει ο χρήστης, το chip φεύγει.
+  const isProposedCode = !!lastProposal.current && form.code.trim() === lastProposal.current;
+  const codeChip = codeProposal ? CODE_CHIP[codeProposal.source] : null;
+
 
   const body = React.useMemo(() => ({
     afm: group.afm,
     pattern: group.pattern,
-    kind: category,
+    kind: category ?? 'product',
     code: form.code.trim(),
     name: form.name.trim(),
     vat: form.vat || null,
     unit: needsUnit ? form.unit || null : null,
     price: form.price.trim() ? Number(form.price.replace(',', '.')) : null,
-  }), [group.afm, group.pattern, category, form.code, form.name, form.vat, form.unit, form.price, needsUnit]);
+    supplierCode: group.code ?? null,
+    group: needsUnit ? form.itemGroup || null : null,
+    category: needsUnit ? form.itemCategory || null : null,
+  }), [
+    group.afm, group.pattern, group.code, category, form.code, form.name, form.vat, form.unit,
+    form.price, form.itemGroup, form.itemCategory, needsUnit,
+  ]);
 
   // Όσο η προεπισκόπηση είναι ανοιχτή ακολουθεί τη φόρμα: κάθε αλλαγή ξαναζητά
   // το dry-run μετά από {@link DRY_DEBOUNCE_MS}, ώστε να μη δείχνει παλιό payload.
@@ -224,10 +373,60 @@ export function ItemPanel({
     return () => { ignore = true; clearTimeout(h); };
   }, [dryOpen, invalid, body]);
 
-  const submitCreate = () => {
+  // ── Inline δημιουργία εμπορικής κατηγορίας (object ITECATEGORY) ───────
+  const [newCat, setNewCat] = React.useState<{ name: string; code: string } | null>(null);
+  const [catBusy, setCatBusy] = React.useState(false);
+  const [catError, setCatError] = React.useState<string | null>(null);
+
+  const submitCategory = async () => {
+    if (!newCat || catBusy) return;
+    const name = newCat.name.trim();
+    if (!name) { setCatError('Η περιγραφή είναι υποχρεωτική.'); return; }
+    setCatBusy(true);
+    setCatError(null);
+    try {
+      const res = await fetch('/api/admin/ocr/new-items/category', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, code: newCat.code.trim() || null }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; category?: ClassOption };
+      // ΑΠΟΤΥΧΙΑ = ΤΙΠΟΤΑ ΔΕΝ ΔΗΜΙΟΥΡΓΗΘΗΚΕ. Ο server πετά και όταν το `setData` γυρίσει
+      // «επιτυχία» αλλά η ανάγνωση πίσω δεν βρει τη γραμμή — εδώ φαίνεται ως σφάλμα πεδίου, η
+      // λίστα ΔΕΝ αλλάζει και καμία κατηγορία δεν επιλέγεται.
+      if (!res.ok || !d.ok || !d.category) {
+        setCatError(d.message ?? 'Η κατηγορία δεν δημιουργήθηκε.');
+        return;
+      }
+      onCategoryCreated?.(d.category);
+      set('itemCategory', d.category.code);
+      setNewCat(null);
+    } catch {
+      setCatError('Σφάλμα δικτύου — η κατηγορία δεν δημιουργήθηκε.');
+    } finally {
+      setCatBusy(false);
+    }
+  };
+
+  const codeRef = React.useRef<HTMLInputElement | null>(null);
+
+  const submitCreate = async () => {
     setTouched({ code: true, name: true, vat: true, unit: true });
     if (invalid) return;
-    void onCreate({ kind: category, code: body.code, name: body.name, vat: body.vat, unit: body.unit, price: body.price });
+    if (!category) return;
+    const outcome = await onCreate({
+      kind: category, code: body.code, name: body.name, vat: body.vat, unit: body.unit,
+      price: body.price, supplierCode: body.supplierCode,
+      group: body.group, category: body.category,
+    });
+    // Ο κωδικός πιάστηκε στο μεσοδιάστημα (άλλος χρήστης / άλλη καρτέλα). ΚΑΜΙΑ αυτόματη
+    // επανάληψη: ο χρήστης βλέπει τη νέα πρόταση και πατά ο ίδιος ξανά «Δημιουργία».
+    if (outcome && 'codeTaken' in outcome) {
+      setErpCodeError(outcome.codeTaken.message);
+      setCodeOffer(outcome.codeTaken.suggestion);
+      setCodeOfferStale(outcome.codeTaken.stale);
+      codeRef.current?.focus();
+    }
   };
 
   return (
@@ -252,9 +451,23 @@ export function ItemPanel({
             className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-caption font-medium"
             style={{ backgroundColor: cat.bg, color: cat.fg }}
           >
-            {KIND_ICON[category]} {cat.label}
+            {category ? KIND_ICON[category] : <FiAlertCircle aria-hidden className="size-3.5" />} {cat.label}
           </span>
         </div>
+        {/* Η αιτιολόγηση του μοντέλου δίπλα στην κατηγορία: ο χρήστης κρίνει σε ένα δευτερόλεπτο
+            αν ο συλλογισμός στέκει, αντί να εμπιστευτεί ένα chip. */}
+        {group.aiReason && (
+          <p className="mt-1.5 flex items-start gap-1.5 rounded-md bg-neutral-4 px-2 py-1 text-caption text-muted-foreground">
+            <FiCpu aria-hidden className="mt-0.5 size-3 shrink-0" />
+            <span>
+              {/* Χωρίς κατηγορία η απάντηση του μοντέλου ΔΕΝ επέλεξε τίποτα: είναι σχόλιο —
+                  τυπικά «μοιάζει με πάγιο», που η εφαρμογή δεν καταχωρεί ακόμη. Το λέμε ρητά,
+                  ώστε να μη διαβαστεί ως αιτιολόγηση κατηγορίας που δεν υπάρχει. */}
+              {!category && <strong className="font-semibold">Παρατήρηση: </strong>}
+              {group.aiReason}
+            </span>
+          </p>
+        )}
       </header>
 
       {/* ── Δείγμα γραμμών ──────────────────────────────────────────── */}
@@ -315,7 +528,8 @@ export function ItemPanel({
             if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
             e.preventDefault();
             e.stopPropagation();
-            const at = SEGMENTS.indexOf(category);
+            // Χωρίς επιλεγμένη κατηγορία το ←/→ ξεκινά από την αρχή, δεν «μαντεύει» θέση.
+            const at = category ? SEGMENTS.indexOf(category) : -1;
             const next = SEGMENTS[(at + (e.key === 'ArrowRight' ? 1 : -1) + SEGMENTS.length) % SEGMENTS.length];
             onCategory(next);
             segmentRefs.current[next]?.focus();
@@ -434,6 +648,13 @@ export function ItemPanel({
               )}
             </div>
           )}
+          {/* Χωρίς κατηγορία δεν ξέρουμε ΠΟΙΟ μητρώο να ψάξουμε: το λέμε αντί να ψάξουμε λάθος. */}
+          {category == null ? (
+            <p className="flex items-start gap-1.5 rounded-lg bg-neutral-6 px-3 py-2 text-body-sm text-muted-foreground">
+              <FiInfo aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+              Διάλεξε κατηγορία για να ψάξεις στο αντίστοιχο μητρώο ή να δημιουργήσεις νέα εγγραφή.
+            </p>
+          ) : (
           <RegistrySearch
             kind={category}
             disabled={locked}
@@ -445,6 +666,7 @@ export function ItemPanel({
               p.kind === 'service',
             )}
           />
+          )}
         </div>
       </section>
 
@@ -482,26 +704,41 @@ export function ItemPanel({
 
       {/* ── Δημιουργία στο SoftOne ──────────────────────────────────── */}
       <section className="px-4 py-3">
-        {!canCreate ? (
+        {category == null ? (
+          <p className="flex items-start gap-1.5 rounded-lg bg-neutral-6 px-3 py-2 text-body-sm text-muted-foreground">
+            <FiInfo aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+            Η ομάδα δεν έχει κατηγορία: δεν προκύπτει από τα παραστατικά της αν πρόκειται για είδος,
+            υπηρεσία, έξοδο ή χρεοπίστωση. Διάλεξε κατηγορία πιο πάνω ή πάτα «Πρόταση με AI».
+          </p>
+        ) : !canCreate ? (
           <p className="flex items-start gap-1.5 rounded-lg bg-neutral-6 px-3 py-2 text-body-sm text-muted-foreground">
             <FiInfo aria-hidden className="mt-0.5 size-3.5 shrink-0" />
             Νέα χρεοπίστωση δημιουργείται μόνο μέσα στο SoftOne («Χρεοπιστώσεις»). Μετά τη δημιουργία,
             τρέξε «Συγχρονισμός από SoftOne» στη σελίδα Είδη για να εμφανιστεί εδώ.
           </p>
         ) : !creating ? (
-          <Button
-            type="button"
-            variant="outline"
-            disabled={locked}
-            onClick={() => setCreating(true)}
-            className="h-9 w-full cursor-pointer"
-          >
-            <FiPlusCircle aria-hidden /> Δημιουργία στο SoftOne
-          </Button>
+          <div className="space-y-1.5">
+            {/* ΑΝΟΙΓΕΙ φόρμα, δεν καταχωρεί: η ετικέτα το λέει ρητά και ονομάζει το μητρώο.
+                Με «Δημιουργία στο SoftOne» εδώ, ο χρήστης νόμιζε ότι πατώντας το θα γραφόταν
+                κάτι — και δεν έβρισκε ποτέ τα πεδία ΦΠΑ / μονάδας / κωδικού. */}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={locked}
+              onClick={() => setCreating(true)}
+              className="h-9 w-full cursor-pointer"
+            >
+              <FiPlus aria-hidden /> {NEW_ENTITY_LABEL[category]}
+            </Button>
+            <p className="flex items-start gap-1.5 text-caption text-muted-foreground">
+              <FiInfo aria-hidden className="mt-0.5 size-3 shrink-0" />
+              Ανοίγει φόρμα με κωδικό, ΦΠΑ και μονάδα. Δεν καταχωρείται τίποτα μέχρι να την υποβάλεις.
+            </p>
+          </div>
         ) : (
           <div className="space-y-3">
             <h3 className="text-caption font-semibold uppercase tracking-wider text-muted-foreground">
-              Νέα εγγραφή — {cat.label}
+              {NEW_ENTITY_LABEL[category]} — νέα εγγραφή μητρώου
             </h3>
 
             <Field id="ni-name" label="Περιγραφή" required error={touched.name ? errors.name : null}>
@@ -515,14 +752,49 @@ export function ItemPanel({
             </Field>
 
             <div className="grid grid-cols-2 gap-2">
-              <Field id="ni-code" label="Κωδικός" required error={touched.code ? errors.code : null}>
-                <Input
-                  id="ni-code" value={form.code} disabled={locked}
-                  onChange={(e) => set('code', e.target.value)}
-                  onBlur={() => setTouched((t) => ({ ...t, code: true }))}
-                  aria-invalid={touched.code && !!errors.code}
-                  className="h-9 font-mono text-[13px]"
-                />
+              {/* Ο κωδικός είναι ΠΡΟΤΑΣΗ, όχι κλειδαριά: το chip λέει ποιος κανόνας τον έδωσε
+                  και το πεδίο μένει ανοιχτό. Το μήνυμα του ίδιου του SoftOne υπερισχύει. */}
+              <Field
+                id="ni-code" label="Κωδικός" required
+                error={erpCodeError ?? (touched.code ? errors.code : null)}
+                hint={codeHint(category, codeProposal, codeBusy)}
+              >
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="ni-code" ref={codeRef} value={form.code} disabled={locked}
+                    onChange={(e) => set('code', e.target.value)}
+                    onBlur={() => setTouched((t) => ({ ...t, code: true }))}
+                    aria-invalid={!!erpCodeError || (touched.code && !!errors.code)}
+                    className="h-9 flex-1 font-mono text-[13px]"
+                  />
+                  {isProposedCode && codeChip && (
+                    <span
+                      className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                      style={{ backgroundColor: '#EAF4FC', color: '#0078D4' }}
+                    >
+                      {codeChip}
+                    </span>
+                  )}
+                </div>
+                {/* Μετά από άρνηση του SoftOne: ο ΝΕΟΣ προτεινόμενος, με ρητή αποδοχή. */}
+                {codeOffer && codeOffer !== form.code.trim() && (
+                  <>
+                    <Button
+                      type="button" variant="outline" size="sm"
+                      className="h-7 w-fit cursor-pointer"
+                      onClick={() => { set('code', codeOffer); lastProposal.current = codeOffer; }}
+                    >
+                      <FiRefreshCw aria-hidden className="size-3" /> Χρήση του {codeOffer}
+                    </Button>
+                    {/* Η ίδια επιφύλαξη με την αρχική πρόταση: καθρέφτης ≠ βεβαιότητα. */}
+                    {codeOfferStale && (
+                      <p className="text-caption text-muted-foreground">
+                        Η πρόταση βγήκε από τον τοπικό καθρέφτη — το SoftOne δεν απάντησε, μπορεί
+                        να έχει πιαστεί κι αυτός.
+                      </p>
+                    )}
+                  </>
+                )}
               </Field>
 
               <Field id="ni-vat" label="ΦΠΑ" required error={touched.vat ? errors.vat : null}>
@@ -564,7 +836,10 @@ export function ItemPanel({
               )}
 
               {needsUnit && (
-                <Field id="ni-price" label="Τιμή (προαιρετικό)" error={null}>
+                <Field
+                  id="ni-price" label="Τιμή χονδρικής (προαιρετικό)" error={null}
+                  hint="Καθαρή τιμή, χωρίς ΦΠΑ — όπως τη χρέωσε ο προμηθευτής. Γράφεται στο πεδίο «Χονδρικής». Τιμή λιανικής δεν στέλνεται: την ορίζει ο χρήστης στο SoftOne."
+                >
                   <Input
                     id="ni-price" value={form.price} disabled={locked} inputMode="decimal" placeholder="0,00"
                     onChange={(e) => set('price', e.target.value)}
@@ -572,7 +847,89 @@ export function ItemPanel({
                   />
                 </Field>
               )}
+
             </div>
+
+            {/* ── Ομάδα & εμπορική κατηγορία (μόνο για είδος/υπηρεσία → object ITEM) ── */}
+            {needsUnit && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Field
+                  id="ni-group" label="Ομάδα (προαιρετικό)" error={null}
+                  hint="Νέα ομάδα δημιουργείται μόνο μέσα στο SoftOne — το Web Service δεν τη γράφει."
+                >
+                  <select
+                    id="ni-group" value={form.itemGroup} disabled={locked}
+                    onChange={(e) => set('itemGroup', e.target.value)}
+                    className="h-9 w-full cursor-pointer rounded-md border border-border bg-background px-2 text-[13px] outline-none focus-visible:border-sisyphus-500 focus-visible:ring-2 focus-visible:ring-sisyphus-100"
+                  >
+                    <option value="">— καμία —</option>
+                    {itemGroups.map((g) => <option key={g.code} value={g.code}>{g.label}</option>)}
+                  </select>
+                </Field>
+
+                <Field id="ni-cat" label="Εμπορική κατηγορία (προαιρετικό)" error={null}>
+                  <div className="flex items-center gap-2">
+                    <select
+                      id="ni-cat" value={form.itemCategory} disabled={locked}
+                      onChange={(e) => set('itemCategory', e.target.value)}
+                      className="h-9 flex-1 cursor-pointer rounded-md border border-border bg-background px-2 text-[13px] outline-none focus-visible:border-sisyphus-500 focus-visible:ring-2 focus-visible:ring-sisyphus-100"
+                    >
+                      <option value="">— καμία —</option>
+                      {itemCategories.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+                    </select>
+                    <Button
+                      type="button" variant="outline" size="sm"
+                      className="h-9 shrink-0 cursor-pointer"
+                      disabled={locked || newCat != null}
+                      onClick={() => { setNewCat({ name: '', code: '' }); setCatError(null); }}
+                    >
+                      <FiPlus aria-hidden className="size-3.5" /> Νέα
+                    </Button>
+                  </div>
+                </Field>
+              </div>
+            )}
+
+            {/* Η δημιουργία κατηγορίας γράφει ΠΡΑΓΜΑΤΙΚΑ στο SoftOne (object ITECATEGORY) και
+                επιβεβαιώνεται με ανάγνωση πίσω: «success» χωρίς γραμμή δεν μετράει. */}
+            {needsUnit && newCat && (
+              <div className="grid gap-2 rounded-lg border border-border bg-neutral-4 px-2.5 py-2">
+                <p className="text-caption font-semibold uppercase tracking-wider text-muted-foreground">
+                  Νέα εμπορική κατηγορία
+                </p>
+                <Field id="ni-newcat-name" label="Περιγραφή" required error={null}>
+                  <Input
+                    id="ni-newcat-name" value={newCat.name} disabled={catBusy}
+                    onChange={(e) => setNewCat({ ...newCat, name: e.target.value })}
+                    className="h-9 text-[13px]"
+                  />
+                </Field>
+                <Field
+                  id="ni-newcat-code" label="Σύντμηση (προαιρετικό)" error={null}
+                  hint="Κενό ⇒ παράγεται από την περιγραφή και ελέγχεται ότι είναι ελεύθερη."
+                >
+                  <Input
+                    id="ni-newcat-code" value={newCat.code} disabled={catBusy}
+                    onChange={(e) => setNewCat({ ...newCat, code: e.target.value })}
+                    className="h-9 font-mono text-[13px]"
+                  />
+                </Field>
+                {catError && (
+                  <p className="flex items-center gap-1 text-caption text-destructive">
+                    <FiAlertCircle aria-hidden className="size-3" /> {catError}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" disabled={catBusy} onClick={() => void submitCategory()} className="h-8 cursor-pointer">
+                    {catBusy ? <FiLoader aria-hidden className="animate-spin motion-reduce:animate-none" /> : <FiCheck aria-hidden />}
+                    Δημιουργία κατηγορίας
+                  </Button>
+                  <Button type="button" size="sm" variant="ghost" disabled={catBusy} onClick={() => setNewCat(null)} className="h-8 cursor-pointer">
+                    Άκυρο
+                  </Button>
+                </div>
+              </div>
+            )}
 
             <details
               open={dryOpen}
@@ -609,7 +966,7 @@ export function ItemPanel({
             </details>
 
             <div className="flex flex-wrap gap-2">
-              <Button type="button" disabled={locked} onClick={submitCreate} className="h-9 cursor-pointer">
+              <Button type="button" disabled={locked} onClick={() => void submitCreate()} className="h-9 cursor-pointer">
                 {busy ? <FiLoader aria-hidden className="animate-spin motion-reduce:animate-none" /> : <FiCheck aria-hidden />}
                 Δημιουργία στο SoftOne
               </Button>
@@ -654,12 +1011,14 @@ export function ItemPanel({
 
 /** Ετικέτα + πεδίο + inline σφάλμα — ορατή ετικέτα παντού, ποτέ μόνο placeholder. */
 function Field({
-  id, label, required, error, children,
+  id, label, required, error, hint, children,
 }: {
   id: string;
   label: string;
   required?: boolean;
   error: string | null;
+  /** Επεξήγηση κάτω από το πεδίο — κρύβεται όσο υπάρχει σφάλμα (ένα μήνυμα τη φορά). */
+  hint?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -668,11 +1027,13 @@ function Field({
         {label}{required && <span className="text-destructive"> *</span>}
       </label>
       {children}
-      {error && (
+      {error ? (
         <p className="flex items-center gap-1 text-caption text-destructive">
           <FiAlertCircle aria-hidden className="size-3" /> {error}
         </p>
-      )}
+      ) : hint ? (
+        <p className="text-caption text-muted-foreground">{hint}</p>
+      ) : null}
     </div>
   );
 }

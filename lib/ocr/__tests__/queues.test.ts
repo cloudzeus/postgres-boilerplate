@@ -8,6 +8,10 @@ const { db } = vi.hoisted(() => ({
     ocrInvoiceItem: { findMany: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     ignoredIssuer: { findMany: vi.fn() },
     softoneTrader: { findMany: vi.fn() },
+    // Τα μητρώα σειρών: από εκεί βγαίνει ο ΑΠΑΙΤΟΥΜΕΝΟΣ τύπος καρτέλας κάθε παραστατικού
+    // (`lib/ocr/required-trader-kind.ts`), ομαδικά.
+    purchaseDocType: { findMany: vi.fn() },
+    softoneDocSeries: { findMany: vi.fn() },
     softoneItem: { findMany: vi.fn(), findUnique: vi.fn() },
     softoneExpense: { findMany: vi.fn(), findUnique: vi.fn() },
     softoneLineItem: { findMany: vi.fn(), findUnique: vi.fn() },
@@ -61,6 +65,9 @@ beforeEach(() => {
   db.ocrInvoiceItem.updateMany.mockResolvedValue({ count: 0 });
   db.ocrInvoiceItem.count.mockResolvedValue(0);
   db.ignoredIssuer.findMany.mockResolvedValue([]);
+  db.softoneTrader.findMany.mockResolvedValue([]);
+  db.purchaseDocType.findMany.mockResolvedValue([]);
+  db.softoneDocSeries.findMany.mockResolvedValue([]);
   db.softoneItem.findMany.mockResolvedValue([]);
   db.softoneItem.findUnique.mockResolvedValue(null);
   db.softoneExpense.findMany.mockResolvedValue([]);
@@ -144,6 +151,76 @@ describe('loadTraderQueue', () => {
     expect((await loadTraderQueue()).groups[0].suggestedKind).toBe('supplier');
   });
 
+  /**
+   * Η εκκρεμότητα είναι ΑΝΑ ΤΥΠΟ: ο ίδιος εκδότης είναι συχνά και προμηθευτής και πιστωτής, με
+   * ΞΕΧΩΡΙΣΤΗ καρτέλα για τον καθένα. Μία καρτέλα δεν ξεμπλοκάρει την άλλη.
+   */
+  describe('εκκρεμότητα ανά απαιτούμενο τύπο', () => {
+    const creditorSeries = () => db.softoneDocSeries.findMany.mockResolvedValue([
+      { sosource: 1653, code: 'ΤΙΜΔ', name: 'Τιμολόγιο Δαπανών', section: null, postObject: null, postLines: null },
+    ]);
+    const linkedOnCreditorSeries = () => db.ocrDocument.findMany.mockResolvedValue([
+      doc({
+        id: 'd1', softoneTrdr: 5001, softoneSeries: 'ΤΙΜΔ', seriesSource: 1653,
+        extractedData: { vatNumber: '094073495', companyName: 'ΑΛΦΑ ΑΕ' },
+      }),
+    ]);
+
+    it('καρτέλα προμηθευτή + σειρά πιστωτών ⇒ εκκρεμής ΜΟΝΟ για πιστωτή, με τον λόγο', async () => {
+      creditorSeries();
+      linkedOnCreditorSeries();
+      db.softoneTrader.findMany.mockResolvedValue([
+        { trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', afm: '094073495', sodtype: 12 },
+      ]);
+
+      const { groups } = await loadTraderQueue();
+
+      expect(groups).toHaveLength(1);
+      const g = groups[0];
+      expect(g.missing).toHaveLength(1);
+      expect(g.missing[0]).toMatchObject({ kind: 'creditor', sodtype: 16, docCount: 1, series: ['ΤΙΜΔ'] });
+      expect(g.missing[0].reason).toBe('Χρειάζεται καρτέλα πιστωτή για τη σειρά ΤΙΜΔ');
+      // Η πρόταση της φόρμας ακολουθεί την ΑΠΟΔΕΙΞΗ, όχι την ευρετική.
+      expect(g.suggestedKind).toBe('creditor');
+      // …και η υπάρχουσα καρτέλα φαίνεται, ώστε ο χρήστης να ξέρει τι υπάρχει ήδη.
+      expect(g.cards).toEqual([
+        { trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', sodtype: 12, label: 'Προμηθευτής', kind: 'supplier' },
+      ]);
+    });
+
+    it('μόλις υπάρξει και η καρτέλα πιστωτή, ο εκδότης φεύγει από την ουρά', async () => {
+      creditorSeries();
+      linkedOnCreditorSeries();
+      db.softoneTrader.findMany.mockResolvedValue([
+        { trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', afm: '094073495', sodtype: 12 },
+        { trdr: 7001, code: '53-00002', name: 'ΑΛΦΑ ΑΕ', afm: '094073495', sodtype: 16 },
+      ]);
+
+      expect((await loadTraderQueue()).groups).toEqual([]);
+    });
+
+    it('έγγραφο ΜΕ καρτέλα αλλά ΧΩΡΙΣ αναγνωρισμένη σειρά δεν γεννά φανταστική εκκρεμότητα', async () => {
+      db.ocrDocument.findMany.mockResolvedValue([
+        doc({ id: 'd1', softoneTrdr: 5001, extractedData: { vatNumber: '094073495' } }),
+      ]);
+      db.softoneTrader.findMany.mockResolvedValue([
+        { trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', afm: '094073495', sodtype: 12 },
+      ]);
+
+      expect((await loadTraderQueue()).groups).toEqual([]);
+    });
+
+    it('έγγραφο ΧΩΡΙΣ καρτέλα και χωρίς σειρά μένει εκκρεμές, αλλά χωρίς απαιτούμενο τύπο', async () => {
+      db.ocrDocument.findMany.mockResolvedValue([
+        doc({ id: 'd1', extractedData: { vatNumber: '094073495', companyName: 'ΑΛΦΑ ΑΕ' } }),
+      ]);
+
+      const g = (await loadTraderQueue()).groups[0];
+      expect(g.missing).toEqual([]);
+      expect(g.unknownSeriesDocs).toBe(1);
+    });
+  });
+
   it('η ετικέτα κάθε τύπου βγαίνει από το ίδιο λεξικό SODTYPE με το lib/softone', () => {
     expect(TRADER_KIND_LABEL).toEqual({ supplier: 'Προμηθευτής', creditor: 'Πιστωτής', debtor: 'Χρεώστης' });
   });
@@ -166,16 +243,69 @@ describe('loadTraderQueue', () => {
 });
 
 describe('applyTraderToDocs', () => {
-  it('ένα updateMany πάνω στο indexed ΑΦΜ — καμία ανάγνωση εγγράφων', async () => {
+  it('άγνωστη σειρά ⇒ ένα updateMany με την καρτέλα του χρήστη, χωρίς ανάγνωση JSON', async () => {
+    // Χωρίς σειρά δεν υπάρχει πληροφορία για τον τύπο: γράφεται ό,τι έδωσε ο χρήστης.
+    db.ocrDocument.findMany.mockResolvedValue([
+      { id: 'd1', seriesSource: null, softoneSeries: null },
+      { id: 'd2', seriesSource: null, softoneSeries: null },
+    ]);
     db.ocrDocument.updateMany.mockResolvedValue({ count: 2 });
 
-    const n = await applyTraderToDocs('EL 094073495', { trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', kind: 'Προμηθευτής' });
+    const n = await applyTraderToDocs(
+      'EL 094073495',
+      { trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', kind: 'Προμηθευτής', sodtype: 12 },
+    );
 
     expect(n).toBe(2);
-    expect(db.ocrDocument.findMany).not.toHaveBeenCalled();
+    expect(db.ocrDocument.findUnique).not.toHaveBeenCalled();
+    // Τα εκκρεμή έγγραφα του ΑΦΜ διαβάζονται με το indexed `issuerAfm` και μόνο τα πεδία σειράς.
+    expect(db.ocrDocument.findMany.mock.calls[0][0]).toMatchObject({
+      where: { status: 'COMPLETED', softoneTrdr: null, issuerAfm: '094073495' },
+      select: { id: true, seriesSource: true, softoneSeries: true },
+    });
     const arg = db.ocrDocument.updateMany.mock.calls[0][0];
-    expect(arg.where).toEqual({ status: 'COMPLETED', softoneTrdr: null, issuerAfm: '094073495' });
+    expect(arg.where).toEqual({ id: { in: ['d1', 'd2'] } });
     expect(arg.data).toMatchObject({ softoneTrdr: 5001, softoneCode: 'Π.0001', softoneName: 'ΑΛΦΑ ΑΕ', softoneKind: 'Προμηθευτής' });
+  });
+
+  it('σειρά πιστωτών + καρτέλα προμηθευτή ⇒ ΔΕΝ γράφεται τίποτα (μένει εκκρεμές για πιστωτή)', async () => {
+    db.ocrDocument.findMany.mockResolvedValue([{ id: 'd1', seriesSource: 1653, softoneSeries: 'ΤΙΜΔ' }]);
+    db.softoneDocSeries.findMany.mockResolvedValue([
+      { sosource: 1653, code: 'ΤΙΜΔ', name: 'Τιμολόγιο Δαπανών', section: null, postObject: null, postLines: null },
+    ]);
+    // Στον καθρέφτη υπάρχει ΜΟΝΟ προμηθευτής (12)· το LINCREDOC θέλει 16.
+    db.softoneTrader.findMany.mockResolvedValue([
+      { trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', sodtype: 12, kind: 'Προμηθευτής' },
+    ]);
+
+    const n = await applyTraderToDocs(
+      '094073495',
+      { trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', kind: 'Προμηθευτής', sodtype: 12 },
+    );
+
+    expect(n).toBe(0);
+    expect(db.ocrDocument.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('η καρτέλα που ζητά η σειρά κερδίζει — ακόμη κι αν ο χρήστης έδωσε άλλη', async () => {
+    db.ocrDocument.findMany.mockResolvedValue([{ id: 'd1', seriesSource: 1653, softoneSeries: 'ΤΙΜΔ' }]);
+    db.softoneDocSeries.findMany.mockResolvedValue([
+      { sosource: 1653, code: 'ΤΙΜΔ', name: 'Τιμολόγιο Δαπανών', section: null, postObject: null, postLines: null },
+    ]);
+    db.softoneTrader.findMany.mockResolvedValue([
+      { trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', sodtype: 12, kind: 'Προμηθευτής' },
+      { trdr: 7001, code: '53-00002', name: 'ΑΛΦΑ ΑΕ', sodtype: 16, kind: 'Πιστωτής' },
+    ]);
+    db.ocrDocument.updateMany.mockResolvedValue({ count: 1 });
+
+    const n = await applyTraderToDocs(
+      '094073495',
+      { trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', kind: 'Προμηθευτής', sodtype: 12 },
+    );
+
+    expect(n).toBe(1);
+    expect(db.ocrDocument.updateMany.mock.calls[0][0].data)
+      .toMatchObject({ softoneTrdr: 7001, softoneCode: '53-00002', softoneKind: 'Πιστωτής' });
   });
 
   it('επιστρέφει 0 όταν το updateMany δεν άγγιξε τίποτα', async () => {
@@ -257,12 +387,14 @@ describe('loadItemQueue', () => {
     expect(g1.supplier).toBe('ΑΛΦΑ ΑΕ');
     expect(g1.lineCount).toBe(2);
     expect(g1.docCount).toBe(2);
-    expect(g1.category).toBe('product');
+    // ΧΩΡΙΣ απόδειξη δεν δηλώνουμε τύπο: «Υγρό άζωτο» χωρίς σειρά, χωρίς μνήμη και χωρίς
+    // ταιριασμένη υπηρεσία είναι ΑΤΑΞΙΝΟΜΗΤΗ — όχι σιωπηλά «Προϊόν».
+    expect(g1.category).toBeNull();
     expect(g1.lines[0]).toEqual({
       id: 'l1', docId: 'doc1', fileName: 'a.pdf', name: 'ΥΓΡΟ ΑΖΩΤΟ 9.560 KG',
       quantity: 9.56, price: 2, total: 19.12,
     });
-    // `softoneIsService` της γραμμής δίνει την προεπιλεγμένη κατηγορία.
+    // `softoneIsService` της γραμμής ΕΙΝΑΙ απόδειξη: εκεί δηλώνουμε «Υπηρεσία».
     expect(g2.pattern).toBe('μισθωμα φιαλων');
     expect(g2.category).toBe('service');
   });
@@ -476,27 +608,59 @@ describe('skipGroup', () => {
 });
 
 describe('countQueues', () => {
-  it('μετράει διακριτά ΑΦΜ (χωρίς τους αγνοημένους) με groupBy και ΟΜΑΔΕΣ γραμμών', async () => {
-    db.ocrDocument.groupBy.mockResolvedValue([
-      { issuerAfm: '094073495' }, { issuerAfm: '111222333' }, { issuerAfm: '999888777' },
+  /** Το ερώτημα της ουράς εκδοτών ξεχωρίζει από αυτό της ομαδοποίησης γραμμών με το `select`. */
+  const routeDocs = (traderDocs: unknown[]) =>
+    db.ocrDocument.findMany.mockImplementation(async (args: { select?: Record<string, unknown> }) => (
+      args?.select?.extractedData ? traderDocs : DOCS
+    ));
+
+  it('μετράει διακριτά ΑΦΜ (χωρίς τους αγνοημένους) με τον ΙΔΙΟ κανόνα με τη σελίδα', async () => {
+    routeDocs([
+      doc({ id: 'd1', extractedData: { vatNumber: '094073495' } }),
+      doc({ id: 'd2', extractedData: { vatNumber: '111222333' } }),
+      doc({ id: 'd3', extractedData: { vatNumber: '999888777' } }),
     ]);
     db.ignoredIssuer.findMany.mockResolvedValue([{ afm: '111222333' }]);
     // Ίδια ομαδοποίηση με τη σελίδα: 3 γραμμές → 2 ομάδες (το badge λέει «2», όχι «3»).
     db.ocrInvoiceItem.findMany.mockResolvedValue(LINES);
-    db.ocrDocument.findMany.mockResolvedValue(DOCS);
 
     expect(await countQueues()).toEqual({ traders: 2, items: 2 });
-    expect(db.ocrDocument.groupBy.mock.calls[0][0]).toMatchObject({ by: ['issuerAfm'] });
-    // Το βαρύ `extractedData` δεν κατεβαίνει για έναν μετρητή.
-    expect(db.ocrDocument.findMany.mock.calls[0][0].select).toEqual({ id: true, issuerAfm: true });
     expect(db.ocrInvoiceItem.count).not.toHaveBeenCalled();
   });
 
-  it('καμία εκκρεμής γραμμή ⇒ 0 ομάδες χωρίς ερώτημα εγγράφων', async () => {
+  it('έγγραφο ΜΕ καρτέλα σωστού τύπου δεν μετριέται — με λάθος τύπο, μετριέται', async () => {
+    db.softoneDocSeries.findMany.mockResolvedValue([
+      { sosource: 1653, code: 'ΤΙΜΔ', name: 'Τιμολόγιο Δαπανών', section: null, postObject: null, postLines: null },
+    ]);
+    routeDocs([
+      doc({
+        id: 'd1', softoneTrdr: 5001, softoneSeries: 'ΤΙΜΔ', seriesSource: 1653,
+        extractedData: { vatNumber: '094073495' },
+      }),
+    ]);
+
+    // Μόνο καρτέλα προμηθευτή: η σειρά πιστωτών μένει ακάλυπτη ⇒ εκκρεμής εκδότης.
+    db.softoneTrader.findMany.mockResolvedValue([
+      { trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', afm: '094073495', sodtype: 12 },
+    ]);
+    expect((await countQueues()).traders).toBe(1);
+
+    // Μόλις υπάρξει και καρτέλα πιστωτή, ο εκδότης φεύγει από την ουρά.
+    db.softoneTrader.findMany.mockResolvedValue([
+      { trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', afm: '094073495', sodtype: 12 },
+      { trdr: 7001, code: '53-00002', name: 'ΑΛΦΑ ΑΕ', afm: '094073495', sodtype: 16 },
+    ]);
+    expect((await countQueues()).traders).toBe(0);
+  });
+
+  it('καμία εκκρεμής γραμμή ⇒ 0 ομάδες χωρίς ερώτημα εγγράφων για τις γραμμές', async () => {
     db.ocrInvoiceItem.findMany.mockResolvedValue([]);
 
     expect(await countQueues()).toEqual({ traders: 0, items: 0 });
-    expect(db.ocrDocument.findMany).not.toHaveBeenCalled();
+    // Η ομαδοποίηση γραμμών δεν ρώτησε έγγραφα (το ερώτημά της έχει `select: {id, issuerAfm}`).
+    const itemQueries = db.ocrDocument.findMany.mock.calls
+      .filter((c) => JSON.stringify(c[0]?.select) === JSON.stringify({ id: true, issuerAfm: true }));
+    expect(itemQueries).toHaveLength(0);
   });
 });
 

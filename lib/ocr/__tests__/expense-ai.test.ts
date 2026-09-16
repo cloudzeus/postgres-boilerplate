@@ -7,6 +7,11 @@ const { db, queues, extract } = vi.hoisted(() => ({
   db: {
     softoneLineItem: { findMany: vi.fn() },
     softoneLineCategory: { findUnique: vi.fn(), findMany: vi.fn() },
+    // Συμφραζόμενα του prompt: ποιος εκδίδει και η πραγματική ταξινομία myDATA.
+    softoneTrader: { findMany: vi.fn() },
+    softoneMyDataClassType: { findMany: vi.fn() },
+    softoneMyDataClassCategory: { findMany: vi.fn() },
+    company: { findFirst: vi.fn() },
   },
   queues: { suggestForGroup: vi.fn() },
   extract: { resolveCfg: vi.fn(), callTextLLM: vi.fn(), callTextViaVision: vi.fn() },
@@ -18,10 +23,12 @@ vi.mock('./queues', () => queues);
 vi.mock('@/lib/ocr/queues', () => queues);
 vi.mock('../extract', () => extract);
 vi.mock('@/lib/ocr/extract', () => extract);
+vi.mock('@/lib/settings', () => ({ getSetting: vi.fn(async () => ''), setSetting: vi.fn() }));
 
 import {
   suggestExpensesWithAi, parseAiAnswer, clearExpenseAiCache, MAX_GROUPS,
 } from '../expense-ai';
+import { clearOwnCompanyCache } from '../own-company';
 
 const CANDIDATES = [
   { mtrl: 777, code: 'ΧΡ01', name: 'ΕΝΟΙΚΙΑ ΚΤΙΡΙΩΝ', mtrCategory: 5 },
@@ -36,6 +43,11 @@ const weak = [{ mtrl: null, expn: null, lin: 777, kind: 'lineitem' as const, cod
 beforeEach(() => {
   vi.clearAllMocks();
   clearExpenseAiCache();
+  clearOwnCompanyCache();
+  db.softoneTrader.findMany.mockResolvedValue([]);
+  db.softoneMyDataClassType.findMany.mockResolvedValue([]);
+  db.softoneMyDataClassCategory.findMany.mockResolvedValue([]);
+  db.company.findFirst.mockResolvedValue(null);
   queues.suggestForGroup.mockResolvedValue(weak);
   db.softoneLineItem.findMany.mockResolvedValue(CANDIDATES);
   db.softoneLineCategory.findUnique.mockResolvedValue({ name: 'ΛΕΙΤΟΥΡΓΙΚΑ' });
@@ -47,7 +59,7 @@ beforeEach(() => {
 describe('parseAiAnswer', () => {
   it('ανέχεται markdown fences και σκουπίδια γύρω από το JSON', () => {
     const r = parseAiAnswer('```json\n{"matches":[{"key":"a","code":"X","confidence":0.9,"reason":"γιατί"}]}\n```');
-    expect(r).toEqual([{ key: 'a', code: 'X', confidence: 0.9, reason: 'γιατί' }]);
+    expect(r).toEqual([{ key: 'a', kind: '', code: 'X', mydata: '', confidence: 0.9, reason: 'γιατί' }]);
   });
 
   it('φράζει τη βεβαιότητα στο [0,1] και δέχεται σκέτο array', () => {
@@ -87,8 +99,13 @@ describe('suggestExpensesWithAi', () => {
 
     expect(extract.callTextViaVision).toHaveBeenCalledTimes(1);
     expect(r.asked).toBe(2);
+    // Η απάντηση-δείγμα δεν δηλώνει `kind`: η πρόταση κρατά τον κωδικό και μένει ΧΩΡΙΣ τύπο,
+    // αντί να «συμπληρώσει» έναν από μόνη της.
     expect(r.suggestions).toEqual([
-      { key: 'g1', lin: 777, code: 'ΧΡ01', name: 'ΕΝΟΙΚΙΑ ΚΤΙΡΙΩΝ', confidence: 0.8, reason: 'ενοίκιο' },
+      {
+        key: 'g1', kind: null, lin: 777, code: 'ΧΡ01', name: 'ΕΝΟΙΚΙΑ ΚΤΙΡΙΩΝ',
+        confidence: 0.8, reason: 'ενοίκιο', myDataType: null,
+      },
     ]);
     // Το κόστος καταγράφεται με δικό του operation ώστε να ξεχωρίζει στο /admin/ai-usage.
     expect(extract.callTextViaVision.mock.calls[0][3]).toMatchObject({ operation: 'ocr.suggest_expense' });
@@ -162,11 +179,88 @@ describe('suggestExpensesWithAi', () => {
     expect(r.asked).toBe(MAX_GROUPS);
   });
 
-  it('χωρίς υποψήφιες χρεοπιστώσεις δεν ρωτάει καθόλου', async () => {
+  /**
+   * Άδειο μητρώο χρεοπιστώσεων ΔΕΝ ακυρώνει πια την κλήση: το ερώτημα που πονάει είναι ο
+   * ΤΥΠΟΣ της γραμμής, και σε αυτό το μοντέλο απαντά χωρίς κανέναν υποψήφιο κωδικό.
+   */
+  it('χωρίς υποψήφιες χρεοπιστώσεις ρωτά ΜΟΝΟ για τον τύπο', async () => {
     queues.suggestForGroup.mockResolvedValue([]);
     db.softoneLineItem.findMany.mockResolvedValue([]);
+    extract.callTextViaVision.mockResolvedValue({
+      content: '{"matches":[{"key":"g1","kind":"expense","code":"","confidence":0.9,"reason":"παροχή τρίτων, ομάδα 62"}]}',
+    });
+
     const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
-    expect(extract.callTextViaVision).not.toHaveBeenCalled();
+
+    expect(extract.callTextViaVision).toHaveBeenCalledTimes(1);
+    expect(r.suggestions).toEqual([
+      {
+        key: 'g1', kind: 'expense', lin: null, code: null, name: null,
+        confidence: 0.9, reason: 'παροχή τρίτων, ομάδα 62', myDataType: null,
+      },
+    ]);
+  });
+
+  it('χαμηλή βεβαιότητα ⇒ ΚΑΝΕΝΑΣ τύπος (η ομάδα μένει «χωρίς κατηγορία»)', async () => {
+    queues.suggestForGroup.mockResolvedValue([]);
+    db.softoneLineItem.findMany.mockResolvedValue([]);
+    extract.callTextViaVision.mockResolvedValue({
+      content: '{"matches":[{"key":"g1","kind":"product","code":"","confidence":0.3,"reason":"δεν είμαι καθόλου σίγουρος"}]}',
+    });
+
+    const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+
+    // Ο ΤΥΠΟΣ πέφτει, αλλά η αιτιολόγηση ΕΠΙΖΕΙ ως παρατήρηση: δεν επιλέγει τίποτα (ούτε τύπο
+    // ούτε κωδικό) και φτάνει στον χρήστη.
+    expect(r.suggestions).toEqual([
+      {
+        key: 'g1', kind: null, lin: null, code: null, name: null,
+        confidence: 0.3, reason: 'δεν είμαι καθόλου σίγουρος', myDataType: null,
+      },
+    ]);
+  });
+
+  /**
+   * Το prompt ΖΗΤΑΕΙ ρητά αυτή τη μορφή απάντησης για τα πάγια (χαμηλό confidence + εξήγηση στο
+   * `reason`). Αν ο αγωγός την πετούσε, το prompt θα ζητούσε κάτι που δεν φτάνει ποτέ πουθενά.
+   */
+  it('ΠΑΓΙΟ: η απάντηση επιβιώνει ως ΠΑΡΑΤΗΡΗΣΗ και δεν επιλέγει τίποτα', async () => {
+    queues.suggestForGroup.mockResolvedValue([]);
+    db.softoneLineItem.findMany.mockResolvedValue([]);
+    extract.callTextViaVision.mockResolvedValue({
+      content: '{"matches":[{"key":"g1","kind":"","code":"","confidence":0.2,'
+        + '"reason":"πρόκειται για πάγιο εξοπλισμό που αποσβένεται, όχι για έξοδο"}]}',
+    });
+
+    const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΗΛΕΚΤΡΟΝΙΚΟΣ ΥΠΟΛΟΓΙΣΤΗΣ')] });
+
+    expect(r.suggestions).toHaveLength(1);
+    expect(r.suggestions[0]).toMatchObject({
+      key: 'g1', kind: null, lin: null, code: null, name: null,
+      reason: 'πρόκειται για πάγιο εξοπλισμό που αποσβένεται, όχι για έξοδο',
+    });
+  });
+
+  it('αιτιολόγηση που δεν λέει τίποτα (χωρίς τύπο και κωδικό) πετιέται', async () => {
+    queues.suggestForGroup.mockResolvedValue([]);
+    db.softoneLineItem.findMany.mockResolvedValue([]);
+    extract.callTextViaVision.mockResolvedValue({
+      content: '{"matches":[{"key":"g1","kind":"product","code":"","confidence":0.2,"reason":"—"}]}',
+    });
+
+    const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+
     expect(r.suggestions).toEqual([]);
+  });
+
+  it('χαρακτηρισμός myDATA εκτός λευκής λίστας πετιέται σιωπηλά', async () => {
+    db.softoneMyDataClassType.findMany.mockResolvedValue([{ code: 1, name: 'Αγορές εμπορευμάτων', myDataCode: 'category2_1' }]);
+    extract.callTextViaVision.mockResolvedValue({
+      content: '{"matches":[{"key":"g1","kind":"expense","code":"ΧΡ01","mydata":"999","confidence":0.9,"reason":"ομάδα 62"}]}',
+    });
+
+    const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+
+    expect(r.suggestions[0]).toMatchObject({ kind: 'expense', myDataType: null });
   });
 });

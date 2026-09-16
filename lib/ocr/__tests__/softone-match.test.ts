@@ -9,8 +9,8 @@ const { db } = vi.hoisted(() => ({
     softoneItem: { findMany: vi.fn() },
     softoneExpense: { findMany: vi.fn() },
     softoneTrader: { findUnique: vi.fn(), findFirst: vi.fn() },
-    purchaseDocType: { findUnique: vi.fn() },
-    softoneDocSeries: { findUnique: vi.fn() },
+    purchaseDocType: { findUnique: vi.fn(), findMany: vi.fn() },
+    softoneDocSeries: { findUnique: vi.fn(), findMany: vi.fn() },
     lineMatchRule: { findMany: vi.fn(), update: vi.fn() },
   },
 }));
@@ -151,8 +151,12 @@ describe('alignTraderToTarget — ο τύπος του συναλλασσομέ�
   });
 
   beforeEach(() => {
-    db.softoneDocSeries.findUnique.mockResolvedValue({ name: 'Τιμολόγιο Δαπανών', section: '6645', postObject: null, postLines: null });
-    db.purchaseDocType.findUnique.mockResolvedValue(null);
+    // Ο απαιτούμενος τύπος βγαίνει πλέον από το κοινό `lib/ocr/required-trader-kind.ts`, που
+    // διαβάζει τα μητρώα σειρών ΟΜΑΔΙΚΑ (`findMany`) — μία ανάγνωση για όσα έγγραφα κι αν είναι.
+    db.softoneDocSeries.findMany.mockResolvedValue([
+      { sosource: 1553, code: '6645', name: 'Τιμολόγιο Δαπανών', section: '6645', postObject: null, postLines: null },
+    ]);
+    db.purchaseDocType.findMany.mockResolvedValue([]);
   });
 
   it('σειρά 1553: ο προμηθευτής αντικαθίσταται από τον ΧΡΕΩΣΤΗ του ίδιου ΑΦΜ', async () => {

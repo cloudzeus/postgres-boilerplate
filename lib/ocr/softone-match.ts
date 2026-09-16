@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/db';
 import { SODTYPE_LABEL, softoneFindTraderByAfm, softoneCheckPurchaseDoc } from '@/lib/softone';
-import { SODTYPE_FOR_OBJECT, resolvePostingTarget } from '@/lib/ocr/posting-target';
+import { requiredTraderKind } from '@/lib/ocr/required-trader-kind';
 import { normalizeLineText } from '@/lib/ocr/line-match';
 
 /**
@@ -286,19 +286,12 @@ export async function alignTraderToTarget(docId: string): Promise<boolean> {
     });
     if (!doc?.softoneTrdr || !doc.issuerAfm || !doc.softoneSeries || !doc.seriesSource) return false;
 
-    const row = doc.seriesSource === 1251
-      ? await prisma.purchaseDocType.findUnique({
-          where: { code: doc.softoneSeries },
-          select: { name: true, section: true, postObject: true, postLines: true },
-        })
-      : await prisma.softoneDocSeries.findUnique({
-          where: { sosource_code: { sosource: doc.seriesSource, code: doc.softoneSeries } },
-          select: { name: true, section: true, postObject: true, postLines: true },
-        });
-    const target = resolvePostingTarget({ sosource: doc.seriesSource, ...(row ?? {}) });
-    if (!target.supported) return false;
+    // Η αλυσίδα «σειρά → object → SODTYPE» ζει σε ΕΝΑ σημείο (`lib/ocr/required-trader-kind.ts`)
+    // και τη μοιράζονται η ουρά και η αρχική σύνδεση: δεν μπορούν να διαφωνήσουν.
+    const required = await requiredTraderKind(doc);
+    if (!required) return false;
 
-    const want = SODTYPE_FOR_OBJECT[target.object];
+    const want = required.sodtype;
     const current = await prisma.softoneTrader.findUnique({
       where: { trdr: doc.softoneTrdr }, select: { sodtype: true },
     });

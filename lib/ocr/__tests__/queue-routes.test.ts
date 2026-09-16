@@ -7,13 +7,16 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const { db, rbac, s1, audit, s1read, settings } = vi.hoisted(() => ({
   db: {
     ocrDocument: { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
-    purchaseDocType: { findFirst: vi.fn(), findUnique: vi.fn() },
-    softoneDocSeries: { findFirst: vi.fn() },
+    purchaseDocType: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
+    softoneDocSeries: { findFirst: vi.fn(), findMany: vi.fn() },
     ocrInvoiceItem: { findMany: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
     ignoredIssuer: { findMany: vi.fn(), upsert: vi.fn(), delete: vi.fn() },
     softoneTrader: { findUnique: vi.fn(), findMany: vi.fn(), upsert: vi.fn() },
     softoneItem: { findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
     softoneExpense: { findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
+    softoneLineItem: { findMany: vi.fn(), findUnique: vi.fn() },
+    softoneLookup: { findMany: vi.fn(), upsert: vi.fn() },
+    vatCategory: { findUnique: vi.fn(), findMany: vi.fn() },
     lineMatchRule: { findMany: vi.fn(), upsert: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -31,6 +34,8 @@ const { db, rbac, s1, audit, s1read, settings } = vi.hoisted(() => ({
     softoneFetchCountries: vi.fn(),
     softoneNextTraderCode: vi.fn(),
     clearTraderCodeCache: vi.fn(),
+    softoneNextItemCode: vi.fn(),
+    clearItemCodeCache: vi.fn(),
   },
   settings: { getSetting: vi.fn(), setSetting: vi.fn() },
 }));
@@ -52,6 +57,7 @@ import { POST as createTrader } from '@/app/api/admin/ocr/new-traders/[afm]/crea
 import { POST as linkTrader } from '@/app/api/admin/ocr/new-traders/[afm]/link/route';
 import { POST as ignoreTrader, DELETE as unignoreTrader } from '@/app/api/admin/ocr/new-traders/[afm]/ignore/route';
 import { GET as nextCode } from '@/app/api/admin/ocr/new-traders/next-code/route';
+import { GET as nextItemCode } from '@/app/api/admin/ocr/new-items/next-code/route';
 import { POST as createItem } from '@/app/api/admin/ocr/new-items/create/route';
 import { GET as itemQueue } from '@/app/api/admin/ocr/new-items/route';
 import { PATCH as patchDoc } from '@/app/api/admin/ocr/[id]/route';
@@ -61,6 +67,13 @@ const AFM = '094073495';
 const post = (body: unknown) =>
   new Request('http://localhost/api', { method: 'POST', body: JSON.stringify(body) });
 const ctx = (afm: string) => ({ params: Promise.resolve({ afm }) });
+
+/**
+ * Εκκρεμή έγγραφα του ΑΦΜ **χωρίς αναγνωρισμένη σειρά**: εκεί δεν υπάρχει πληροφορία για τον
+ * απαιτούμενο τύπο καρτέλας, οπότε γράφεται η καρτέλα που έδωσε ο χρήστης (δες `applyTraderToDocs`).
+ */
+const pendingDocs = (n: number) =>
+  Array.from({ length: n }, (_, i) => ({ id: `d${i + 1}`, seriesSource: null, softoneSeries: null }));
 
 /** Καμία εγγραφή πουθενά: ούτε SoftOne, ούτε βάση, ούτε audit. */
 function expectNoWrites() {
@@ -92,11 +105,21 @@ beforeEach(() => {
   db.ocrDocument.update.mockResolvedValue({ id: 'doc1' });
   db.purchaseDocType.findFirst.mockResolvedValue(null);
   db.purchaseDocType.findUnique.mockResolvedValue(null);
+  db.purchaseDocType.findMany.mockResolvedValue([]);
   db.softoneDocSeries.findFirst.mockResolvedValue(null);
+  db.softoneDocSeries.findMany.mockResolvedValue([]);
   // Μητρώο χωρών SoftOne: μόνο όσα χρειάζονται οι δοκιμές (COUNTRY.COUNTRY = id).
   settings.getSetting.mockResolvedValue('');
   db.softoneTrader.findMany.mockResolvedValue([]);
+  db.softoneLineItem.findMany.mockResolvedValue([]);
+  db.softoneLookup.findMany.mockResolvedValue([]);
+  db.softoneLookup.upsert.mockResolvedValue({});
+  // Το ποσοστό ΦΠΑ βγαίνει από το ΜΗΤΡΩΟ, όχι από τον client: από εκεί υπολογίζεται η λιανική.
+  db.vatCategory.findUnique.mockResolvedValue({ rate: 24 });
   s1read.softoneNextTraderCode.mockResolvedValue({ code: '53-00002', source: 'pattern', taken: 1, stale: false });
+  s1read.softoneNextItemCode.mockResolvedValue({
+    code: '00042', source: 'pattern', taken: 41, stale: false, supplierCodeTaken: false, supplierCode: null,
+  });
   s1read.softoneFetchCountries.mockResolvedValue([
     { id: '1000', shortcut: 'GR', name: 'ΕΛΛΑΔΑ', intcode: 'GR', intercode: 'GR' },
     { id: '1012', shortcut: 'CY', name: 'ΚΥΠΡΟΣ', intcode: 'CY', intercode: 'CY' },
@@ -141,6 +164,8 @@ describe('dry-run', () => {
 
   it('«νέος ΧΡΕΩΣΤΗΣ»: αληθινή δημιουργία → object DEBTOR, ετικέτα «Χρεώστης» στα έγγραφα', async () => {
     s1.softoneCreateTrader.mockResolvedValue({ trdr: 9001, code: 'Χ.0001' });
+    // Δύο εκκρεμή έγγραφα χωρίς αναγνωρισμένη σειρά ⇒ παίρνουν την καρτέλα που έδωσε ο χρήστης.
+    db.ocrDocument.findMany.mockResolvedValue(pendingDocs(2));
     db.ocrDocument.updateMany.mockResolvedValue({ count: 2 });
     db.softoneTrader.upsert.mockResolvedValue({});
 
@@ -183,6 +208,40 @@ describe('dry-run', () => {
 
     expect(body.dryRun).toBe(true);
     expect(body.payload.OBJECT).toBe('ITEM');
+    expectNoWrites();
+  });
+
+  /**
+   * Η τιμή μιας γραμμής τιμολογίου ΑΓΟΡΑΣ είναι **κόστος**: πάει στο `PRICEW` («Χονδρικής»).
+   *
+   * Το `PRICER` («Λιανικής») ΔΕΝ στέλνεται ΠΟΤΕ. Η εφαρμογή καταχωρεί αγορές/έξοδα/πάγια και δεν
+   * πουλά τίποτα· τιμή λιανικής είναι εμπορική απόφαση με περιθώριο, όχι `κόστος × (1 + ΦΠΑ)`.
+   * Και επειδή το πεδίο είναι `calculated: false`, ό,τι στείλουμε ΜΕΝΕΙ — δηλαδή θα γραφόταν
+   * τιμή πώλησης με μηδενικό περιθώριο σαν να την είχε ορίσει άνθρωπος.
+   */
+  it('η τιμή γράφεται ΜΟΝΟ ως PRICEW — καμία τιμή λιανικής', async () => {
+    const res = await createItem(post({
+      afm: AFM, pattern: 'υγρο αζωτο kg', kind: 'product',
+      code: '76-71106', name: 'ΥΓΡΟ ΑΖΩΤΟ', vat: '1300', unit: '101', price: 10, dryRun: true,
+    }));
+    const row = (await res.json()).payload.DATA.ITEM[0];
+
+    expect(row.PRICEW).toBe(10);
+    expect(row).not.toHaveProperty('PRICER');
+    // Το ΦΠΑ παραμένει κανονική ιδιότητα του είδους και φεύγει ως `VAT`.
+    expect(row.VAT).toBe('1300');
+    expectNoWrites();
+  });
+
+  it('ομάδα και εμπορική κατηγορία περνούν ως MTRGROUP / MTRCATEGORY', async () => {
+    const res = await createItem(post({
+      afm: AFM, pattern: 'x', kind: 'product',
+      code: 'A-1', name: 'X', vat: '1300', unit: '101', group: '7', category: '12', dryRun: true,
+    }));
+    const row = (await res.json()).payload.DATA.ITEM[0];
+
+    expect(row.MTRGROUP).toBe('7');
+    expect(row.MTRCATEGORY).toBe('12');
     expectNoWrites();
   });
 });
@@ -275,6 +334,90 @@ describe('το SoftOne απαιτεί «Κωδικό»', () => {
   });
 });
 
+/**
+ * Ο κωδικός ΕΙΔΟΥΣ ακολουθεί τον ίδιο δρόμο με τον κωδικό συναλλασσομένου: πρόταση από τον
+ * server (δύο κανόνες), 409 με ΝΕΑ πρόταση όταν πιαστεί στο μεσοδιάστημα, καμία επανάληψη.
+ */
+describe('προτεινόμενος κωδικός είδους', () => {
+  it('GET next-code περνά μητρώο, μάσκα και κωδικό γραμμής στη λογική πρότασης', async () => {
+    settings.getSetting.mockResolvedValue('ΥΠ-0001');
+    const res = await nextItemCode(new Request('http://localhost/api?kind=service&supplierCode=ABC-9'));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ kind: 'service', code: '00042', source: 'pattern' });
+    expect(s1read.softoneNextItemCode.mock.calls[0][0]).toBe('service');
+    expect(s1read.softoneNextItemCode.mock.calls[0][1]).toMatchObject({ mask: 'ΥΠ-0001', supplierCode: 'ABC-9' });
+  });
+
+  it('άγνωστο μητρώο → 400 χωρίς να ρωτηθεί το SoftOne', async () => {
+    const res = await nextItemCode(new Request('http://localhost/api?kind=trader'));
+    expect(res.status).toBe(400);
+    expect(s1read.softoneNextItemCode).not.toHaveBeenCalled();
+  });
+
+  it('κωδικός είδους που πιάστηκε → 409 με ΝΕΑ πρόταση, καμία δεύτερη δημιουργία', async () => {
+    const message = 'Ο κωδικός 00042 υπάρχει ήδη';
+    s1.softoneCreateItem.mockRejectedValue(new Error(message));
+    db.softoneItem.findMany.mockResolvedValue([{ code: '00042' }]);
+    s1read.softoneNextItemCode.mockResolvedValue({
+      code: '00043', source: 'pattern', taken: 42, stale: false, supplierCodeTaken: true, supplierCode: 'ABC-9',
+    });
+
+    const res = await createItem(post({
+      afm: AFM, pattern: 'υγρο αζωτο', kind: 'product',
+      code: '00042', name: 'ΥΓΡΟ ΑΖΩΤΟ', vat: '1', unit: '101', supplierCode: 'ABC-9',
+    }));
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      error: 'code_taken', field: 'code', kind: 'product', message, suggestion: '00043', stale: false,
+    });
+    // ΜΙΑ και μόνη προσπάθεια — και τίποτα δεν καθρεφτίστηκε τοπικά.
+    expect(s1.softoneCreateItem).toHaveBeenCalledTimes(1);
+    expect(db.softoneItem.upsert).not.toHaveBeenCalled();
+    // Η νέα πρόταση βγήκε με ΦΡΕΣΚΑ δεδομένα.
+    expect(s1read.clearItemCodeCache).toHaveBeenCalledWith('product');
+    // …και με την ΙΔΙΑ εφεδρεία που έχει το `GET next-code`: ο τοπικός καθρέφτης. Χωρίς αυτόν,
+    // ένα SoftOne που δεν απαντά θα πρότεινε τον πρώτο κωδικό της μάσκας ως «ελεύθερο».
+    expect(s1read.softoneNextItemCode.mock.calls.at(-1)?.[1]).toMatchObject({ fallbackCodes: ['00042'] });
+  });
+
+  /** Η επαναπρόταση από τον καθρέφτη ΔΕΝ είναι βεβαιότητα — το `stale` φτάνει μέχρι το UI. */
+  it('409 από μπαγιάτικα δεδομένα κουβαλά το `stale` στην απάντηση', async () => {
+    s1.softoneCreateItem.mockRejectedValue(new Error('Ο κωδικός 00042 υπάρχει ήδη'));
+    s1read.softoneNextItemCode.mockResolvedValue({
+      code: '00043', source: 'pattern', taken: 42, stale: true, supplierCodeTaken: false, supplierCode: null,
+    });
+
+    const res = await createItem(post({
+      afm: AFM, pattern: 'υγρο αζωτο', kind: 'product',
+      code: '00042', name: 'ΥΓΡΟ ΑΖΩΤΟ', vat: '1', unit: '101',
+    }));
+
+    expect(await res.json()).toMatchObject({ suggestion: '00043', stale: true });
+  });
+
+  it('ο κωδικός που ΜΟΛΙΣ απορρίφθηκε δεν ξαναπροτείνεται ως «κωδικός προμηθευτή»', async () => {
+    s1.softoneCreateItem.mockRejectedValue(new Error('Ο κωδικός ABC-9 υπάρχει ήδη'));
+
+    await createItem(post({
+      afm: AFM, pattern: 'υγρο αζωτο', kind: 'service',
+      code: 'ABC-9', name: 'ΥΓΡΟ ΑΖΩΤΟ', vat: '1', unit: '101', supplierCode: 'ABC-9',
+    }));
+
+    expect(s1read.softoneNextItemCode.mock.calls.at(-1)?.[1]).toMatchObject({ supplierCode: null });
+  });
+
+  it('κάθε άλλο σφάλμα SoftOne παραμένει 502 softone_error', async () => {
+    s1.softoneCreateItem.mockRejectedValue(new Error('Το είδος δεν επιβεβαιώθηκε'));
+    const res = await createItem(post({
+      afm: AFM, pattern: 'x', kind: 'product', code: '00042', name: 'X', vat: '1', unit: '101',
+    }));
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toBe('softone_error');
+  });
+});
+
 describe('ξένος εκδότης', () => {
   const CY = 'CY10123456A';
 
@@ -346,6 +489,7 @@ describe('ξένος εκδότης', () => {
 
   it('ελληνικός εκδότης ΔΕΝ παίρνει ποτέ πρόθεμα — ένα updateMany, καμία JSON εγγραφή', async () => {
     s1.softoneCreateTrader.mockResolvedValue({ trdr: 7002, code: 'Π.0008' });
+    db.ocrDocument.findMany.mockResolvedValue(pendingDocs(4));
     db.ocrDocument.updateMany.mockResolvedValue({ count: 4 });
     db.softoneTrader.upsert.mockResolvedValue({});
 
@@ -384,11 +528,14 @@ describe('ξένος εκδότης', () => {
 
 describe('link — SODTYPE', () => {
   it('δέχεται προμηθευτή (12), πιστωτή (16) και ΧΡΕΩΣΤΗ (15)', async () => {
-    db.ocrDocument.updateMany.mockResolvedValue({ count: 3 });
     for (const sodtype of [12, 16, 15]) {
       vi.clearAllMocks();
       rbac.requirePermission.mockResolvedValue(USER);
       audit.logAudit.mockResolvedValue(undefined);
+      db.softoneTrader.findMany.mockResolvedValue([]);
+      db.purchaseDocType.findMany.mockResolvedValue([]);
+      db.softoneDocSeries.findMany.mockResolvedValue([]);
+      db.ocrDocument.findMany.mockResolvedValue(pendingDocs(3));
       db.ocrDocument.updateMany.mockResolvedValue({ count: 3 });
       db.softoneTrader.findUnique.mockResolvedValue({
         trdr: 5001, code: 'Π.0001', name: 'ΑΛΦΑ ΑΕ', kind: 'Προμηθευτής', sodtype,
@@ -413,6 +560,7 @@ describe('link — SODTYPE', () => {
   });
 
   it('σύνδεση με ΧΡΕΩΣΤΗ (15): τα έγγραφα παίρνουν την ετικέτα του μητρώου', async () => {
+    db.ocrDocument.findMany.mockResolvedValue(pendingDocs(2));
     db.ocrDocument.updateMany.mockResolvedValue({ count: 2 });
     db.softoneTrader.findUnique.mockResolvedValue({
       trdr: 9002, code: 'Χ.0002', name: 'ΓΑΜΑ ΟΕ', kind: 'Χρεώστης', sodtype: 15,

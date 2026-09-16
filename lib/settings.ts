@@ -109,6 +109,13 @@ export const SETTING_CATALOG: SettingDef[] = [
   { key: 'softone.traderCodeMask.supplier', category: 'integrations', label: 'Μάσκα κωδικού προμηθευτή', description: 'Ο ΠΡΩΤΟΣ κωδικός προμηθευτή (π.χ. 0001). Χρησιμοποιείται μόνο όταν δεν υπάρχει κανένας προμηθευτής στο SoftOne για να συμπεραθεί το σχήμα. Κενό = καμία πρόταση.', type: 'text', defaultValue: '' },
   { key: 'softone.traderCodeMask.creditor', category: 'integrations', label: 'Μάσκα κωδικού πιστωτή',   description: 'Ο ΠΡΩΤΟΣ κωδικός πιστωτή (π.χ. 53-00001). Χρησιμοποιείται μόνο όταν δεν υπάρχει κανένας πιστωτής στο SoftOne για να συμπεραθεί το σχήμα. Κενό = καμία πρόταση.', type: 'text', defaultValue: '' },
   { key: 'softone.traderCodeMask.debtor',   category: 'integrations', label: 'Μάσκα κωδικού χρεώστη',   description: 'Ο ΠΡΩΤΟΣ κωδικός χρεώστη. Χρησιμοποιείται μόνο όταν δεν υπάρχει κανένας χρεώστης στο SoftOne για να συμπεραθεί το σχήμα. Κενό = καμία πρόταση.', type: 'text', defaultValue: '' },
+  // Ίδια ακριβώς λογική για τα μητρώα ειδών: πρόταση από το σχήμα των υπαρχόντων κωδικών και,
+  // μόνο για ΑΔΕΙΟ μητρώο, από τη μάσκα. Κενό = κανένας προτεινόμενος κωδικός (το πεδίο μένει
+  // κενό με εξήγηση) — η εφαρμογή δεν φτιάχνει ποτέ κωδικό από την περιγραφή της γραμμής.
+  { key: 'softone.itemCodeMask.product',  category: 'integrations', label: 'Μάσκα κωδικού είδους',        description: 'Ο ΠΡΩΤΟΣ κωδικός είδους (MTRL SODTYPE 51). Χρησιμοποιείται μόνο όταν δεν υπάρχει κανένα είδος στο SoftOne για να συμπεραθεί το σχήμα. Κενό = καμία πρόταση.', type: 'text', defaultValue: '' },
+  { key: 'softone.itemCodeMask.service',  category: 'integrations', label: 'Μάσκα κωδικού υπηρεσίας',     description: 'Ο ΠΡΩΤΟΣ κωδικός υπηρεσίας (MTRL SODTYPE 52). Χρησιμοποιείται μόνο όταν δεν υπάρχει καμία υπηρεσία στο SoftOne για να συμπεραθεί το σχήμα. Κενό = καμία πρόταση.', type: 'text', defaultValue: '' },
+  { key: 'softone.itemCodeMask.expense',  category: 'integrations', label: 'Μάσκα κωδικού εξόδου',        description: 'Ο ΠΡΩΤΟΣ κωδικός εξόδου (EXPN). Χρησιμοποιείται μόνο όταν δεν υπάρχει κανένα έξοδο στο SoftOne για να συμπεραθεί το σχήμα. Κενό = καμία πρόταση.', type: 'text', defaultValue: '' },
+  { key: 'softone.itemCodeMask.lineitem', category: 'integrations', label: 'Μάσκα κωδικού χρεοπίστωσης',  description: 'Ο ΠΡΩΤΟΣ κωδικός χρεοπίστωσης (MTRL SODTYPE 53). Οι χρεοπιστώσεις δημιουργούνται μόνο μέσα στο SoftOne — η μάσκα υπάρχει για πληρότητα. Κενό = καμία πρόταση.', type: 'text', defaultValue: '' },
 
   // Backups
   { key: 'backups.enabled',       category: 'backups', label: 'Ενεργό αυτόματο backup',  description: 'Ενεργοποιεί το ημερήσιο cron backup της βάσης.', type: 'boolean', defaultValue: true },
