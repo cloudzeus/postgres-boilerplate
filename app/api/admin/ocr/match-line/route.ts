@@ -14,9 +14,13 @@ export async function POST(req: Request) {
       where: { id: String(lineId) },
       // Καθαρίζουμε ΚΑΙ το έξοδο ΚΑΙ τη χρεοπίστωση: αλλιώς μια γραμμή αντιστοιχισμένη σε EXPN
       // ή σε χρεοπίστωση έμενε «αντιστοιχισμένη» και δεν επέστρεφε ποτέ στην ουρά (spec §3).
+      // ΚΑΙ την αναλυτική: κέντρο κόστους / έργο / δραστηριότητα επιλέχθηκαν ΓΙΑ ΤΗΝ ΠΡΟΗΓΟΥΜΕΝΗ
+      // αντιστοίχιση. Μια γραμμή που γυρίζει στην ουρά αποσυνδεδεμένη δεν πρέπει να κουβαλά τον
+      // επιμερισμό του κωδικού που μόλις αναιρέθηκε — θα έφευγε αθόρυβα στο επόμενο payload.
       data: {
         softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneCode: null,
         softoneName: null, softoneIsService: null, softoneMatchedBy: null,
+        softoneCostCntr: null, softonePrjc: null, softonePrjcStage: null,
       },
     });
     return NextResponse.json({ ok: true, cleared: true });

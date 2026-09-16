@@ -451,8 +451,8 @@ model PurchaseDocType {
   enabled   Boolean  @default(false)   // on/off: τη χρησιμοποιούμε στην εφαρμογή (χειροκίνητο, δεν το αγγίζει το sync)
   order     Int      @default(0)
   // Στόχος καταχώρισης (lib/ocr/posting-target.ts). NULL = η προεπιλογή της ενότητας.
-  postObject String?                   // PURDOC | LINSUPDOC | LINCREDOC
-  postLines  String?                   // AUTO | ITELINES | SRVLINES | ASSLINES | EXPANAL | LINLINES
+  postObject String?                   // PURDOC | LINSUPDOC | LINCREDOC | LINDEBDOC (το ορίζει η ενότητα)
+  postLines  String?                   // AUTO | ITELINES | SRVLINES | EXPANAL | LINLINES
 
   @@index([order])
 }
@@ -472,8 +472,8 @@ model SoftoneDocSeries {
   enabled   Boolean  @default(false)   // on/off: τη χρησιμοποιούμε στην εφαρμογή (χειροκίνητο, δεν το αγγίζει το sync)
   order     Int      @default(0)
   // Στόχος καταχώρισης (lib/ocr/posting-target.ts). NULL = η προεπιλογή της ενότητας.
-  postObject String?                   // PURDOC | LINSUPDOC | LINCREDOC
-  postLines  String?                   // AUTO | ITELINES | SRVLINES | ASSLINES | EXPANAL | LINLINES
+  postObject String?                   // PURDOC | LINSUPDOC | LINCREDOC | LINDEBDOC (το ορίζει η ενότητα)
+  postLines  String?                   // AUTO | ITELINES | SRVLINES | EXPANAL | LINLINES
 
   @@unique([sosource, code])
   @@index([sosource])

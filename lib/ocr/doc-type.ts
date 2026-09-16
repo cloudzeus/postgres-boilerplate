@@ -7,6 +7,7 @@ import {
 import { callTextLLM, callTextViaVision, resolveCfg } from './extract';
 import { SERIES_SIDE_LABEL, seriesTraderKind } from './posting-target';
 import { alignTraderToTarget } from './softone-match';
+import { SODTYPE_LABEL, TRADER_KIND_SODTYPE, type TraderKind } from '@/lib/softone';
 
 /**
  * Ενεργοποιημένες σειρές: αγορών (`PurchaseDocType`, SOSOURCE 1251) ∪ ΚΑΘΕ ΑΛΛΗ ενότητα που
@@ -35,11 +36,19 @@ export async function loadEnabledSeries(): Promise<SeriesCandidate[]> {
   ];
 }
 
-/** `softoneKind` του εγγράφου (ετικέτα SoftOne) → πλευρά για τον ταξινομητή. */
-const issuerKindOf = (softoneKind: string | null): 'supplier' | 'creditor' | 'debtor' | null =>
-  softoneKind === 'Προμηθευτής' ? 'supplier'
-    : softoneKind === 'Πιστωτής' ? 'creditor'
-      : softoneKind === 'Χρεώστης' ? 'debtor' : null;
+/**
+ * `softoneKind` του εγγράφου (ετικέτα SoftOne) → πλευρά για τον ταξινομητή.
+ *
+ * Παράγεται από ΤΟ ΙΔΙΟ λεξικό SODTYPE με το `lib/softone.ts` και το `TRADER_KIND_LABEL` των
+ * ουρών — όχι τρίτο αντίγραφο των ελληνικών λεκτικών. Η ετικέτα γράφεται στο έγγραφο από εκείνα,
+ * οπότε μια αλλαγή λέξης εκεί θα έκανε αυτή τη συνάρτηση να επιστρέφει σιωπηλά `null`.
+ */
+const ISSUER_KIND_BY_LABEL: Record<string, TraderKind> = Object.fromEntries(
+  (Object.keys(TRADER_KIND_SODTYPE) as TraderKind[])
+    .map((kind) => [SODTYPE_LABEL[TRADER_KIND_SODTYPE[kind]], kind]),
+);
+const issuerKindOf = (softoneKind: string | null): TraderKind | null =>
+  (softoneKind ? ISSUER_KIND_BY_LABEL[softoneKind] : null) ?? null;
 
 /**
  * Ταξινομεί το έγγραφο σε μία ενεργοποιημένη σειρά και το αποθηκεύει.

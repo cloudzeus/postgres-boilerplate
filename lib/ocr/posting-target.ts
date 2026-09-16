@@ -240,8 +240,14 @@ export const describeTargetShort = (t: PostingTarget): string =>
  */
 export type SeriesTraderKind = 'purchase' | 'creditor' | 'debtor';
 
-/** Ποιο object «ανήκει» σε ποια πλευρά — ό,τι δεν είναι εδώ είναι πλευρά προμηθευτή. */
-const SIDE_BY_OBJECT: Partial<Record<PostObject, SeriesTraderKind>> = {
+/**
+ * Ποιο object «ανήκει» σε ποια πλευρά. ΠΛΗΡΕΣ `Record` επίτηδες, όχι `Partial` με fallback: ένα
+ * πέμπτο object (π.χ. `LINCUSDOC` πελατών) πρέπει να ΣΠΑΣΕΙ τον compiler εδώ και να αναγκάσει
+ * ρητή απάντηση, αντί να πάρει σιωπηλά «πλευρά προμηθευτή» επειδή έτσι έτυχε το `??`.
+ */
+const SIDE_BY_OBJECT: Record<PostObject, SeriesTraderKind> = {
+  PURDOC: 'purchase',
+  LINSUPDOC: 'purchase',
   LINCREDOC: 'creditor',
   LINDEBDOC: 'debtor',
 };
@@ -258,7 +264,8 @@ const SIDE_BY_OBJECT: Partial<Record<PostObject, SeriesTraderKind>> = {
  */
 export const seriesTraderKind = (sosource: number): SeriesTraderKind => {
   const object = OBJECTS_FOR_SOSOURCE[Number(sosource)];
-  return (object && SIDE_BY_OBJECT[object]) ?? 'purchase';
+  // Άγνωστη ενότητα: πέφτουμε ρητά στη γενική πλευρά προμηθευτή — και μόνο εδώ, όχι σε κάθε object.
+  return object ? SIDE_BY_OBJECT[object] : 'purchase';
 };
 
 /** Ελληνική ετικέτα πλευράς — για αιτιολογίες και chips («Πιστωτών», «Χρεωστών»). */

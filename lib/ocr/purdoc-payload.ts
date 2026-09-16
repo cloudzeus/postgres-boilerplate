@@ -288,13 +288,17 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
 /** Ανοχή αθροίσματος γραμμών έναντι της τυπωμένης καθαρής αξίας. */
 const NET_TOLERANCE = 0.05;
 
-/** Το εμπόδιο που αντιστοιχεί σε «γραμμή που δεν χωράει στον πίνακα Χ». */
+/**
+ * Το εμπόδιο που αντιστοιχεί σε «γραμμή που δεν χωράει στον πίνακα Χ».
+ * ΧΩΡΙΣ `default`, όπως και το αδελφό του `lineFits`: ένας νέος πίνακας γραμμών πρέπει να σπάσει
+ * εδώ τον compiler, αντί να πάρει σιωπηλά το μήνυμα των ειδών.
+ */
 const mismatchCode = (table: PostLineTable): BlockerCode => {
   switch (table) {
     case 'LINLINES': return 'lines_need_lineitem';
     case 'EXPANAL': return 'lines_need_expn';
     case 'AUTO': return 'lines_lineitem_unsupported';
-    default: return 'lines_need_mtrl';
+    case 'ITELINES': case 'SRVLINES': return 'lines_need_mtrl';
   }
 };
 

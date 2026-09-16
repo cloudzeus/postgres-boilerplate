@@ -708,8 +708,6 @@ export const SYNC_STEPS: { table: SyncTable; label: string; run: (actor: SyncAct
   { table: 'projectstages',  label: 'Δραστηριότητες',          run: syncProjectStages },
 ];
 
-export const SYNC_LABELS: Record<SyncTable, string> =
-  Object.fromEntries(SYNC_STEPS.map((s) => [s.table, s.label])) as Record<SyncTable, string>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Ο δείκτης τρέχοντος περάσματος: κλειδαριά ΚΑΙ σωρευτής
