@@ -6,7 +6,7 @@ import { logAudit } from '@/lib/audit';
 import { parseAfmParam } from '@/lib/ocr/validate';
 import { applyVatPrefix } from '@/lib/ocr/vat-prefix';
 import { applyTraderToDocs } from '@/lib/ocr/queues';
-import { SUPPLIER_SODTYPES } from '@/lib/softone';
+import { ISSUER_SODTYPES } from '@/lib/softone';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,7 +21,7 @@ const Body = z.object({
 });
 
 // POST — «Είναι υπάρχων…»: συνδέει όλα τα έγγραφα του ΑΦΜ με υπάρχοντα
-// προμηθευτή/πιστωτή (SODTYPE 12/16) του τοπικού μητρώου (spec 2026-09-11 §2).
+// προμηθευτή/πιστωτή/χρεώστη (SODTYPE 12/16/15) του τοπικού μητρώου (spec 2026-09-11 §2).
 export async function POST(req: Request, { params }: { params: Promise<{ afm: string }> }) {
   const u = await requirePermission('ocr.categorize');
   const afm = parseAfmParam((await params).afm);
@@ -36,9 +36,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
   if (!trader) {
     return NextResponse.json({ error: 'trader_not_found', message: 'Ο συναλλασσόμενος δεν βρέθηκε.' }, { status: 404 });
   }
-  if (!(SUPPLIER_SODTYPES as readonly number[]).includes(trader.sodtype)) {
+  if (!(ISSUER_SODTYPES as readonly number[]).includes(trader.sodtype)) {
     return NextResponse.json(
-      { error: 'invalid_sodtype', message: 'Επίλεξε προμηθευτή ή πιστωτή (SODTYPE 12/16).' },
+      { error: 'invalid_sodtype', message: 'Επίλεξε προμηθευτή, πιστωτή ή χρεώστη (SODTYPE 12/16/15).' },
       { status: 422 },
     );
   }

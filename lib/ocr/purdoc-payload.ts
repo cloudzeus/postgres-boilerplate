@@ -5,7 +5,8 @@
 //
 // Ο ΣΤΟΧΟΣ ΔΕΝ ΕΙΝΑΙ ΣΤΑΘΕΡΟΣ: το object και ο πίνακας γραμμών έρχονται από τη σειρά του
 // εγγράφου (`lib/ocr/posting-target.ts`), όχι από το τι ταίριαξε η κάθε γραμμή. Ένα τιμολόγιο
-// δαπανών πάει σε `LINSUPDOC`/`LINLINES`, μια αγορά εμπορευμάτων σε `PURDOC`/`ITELINES`.
+// δαπανών πάει σε `LINSUPDOC`/`LINLINES`, μια αγορά εμπορευμάτων σε `PURDOC`/`ITELINES`, ένα
+// παραστατικό χρεώστη σε `LINDEBDOC`/`LINLINES`.
 import type { DocumentJson } from './canonical';
 import {
   LINES_FOR_OBJECT, POST_LINES_LABEL, type PostLineTable, type PostingTarget,
@@ -41,7 +42,7 @@ export type PurdocContext = {
   target: PostingTarget;
   /** SoftOne SERIES (αριθμός σειράς). */
   series: number;
-  /** SoftOne TRDR του συναλλασσομένου (προμηθευτή ή πιστωτή). */
+  /** SoftOne TRDR του συναλλασσομένου (προμηθευτή, πιστωτή ή χρεώστη). */
   trdr: number;
   /** Προαιρετικό COMPANY — κανονικά το session είναι ήδη δεμένο σε εταιρία. */
   company?: number | null;
@@ -52,7 +53,7 @@ export type PurdocContext = {
 };
 
 /**
- * Η κεφαλίδα. ΙΔΙΑ και στα τρία objects (DB πίνακας FINDOC) — επαληθευμένο στο schema.
+ * Η κεφαλίδα. ΙΔΙΑ και στα τέσσερα objects (DB πίνακας FINDOC) — επαληθευμένο στο schema.
  * Στέλνουμε ΜΟΝΟ ό,τι πραγματικά ξέρουμε· τα υπόλοιπα «required» πεδία (FISCPRD, PERIOD, BRANCH,
  * SOCURRENCY, TRDRRATE, GLUPD, …) έχουν defaults στο SoftOne και τα συμπληρώνει το ίδιο.
  * Δεν μαντεύουμε χρήση, υποκατάστημα ή ισοτιμίες.
@@ -81,7 +82,7 @@ export type PurdocLinLine = {
   NETLINEVAL: number; VAT?: number; COMMENTS?: string;
 };
 
-export type PostingObjectName = 'PURDOC' | 'LINSUPDOC' | 'LINCREDOC';
+export type PostingObjectName = 'PURDOC' | 'LINSUPDOC' | 'LINCREDOC' | 'LINDEBDOC';
 
 export type PostingPayload = {
   OBJECT: PostingObjectName;
@@ -90,6 +91,7 @@ export type PostingPayload = {
     PURDOC?: PurdocHeader[];
     LINSUPDOC?: PurdocHeader[];
     LINCREDOC?: PurdocHeader[];
+    LINDEBDOC?: PurdocHeader[];
     ITELINES?: PurdocItemLine[];
     SRVLINES?: PurdocItemLine[];
     ASSLINES?: PurdocItemLine[];

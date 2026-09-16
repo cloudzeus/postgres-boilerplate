@@ -5,6 +5,7 @@
  * Δεν αγγίζει DB ούτε SoftOne: κανονικοποίηση κειμένου, ομαδοποίηση όμοιων
  * γραμμών, ομοιότητα ονομάτων (Dice σε bigrams) και πρόταση τύπου συναλλασσομένου.
  */
+import type { SeriesTraderKind } from '@/lib/ocr/posting-target';
 
 // Tokens που δεν λένε τίποτα για το είδος: ποσά/ποσότητες, με ή χωρίς μονάδα.
 const AMOUNT_TOKEN = /^[\d.,]+(kg|lt|ml|gr|τεμ|%)?$/;
@@ -163,13 +164,18 @@ export function groupLines(lines: LineForGrouping[]): LineGroup[] {
 }
 
 /**
- * Προτείνει τύπο συναλλασσομένου για έναν εκδότη: πιστωτής όταν τα παραστατικά
- * του πέφτουν σε σειρά πιστωτών ή είναι κατά πλειοψηφία υπηρεσίες· αλλιώς προμηθευτής.
+ * Προτείνει τύπο συναλλασσομένου για έναν εκδότη. Η ΣΕΙΡΑ του παραστατικού είναι η ισχυρότερη
+ * ένδειξη — αν κάποιο έγγραφό του έπεσε σε σειρά χρεωστών ή πιστωτών, αυτό είναι· ο χρεώστης
+ * προηγείται γιατί είναι η πιο ρητή (και σπανιότερη) ταξινόμηση. Αλλιώς κρίνει το είδος των
+ * παραστατικών: κατά πλειοψηφία υπηρεσίες → πιστωτής, αλλιώς προμηθευτής.
+ *
+ * Είναι ΜΟΝΟ πρόταση: ο χρήστης τη γυρίζει με ένα κλικ στην ουρά.
  */
 export function suggestTraderKind(input: {
-  seriesKinds: ('purchase' | 'creditor')[];
+  seriesKinds: SeriesTraderKind[];
   invoiceKinds: (string | null | undefined)[];
-}): 'supplier' | 'creditor' {
+}): 'supplier' | 'creditor' | 'debtor' {
+  if (input.seriesKinds.some((k) => k === 'debtor')) return 'debtor';
   if (input.seriesKinds.some((k) => k === 'creditor')) return 'creditor';
   const kinds = input.invoiceKinds.filter(Boolean) as string[];
   if (kinds.length === 0) return 'supplier';

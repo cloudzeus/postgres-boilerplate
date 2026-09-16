@@ -10,14 +10,14 @@ import { Button } from '@/components/ui/button';
 import { TraderPanel, KIND_COLORS, fmtDate, fmtEuro, type TaxOffice } from './trader-panel';
 import type { IgnoredIssuerRow, TraderGroup } from '@/lib/ocr/queues';
 
-type FilterKey = 'all' | 'supplier' | 'creditor' | 'foreign' | 'ignored';
+type FilterKey = 'all' | 'supplier' | 'creditor' | 'debtor' | 'foreign' | 'ignored';
 
 /** Μια γραμμή της ουράς: εκκρεμής εκδότης ή αγνοημένος (φίλτρο «Αγνοημένοι»). */
 type Row =
   | { type: 'group'; id: string; group: TraderGroup }
   | { type: 'ignored'; id: string; row: IgnoredIssuerRow };
 
-const KIND_LABEL = { supplier: 'Προμηθευτής', creditor: 'Πιστωτής' } as const;
+const KIND_LABEL = { supplier: 'Προμηθευτής', creditor: 'Πιστωτής', debtor: 'Χρεώστης' } as const;
 
 const matches = (needle: string, ...haystack: (string | null | undefined)[]) => {
   const q = needle.trim().toLowerCase();
@@ -135,6 +135,7 @@ export function NewTradersClient({ header, groups, ignored, truncated, taxOffice
     { key: 'all', label: 'Όλοι', count: pending.length },
     { key: 'supplier', label: 'Προμηθευτές', count: pending.filter((g) => g.suggestedKind === 'supplier').length },
     { key: 'creditor', label: 'Πιστωτές', count: pending.filter((g) => g.suggestedKind === 'creditor').length },
+    { key: 'debtor', label: 'Χρεώστες', count: pending.filter((g) => g.suggestedKind === 'debtor').length },
     { key: 'foreign', label: 'Εκτός Ελλάδας', count: pending.filter((g) => g.isForeign).length },
     { key: 'ignored', label: 'Αγνοημένοι', count: hidden.length },
   ];

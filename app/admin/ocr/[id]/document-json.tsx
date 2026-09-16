@@ -14,7 +14,7 @@ import type { DocumentEnvelope } from '@/lib/ocr/canonical';
 type PurdocHeader = Record<string, string | number>;
 type PurdocLine = Record<string, string | number>;
 type PayloadData = {
-  PURDOC?: PurdocHeader[]; LINSUPDOC?: PurdocHeader[]; LINCREDOC?: PurdocHeader[];
+  PURDOC?: PurdocHeader[]; LINSUPDOC?: PurdocHeader[]; LINCREDOC?: PurdocHeader[]; LINDEBDOC?: PurdocHeader[];
   ITELINES?: PurdocLine[]; SRVLINES?: PurdocLine[]; ASSLINES?: PurdocLine[];
   EXPANAL?: PurdocLine[]; LINLINES?: PurdocLine[];
 };

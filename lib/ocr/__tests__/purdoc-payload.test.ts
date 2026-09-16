@@ -3,7 +3,10 @@
 import { describe, it, expect } from 'vitest';
 import { emptyDocument, type DocumentJson } from '../canonical';
 import { buildPurdocPayload, postingBlockers, postingWarnings, type PurdocContext, type PostingDoc } from '../purdoc-payload';
-import { defaultPostingTarget, resolvePostingTarget, type PostingTarget } from '../posting-target';
+import {
+  defaultPostingTarget, resolvePostingTarget, seriesTraderKind,
+  LINES_FOR_OBJECT, POST_OBJECT_SHORT, type PostingTarget,
+} from '../posting-target';
 
 /** Ο στόχος μιας σειράς αγοράς εμπορευμάτων: PURDOC με πίνακα ανά γραμμή (η σημερινή συμπεριφορά). */
 const PURCHASE: PostingTarget = defaultPostingTarget({ sosource: 1251, name: 'Τιμολόγιο Αγοράς' });
@@ -157,6 +160,20 @@ describe('defaultPostingTarget', () => {
       .toMatchObject({ object: 'LINSUPDOC', lines: 'LINLINES' });
   });
 
+  it('1553 «Λοιπές συναλλαγές χρεωστών» → LINDEBDOC / LINLINES', () => {
+    // Η αρίθμηση είναι `1<οντότητα><είδος>`: 5 = χρεώστες, 53 = λοιπές (ειδικές) συναλλαγές —
+    // ο ίδιος συνδυασμός με το 1253 των προμηθευτών.
+    expect(defaultPostingTarget({ sosource: 1553, name: 'Τιμολόγιο Δαπανών' }))
+      .toMatchObject({ object: 'LINDEBDOC', lines: 'LINLINES', source: 'default' });
+  });
+
+  it('κάθε LIN*DOC δέχεται ΜΟΝΟ LINLINES — καμία εφεύρεση πίνακα', () => {
+    for (const object of ['LINSUPDOC', 'LINCREDOC', 'LINDEBDOC'] as const) {
+      expect(LINES_FOR_OBJECT[object]).toEqual(['LINLINES']);
+      expect(POST_OBJECT_SHORT[object]).toMatch(/^Ειδικές συναλλαγές /);
+    }
+  });
+
   it('σειρά αγορών που μυρίζει δαπάνη/υπηρεσία → LINSUPDOC / LINLINES', () => {
     expect(defaultPostingTarget({ sosource: 1251, name: 'Τιμολόγιο Δαπανών ΚΕ.Π.Υ.Ο' }))
       .toMatchObject({ object: 'LINSUPDOC', lines: 'LINLINES' });
@@ -202,9 +219,30 @@ describe('resolvePostingTarget', () => {
     expect(resolvePostingTarget({ sosource: 1251, name: 'Τιμολόγιο Αγοράς', postLines: 'ASSLINES' }))
       .toMatchObject({ object: 'PURDOC', lines: 'ASSLINES', source: 'configured' });
   });
+
+  it('LINDEBDOC επιλέξιμο σε ΟΠΟΙΑΔΗΠΟΤΕ σειρά — ο στόχος είναι ρύθμιση, όχι κανόνας', () => {
+    expect(resolvePostingTarget({ sosource: 1653, postObject: 'LINDEBDOC' }))
+      .toMatchObject({ object: 'LINDEBDOC', lines: 'LINLINES', source: 'configured' });
+    // Ασυνεπής πίνακας δεν γίνεται δεκτός σιωπηλά: πέφτει στον μοναδικό έγκυρο.
+    expect(resolvePostingTarget({ sosource: 1251, postObject: 'LINDEBDOC', postLines: 'ITELINES' }))
+      .toMatchObject({ object: 'LINDEBDOC', lines: 'LINLINES' });
+  });
+});
+
+describe('seriesTraderKind — η πλευρά μιας ενότητας', () => {
+  it('βγαίνει από τον ΙΔΙΟ πίνακα προεπιλογών με την καταχώριση', () => {
+    expect(seriesTraderKind(1653)).toBe('creditor');
+    expect(seriesTraderKind(1553)).toBe('debtor');
+    // Αγορές και ειδικές συναλλαγές προμηθευτών είναι η ΙΔΙΑ πλευρά.
+    expect(seriesTraderKind(1251)).toBe('purchase');
+    expect(seriesTraderKind(1253)).toBe('purchase');
+    // Άγνωστη ενότητα δεν εφευρίσκει πλευρά — πέφτει στη γενική.
+    expect(seriesTraderKind(9999)).toBe('purchase');
+  });
 });
 
 const LINSUP: PostingTarget = defaultPostingTarget({ sosource: 1253 });
+const LINDEB: PostingTarget = defaultPostingTarget({ sosource: 1553 });
 
 describe('buildPurdocPayload — LINLINES / ASSLINES', () => {
   it('LINSUPDOC: κεφαλίδα στο δικό της κλειδί, γραμμές με MTRL χρεοπίστωσης και MTRTYPE', () => {
@@ -239,6 +277,42 @@ describe('buildPurdocPayload — LINLINES / ASSLINES', () => {
     }));
     expect(payload.DATA.ASSLINES).toHaveLength(2);
     expect(payload.DATA.SRVLINES).toBeUndefined();
+  });
+
+  it('LINDEBDOC: ίδιο σχήμα με τους δύο αδελφούς του, μόνο άλλο κλειδί κεφαλίδας', () => {
+    const lines = [
+      { rowIndex: 0, lin: 777, linMtrType: 1 },
+      { rowIndex: 1, lin: 778, linMtrType: 0 },
+    ];
+    const deb = buildPurdocPayload(doc(), ctx({ target: LINDEB, lines }));
+    const sup = buildPurdocPayload(doc(), ctx({ target: LINSUP, lines }));
+
+    expect(deb.OBJECT).toBe('LINDEBDOC');
+    expect(deb.DATA.LINDEBDOC?.[0]).toMatchObject({
+      SERIES: 7001, TRNDATE: '2026-03-14', TRDR: 12345, FINCODE: '17',
+      MYDATAMARK: '400001', MYDATAUID: 'ABC',
+    });
+    // Το SODTYPE είναι read-only με default στο SoftOne — ΔΕΝ το στέλνουμε ποτέ.
+    expect(deb.DATA.LINDEBDOC?.[0]).not.toHaveProperty('SODTYPE');
+    expect(deb.DATA.LINSUPDOC).toBeUndefined();
+    expect(deb.DATA.PURDOC).toBeUndefined();
+    // Οι γραμμές είναι ΑΠΑΡΑΛΛΑΚΤΕΣ — ο πίνακας LINLINES είναι κοινός στα τρία objects.
+    expect(deb.DATA.LINLINES).toEqual(sup.DATA.LINLINES);
+    expect(deb.DATA.LINLINES).toHaveLength(2);
+  });
+
+  it('LINDEBDOC: τα ίδια εμπόδια με τους αδελφούς του — καμία γραμμή δεν χάνεται σιωπηλά', () => {
+    const c = ctx({ target: LINDEB, lines: [{ rowIndex: 0, mtrl: 555 }, { rowIndex: 1, lin: 778, linMtrType: 0 }] });
+    expect(buildPurdocPayload(doc(), c).DATA.LINLINES).toHaveLength(1);
+    expect(postingBlockers(doc(), postingDoc({ seriesSource: 1553 }), c)).toContain('lines_need_lineitem');
+
+    // Χρεοπίστωση χωρίς MTRTYPE στο μητρώο: εμπόδιο, όχι μαντεψιά.
+    const noType = ctx({ target: LINDEB, lines: [{ rowIndex: 0, lin: 777, linMtrType: null }, { rowIndex: 1, lin: 778, linMtrType: 0 }] });
+    expect(postingBlockers(doc(), postingDoc({ seriesSource: 1553 }), noType)).toContain('lines_no_mtrtype');
+
+    // Ο πίνακας LINLINES δεν έχει πεδίο χαρακτηρισμού — ο χρήστης πρέπει να το ξέρει.
+    expect(postingWarnings(ctx({ target: LINDEB, lines: [{ rowIndex: 0, lin: 777, linMtrType: 0 }] })))
+      .toContain('mydata_from_master');
   });
 
   it('MYDATACODE μόνο εκεί όπου ο πίνακας το έχει', () => {

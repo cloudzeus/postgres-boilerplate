@@ -19,8 +19,7 @@ const { db, rbac, s1, audit, s1read } = vi.hoisted(() => ({
   },
   rbac: { requirePermission: vi.fn() },
   s1: {
-    softoneCreateSupplier: vi.fn(),
-    softoneCreateCreditor: vi.fn(),
+    softoneCreateTrader: vi.fn(),
     softoneCreateItem: vi.fn(),
     softoneCreateExpense: vi.fn(),
     softoneLoadExpenseTemplate: vi.fn(),
@@ -113,6 +112,39 @@ describe('dry-run', () => {
     expectNoWrites();
   });
 
+  it('«νέος ΧΡΕΩΣΤΗΣ»: dry-run στο object DEBTOR, χωρίς καμία εγγραφή', async () => {
+    const res = await createTrader(
+      post({ kind: 'debtor', name: 'ΑΛΦΑ ΑΕ', phone: '2101234567', dryRun: true }),
+      ctx(AFM),
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.dryRun).toBe(true);
+    expect(body.payload.service).toBe('setData');
+    expect(body.payload.OBJECT).toBe('DEBTOR');
+    expect(body.payload.DATA.DEBTOR[0]).toMatchObject({ NAME: 'ΑΛΦΑ ΑΕ', AFM, PHONE01: '2101234567' });
+    // Το SODTYPE (15) το βάζει το ίδιο το object — δεν το στέλνουμε ποτέ.
+    expect(body.payload.DATA.DEBTOR[0]).not.toHaveProperty('SODTYPE');
+    expectNoWrites();
+  });
+
+  it('«νέος ΧΡΕΩΣΤΗΣ»: αληθινή δημιουργία → object DEBTOR, ετικέτα «Χρεώστης» στα έγγραφα', async () => {
+    s1.softoneCreateTrader.mockResolvedValue({ trdr: 9001, code: 'Χ.0001' });
+    db.ocrDocument.updateMany.mockResolvedValue({ count: 2 });
+    db.softoneTrader.upsert.mockResolvedValue({});
+
+    const res = await createTrader(post({ kind: 'debtor', name: 'ΑΛΦΑ ΑΕ', country: 'GR' }), ctx(AFM));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, trdr: 9001, code: 'Χ.0001', kind: 'Χρεώστης', docsUpdated: 2 });
+    expect(s1.softoneCreateTrader.mock.calls[0][0]).toBe('debtor');
+    // Ο καθρέφτης κρατά SODTYPE 15, ώστε η αναζήτηση/σύνδεση να τον βρίσκει αμέσως.
+    expect(db.softoneTrader.upsert.mock.calls[0][0].create).toMatchObject({ trdr: 9001, sodtype: 15, kind: 'Χρεώστης' });
+    expect(db.ocrDocument.updateMany.mock.calls[0][0].data).toMatchObject({ softoneTrdr: 9001, softoneKind: 'Χρεώστης' });
+  });
+
   it('«νέο έξοδο»: διαβάζει μόνο το πρότυπο, δεν δημιουργεί τίποτα', async () => {
     const res = await createItem(post({
       afm: AFM, pattern: 'μισθωμα φιαλων', kind: 'expense',
@@ -178,7 +210,7 @@ describe('ξένος εκδότης', () => {
   });
 
   it('χώρα από τη διεύθυνση: το γυμνό ΑΦΜ παίρνει πρόθεμα σε SoftOne ΚΑΙ στα έγγραφα', async () => {
-    s1.softoneCreateSupplier.mockResolvedValue({ trdr: 7001, code: 'Π.0007' });
+    s1.softoneCreateTrader.mockResolvedValue({ trdr: 7001, code: 'Π.0007' });
     db.ocrDocument.findMany.mockResolvedValue([{ id: 'd1' }, { id: 'd2' }]);
     // Το ΑΦΜ γράφεται μέσα από το ΚΑΝΟΝΙΚΟ έγγραφο, οπότε κάθε έγγραφο διαβάζεται πρώτα.
     db.ocrDocument.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) => (
@@ -197,7 +229,7 @@ describe('ξένος εκδότης', () => {
     expect(res.status).toBe(200);
     expect(body).toMatchObject({ ok: true, afm: 'DE144960040', docsUpdated: 2 });
     // SoftOne παίρνει το προθεματισμένο ΑΦΜ…
-    expect(s1.softoneCreateSupplier.mock.calls[0][0]).toMatchObject({ afm: 'DE144960040' });
+    expect(s1.softoneCreateTrader.mock.calls[0][1]).toMatchObject({ afm: 'DE144960040' });
     // …και τα έγγραφα ξαναγράφονται — ένα transaction ανά έγγραφο, με το έγγραφο και τα
     // παράγωγά του (`extractedData`, `issuerAfm`) να γράφονται μαζί.
     expect(db.$transaction).toHaveBeenCalledTimes(2);
@@ -215,14 +247,14 @@ describe('ξένος εκδότης', () => {
   });
 
   it('ελληνικός εκδότης ΔΕΝ παίρνει ποτέ πρόθεμα — ένα updateMany, καμία JSON εγγραφή', async () => {
-    s1.softoneCreateSupplier.mockResolvedValue({ trdr: 7002, code: 'Π.0008' });
+    s1.softoneCreateTrader.mockResolvedValue({ trdr: 7002, code: 'Π.0008' });
     db.ocrDocument.updateMany.mockResolvedValue({ count: 4 });
     db.softoneTrader.upsert.mockResolvedValue({});
 
     const res = await createTrader(post({ kind: 'supplier', name: 'ΑΛΦΑ ΑΕ', country: 'GR' }), ctx(AFM));
 
     expect(await res.json()).toMatchObject({ ok: true, afm: AFM, docsUpdated: 4 });
-    expect(s1.softoneCreateSupplier.mock.calls[0][0]).toMatchObject({ afm: AFM });
+    expect(s1.softoneCreateTrader.mock.calls[0][1]).toMatchObject({ afm: AFM });
     expect(db.ocrDocument.updateMany).toHaveBeenCalledTimes(1);
     expect(db.$transaction).not.toHaveBeenCalled();
   });
@@ -253,9 +285,9 @@ describe('ξένος εκδότης', () => {
 });
 
 describe('link — SODTYPE', () => {
-  it('δέχεται προμηθευτή (12) και πιστωτή (16)', async () => {
+  it('δέχεται προμηθευτή (12), πιστωτή (16) και ΧΡΕΩΣΤΗ (15)', async () => {
     db.ocrDocument.updateMany.mockResolvedValue({ count: 3 });
-    for (const sodtype of [12, 16]) {
+    for (const sodtype of [12, 16, 15]) {
       vi.clearAllMocks();
       rbac.requirePermission.mockResolvedValue(USER);
       audit.logAudit.mockResolvedValue(undefined);
@@ -270,7 +302,7 @@ describe('link — SODTYPE', () => {
     }
   });
 
-  it.each([13, 14, 15])('απορρίπτει SODTYPE %i με 422 invalid_sodtype', async (sodtype) => {
+  it.each([13, 14])('απορρίπτει SODTYPE %i με 422 invalid_sodtype', async (sodtype) => {
     db.softoneTrader.findUnique.mockResolvedValue({
       trdr: 6001, code: 'Π.1', name: 'ΒΗΤΑ', kind: 'Πελάτης', sodtype,
     });
@@ -280,6 +312,19 @@ describe('link — SODTYPE', () => {
     expect(res.status).toBe(422);
     expect((await res.json()).error).toBe('invalid_sodtype');
     expect(db.ocrDocument.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('σύνδεση με ΧΡΕΩΣΤΗ (15): τα έγγραφα παίρνουν την ετικέτα του μητρώου', async () => {
+    db.ocrDocument.updateMany.mockResolvedValue({ count: 2 });
+    db.softoneTrader.findUnique.mockResolvedValue({
+      trdr: 9002, code: 'Χ.0002', name: 'ΓΑΜΑ ΟΕ', kind: 'Χρεώστης', sodtype: 15,
+    });
+
+    const res = await linkTrader(post({ trdr: 9002 }), ctx(AFM));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, trdr: 9002, kind: 'Χρεώστης', docsUpdated: 2 });
+    expect(db.ocrDocument.updateMany.mock.calls[0][0].data).toMatchObject({ softoneTrdr: 9002, softoneKind: 'Χρεώστης' });
   });
 
   it('άγνωστος συναλλασσόμενος → 404', async () => {

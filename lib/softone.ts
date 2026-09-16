@@ -604,8 +604,14 @@ export const SODTYPE_LABEL: Record<number, string> = {
   16: 'Πιστωτής',
 };
 export const TRADER_SODTYPES = [12, 13, 14, 15, 16] as const;
-/** SODTYPEs that can issue a purchase invoice to us (OCR supplier matching). */
-export const SUPPLIER_SODTYPES = [12, 16] as const;
+/**
+ * SODTYPEs ενός συναλλασσομένου που μπορεί να ΕΚΔΩΣΕΙ παραστατικό προς εμάς: προμηθευτής (12),
+ * πιστωτής (16), χρεώστης (15). Η ΣΕΙΡΑ ΕΙΝΑΙ ΣΗΜΑΣΙΟΛΟΓΙΚΗ — είναι η σειρά προτίμησης όταν το
+ * ίδιο ΑΦΜ υπάρχει ως περισσότεροι από έναν τύποι ({@link softoneFindTraderByAfm}). Ο χρεώστης
+ * μπήκε ΤΕΛΕΥΤΑΙΟΣ σκόπιμα: κανένα έγγραφο που σήμερα λύνεται σε προμηθευτή ή πιστωτή δεν αλλάζει
+ * αντιστοίχιση — προστίθεται μόνο η περίπτωση «υπάρχει ΜΟΝΟ ως χρεώστης», που πριν έβγαινε κενή.
+ */
+export const ISSUER_SODTYPES = [12, 16, 15] as const;
 
 function mapTrdr(o: Record<string, string>): TrdrRow {
   const sodtype = Number(o.SODTYPE);
@@ -1041,14 +1047,20 @@ export interface CreateSupplierInput {
    */
   country?: string | null;
 }
-/** Συναλλασσόμενος που εκδίδει παραστατικό προς εμάς: προμηθευτής (12) ή πιστωτής (16). */
-export type TraderKind = 'supplier' | 'creditor';
-/** Ίδια πεδία για SUPPLIER και CREDITOR — το SODTYPE το θέτει το ίδιο το object. */
+/**
+ * Συναλλασσόμενος που εκδίδει παραστατικό προς εμάς: προμηθευτής (12), πιστωτής (16) ή
+ * χρεώστης (15). Ένα object μητρώου ανά τύπο, όλα πάνω στον ΙΔΙΟ πίνακα TRDR.
+ */
+export type TraderKind = 'supplier' | 'creditor' | 'debtor';
+/** Ίδια πεδία για SUPPLIER, CREDITOR και DEBTOR — το SODTYPE το θέτει το ίδιο το object. */
 export type CreateTraderInput = CreateSupplierInput;
 
-const TRADER_OBJECT: Record<TraderKind, 'SUPPLIER' | 'CREDITOR'> = { supplier: 'SUPPLIER', creditor: 'CREDITOR' };
+export type TraderObject = 'SUPPLIER' | 'CREDITOR' | 'DEBTOR';
+const TRADER_OBJECT: Record<TraderKind, TraderObject> = {
+  supplier: 'SUPPLIER', creditor: 'CREDITOR', debtor: 'DEBTOR',
+};
 /** SODTYPE που δίνει το κάθε object (για έλεγχο μετά την εγγραφή). */
-export const TRADER_KIND_SODTYPE: Record<TraderKind, number> = { supplier: 12, creditor: 16 };
+export const TRADER_KIND_SODTYPE: Record<TraderKind, number> = { supplier: 12, creditor: 16, debtor: 15 };
 
 function traderRow(input: CreateTraderInput, countries: SoftoneCountry[] = []): Record<string, unknown> {
   const row: Record<string, unknown> = {
@@ -1073,11 +1085,12 @@ function traderRow(input: CreateTraderInput, countries: SoftoneCountry[] = []): 
 
 /**
  * Builds the exact setData payload for a trader create (also used for dry-run preview).
- * Both objects write TRDR — SUPPLIER stamps SODTYPE=12, CREDITOR stamps 16.
+ * All three objects write TRDR — SUPPLIER stamps SODTYPE=12, CREDITOR 16, DEBTOR 15.
  */
 export function buildTraderPayload(kind: 'supplier', input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: 'SUPPLIER'; KEY: ''; DATA: { SUPPLIER: Record<string, unknown>[] } };
 export function buildTraderPayload(kind: 'creditor', input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: 'CREDITOR'; KEY: ''; DATA: { CREDITOR: Record<string, unknown>[] } };
-export function buildTraderPayload(kind: TraderKind, input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: 'SUPPLIER' | 'CREDITOR'; KEY: ''; DATA: Record<string, Record<string, unknown>[]> };
+export function buildTraderPayload(kind: 'debtor', input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: 'DEBTOR'; KEY: ''; DATA: { DEBTOR: Record<string, unknown>[] } };
+export function buildTraderPayload(kind: TraderKind, input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: TraderObject; KEY: ''; DATA: Record<string, Record<string, unknown>[]> };
 export function buildTraderPayload(kind: TraderKind, input: CreateTraderInput, countries: SoftoneCountry[] = []) {
   const object = TRADER_OBJECT[kind];
   return { OBJECT: object, KEY: '' as const, DATA: { [object]: [traderRow(input, countries)] } };
@@ -1089,7 +1102,7 @@ export function buildSupplierPayload(input: CreateSupplierInput): { OBJECT: 'SUP
 }
 
 /**
- * Creates a new trader in SoftOne (setData on object SUPPLIER/CREDITOR → TRDR; the
+ * Creates a new trader in SoftOne (setData on object SUPPLIER/CREDITOR/DEBTOR → TRDR; the
  * SODTYPE is set by the object). Required fields beyond CODE/NAME carry schema
  * defaults. Returns the new TRDR id + the assigned CODE.
  *
@@ -1138,6 +1151,14 @@ export async function softoneCreateCreditor(
   return softoneCreateTrader('creditor', input, countries);
 }
 
+/** Creates a new debtor (SODTYPE=15) — object DEBTOR «Χρεώστες», ίδιο payload με SUPPLIER. */
+export async function softoneCreateDebtor(
+  input: CreateTraderInput,
+  countries: SoftoneCountry[] = [],
+): Promise<{ trdr: number; code: string }> {
+  return softoneCreateTrader('debtor', input, countries);
+}
+
 export interface AfmLookupResult {
   afm: string;
   customers: TrdrRow[];
@@ -1182,9 +1203,9 @@ export interface TraderLookupRow {
 }
 
 /**
- * Looks up a single issuer by ΑΦΜ across προμηθευτές (12) and πιστωτές (16),
- * preferring a formal supplier when the ΑΦΜ exists as both. Used by the OCR
- * pipeline to tag scanned documents with their SoftOne trader.
+ * Looks up a single issuer by ΑΦΜ across προμηθευτές (12), πιστωτές (16) and χρεώστες (15),
+ * preferring a formal supplier, then a creditor, then a debtor when the ΑΦΜ exists as more than
+ * one. Used by the OCR pipeline to tag scanned documents with their SoftOne trader.
  */
 export async function softoneFindTraderByAfm(afm: string): Promise<TraderLookupRow | null> {
   const clean = String(afm).replace(/[^0-9A-Za-z]/g, '').toUpperCase();
@@ -1197,12 +1218,12 @@ export async function softoneFindTraderByAfm(afm: string): Promise<TraderLookupR
   const inList = variants.map((v) => `'${v}'`).join(',');
   const rows = await softoneGetTable(
     'TRDR', ['TRDR', 'CODE', 'NAME', 'SODTYPE'],
-    `AFM IN (${inList}) AND SODTYPE IN (${SUPPLIER_SODTYPES.join(',')})`,
+    `AFM IN (${inList}) AND SODTYPE IN (${ISSUER_SODTYPES.join(',')})`,
   );
   const valid = rows.filter((o) => Number.isFinite(Number(o.TRDR)));
   if (valid.length === 0) return null;
-  // SUPPLIER_SODTYPES is ordered 12 → 16, so its index is the preference order.
-  const pref: readonly number[] = SUPPLIER_SODTYPES;
+  // ISSUER_SODTYPES is ordered 12 → 16 → 15, so its index is the preference order.
+  const pref: readonly number[] = ISSUER_SODTYPES;
   valid.sort((a, b) => pref.indexOf(Number(a.SODTYPE)) - pref.indexOf(Number(b.SODTYPE)));
   const r = valid[0];
   const sodtype = Number(r.SODTYPE);

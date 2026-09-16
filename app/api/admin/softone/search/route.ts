@@ -1,15 +1,16 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAnyPermission } from '@/lib/rbac';
-import { SUPPLIER_SODTYPES } from '@/lib/softone';
+import { ISSUER_SODTYPES } from '@/lib/softone';
 import { classificationLabeller } from '@/lib/ocr/mydata-labels';
 
 // Searches the local SoftOne mirrors for manual matching (items / traders / χρεοπιστώσεις).
 // GET ?type=items|products|services|expenses|lineitems|suppliers|traders&q=...
 // `lineitems` (χρεοπιστώσεις) δέχεται και `category=<MTRCATEGORY>` για να στενέψει η λίστα σε μία
 // κατηγορία δαπάνης — διαφορετικά η επιλογή από εκατοντάδες κωδικούς είναι πρακτικά αδύνατη.
-// `suppliers` and `traders` are the same query (SODTYPE 12 suppliers + 16 creditors);
-// the queue pages call it `traders` because a creditor is not a supplier.
+// `suppliers` and `traders` are the same query (SODTYPE 12 προμηθευτές + 16 πιστωτές + 15
+// χρεώστες — ό,τι μπορεί να εκδώσει παραστατικό προς εμάς); the queue pages call it `traders`
+// because a creditor or a debtor is not a supplier.
 export async function GET(req: Request) {
   await requireAnyPermission('ocr.read', 'metadata.read', 'metadata.manage');
   const sp = new URL(req.url).searchParams;
@@ -20,7 +21,7 @@ export async function GET(req: Request) {
   if (type === 'suppliers' || type === 'traders') {
     const rows = await prisma.softoneTrader.findMany({
       where: {
-        sodtype: { in: [...SUPPLIER_SODTYPES] },
+        sodtype: { in: [...ISSUER_SODTYPES] },
         OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q } }, { afm: { contains: q } }],
       },
       take: 25, orderBy: { name: 'asc' },

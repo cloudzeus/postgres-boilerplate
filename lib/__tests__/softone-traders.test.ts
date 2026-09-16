@@ -22,7 +22,8 @@ vi.mock('@/lib/settings', () => ({
 }));
 
 import {
-  buildTraderPayload, softoneCreateSupplier, softoneCreateCreditor, TRADER_KIND_SODTYPE,
+  buildTraderPayload, softoneCreateSupplier, softoneCreateCreditor, softoneCreateDebtor,
+  softoneCreateTrader, softoneFindTraderByAfm, TRADER_KIND_SODTYPE, ISSUER_SODTYPES,
 } from '@/lib/softone';
 
 type Call = { service: string; body: Record<string, unknown> };
@@ -50,9 +51,13 @@ const INPUT = { name: 'ΑΛΦΑ ΑΕ', afm: '094073495' };
 const row = (p: { OBJECT: string; DATA: Record<string, Record<string, unknown>[]> }) => p.DATA[p.OBJECT][0];
 
 describe('buildTraderPayload', () => {
-  it('γράφει στο object SUPPLIER/CREDITOR με κενό KEY — το SODTYPE το βάζει το ίδιο το object', () => {
+  it('γράφει στο object SUPPLIER/CREDITOR/DEBTOR με κενό KEY — το SODTYPE το βάζει το ίδιο το object', () => {
     expect(buildTraderPayload('supplier', INPUT).OBJECT).toBe('SUPPLIER');
     expect(buildTraderPayload('creditor', INPUT).OBJECT).toBe('CREDITOR');
+    expect(buildTraderPayload('debtor', INPUT).OBJECT).toBe('DEBTOR');
+    // Ίδια ΑΚΡΙΒΩΣ γραμμή στα τρία objects: το SODTYPE δεν γράφεται ποτέ από εμάς.
+    expect(row(buildTraderPayload('debtor', INPUT))).toEqual(row(buildTraderPayload('supplier', INPUT)));
+    expect(row(buildTraderPayload('debtor', INPUT))).not.toHaveProperty('SODTYPE');
     expect(buildTraderPayload('supplier', INPUT).KEY).toBe('');
     expect(row(buildTraderPayload('supplier', INPUT))).toEqual({ NAME: 'ΑΛΦΑ ΑΕ', AFM: '094073495', ISACTIVE: 1 });
   });
@@ -108,12 +113,55 @@ describe('softoneCreateTrader', () => {
     queue = [{ success: true, id: '5005' }, { success: true, data: [['5005', 'Π.0002', '12']] }];
     // Ο πιστωτής περιμένει 16: γραμμή με 12 είναι εξίσου λάθος.
     await expect(softoneCreateCreditor(INPUT)).rejects.toThrow('Η εγγραφή δεν επιβεβαιώθηκε στο SoftOne');
-    expect(TRADER_KIND_SODTYPE).toEqual({ supplier: 12, creditor: 16 });
+    queue = [{ success: true, id: '5006' }, { success: true, data: [['5006', 'Χ.0001', '16']] }];
+    // Ο χρεώστης περιμένει 15: γραμμή με 16 είναι εξίσου λάθος.
+    await expect(softoneCreateDebtor(INPUT)).rejects.toThrow('Η εγγραφή δεν επιβεβαιώθηκε στο SoftOne');
+    expect(TRADER_KIND_SODTYPE).toEqual({ supplier: 12, creditor: 16, debtor: 15 });
+  });
+
+  it.each([
+    ['supplier', 'SUPPLIER', 12],
+    ['creditor', 'CREDITOR', 16],
+    ['debtor', 'DEBTOR', 15],
+  ] as const)('%s → object %s, read-back απαιτεί SODTYPE %i', async (kind, object, sodtype) => {
+    queue = [{ success: true, id: '5100' }, { success: true, data: [['5100', 'X.1', String(sodtype)]] }];
+    const res = await softoneCreateTrader(kind, INPUT);
+    expect(calls[0].body.OBJECT).toBe(object);
+    expect(res).toEqual({ trdr: 5100, code: 'X.1' });
+
+    // Κάθε ΑΛΛΟ SODTYPE στη γραμμή = ανεπιβεβαίωτη εγγραφή, ό,τι κι αν είπε το `success`.
+    for (const wrong of [12, 13, 14, 15, 16].filter((v) => v !== sodtype)) {
+      queue = [{ success: true, id: '5101' }, { success: true, data: [['5101', 'X.2', String(wrong)]] }];
+      await expect(softoneCreateTrader(kind, INPUT)).rejects.toThrow(`SODTYPE ${wrong} ≠ ${sodtype}`);
+    }
   });
 
   it('πέφτει όταν το setData επιστρέψει σφάλμα — χωρίς read-back', async () => {
     queue = [{ success: false, error: 'Δεν επιτρέπεται', errorcode: 101 }];
     await expect(softoneCreateSupplier(INPUT)).rejects.toThrow('Δεν επιτρέπεται');
     expect(calls.map((c) => c.service)).toEqual(['setData']);
+  });
+});
+
+describe('softoneFindTraderByAfm — προτίμηση τύπου', () => {
+  /** Ένα GetTable που γυρίζει τις δοσμένες γραμμές TRDR/CODE/NAME/SODTYPE. */
+  const rows = (...r: [number, string, string, number][]) =>
+    ({ success: true, data: r.map(([trdr, code, name, sod]) => [String(trdr), code, name, String(sod)]) });
+
+  it('ρωτά και για τους τρεις τύπους, με τη σειρά προτίμησης 12 → 16 → 15', async () => {
+    expect([...ISSUER_SODTYPES]).toEqual([12, 16, 15]);
+    queue = [rows([1, 'Χ.1', 'ΑΛΦΑ', 15])];
+    const m = await softoneFindTraderByAfm('094073495');
+    expect(String(calls[0].body.FILTER)).toContain('SODTYPE IN (12,16,15)');
+    // Ένα ΑΦΜ που υπάρχει ΜΟΝΟ ως χρεώστης βρίσκεται πλέον — πριν επέστρεφε null.
+    expect(m).toMatchObject({ trdr: 1, sodtype: 15, kind: 'Χρεώστης' });
+  });
+
+  it('η υπάρχουσα προτίμηση ΔΕΝ αλλάζει: προμηθευτής πριν από πιστωτή, πιστωτής πριν από χρεώστη', async () => {
+    queue = [rows([3, 'Χ.3', 'ΓΑΜΑ', 15], [2, 'Π.2', 'ΒΗΤΑ', 16], [1, 'Α.1', 'ΑΛΦΑ', 12])];
+    expect(await softoneFindTraderByAfm('094073495')).toMatchObject({ trdr: 1, sodtype: 12 });
+
+    queue = [rows([3, 'Χ.3', 'ΓΑΜΑ', 15], [2, 'Π.2', 'ΒΗΤΑ', 16])];
+    expect(await softoneFindTraderByAfm('094073495')).toMatchObject({ trdr: 2, sodtype: 16 });
   });
 });

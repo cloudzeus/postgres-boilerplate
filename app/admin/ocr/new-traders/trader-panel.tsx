@@ -52,7 +52,7 @@ interface GeoParts {
   formatted: string;
 }
 
-type TraderKind = 'supplier' | 'creditor';
+type TraderKind = 'supplier' | 'creditor' | 'debtor';
 
 /** Επιλογές χώρας της φόρμας: όσες αναγνωρίζει το VAT normalization + «Άλλη». */
 const COUNTRY_ITEMS = [
@@ -64,12 +64,15 @@ const COUNTRY_ITEMS = [
     .sort((a, b) => a.label.localeCompare(b.label, 'el')),
 ];
 
-const KIND_LABEL: Record<TraderKind, string> = { supplier: 'Προμηθευτής', creditor: 'Πιστωτής' };
-const KINDS: readonly TraderKind[] = ['supplier', 'creditor'];
+const KIND_LABEL: Record<TraderKind, string> = {
+  supplier: 'Προμηθευτής', creditor: 'Πιστωτής', debtor: 'Χρεώστης',
+};
+const KINDS: readonly TraderKind[] = ['supplier', 'creditor', 'debtor'];
 /** Χρώματα chip ανά τύπο (inline hex — ο JIT δεν κρατά δυναμικές κλάσεις). */
 export const KIND_COLORS: Record<TraderKind, { bg: string; fg: string }> = {
   supplier: { bg: '#EAF4FC', fg: '#0078D4' },
   creditor: { bg: '#F3E8FF', fg: '#6D28D9' },
+  debtor: { bg: '#FEF3C7', fg: '#B45309' },
 };
 
 /** Σε ποια κατάσταση βρίσκεται η άντληση στοιχείων από την ΑΑΔΕ. */

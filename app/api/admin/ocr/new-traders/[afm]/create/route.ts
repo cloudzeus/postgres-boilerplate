@@ -7,7 +7,7 @@ import { parseAfmParam, vatCountry } from '@/lib/ocr/validate';
 import { applyVatPrefix } from '@/lib/ocr/vat-prefix';
 import { applyTraderToDocs, TRADER_KIND_LABEL } from '@/lib/ocr/queues';
 import {
-  buildTraderPayload, softoneCreateSupplier, softoneCreateCreditor, softoneFetchCountries,
+  buildTraderPayload, softoneCreateTrader, softoneFetchCountries,
   matchCountryId, TRADER_KIND_SODTYPE, type SoftoneCountry,
 } from '@/lib/softone';
 
@@ -15,7 +15,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const Body = z.object({
-  kind: z.enum(['supplier', 'creditor']),
+  kind: z.enum(['supplier', 'creditor', 'debtor']),
   name: z.string().trim().min(1, 'Η επωνυμία είναι υποχρεωτική').max(200),
   code: z.string().trim().max(30).nullable().optional(),
   doyCode: z.string().trim().max(20).nullable().optional(),
@@ -30,7 +30,7 @@ const Body = z.object({
   dryRun: z.boolean().optional(),
 });
 
-// POST — δημιουργεί προμηθευτή (SODTYPE 12) ή πιστωτή (16) στο SoftOne για τον
+// POST — δημιουργεί προμηθευτή (SODTYPE 12), πιστωτή (16) ή χρεώστη (15) στο SoftOne για τον
 // εκδότη του ΑΦΜ, τον καθρεφτίζει τοπικά και τον γράφει σε ΟΛΑ τα έγγραφα του
 // ΑΦΜ (spec 2026-09-11 §2). `dryRun` επιστρέφει μόνο το setData payload.
 export async function POST(req: Request, { params }: { params: Promise<{ afm: string }> }) {
@@ -81,9 +81,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
   let trdr: number;
   let code: string;
   try {
-    ({ trdr, code } = b.kind === 'creditor'
-      ? await softoneCreateCreditor(input, countries)
-      : await softoneCreateSupplier(input, countries));
+    // Ένας δρόμος για κάθε τύπο: το `kind` διαλέγει το object (SUPPLIER/CREDITOR/DEBTOR) και το
+    // ίδιο το `softoneCreateTrader` επιβεβαιώνει με read-back ότι το SODTYPE που έγραψε το SoftOne
+    // είναι αυτό που αντιστοιχεί στο object — αλλιώς πετάει.
+    ({ trdr, code } = await softoneCreateTrader(b.kind, input, countries));
   } catch (e) {
     return NextResponse.json({ error: 'softone_error', message: (e as Error).message }, { status: 502 });
   }

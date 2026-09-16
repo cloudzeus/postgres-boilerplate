@@ -22,14 +22,14 @@ vi.mock('@/lib/softone', () => ({
   softoneFindTraderByAfm: vi.fn(),
   softoneCheckPurchaseDoc: vi.fn(),
   // Το `TRADER_KIND_LABEL` των ουρών παράγεται από αυτό το λεξικό — κρατάμε τις αληθινές τιμές.
-  SODTYPE_LABEL: { 12: 'Προμηθευτής', 13: 'Πελάτης', 16: 'Πιστωτής' } as Record<number, string>,
-  TRADER_KIND_SODTYPE: { supplier: 12, creditor: 16 },
+  SODTYPE_LABEL: { 12: 'Προμηθευτής', 13: 'Πελάτης', 15: 'Χρεώστης', 16: 'Πιστωτής' } as Record<number, string>,
+  TRADER_KIND_SODTYPE: { supplier: 12, creditor: 16, debtor: 15 },
 }));
 
 import { clearClassificationCache } from '../mydata-labels';
 import {
   loadTraderQueue, applyTraderToDocs, loadItemQueue, suggestForGroup,
-  applyMatchToGroup, skipGroup, countQueues, QueueError,
+  applyMatchToGroup, skipGroup, countQueues, QueueError, TRADER_KIND_LABEL,
 } from '../queues';
 
 // Το `issuerAfm` είναι ΣΤΗΛΗ (γράφεται στην εξαγωγή): εδώ το παράγουμε από το ίδιο fixture
@@ -122,6 +122,22 @@ describe('loadTraderQueue', () => {
     ]);
     const { groups } = await loadTraderQueue();
     expect(groups[0].suggestedKind).toBe('creditor');
+  });
+
+  it('σειρά χρεωστών (1553) → πρόταση «χρεώστης»· 1253 μένει πλευρά προμηθευτή', async () => {
+    db.ocrDocument.findMany.mockResolvedValue([
+      doc({ id: 'd1', seriesSource: 1553, extractedData: { vatNumber: '999888777', companyName: 'ΓΑΜΑ' } }),
+    ]);
+    expect((await loadTraderQueue()).groups[0].suggestedKind).toBe('debtor');
+
+    db.ocrDocument.findMany.mockResolvedValue([
+      doc({ id: 'd2', seriesSource: 1253, extractedData: { vatNumber: '999888777', companyName: 'ΓΑΜΑ' } }),
+    ]);
+    expect((await loadTraderQueue()).groups[0].suggestedKind).toBe('supplier');
+  });
+
+  it('η ετικέτα κάθε τύπου βγαίνει από το ίδιο λεξικό SODTYPE με το lib/softone', () => {
+    expect(TRADER_KIND_LABEL).toEqual({ supplier: 'Προμηθευτής', creditor: 'Πιστωτής', debtor: 'Χρεώστης' });
   });
 
   it('οι αγνοημένοι εκδότες βγαίνουν από την ουρά και επιστρέφονται μόνο όταν ζητηθούν', async () => {

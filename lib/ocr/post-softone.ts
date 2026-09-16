@@ -34,7 +34,7 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   not_found: 'Το έγγραφο δεν βρέθηκε',
   not_completed: 'Το έγγραφο δεν έχει ολοκληρωθεί',
   no_category: 'Δεν έχει οριστεί κατηγορία εγγράφου',
-  no_trader: 'Δεν έχει αντιστοιχιστεί προμηθευτής στο SoftOne',
+  no_trader: 'Δεν έχει αντιστοιχιστεί συναλλασσόμενος στο SoftOne (προμηθευτής, πιστωτής ή χρεώστης)',
   no_series: 'Δεν έχει επιλεγεί σειρά παραστατικού',
   no_date: 'Λείπει η ημερομηνία του παραστατικού',
   no_number: 'Λείπει ο αριθμός του παραστατικού',
@@ -296,8 +296,8 @@ const sameRef = (a: unknown, b: unknown): boolean =>
   String(a ?? '').replace(/[^0-9A-Za-zΑ-Ωα-ω]/g, '').toUpperCase() === String(b ?? '').replace(/[^0-9A-Za-zΑ-Ωα-ω]/g, '').toUpperCase();
 
 /**
- * Posts the document to SoftOne (setData on the series' own object — PURDOC, LINSUPDOC or
- * LINCREDOC) and PROVES it landed by reading the record back:
+ * Posts the document to SoftOne (setData on the series' own object — PURDOC, LINSUPDOC,
+ * LINCREDOC or LINDEBDOC) and PROVES it landed by reading the record back:
  * SoftOne answers `success:true` even for writes it silently dropped, so the read-back is the only
  * evidence. Throws PostError for precondition failures (the runner turns those into BLOCKED);
  * a transport/verification failure marks the row FAILED and is rethrown as a plain Error.
@@ -353,7 +353,7 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
     }
     if (!sameRef(row.FINCODE, document.type.number) || Number(row.TRDR) !== ctx.trdr) {
       throw new Error(
-        `Η καταχώριση δεν επιβεβαιώθηκε: το παραστατικό ${ref} στο SoftOne έχει αριθμό «${row.FINCODE ?? '—'}» και προμηθευτή ${row.TRDR ?? '—'}, ` +
+        `Η καταχώριση δεν επιβεβαιώθηκε: το παραστατικό ${ref} στο SoftOne έχει αριθμό «${row.FINCODE ?? '—'}» και συναλλασσόμενο ${row.TRDR ?? '—'}, ` +
         `αντί για «${document.type.number ?? '—'}» / ${ctx.trdr}`,
       );
     }

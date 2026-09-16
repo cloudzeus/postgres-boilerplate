@@ -31,4 +31,13 @@ describe('suggestTraderKind', () => {
     expect(suggestTraderKind({ seriesKinds: [], invoiceKinds: ['product', 'mixed'] })).toBe('supplier');
     expect(suggestTraderKind({ seriesKinds: [], invoiceKinds: ['service', 'service', 'product'] })).toBe('creditor');
   });
+
+  it('σειρά χρεωστών → πρόταση «χρεώστης», και προηγείται κάθε άλλης ένδειξης', () => {
+    expect(suggestTraderKind({ seriesKinds: ['debtor'], invoiceKinds: [] })).toBe('debtor');
+    // Η σειρά είναι ρητή ταξινόμηση· το «υπηρεσία» είναι απλή εικασία περιεχομένου.
+    expect(suggestTraderKind({ seriesKinds: ['debtor'], invoiceKinds: ['service', 'service'] })).toBe('debtor');
+    expect(suggestTraderKind({ seriesKinds: ['debtor', 'creditor'], invoiceKinds: [] })).toBe('debtor');
+    // Χωρίς σειρά χρεωστών τίποτα δεν αλλάζει από πριν.
+    expect(suggestTraderKind({ seriesKinds: ['purchase'], invoiceKinds: ['service'] })).toBe('creditor');
+  });
 });

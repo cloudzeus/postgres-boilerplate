@@ -6,7 +6,7 @@ import { splitGluedAddress } from '@/lib/ocr/address';
 import { refreshDocTallies } from '@/lib/ocr/softone-match';
 import { loadDocumentJson, saveDocumentJson } from '@/lib/ocr/document';
 import { setPath } from '@/lib/ocr/canonical';
-import { SODTYPE_LABEL, TRADER_KIND_SODTYPE } from '@/lib/softone';
+import { SODTYPE_LABEL, TRADER_KIND_SODTYPE, type TraderKind } from '@/lib/softone';
 import {
   groupLines,
   scoreCandidates,
@@ -14,6 +14,7 @@ import {
   type MatchCandidate,
   type MatchKind,
 } from '@/lib/ocr/line-match';
+import { seriesTraderKind, type SeriesTraderKind } from '@/lib/ocr/posting-target';
 import { cachedClassificationLabeller, type ClassificationRef } from '@/lib/ocr/mydata-labels';
 
 /**
@@ -81,10 +82,12 @@ function parseDocDate(v: unknown): Date | null {
  * `OcrDocument.softoneKind`. Παράγεται από το ΙΔΙΟ λεξικό SODTYPE με το `lib/softone.ts`,
  * ώστε μια αλλαγή ετικέτας εκεί να μη διχάσει τις δύο πλευρές.
  */
-export const TRADER_KIND_LABEL: Record<'supplier' | 'creditor', string> = {
+export const TRADER_KIND_LABEL: Record<TraderKind, string> = {
   supplier: SODTYPE_LABEL[TRADER_KIND_SODTYPE.supplier],
   creditor: SODTYPE_LABEL[TRADER_KIND_SODTYPE.creditor],
+  debtor: SODTYPE_LABEL[TRADER_KIND_SODTYPE.debtor],
 };
+
 
 export interface TraderQueueDoc {
   id: string;
@@ -113,7 +116,7 @@ export interface TraderGroup {
   total: number;
   lastDate: string | null;
   thumbUrl: string | null;
-  suggestedKind: 'supplier' | 'creditor';
+  suggestedKind: TraderKind;
   docs: TraderQueueDoc[];
 }
 export interface IgnoredIssuerRow {
@@ -137,7 +140,7 @@ interface TraderAcc {
   total: number;
   lastDate: Date | null;
   thumbUrl: string | null;
-  seriesKinds: ('purchase' | 'creditor')[];
+  seriesKinds: SeriesTraderKind[];
   invoiceKinds: (string | null)[];
   docs: TraderQueueDoc[];
 }
@@ -207,7 +210,7 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
     if (total != null) g.total += total;
     const date = parseDocDate(ed.date) ?? doc.createdAt;
     if (!g.lastDate || date > g.lastDate) g.lastDate = date;
-    if (doc.seriesSource != null) g.seriesKinds.push(doc.seriesSource === 1653 ? 'creditor' : 'purchase');
+    if (doc.seriesSource != null) g.seriesKinds.push(seriesTraderKind(doc.seriesSource));
     g.invoiceKinds.push(doc.invoiceKind ?? null);
     if (g.docs.length < TRADER_DOCS_SAMPLE) {
       g.docs.push({

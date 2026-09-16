@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
-import { SUPPLIER_SODTYPES } from '@/lib/softone';
+import { ISSUER_SODTYPES } from '@/lib/softone';
 
-// Manually links a scanned document to a SoftOne supplier (TRDR).
+// Manually links a scanned document to the SoftOne trader that issued it (TRDR):
+// προμηθευτής (12), πιστωτής (16) ή χρεώστης (15) — το είδος το λέει το μητρώο, όχι το route.
 // POST { trdr }  (trdr null → clear)
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   await requirePermission('ocr.categorize');
@@ -19,7 +20,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const sup = await prisma.softoneTrader.findUnique({ where: { trdr: Number(trdr) } });
-  if (!sup || !(SUPPLIER_SODTYPES as readonly number[]).includes(sup.sodtype)) {
+  if (!sup || !(ISSUER_SODTYPES as readonly number[]).includes(sup.sodtype)) {
     return NextResponse.json({ error: 'supplier_not_found' }, { status: 404 });
   }
 

@@ -8,16 +8,17 @@
 //   • PURDOC    «Παραστατικά αγορών»            → ITELINES · SRVLINES · ASSLINES (DB MTRLINES) + EXPANAL
 //   • LINSUPDOC «Ειδικές συναλλαγές προμηθευτών»→ LINLINES (DB MTRLINES)
 //   • LINCREDOC «Ειδικές συναλλαγές πιστωτών»   → LINLINES (DB MTRLINES)
-// Και τα τρία μοιράζονται την ίδια κεφαλίδα (DB FINDOC): SERIES, TRNDATE, TRDR, FINCODE,
-// COMMENTS, MYDATAMARK, MYDATAUID. Το SODTYPE των LIN*DOC είναι read-only με default (12 / 16),
-// άρα ΔΕΝ το στέλνουμε.
+//   • LINDEBDOC «Ειδικές συναλλαγές χρεωστών»   → LINLINES (DB MTRLINES)
+// Και τα τέσσερα μοιράζονται την ίδια κεφαλίδα (DB FINDOC): SERIES, TRNDATE, TRDR, FINCODE,
+// COMMENTS, MYDATAMARK, MYDATAUID. Το SODTYPE των LIN*DOC είναι read-only με default
+// (12 προμηθευτές / 16 πιστωτές / 15 χρεώστες), άρα ΔΕΝ το στέλνουμε.
 //
 // ΠΟΙΑ σειρά πάει πού είναι ρύθμιση ΕΓΚΑΤΑΣΤΑΣΗΣ, όχι κανόνας του SoftOne: εδώ ζουν μόνο οι
 // προεπιλογές ανά ενότητα (SOSOURCE) και ο χρήστης τις παρακάμπτει ανά σειρά από το
 // /admin/doc-series.
 
 /** Το SoftOne object (EditMaster) που δέχεται το setData. */
-export const POST_OBJECTS = ['PURDOC', 'LINSUPDOC', 'LINCREDOC'] as const;
+export const POST_OBJECTS = ['PURDOC', 'LINSUPDOC', 'LINCREDOC', 'LINDEBDOC'] as const;
 export type PostObject = (typeof POST_OBJECTS)[number];
 
 /**
@@ -25,10 +26,11 @@ export type PostObject = (typeof POST_OBJECTS)[number];
  * της αναλογεί ανάλογα με το τι ταίριαξε — είδος → ITELINES, υπηρεσία → SRVLINES, έξοδο → EXPANAL.
  */
 /** Σύντομο ελληνικό όνομα του object, χωρίς τον κωδικό — για chips και τίτλους. */
-export const POST_OBJECT_SHORT: Record<'PURDOC' | 'LINSUPDOC' | 'LINCREDOC', string> = {
+export const POST_OBJECT_SHORT: Record<PostObject, string> = {
   PURDOC: 'Παραστατικό αγορών',
   LINSUPDOC: 'Ειδικές συναλλαγές προμηθευτών',
   LINCREDOC: 'Ειδικές συναλλαγές πιστωτών',
+  LINDEBDOC: 'Ειδικές συναλλαγές χρεωστών',
 };
 
 export const POST_LINE_TABLES =['AUTO', 'ITELINES', 'SRVLINES', 'ASSLINES', 'EXPANAL', 'LINLINES'] as const;
@@ -38,6 +40,7 @@ export const POST_OBJECT_LABEL: Record<PostObject, string> = {
   PURDOC: 'Παραστατικά αγορών (PURDOC)',
   LINSUPDOC: 'Ειδικές συναλλαγές προμηθευτών (LINSUPDOC)',
   LINCREDOC: 'Ειδικές συναλλαγές πιστωτών (LINCREDOC)',
+  LINDEBDOC: 'Ειδικές συναλλαγές χρεωστών (LINDEBDOC)',
 };
 
 export const POST_LINES_LABEL: Record<PostLineTable, string> = {
@@ -54,6 +57,7 @@ export const LINES_FOR_OBJECT: Record<PostObject, PostLineTable[]> = {
   PURDOC: ['AUTO', 'ITELINES', 'SRVLINES', 'ASSLINES', 'EXPANAL'],
   LINSUPDOC: ['LINLINES'],
   LINCREDOC: ['LINLINES'],
+  LINDEBDOC: ['LINLINES'],
 };
 
 export const isPostObject = (v: unknown): v is PostObject =>
@@ -102,6 +106,12 @@ const EXPENSE_HINT = /ΔΑΠΑΝ|ΕΞΟΔ|ΥΠΗΡΕΣΙ|ΠΑΡΟΧΗΣ|ΚΕ\.?�
  *    πελάτη («Τιμολόγιο Δαπανών (Λήψη)» κ.λπ.) και εκεί δείχνει το §14.8 του spec, δηλαδή η οθόνη
  *    «Ειδικές συναλλαγές → Δαπάνες Προμηθευτών (Int)».
  *  • 1253 «Λοιπές συναλλαγές προμηθευτών» → LINSUPDOC / LINLINES (ένας πίνακας γραμμών υπάρχει).
+ *  • 1553 «Λοιπές συναλλαγές χρεωστών»    → LINDEBDOC / LINLINES. Η αρίθμηση των ενοτήτων είναι
+ *    `1<οντότητα><είδος>` (καταγεγραμμένη στο `SOSOURCE_LABELS` του `lib/softone.ts`, επαληθευμένη
+ *    στον πίνακα SERIES του πελάτη): οντότητα 2=προμηθευτές 3=πελάτες 4=τράπεζες 5=ΧΡΕΩΣΤΕΣ
+ *    6=πιστωτές, είδος 53=λοιπές (ειδικές) συναλλαγές. Το 1553 είναι ο ίδιος ο συνδυασμός με το
+ *    1253, μόνο για χρεώστες — και οι σειρές του το επιβεβαιώνουν μία προς μία («Τιμολόγιο
+ *    Δαπανών», «Τιμολόγιο παροχής υπηρεσιών», «Πιστωτικό …», «Χρέωση/Πίστωση Έναρξης»).
  *  • 1251 «Αγορές»:
  *      – σειρά που μυρίζει ΔΑΠΑΝΗ/ΥΠΗΡΕΣΙΑ → LINSUPDOC / LINLINES (ίδια λογική με το §14.8),
  *      – σειρά ΠΑΓΙΩΝ                       → PURDOC / ASSLINES,
@@ -122,6 +132,9 @@ export function defaultPostingTarget(input: SeriesTargetInput): PostingTarget {
   }
   if (sosource === 1253) {
     return { object: 'LINSUPDOC', lines: 'LINLINES', source: 'default', reason: 'Ενότητα 1253 «Λοιπές συναλλαγές προμηθευτών» → Ειδικές συναλλαγές προμηθευτών' };
+  }
+  if (sosource === 1553) {
+    return { object: 'LINDEBDOC', lines: 'LINLINES', source: 'default', reason: 'Ενότητα 1553 «Λοιπές συναλλαγές χρεωστών» → Ειδικές συναλλαγές χρεωστών' };
   }
   if (sosource === 1251) {
     if (ASSET_HINT.test(text)) {
@@ -167,3 +180,35 @@ export const describeTarget = (t: PostingTarget): string =>
 /** «Ειδικές συναλλαγές προμηθευτών · γραμμές LINLINES» — η μορφή που ζητήθηκε για την κάρτα. */
 export const describeTargetShort = (t: PostingTarget): string =>
   `${POST_OBJECT_SHORT[t.object]} · ${t.lines === 'AUTO' ? 'γραμμές ανά είδος αντιστοίχισης' : `γραμμές ${t.lines}`}`;
+
+/* ------------------------------------------------------------------ */
+/* Πλευρά συναλλασσομένου μιας ενότητας                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Σε ποια ΠΛΕΥΡΑ συναλλασσομένου ανήκει μια σειρά: προμηθευτή («purchase» — αγορές και ειδικές
+ * συναλλαγές προμηθευτών), πιστωτή ή χρεώστη. Είναι η ίδια διάκριση με το SODTYPE του TRDR
+ * (12 / 16 / 15), απλώς ιδωμένη από τη μεριά της σειράς.
+ */
+export type SeriesTraderKind = 'purchase' | 'creditor' | 'debtor';
+
+/** Ποιο object «ανήκει» σε ποια πλευρά — ό,τι δεν είναι εδώ είναι πλευρά προμηθευτή. */
+const SIDE_BY_OBJECT: Partial<Record<PostObject, SeriesTraderKind>> = {
+  LINCREDOC: 'creditor',
+  LINDEBDOC: 'debtor',
+};
+
+/**
+ * Η πλευρά μιας ενότητας (SOSOURCE), από ΤΗΝ ΙΔΙΑ πηγή αλήθειας με την καταχώριση
+ * (`defaultPostingTarget`) — όχι από δεύτερη λίστα μαγικών αριθμών: αν η ενότητα καταχωρεί σε
+ * «Ειδικές συναλλαγές πιστωτών/χρεωστών», ο συναλλασσόμενός της είναι πιστωτής/χρεώστης.
+ */
+export const seriesTraderKind = (sosource: number): SeriesTraderKind =>
+  SIDE_BY_OBJECT[defaultPostingTarget({ sosource }).object] ?? 'purchase';
+
+/** Ελληνική ετικέτα πλευράς — για αιτιολογίες και chips («Πιστωτών», «Χρεωστών»). */
+export const SERIES_SIDE_LABEL: Record<SeriesTraderKind, string> = {
+  purchase: 'Αγορών',
+  creditor: 'Πιστωτών',
+  debtor: 'Χρεωστών',
+};
