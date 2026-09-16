@@ -243,10 +243,12 @@ describe('buildPurdocPayload — LINLINES / ASSLINES', () => {
     expect(postingBlockers(doc(), postingDoc(), c)).toContain('lines_need_lineitem');
   });
 
+  // Το `MTRL.MYDATACODE` είναι ο μικρός enum κωδικός του `$s1ClassType` («1», «7» στον tenant),
+  // όχι το αλφαριθμητικό του MYDATACLTYPE — περνάει αυτούσιο στη γραμμή.
   it('MYDATACODE μόνο εκεί όπου ο πίνακας το έχει', () => {
-    const item = buildPurdocPayload(doc(), ctx({ lines: [{ rowIndex: 0, mtrl: 555, myDataCode: 'category2_1' }] }));
-    expect(item.DATA.ITELINES?.[0]).toMatchObject({ MYDATACODE: 'category2_1' });
-    const lin = buildPurdocPayload(doc(), ctx({ target: LINSUP, lines: [{ rowIndex: 0, lin: 777, linMtrType: 0, myDataCode: 'category2_5' }] }));
+    const item = buildPurdocPayload(doc(), ctx({ lines: [{ rowIndex: 0, mtrl: 555, myDataCode: '1' }] }));
+    expect(item.DATA.ITELINES?.[0]).toMatchObject({ MYDATACODE: '1' });
+    const lin = buildPurdocPayload(doc(), ctx({ target: LINSUP, lines: [{ rowIndex: 0, lin: 777, linMtrType: 0, myDataCode: '7' }] }));
     expect(lin.DATA.LINLINES?.[0]).not.toHaveProperty('MYDATACODE');
   });
 });

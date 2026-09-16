@@ -57,7 +57,9 @@ beforeEach(() => {
   // Ο συναλλασσόμενος του εγγράφου είναι ΠΡΟΜΗΘΕΥΤΗΣ (12) — ό,τι δέχεται το PURDOC.
   db.softoneTrader.findUnique.mockResolvedValue({ sodtype: 12 });
   db.softoneDocSeries.findUnique.mockResolvedValue(null);
-  db.softoneItem.findMany.mockResolvedValue([{ mtrl: 555, myDataCode: 'category2_1' }]);
+  // ΠΡΑΓΜΑΤΙΚΗ τιμή: το `MTRL.MYDATACODE` είναι ο μικρός enum κωδικός του `$s1ClassType`
+  // (επαληθευμένο live: «1» / «7»), ΟΧΙ το αλφαριθμητικό του MYDATACLTYPE («category2_1»).
+  db.softoneItem.findMany.mockResolvedValue([{ mtrl: 555, myDataCode: '1' }]);
   db.softoneLineItem.findMany.mockResolvedValue([]);
   db.softoneExpense.findMany.mockResolvedValue([]);
   documentMod.loadDocumentJson.mockResolvedValue(document());
@@ -74,7 +76,7 @@ describe('postingPreview (dry-run)', () => {
     expect(preview.enabled).toBe(false);
     expect(preview.payload?.DATA.PURDOC?.[0]).toMatchObject({ SERIES: 7001, TRDR: 12345, FINCODE: '17', TRNDATE: '2026-03-14' });
     expect(preview.payload?.DATA.ITELINES).toEqual([
-      { LINENUM: 9000001, MTRL: 555, QTY1: 2, PRICE: 50, DISC1PRC: 0, VAT: 1, COMMENTS: 'Είδος Α', MYDATACODE: 'category2_1' },
+      { LINENUM: 9000001, MTRL: 555, QTY1: 2, PRICE: 50, DISC1PRC: 0, VAT: 1, COMMENTS: 'Είδος Α', MYDATACODE: '1' },
     ]);
     expect(preview.target).toMatchObject({ object: 'PURDOC', lines: 'AUTO', source: 'default' });
   });
@@ -90,7 +92,7 @@ describe('postingPreview (dry-run)', () => {
     ]);
     db.softoneItem.findMany.mockResolvedValue([]);
     db.softoneLineItem.findMany.mockResolvedValue([
-      { mtrl: 777, mtrType: 1, classType: 5, classCategory: 2, myDataCode: 'category2_5' },
+      { mtrl: 777, mtrType: 1, classType: 5, classCategory: 2, myDataCode: '7' },
     ]);
 
     const preview = await postingPreview('d1');
