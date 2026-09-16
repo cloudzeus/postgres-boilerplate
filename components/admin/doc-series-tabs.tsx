@@ -15,7 +15,7 @@ import {
   defaultPostingTarget, objectsForSosource, resolvePostingTarget,
   type PostLineTable,
 } from '@/lib/ocr/posting-target';
-import { syncErrorMessage } from '@/lib/softone/sync-error';
+import { syncErrorMessage } from '@/lib/softone-sync/sync-error';
 
 export type DocSeriesRecord = {
   id: number;

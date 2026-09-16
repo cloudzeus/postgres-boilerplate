@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/rbac';
-import { syncItems, syncFailureResponse, withResyncLock } from '@/lib/softone/resync';
+import { syncItems, syncFailureResponse, withResyncLock } from '@/lib/softone-sync/resync';
 
 // Είδη (MTRL SODTYPE=51) και υπηρεσίες (52) μέσω GetTable → `SoftoneItem`.
-// Η λογική ζει στο `lib/softone/resync.ts` — ΜΙΑ υλοποίηση, που καλεί και το «Συγχρονισμός όλων».
+// Η λογική ζει στο `lib/softone-sync/resync.ts` — ΜΙΑ υλοποίηση, που καλεί και το «Συγχρονισμός όλων».
 export async function POST() {
   const u = await requirePermission('metadata.manage');
   try {

@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
-import { syncErrorMessage } from '@/lib/softone/sync-error';
+import { syncErrorMessage } from '@/lib/softone-sync/sync-error';
 
 // Λίστες χαρακτηρισμού myDATA (EditLists MYDATACLTYPE / MYDATACLCATEGORY). Μητρώα ΑΝΑΦΟΡΑΣ:
 // εξηγούν τι σημαίνει ο χαρακτηρισμός που κουβαλά κάθε είδος / υπηρεσία / χρεοπίστωση / έξοδο.

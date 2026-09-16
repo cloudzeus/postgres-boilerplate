@@ -1,4 +1,9 @@
-// lib/softone/resync.ts — SERVER. Η ΜΙΑ υλοποίηση κάθε συγχρονισμού βοηθητικού πίνακα SoftOne.
+// lib/softone-sync/resync.ts — SERVER. Η ΜΙΑ υλοποίηση κάθε συγχρονισμού βοηθητικού πίνακα SoftOne.
+//
+// ΓΙΑΤΙ `softone-sync/` ΚΑΙ ΟΧΙ `softone/`: δίπλα υπάρχει το αρχείο `lib/softone.ts`. Ένας
+// φάκελος με το ίδιο όνομα τον σκιάζει: Next / vitest / build λύνουν το `@/lib/softone` στο
+// αρχείο, αλλά ο `tsx` σε ESM — με τον οποίο τρέχουν ΟΛΑ τα scripts συντήρησης — πετάει
+// `ERR_UNSUPPORTED_DIR_IMPORT`. Μην ξαναπάρει αυτό το όνομα ο φάκελος.
 //
 // Κάθε ένα από τα επτά routes `app/api/admin/metadata/sync-*-softone` καλεί από εδώ — δεν κρατάει
 // δική του λογική. Έτσι το «Συγχρονισμός όλων» δεν είναι αντίγραφο επτά handlers: τρέχει ΤΙΣ ΙΔΙΕΣ

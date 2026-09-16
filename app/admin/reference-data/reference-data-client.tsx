@@ -11,7 +11,7 @@ import { SoftoneResyncPanel } from '@/components/admin/softone-resync';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
-import { syncErrorMessage } from '@/lib/softone/sync-error';
+import { syncErrorMessage } from '@/lib/softone-sync/sync-error';
 
 type SyncKind = 'gemi' | 'vat' | 'purdoc' | 'docseries' | 'traders' | 'lookups' | 'expenses';
 type Stat = {

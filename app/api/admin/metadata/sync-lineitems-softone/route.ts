@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/rbac';
-import { syncLineItems, syncFailureResponse, withResyncLock } from '@/lib/softone/resync';
+import { syncLineItems, syncFailureResponse, withResyncLock } from '@/lib/softone-sync/resync';
 
 // Χρεοπιστώσεις (LINEITEM → MTRL SODTYPE 53) → `SoftoneLineItem`.
-// ΜΟΝΟ ΑΝΑΓΝΩΣΗ από το SoftOne. Η λογική ζει στο `lib/softone/resync.ts` — ΜΙΑ υλοποίηση, ίδια
+// ΜΟΝΟ ΑΝΑΓΝΩΣΗ από το SoftOne. Η λογική ζει στο `lib/softone-sync/resync.ts` — ΜΙΑ υλοποίηση, ίδια
 // με αυτήν που τρέχει το «Συγχρονισμός όλων», και ίδια κλειδαριά.
 export async function POST() {
   const u = await requirePermission('metadata.manage');

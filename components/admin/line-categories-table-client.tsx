@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
-import { syncErrorMessage } from '@/lib/softone/sync-error';
+import { syncErrorMessage } from '@/lib/softone-sync/sync-error';
 
 // Κατηγορίες δαπανών SoftOne (object LINCATEGORY → MTRCATEGORY με SODTYPE 53). Είναι η
 // ΟΜΑΔΟΠΟΙΗΣΗ πάνω από τις χρεοπιστώσεις — αυτή που κάνει την επιλογή δαπάνης εφικτή.

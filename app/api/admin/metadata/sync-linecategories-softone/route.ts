@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/rbac';
-import { syncLineCategories, syncFailureResponse, withResyncLock } from '@/lib/softone/resync';
+import { syncLineCategories, syncFailureResponse, withResyncLock } from '@/lib/softone-sync/resync';
 
 // Κατηγορίες δαπανών (LINCATEGORY → MTRCATEGORY SODTYPE 53) → `SoftoneLineCategory`.
-// ΜΟΝΟ ΑΝΑΓΝΩΣΗ από το SoftOne. Η λογική ζει στο `lib/softone/resync.ts` — ΜΙΑ υλοποίηση, ίδια
+// ΜΟΝΟ ΑΝΑΓΝΩΣΗ από το SoftOne. Η λογική ζει στο `lib/softone-sync/resync.ts` — ΜΙΑ υλοποίηση, ίδια
 // με αυτήν που τρέχει το «Συγχρονισμός όλων», και ίδια κλειδαριά.
 export async function POST() {
   const u = await requirePermission('metadata.manage');

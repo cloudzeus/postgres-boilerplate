@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/rbac';
-import { resyncAllSoftone, syncFailureResponse, SYNC_STEPS, type SyncTable } from '@/lib/softone/resync';
+import { resyncAllSoftone, syncFailureResponse, SYNC_STEPS, type SyncTable } from '@/lib/softone-sync/resync';
 
 // «Συγχρονισμός όλων των βοηθητικών πινάκων»: τρέχει σειριακά τους ίδιους επτά συγχρονισμούς που
 // τρέχουν και τα μεμονωμένα `sync-*-softone` routes, με την ίδια άδεια. Μια αποτυχία δεν σταματά
