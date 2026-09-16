@@ -4,6 +4,8 @@ import { gunzipSync } from 'node:zlib';
 import { getSetting, setSetting } from '@/lib/settings';
 import { validCoords } from '@/lib/coords';
 import { nextTraderCode, type NextCodeResult } from '@/lib/trader-code';
+import { proposeItemCode, type ItemCodeKind, type ItemCodeProposal } from '@/lib/item-code';
+import { retailFromWholesale } from '@/lib/price';
 
 /**
  * SoftOne ERP Web Services client (Soft1).
@@ -818,7 +820,17 @@ export interface CreateItemInput {
   isService: boolean;
   vat: string;          // VAT code (smallint as string)
   unit: string;         // MTRUNIT id (smallint as string)
+  /**
+   * Τιμή **ΧΟΝΔΡΙΚΗΣ** (καθαρή, χωρίς ΦΠΑ) → `ITEM.PRICEW`. Αυτή είναι η τιμή που κουβαλά μια
+   * γραμμή τιμολογίου ΑΓΟΡΑΣ: κόστος, όχι λιανική.
+   */
   price?: number | null;
+  /**
+   * Το ποσοστό ΦΠΑ της κατηγορίας που διάλεξε ο χρήστης (π.χ. 24). Από αυτό υπολογίζεται η
+   * **λιανική** (`ITEM.PRICER`), επειδή ο ERP ΔΕΝ την υπολογίζει (`calculated: false`).
+   * `null` ⇒ δεν στέλνεται λιανική καθόλου.
+   */
+  vatRate?: number | null;
   // Optional classification (FK ids from the aux tables).
   group?: string | null;       // MTRGROUP
   category?: string | null;    // MTRCATEGORY
@@ -930,7 +942,11 @@ export function buildItemPayload(input: CreateItemInput): { OBJECT: 'ITEM'; KEY:
     MTRUNIT4: input.unit,
     ISACTIVE: 1,
   };
-  if (input.price != null) row.PRICER = input.price;
+  // ΧΟΝΔΡΙΚΗ όπως δόθηκε (δεν «βελτιώνουμε» αριθμό που έγραψε άνθρωπος) και ΛΙΑΝΙΚΗ υπολογισμένη
+  // από το ΦΠΑ της φόρμας. Δες `lib/price.ts` για το γιατί δεν την αφήνουμε στον ERP.
+  if (input.price != null) row.PRICEW = input.price;
+  const retail = retailFromWholesale(input.price ?? null, input.vatRate ?? null);
+  if (retail != null) row.PRICER = retail;
   if (input.group) row.MTRGROUP = input.group;
   if (input.category) row.MTRCATEGORY = input.category;
   if (input.manufacturer) row.MTRMANFCTR = input.manufacturer;
@@ -950,6 +966,9 @@ export async function softoneCreateItem(input: CreateItemInput): Promise<number>
   if (res.success === false || res.id == null) {
     throw new SoftoneError(res.error ?? `setData ITEM απέτυχε (code ${res.errorcode ?? '?'})`);
   }
+  // Ο κωδικός ΕΠΙΑΣΕ θέση τη στιγμή που πέτυχε το setData: η cached λίστα (60s) θα τον έδινε
+  // ξανά ως ελεύθερο στην επόμενη πρόταση. Ίδια φροντίδα με τον συναλλασσόμενο.
+  clearItemCodeCache(input.isService ? 'service' : 'product');
   return Number(res.id);
 }
 
@@ -1162,14 +1181,37 @@ export function isDuplicateCodeError(message: unknown): boolean {
     || /duplicate|already\s+exists/i.test(m);
 }
 
-/** Πόσο κρατά η λίστα κωδικών ανά τύπο — αρκετά για μια συνεδρία, όχι για μια μέρα. */
-const TRADER_CODES_TTL_MS = 60_000;
-const traderCodeCache = new Map<TraderKind, { at: number; codes: string[] }>();
+/** Πόσο κρατά η λίστα κωδικών ανά μητρώο — αρκετά για μια συνεδρία, όχι για μια μέρα. */
+const CODES_TTL_MS = 60_000;
+/**
+ * Ένα cache για ΟΛΑ τα μητρώα κωδικών, με κλειδί «οικογένεια:τύπος» (`trader:creditor`,
+ * `item:service`). Χωριστά Map ανά οικογένεια θα ήταν ο ίδιος κώδικας δύο φορές — και δύο
+ * ευκαιρίες να ξεχαστεί το καθάρισμα μετά από δημιουργία.
+ */
+const codeCache = new Map<string, { at: number; codes: string[] }>();
 
-/** Καθαρίζει το cache κωδικών (δοκιμές / μετά από δημιουργία). */
+/** Οι κωδικοί ενός μητρώου, με 60s cache. `loader` τρέχει μόνο σε αστοχία. */
+async function cachedCodes(key: string, loader: () => Promise<string[]>): Promise<string[]> {
+  const hit = codeCache.get(key);
+  if (hit && Date.now() - hit.at < CODES_TTL_MS) return hit.codes;
+  const codes = await loader();
+  codeCache.set(key, { at: Date.now(), codes });
+  return codes;
+}
+
+const traderCacheKey = (kind: TraderKind) => `trader:${kind}`;
+const itemCacheKey = (kind: ItemCodeKind) => `item:${kind}`;
+
+/** Καθαρίζει το cache κωδικών συναλλασσομένων (δοκιμές / μετά από δημιουργία). */
 export function clearTraderCodeCache(kind?: TraderKind): void {
-  if (kind) traderCodeCache.delete(kind);
-  else traderCodeCache.clear();
+  if (kind) codeCache.delete(traderCacheKey(kind));
+  else for (const k of codeCache.keys()) if (k.startsWith('trader:')) codeCache.delete(k);
+}
+
+/** Καθαρίζει το cache κωδικών ειδών/εξόδων/χρεοπιστώσεων (δοκιμές / μετά από δημιουργία). */
+export function clearItemCodeCache(kind?: ItemCodeKind): void {
+  if (kind) codeCache.delete(itemCacheKey(kind));
+  else for (const k of codeCache.keys()) if (k.startsWith('item:')) codeCache.delete(k);
 }
 
 /**
@@ -1182,12 +1224,60 @@ export function clearTraderCodeCache(kind?: TraderKind): void {
  * ανά πάτημα πλήκτρου.
  */
 export async function softoneFetchTraderCodes(kind: TraderKind): Promise<string[]> {
-  const hit = traderCodeCache.get(kind);
-  if (hit && Date.now() - hit.at < TRADER_CODES_TTL_MS) return hit.codes;
-  const rows = await softoneGetTable('TRDR', ['CODE'], `SODTYPE=${TRADER_KIND_SODTYPE[kind]}`);
-  const codes = rows.map((r) => str(r.CODE)).filter(Boolean);
-  traderCodeCache.set(kind, { at: Date.now(), codes });
-  return codes;
+  return cachedCodes(traderCacheKey(kind), async () => {
+    const rows = await softoneGetTable('TRDR', ['CODE'], `SODTYPE=${TRADER_KIND_SODTYPE[kind]}`);
+    return rows.map((r) => str(r.CODE)).filter(Boolean);
+  });
+}
+
+/**
+ * Ο πίνακας και το φίλτρο κάθε μητρώου ειδών. Τα τρία `MTRL` ξεχωρίζουν ΜΟΝΟ με το SODTYPE
+ * (51 είδη · 52 υπηρεσίες · 53 χρεοπιστώσεις)· τα έξοδα ζουν σε δικό τους πίνακα (`EXPN`).
+ *
+ * ΧΩΡΙΣ `ISACTIVE=1`: ένας κωδικός ανενεργής εγγραφής είναι ΠΙΑΣΜΕΝΟΣ — το SoftOne δεν τον
+ * ξαναδίνει επειδή κάποιος την απενεργοποίησε. Εδώ ρωτάμε «τι είναι ελεύθερο», όχι «τι ισχύει».
+ */
+// Συνάρτηση και όχι σταθερό object: το `LINEITEM_SODTYPE` ορίζεται πιο κάτω στο αρχείο και ένα
+// module-level literal εδώ θα το διάβαζε πριν αρχικοποιηθεί (TDZ).
+const itemCodeSource = (kind: ItemCodeKind): { table: string; filter: string } => ({
+  product: { table: 'MTRL', filter: 'SODTYPE=51' },
+  service: { table: 'MTRL', filter: 'SODTYPE=52' },
+  lineitem: { table: 'MTRL', filter: `SODTYPE=${LINEITEM_SODTYPE}` },
+  expense: { table: 'EXPN', filter: '' },
+}[kind]);
+
+/**
+ * ΟΛΟΙ οι κωδικοί ενός μητρώου ειδών, από το ίδιο το SoftOne (read-only `GetTable`).
+ *
+ * Ίδια φροντίδα με τους συναλλασσομένους: ο τοπικός καθρέφτης μπορεί να είναι παλιός και ένας
+ * κωδικός που δόθηκε στο μεσοδιάστημα θα οδηγούσε σε πρόταση που θα απορριφθεί. 60s cache.
+ */
+export async function softoneFetchItemCodes(kind: ItemCodeKind): Promise<string[]> {
+  return cachedCodes(itemCacheKey(kind), async () => {
+    const src = itemCodeSource(kind);
+    const rows = await softoneGetTable(src.table, ['CODE'], src.filter);
+    return rows.map((r) => str(r.CODE)).filter(Boolean);
+  });
+}
+
+/**
+ * Η πρόταση κωδικού για νέα εγγραφή μητρώου ειδών, με **φρέσκα** δεδομένα από τον ERP.
+ *
+ * `fallbackCodes` (ο τοπικός καθρέφτης) χρησιμοποιείται ΜΟΝΟ όταν το SoftOne δεν απαντά — τότε
+ * το αποτέλεσμα σημειώνεται `stale: true` και το UI το λέει: μπαγιάτικα δεδομένα ⇒ ο κωδικός
+ * (ακόμη και ο κωδικός του προμηθευτή) μπορεί στην πραγματικότητα να έχει πιαστεί.
+ */
+export async function softoneNextItemCode(
+  kind: ItemCodeKind,
+  opts: { mask?: string | null; supplierCode?: string | null; fallbackCodes?: readonly string[] } = {},
+): Promise<ItemCodeProposal & { stale: boolean }> {
+  const rules = { supplierCode: opts.supplierCode ?? null, mask: opts.mask ?? null };
+  try {
+    const codes = await softoneFetchItemCodes(kind);
+    return { ...proposeItemCode({ existing: codes, ...rules }), stale: false };
+  } catch {
+    return { ...proposeItemCode({ existing: opts.fallbackCodes ?? [], ...rules }), stale: true };
+  }
 }
 
 /**
@@ -1641,6 +1731,9 @@ export async function softoneCreateExpense(
     throw new SoftoneError(res.error ?? `setData EXPENSES απέτυχε (code ${res.errorcode ?? '?'})`);
   }
   const expn = Number(res.id);
+  // Ο κωδικός δεσμεύτηκε ήδη — καθαρίζουμε ΠΡΙΝ τον read-back, ώστε μια αποτυχία εκεί να μην
+  // αφήσει τον πιασμένο κωδικό καταγεγραμμένο ως ελεύθερο για έως 60s.
+  clearItemCodeCache('expense');
   // Read back — «success: true» δεν σημαίνει ότι γράφτηκε.
   const back = await softoneGetTable('EXPN', EXPN_FIELDS, `EXPN=${expn}`);
   const row = back[0];
@@ -1875,4 +1968,92 @@ export async function softoneFetchProjectStages(): Promise<ProjectStageRow[]> {
       isActive: o.ISACTIVE !== '0',
     }))
     .filter((r) => Number.isFinite(r.prjcStage) && r.prjcStage !== 0);
+}
+
+// ============================================================
+// Εμπορικές κατηγορίες ειδών — object ITECATEGORY (EditMaster) → πίνακας MTRCATEGORY
+// ============================================================
+
+/**
+ * Δημιουργεί **εμπορική κατηγορία είδους** στο SoftOne.
+ *
+ * ΓΙΑΤΙ `ITECATEGORY` και όχι `MTRCATEGORY`: το σκέτο όνομα πίνακα ΔΕΝ είναι object εγγραφής —
+ * το `setData` πάνω του γυρίζει `success: true` και **δεν γράφει τίποτα** (καταγεγραμμένο σε
+ * ζωντανό tenant). Το πραγματικό EditMaster είναι το `ITECATEGORY` («Εμπορικές κατηγορίες
+ * ειδών»), με πίνακα `MTRCATEGORY`.
+ *
+ * Τι απαιτεί το schema του object: `MTRCATEGORY` (Smallint, **required**, ΟΧΙ AutoInc, χωρίς
+ * default), `CODE` (Σύντμηση, ≤12, required), `NAME` (≤128, required), `ISACTIVE` (default 1),
+ * `KEPYO` (default 1). Επειδή το κλειδί δεν είναι AutoInc, το δίνουμε εμείς ως `max + 1` — και
+ * αν το SoftOne επιστρέψει δικό του `id`, εκείνο κερδίζει στον έλεγχο.
+ *
+ * `success: true` ΔΕΝ αποδεικνύει ότι γράφτηκε: διαβάζουμε **πάντα** πίσω τη γραμμή και
+ * επιβεβαιώνουμε την περιγραφή — αλλιώς πετάμε και ο καλών δεν καθρεφτίζει φάντασμα.
+ */
+export interface CreateItemCategoryResult {
+  mtrCategory: number;
+  code: string;
+  name: string;
+}
+
+/** Σύντμηση από περιγραφή: κεφαλαία, χωρίς σημεία στίξης, ≤12 χαρακτήρες (πεδίο `CODE`). */
+export function itemCategoryAbbrev(name: string): string {
+  const s = String(name ?? '')
+    .toUpperCase()
+    .replace(/[^0-9A-ZΑ-ΩΆΈΉΊΌΎΏΪΫ]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return s.slice(0, 12);
+}
+
+export async function softoneCreateItemCategory(input: {
+  name: string;
+  /** Σύντμηση· κενή ⇒ παράγεται από την περιγραφή και «σπρώχνεται» μέχρι να είναι ελεύθερη. */
+  code?: string | null;
+}): Promise<CreateItemCategoryResult> {
+  const name = String(input.name ?? '').trim().slice(0, 128);
+  if (!name) throw new SoftoneError('Η περιγραφή της κατηγορίας είναι υποχρεωτική.');
+
+  const cfg = await loadSoftoneConfig().catch(() => null);
+  const companyFilter = cfg?.company ? `COMPANY=${cfg.company}` : '';
+  const existing = await softoneGetTable('MTRCATEGORY', ['MTRCATEGORY', 'CODE', 'NAME'], companyFilter);
+
+  const takenCodes = new Set(existing.map((r) => str(r.CODE).toUpperCase()).filter(Boolean));
+  const takenNames = new Set(existing.map((r) => str(r.NAME).toUpperCase()).filter(Boolean));
+  if (takenNames.has(name.toUpperCase())) {
+    throw new SoftoneError(`Υπάρχει ήδη εμπορική κατηγορία «${name}».`);
+  }
+
+  // Σύντμηση: ό,τι έδωσε ο χρήστης, αλλιώς από την περιγραφή· και στις δύο περιπτώσεις
+  // ΕΛΕΓΧΕΤΑΙ ότι είναι ελεύθερη — αν όχι, παίρνει αριθμητικό επίθεμα.
+  const wanted = (String(input.code ?? '').trim() || itemCategoryAbbrev(name)).slice(0, 12) || 'ΚΑΤ';
+  let code = wanted;
+  for (let n = 2; takenCodes.has(code.toUpperCase()) && n < 1000; n += 1) {
+    const suffix = String(n);
+    code = `${wanted.slice(0, 12 - suffix.length)}${suffix}`;
+  }
+  if (takenCodes.has(code.toUpperCase())) {
+    throw new SoftoneError('Δεν βρέθηκε ελεύθερη σύντμηση για την κατηγορία.');
+  }
+
+  const nextId = existing.reduce((max, r) => Math.max(max, Number(r.MTRCATEGORY) || 0), 0) + 1;
+
+  const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>(
+    'setData',
+    { OBJECT: 'ITECATEGORY', KEY: '', DATA: { ITECATEGORY: [{ MTRCATEGORY: nextId, CODE: code, NAME: name, ISACTIVE: 1, KEPYO: 1 }] } },
+  );
+  if (res.success === false) {
+    throw new SoftoneError(res.error ?? `setData ITECATEGORY απέτυχε (code ${res.errorcode ?? '?'})`);
+  }
+  const id = Number(res.id) || nextId;
+
+  // ΑΝΑΓΝΩΣΗ ΠΙΣΩ — υποχρεωτική. Το `success: true` των memory tables είναι γνωστό ότι λέει
+  // ψέματα, οπότε η γραμμή πρέπει να υπάρχει ΚΑΙ να έχει την περιγραφή που στείλαμε.
+  const back = await softoneGetTable('MTRCATEGORY', ['MTRCATEGORY', 'CODE', 'NAME'], `MTRCATEGORY=${id}`);
+  const row = back.find((r) => Number(r.MTRCATEGORY) === id);
+  if (!row || str(row.NAME).toUpperCase() !== name.toUpperCase()) {
+    throw new SoftoneError(
+      `Η κατηγορία δεν επιβεβαιώθηκε στο SoftOne (MTRCATEGORY ${id}, περιγραφή «${row?.NAME ?? '—'}»).`,
+    );
+  }
+  return { mtrCategory: id, code: row.CODE || code, name: row.NAME || name };
 }

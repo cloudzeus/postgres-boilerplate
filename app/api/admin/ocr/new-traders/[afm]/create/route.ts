@@ -137,7 +137,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
 
   // Το `afm` του path είναι το ΤΡΕΧΟΝ κλειδί της ομάδας· το `vatId` είναι η τελική
   // μορφή. Αν διαφέρουν, τα έγγραφα ξαναγράφονται με τη νέα τιμή.
-  const docsUpdated = await applyTraderToDocs(afm, { trdr, code, name: b.name, kind }, { vatId });
+  const docsUpdated = await applyTraderToDocs(afm, { trdr, code, name: b.name, kind, sodtype }, { vatId });
 
   await logAudit({
     userId: u.id, userEmail: u.email,

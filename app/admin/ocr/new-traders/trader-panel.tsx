@@ -3,8 +3,8 @@
 import * as React from 'react';
 import Link from 'next/link';
 import {
-  FiAlertTriangle, FiCheck, FiCheckCircle, FiCopy, FiExternalLink, FiEyeOff,
-  FiGlobe, FiLink2, FiLoader, FiMapPin, FiRefreshCw, FiUploadCloud, FiX,
+  FiAlertTriangle, FiCheck, FiCheckCircle, FiCopy, FiCreditCard, FiExternalLink, FiEyeOff,
+  FiGlobe, FiInfo, FiLink2, FiLoader, FiMapPin, FiPlusCircle, FiRefreshCw, FiUploadCloud, FiX,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -837,6 +837,78 @@ export function TraderPanel({
         )}
       </section>
       )}
+
+      {/* 2β — Καρτέλες του ΑΦΜ στο SoftOne: τι υπάρχει ήδη και τι λείπει */}
+      <section className="px-4 py-3" aria-label="Καρτέλες στο SoftOne">
+        <h3 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <FiCreditCard aria-hidden className="size-3.5" /> Καρτέλες στο SoftOne
+        </h3>
+
+        {group.cards.length === 0 ? (
+          <p className="flex items-start gap-1.5 rounded-lg bg-neutral-6 px-3 py-2 text-[12px] text-muted-foreground">
+            <FiInfo aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+            Καμία καρτέλα για αυτό το ΑΦΜ — θα δημιουργηθεί η πρώτη.
+          </p>
+        ) : (
+          <ul className="grid gap-1.5">
+            {group.cards.map((c) => (
+              <li
+                key={c.trdr}
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[12px]"
+              >
+                <span
+                  className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                  style={c.kind
+                    ? { backgroundColor: KIND_COLORS[c.kind].bg, color: KIND_COLORS[c.kind].fg }
+                    : { backgroundColor: '#EEE', color: '#555' }}
+                >
+                  {c.label}
+                </span>
+                <span className="font-mono text-muted-foreground">{c.code ?? '—'}</span>
+                <span className="min-w-0 flex-1 truncate text-foreground" title={c.name}>{c.name}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* Ο τύπος που ΛΕΙΠΕΙ: ο λόγος σε ελληνικά και ένα κλικ που προεπιλέγει τη φόρμα. */}
+        {group.missing.length > 0 && (
+          <ul className="mt-2 grid gap-1.5">
+            {group.missing.map((m) => (
+              <li
+                key={m.kind}
+                className="flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-2 text-[12px]"
+                style={{ borderColor: '#F0C36D', backgroundColor: '#FDF6E7' }}
+              >
+                <FiAlertTriangle aria-hidden className="size-3.5 shrink-0" style={{ color: '#B45309' }} />
+                <span className="min-w-0 flex-1 text-foreground">
+                  {m.reason} — {m.docCount === 1 ? '1 παραστατικό' : `${m.docCount} παραστατικά`}.
+                </span>
+                <Button
+                  type="button" variant="outline" size="xs"
+                  className="shrink-0 cursor-pointer"
+                  disabled={!canManage}
+                  onClick={() => {
+                    setForm((f) => ({ ...f, kind: m.kind }));
+                    kindRefs.current[m.kind]?.focus();
+                  }}
+                >
+                  <FiPlusCircle aria-hidden className="size-3" /> Δημιουργία {KIND_ACCUSATIVE[m.kind]}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* Τα έγγραφα που δεν ξέρουμε πού καταχωρούνται δεν ζητούν συγκεκριμένο τύπο. */}
+        {group.unknownSeriesDocs > 0 && (
+          <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+            <FiInfo aria-hidden className="mt-0.5 size-3 shrink-0" />
+            {group.unknownSeriesDocs === 1 ? '1 παραστατικό δεν έχει' : `${group.unknownSeriesDocs} παραστατικά δεν έχουν`}
+            {' '}αναγνωρισμένη σειρά: δεν προκύπτει από αυτά ποιος τύπος καρτέλας χρειάζεται.
+          </p>
+        )}
+      </section>
 
       {/* 3 — Φόρμα */}
       <section className="px-4 py-3" aria-label="Στοιχεία συναλλασσομένου">

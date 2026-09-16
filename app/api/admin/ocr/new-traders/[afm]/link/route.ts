@@ -46,7 +46,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
   const vatId = parsed.data.country ? applyVatPrefix(afm, parsed.data.country) : afm;
   const docsUpdated = await applyTraderToDocs(
     afm,
-    { trdr: trader.trdr, code: trader.code, name: trader.name, kind: trader.kind },
+    { trdr: trader.trdr, code: trader.code, name: trader.name, kind: trader.kind, sodtype: trader.sodtype },
     { vatId },
   );
 

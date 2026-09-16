@@ -16,6 +16,9 @@ import {
   type MatchKind,
 } from '@/lib/ocr/line-match';
 import { seriesTraderKind, type SeriesTraderKind } from '@/lib/ocr/posting-target';
+import { requiredTraderKinds, postingTargetsForSeries, seriesKey, type RequiredTraderKind } from '@/lib/ocr/required-trader-kind';
+import { inferLineKind } from '@/lib/ocr/line-kind';
+import type { PostLineTable } from '@/lib/ocr/posting-target';
 import { cachedClassificationLabeller, type ClassificationRef } from '@/lib/ocr/mydata-labels';
 
 /**
@@ -139,6 +142,33 @@ export interface TraderQueueDoc {
   total: number | null;
   series: string | null;
 }
+/** Μια καρτέλα του ΙΔΙΟΥ ΑΦΜ που υπάρχει ήδη στο SoftOne (τοπικός καθρέφτης). */
+export interface TraderCard {
+  trdr: number;
+  code: string | null;
+  name: string;
+  sodtype: number;
+  /** Ελληνική ετικέτα τύπου («Προμηθευτής» / «Πιστωτής» / «Χρεώστης»). */
+  label: string;
+  /** Ο τύπος με τα ονόματα της εφαρμογής — `null` για SODTYPE εκτός των τριών. */
+  kind: TraderKind | null;
+}
+
+/**
+ * Ένας τύπος καρτέλας που **λείπει** για αυτόν τον εκδότη: τα παραστατικά του τον ζητούν
+ * (μέσω της σειράς τους) και καμία γραμμή `TRDR` με αυτό το SODTYPE δεν υπάρχει για το ΑΦΜ.
+ */
+export interface MissingTraderKind {
+  kind: TraderKind;
+  sodtype: number;
+  /** Πόσα εκκρεμή παραστατικά της ομάδας τον ζητούν. */
+  docCount: number;
+  /** Οι σειρές που τον επιβάλλουν — η εξήγηση «γιατί αυτός ο τύπος». */
+  series: string[];
+  /** Έτοιμη ελληνική πρόταση για το UI. */
+  reason: string;
+}
+
 export interface TraderGroup {
   afm: string;
   /**
@@ -160,6 +190,20 @@ export interface TraderGroup {
   lastDate: string | null;
   thumbUrl: string | null;
   suggestedKind: TraderKind;
+  /** Οι καρτέλες που ΥΠΑΡΧΟΥΝ ήδη στο SoftOne για αυτό το ΑΦΜ (τύπος, κωδικός, επωνυμία). */
+  cards: TraderCard[];
+  /**
+   * Οι τύποι που λείπουν, με τη σειρά που τους ζητούν τα παραστατικά. Κενό ⇒ η ομάδα είναι
+   * εκκρεμής μόνο επειδή κάποιο παραστατικό δεν έχει καθόλου συναλλασσόμενο και η σειρά του
+   * δεν λέει τι χρειάζεται.
+   */
+  missing: MissingTraderKind[];
+  /**
+   * Πόσα εκκρεμή παραστατικά έχουν σειρά **άγνωστη ή μη υποστηριζόμενη**: δεν ξέρουμε τι
+   * καρτέλα θέλουν, οπότε δεν γεννούν εκκρεμότητα τύπου — μόνο τη γενική «δεν έχει
+   * συναλλασσόμενο». Φαίνεται στο panel ώστε ο χρήστης να ξέρει γιατί δεν προτείνεται τύπος.
+   */
+  unknownSeriesDocs: number;
   docs: TraderQueueDoc[];
 }
 export interface IgnoredIssuerRow {
@@ -185,6 +229,9 @@ interface TraderAcc {
   thumbUrl: string | null;
   seriesKinds: SeriesTraderKind[];
   invoiceKinds: (string | null)[];
+  /** Τύποι που ζητούν τα έγγραφα και λείπουν, με τις σειρές που τους επιβάλλουν. */
+  needs: Map<TraderKind, { kind: TraderKind; sodtype: number; docCount: number; series: Set<string> }>;
+  unknownSeriesDocs: number;
   docs: TraderQueueDoc[];
 }
 
@@ -195,32 +242,156 @@ const topName = (names: Map<string, number>): string | null => {
   return best;
 };
 
-/**
- * Ολοκληρωμένα έγγραφα χωρίς συναλλασσόμενο SoftOne, ομαδοποιημένα κατά ΑΦΜ εκδότη.
- * Οι αγνοημένοι (`IgnoredIssuer`) βγαίνουν από τις ομάδες και επιστρέφονται χωριστά
- * όταν ζητηθούν (φίλτρο «Αγνοημένοι» της σελίδας).
- */
-export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): Promise<{
-  groups: TraderGroup[];
-  ignored: IgnoredIssuerRow[];
+/** SODTYPE → τύπος της εφαρμογής. Ο ΙΔΙΟΣ χάρτης με τη δημιουργία καρτέλας, ανάποδα. */
+const KIND_BY_SODTYPE = new Map<number, TraderKind>(
+  (Object.keys(TRADER_KIND_SODTYPE) as TraderKind[]).map((k) => [TRADER_KIND_SODTYPE[k], k]),
+);
+
+/** Ελληνική αιτιατική του τύπου — για το «Χρειάζεται καρτέλα πιστωτή…». */
+const KIND_ACCUSATIVE: Record<TraderKind, string> = {
+  supplier: 'προμηθευτή', creditor: 'πιστωτή', debtor: 'χρεώστη',
+};
+
+/** Τα πεδία εγγράφου που χρειάζεται η ουρά εκδοτών — τίποτα παραπάνω. */
+const TRADER_DOC_SELECT = {
+  id: true, fileName: true, thumbUrl: true, createdAt: true, extractedData: true,
+  issuerAfm: true, softoneSeries: true, seriesSource: true, invoiceKind: true, softoneTrdr: true,
+} as const;
+
+type TraderQueueRow = {
+  id: string;
+  fileName: string;
+  thumbUrl: string | null;
+  createdAt: Date;
+  extractedData: unknown;
+  issuerAfm: string | null;
+  softoneSeries: string | null;
+  seriesSource: number | null;
+  invoiceKind: string | null;
+  softoneTrdr: number | null;
+};
+
+interface PendingTraderDocs {
+  /** Τα ΕΚΚΡΕΜΗ έγγραφα, νεότερο πρώτα, χωρίς διπλότυπα. */
+  docs: TraderQueueRow[];
+  /** Ο απαιτούμενος τύπος ανά σειρά (κλειδί `seriesKey`). */
+  required: Map<string, RequiredTraderKind | null>;
+  /** Οι καρτέλες που ήδη υπάρχουν, ανά ΑΦΜ. */
+  cards: Map<string, TraderCard[]>;
   truncated: boolean;
-}> {
-  const [docs, ignoredRows] = await Promise.all([
+}
+
+/**
+ * Ποια έγγραφα είναι **πραγματικά** εκκρεμή ως προς τον συναλλασσόμενο.
+ *
+ * Η παλιά απάντηση ήταν «όσα δεν έχουν `softoneTrdr`», και ήταν λειψή: στο SoftOne η ίδια
+ * εταιρεία έχει ΞΕΧΩΡΙΣΤΗ καρτέλα ανά τύπο (12 προμηθευτής / 16 πιστωτής / 15 χρεώστης). Μόλις
+ * δημιουργούνταν **μία** από αυτές, το ΑΦΜ έφευγε από την ουρά για πάντα — και ένα επόμενο
+ * τιμολόγιο σε σειρά που ζητά τον ΑΛΛΟ τύπο δεν είχε κανέναν δρόμο μέσα από την εφαρμογή:
+ * η `alignTraderToTarget` δεν έβρισκε εναλλακτική και η καταχώριση κολλούσε στο
+ * `trader_kind_mismatch`. Σωστή άρνηση, αδιέξοδο όμως.
+ *
+ * Η εκκρεμότητα είναι πλέον **ανά απαιτούμενο τύπο**:
+ *  • έγγραφο ΧΩΡΙΣ συναλλασσόμενο → εκκρεμές, όπως πάντα·
+ *  • έγγραφο ΜΕ συναλλασσόμενο → εκκρεμές μόνο αν η σειρά του ζητά τύπο για τον οποίο **δεν
+ *    υπάρχει καμία καρτέλα** στο ΑΦΜ. (Αν υπάρχει, η `alignTraderToTarget` τη βρίσκει μόνη της
+ *    στον τοπικό καθρέφτη — δεν είναι δουλειά της ουράς.)
+ *
+ * Έγγραφα με **άγνωστη ή μη υποστηριζόμενη** σειρά ΔΕΝ γεννούν εκκρεμότητα τύπου: δεν ξέρουμε
+ * τι καρτέλα θέλουν, και μια αυθαίρετη «προμηθευτής» θα ζητούσε από τον χρήστη να φτιάξει κάτι
+ * που ίσως δεν χρειάζεται ποτέ. Αν τέτοιο έγγραφο δεν έχει καθόλου συναλλασσόμενο, μένει
+ * εκκρεμές με τον γενικό λόγο· αν έχει, δεν μπαίνει καν στην ουρά.
+ *
+ * Τα ήδη **καταχωρημένα** (`postStatus: POSTED`) εξαιρούνται: έφυγαν προς τον ERP, η καρτέλα
+ * τους δεν είναι πια εκκρεμότητα.
+ */
+async function collectPendingTraderDocs(): Promise<PendingTraderDocs> {
+  const [unlinked, linked] = await Promise.all([
     prisma.ocrDocument.findMany({
       // Το ΑΦΜ εκδότη είναι στήλη με index (`issuerAfm`): κανένα φιλτράρισμα πάνω σε JSON.
       where: {
         status: 'COMPLETED', softoneTrdr: null, softoneChecked: { not: null },
         issuerAfm: { not: null },
       },
-      select: {
-        id: true, fileName: true, thumbUrl: true, createdAt: true, extractedData: true,
-        issuerAfm: true, softoneSeries: true, seriesSource: true, invoiceKind: true,
-      },
+      select: TRADER_DOC_SELECT,
       orderBy: { createdAt: 'desc' },
       take: MAX_QUEUE_DOCS,
     }),
+    prisma.ocrDocument.findMany({
+      where: {
+        status: 'COMPLETED', softoneTrdr: { not: null }, issuerAfm: { not: null },
+        softoneSeries: { not: null }, seriesSource: { not: null },
+        postStatus: { not: 'POSTED' },
+      },
+      select: TRADER_DOC_SELECT,
+      orderBy: { createdAt: 'desc' },
+      take: MAX_QUEUE_DOCS,
+    }),
+  ]) as [TraderQueueRow[], TraderQueueRow[]];
+
+  const all = [...unlinked, ...linked];
+  const required = await requiredTraderKinds(all);
+
+  const afms = Array.from(new Set(all.map((d) => d.issuerAfm).filter((a): a is string => !!a)));
+  const cardRows = afms.length === 0 ? [] : await prisma.softoneTrader
+    .findMany({
+      where: { afm: { in: afms }, isActive: true },
+      select: { trdr: true, code: true, name: true, afm: true, sodtype: true },
+    })
+    .catch(() => [] as { trdr: number; code: string; name: string; afm: string | null; sodtype: number }[]);
+
+  const cards = new Map<string, TraderCard[]>();
+  for (const r of cardRows) {
+    if (!r.afm) continue;
+    const list = cards.get(r.afm) ?? [];
+    list.push({
+      trdr: r.trdr, code: r.code || null, name: r.name, sodtype: r.sodtype,
+      label: SODTYPE_LABEL[r.sodtype] ?? `Τύπος ${r.sodtype}`,
+      kind: KIND_BY_SODTYPE.get(r.sodtype) ?? null,
+    });
+    cards.set(r.afm, list);
+  }
+  const hasKind = (afm: string, sodtype: number) => (cards.get(afm) ?? []).some((c) => c.sodtype === sodtype);
+
+  const seen = new Set<string>();
+  const docs: TraderQueueRow[] = [];
+  for (const d of all) {
+    if (seen.has(d.id) || !d.issuerAfm) continue;
+    if (d.softoneTrdr != null) {
+      const key = seriesKey(d);
+      const req = key ? required.get(key) ?? null : null;
+      // Έχει ήδη καρτέλα και ο τύπος που ζητά η σειρά του υπάρχει (ή είναι άγνωστος): όχι ουρά.
+      if (!req || hasKind(d.issuerAfm, req.sodtype)) continue;
+    }
+    seen.add(d.id);
+    docs.push(d);
+  }
+  docs.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+  return {
+    docs, required, cards,
+    truncated: unlinked.length >= MAX_QUEUE_DOCS || linked.length >= MAX_QUEUE_DOCS,
+  };
+}
+
+/**
+ * Οι εκκρεμείς εκδότες, ομαδοποιημένοι κατά ΑΦΜ (δες {@link collectPendingTraderDocs} για το τι
+ * μετρά ως εκκρεμές). Κάθε ομάδα κουβαλά τις καρτέλες που ΥΠΑΡΧΟΥΝ ήδη στο SoftOne και τους
+ * τύπους που **λείπουν**, με τις σειρές που τους επιβάλλουν.
+ *
+ * Οι αγνοημένοι (`IgnoredIssuer`) βγαίνουν από τις ομάδες και επιστρέφονται χωριστά όταν
+ * ζητηθούν (φίλτρο «Αγνοημένοι» της σελίδας).
+ */
+export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): Promise<{
+  groups: TraderGroup[];
+  ignored: IgnoredIssuerRow[];
+  truncated: boolean;
+}> {
+  const [pending, ignoredRows] = await Promise.all([
+    collectPendingTraderDocs(),
     prisma.ignoredIssuer.findMany({ select: { afm: true, reason: true } }),
   ]);
+  const { docs, required, cards } = pending;
 
   const ignoredReason = new Map(ignoredRows.map((r) => [r.afm, r.reason ?? null]));
   const acc = new Map<string, TraderAcc>();
@@ -233,7 +404,8 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
     if (!g) {
       g = {
         afm, names: new Map(), doy: null, profession: null, address: null, phone: null, email: null,
-        docCount: 0, total: 0, lastDate: null, thumbUrl: null, seriesKinds: [], invoiceKinds: [], docs: [],
+        docCount: 0, total: 0, lastDate: null, thumbUrl: null, seriesKinds: [], invoiceKinds: [],
+        needs: new Map(), unknownSeriesDocs: 0, docs: [],
       };
       acc.set(afm, g);
     }
@@ -255,6 +427,19 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
     if (!g.lastDate || date > g.lastDate) g.lastDate = date;
     if (doc.seriesSource != null) g.seriesKinds.push(seriesTraderKind(doc.seriesSource));
     g.invoiceKinds.push(doc.invoiceKind ?? null);
+
+    // Ποιον ΤΥΠΟ ζητά αυτό το παραστατικό — και λείπει.
+    const key = seriesKey(doc);
+    const req = key ? required.get(key) ?? null : null;
+    if (!req) {
+      g.unknownSeriesDocs++;
+    } else if (!(cards.get(afm) ?? []).some((c) => c.sodtype === req.sodtype)) {
+      const need = g.needs.get(req.kind) ?? { kind: req.kind, sodtype: req.sodtype, docCount: 0, series: new Set<string>() };
+      need.docCount++;
+      if (doc.softoneSeries) need.series.add(doc.softoneSeries);
+      g.needs.set(req.kind, need);
+    }
+
     if (g.docs.length < TRADER_DOCS_SAMPLE) {
       g.docs.push({
         id: doc.id, fileName: doc.fileName, date: str(ed.date),
@@ -271,6 +456,20 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
       continue;
     }
     const country = vatCountry(g.afm);
+    const missing: MissingTraderKind[] = [...g.needs.values()]
+      .sort((a, b) => b.docCount - a.docCount)
+      .map((n) => {
+        const series = [...n.series];
+        const where = series.length === 0
+          ? 'για τα παραστατικά αυτού του εκδότη'
+          : series.length === 1
+            ? `για τη σειρά ${series[0]}`
+            : `για τις σειρές ${series.join(', ')}`;
+        return {
+          kind: n.kind, sodtype: n.sodtype, docCount: n.docCount, series,
+          reason: `Χρειάζεται καρτέλα ${KIND_ACCUSATIVE[n.kind]} ${where}`,
+        };
+      });
     groups.push({
       afm: g.afm,
       country,
@@ -281,7 +480,12 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
       total: Math.round(g.total * 100) / 100,
       lastDate: g.lastDate ? g.lastDate.toISOString() : null,
       thumbUrl: g.thumbUrl,
-      suggestedKind: suggestTraderKind({ seriesKinds: g.seriesKinds, invoiceKinds: g.invoiceKinds }),
+      // Ο τύπος που ΛΕΙΠΕΙ είναι απόδειξη, όχι ευρετική: όταν υπάρχει, υπερισχύει της πρότασης.
+      suggestedKind: missing[0]?.kind
+        ?? suggestTraderKind({ seriesKinds: g.seriesKinds, invoiceKinds: g.invoiceKinds }),
+      cards: cards.get(g.afm) ?? [],
+      missing,
+      unknownSeriesDocs: g.unknownSeriesDocs,
       docs: g.docs,
     });
   }
@@ -292,20 +496,43 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
 
   groups.sort((a, b) => (b.docCount - a.docCount) || (b.total - a.total) || a.afm.localeCompare(b.afm));
   // Το πλαφόν χτύπησε: η σελίδα βλέπει μέρος της ουράς (οι μετρητές του sidebar μένουν σωστοί).
-  return { groups, ignored: opts.includeIgnored ? ignored : [], truncated: docs.length >= MAX_QUEUE_DOCS };
+  return { groups, ignored: opts.includeIgnored ? ignored : [], truncated: pending.truncated };
 }
 
 export interface TraderLink {
   trdr: number;
   code: string | null;
   name: string;
+  /** Η ελληνική ετικέτα («Προμηθευτής» / «Πιστωτής» / «Χρεώστης») όπως γράφεται στο έγγραφο. */
   kind: string;
+  /**
+   * Το `TRDR.SODTYPE` της καρτέλας. Όταν λείπει, διαβάζεται από τον καθρέφτη — χωρίς αυτό δεν
+   * ξέρουμε ΠΟΙΑ έγγραφα αφορά αυτή η καρτέλα και η σύνδεση ξαναγίνεται τυφλή.
+   */
+  sodtype?: number | null;
 }
 
 /**
- * Γράφει τον συναλλασσόμενο σε ΟΛΑ τα έγγραφα του ΑΦΜ που δεν έχουν ήδη
- * αντιστοίχιση (spec §2: μία δημιουργία/σύνδεση ξεμπλοκάρει όλη την ομάδα).
- * Επιστρέφει πόσα ενημερώθηκαν.
+ * Γράφει τον συναλλασσόμενο στα έγγραφα του ΑΦΜ που **τον αφορούν** — και ΜΟΝΟ σε αυτά.
+ *
+ * Η παλιά συμπεριφορά έγραφε το ίδιο `trdr` σε ΚΑΘΕ έγγραφο του ΑΦΜ, ανεξάρτητα από τη σειρά
+ * του καθενός, και άφηνε την `alignTraderToTarget` να το διορθώσει μετά. Όταν όμως η σωστή
+ * καρτέλα δεν υπήρχε, η διόρθωση ήταν αδύνατη και το έγγραφο έφευγε από την ουρά με **λάθος
+ * τύπο** — ακριβώς το αδιέξοδο που λύνει η ανά τύπο εκκρεμότητα. Τώρα:
+ *
+ *  1. Για κάθε εκκρεμές έγγραφο ρωτάμε τη ΣΕΙΡΑ του τι τύπο θέλει
+ *     (`lib/ocr/required-trader-kind.ts` — η ίδια αλυσίδα με την `alignTraderToTarget`).
+ *  2. Αν ο τύπος είναι γνωστός, γράφεται η καρτέλα ΑΥΤΟΥ του τύπου, όποια κι αν είναι — όχι
+ *     απαραίτητα αυτή που μόλις δημιουργήθηκε.
+ *  3. Αν ο τύπος είναι γνωστός αλλά **δεν υπάρχει** τέτοια καρτέλα, το έγγραφο ΔΕΝ γράφεται:
+ *     μένει εκκρεμές για τον τύπο που πραγματικά χρειάζεται.
+ *  4. Αν η σειρά είναι άγνωστη ή μη υποστηριζόμενη, γράφεται η καρτέλα που έδωσε ο χρήστης —
+ *     εκεί δεν υπάρχει καμία πληροφορία για να αποφασίσουμε αλλιώς.
+ *  5. Τέλος, τα ήδη συνδεδεμένα έγγραφα που ζητούν ΑΚΡΙΒΩΣ τον τύπο αυτής της καρτέλας αλλά
+ *     δείχνουν αλλού **ξαναδείχνονται** εδώ: αυτό είναι που καθαρίζει την εκκρεμότητα όταν ο
+ *     χρήστης δημιουργεί τη δεύτερη καρτέλα ενός εκδότη.
+ *
+ * Επιστρέφει πόσα έγγραφα ενημερώθηκαν συνολικά.
  *
  * `opts.vatId`: το ΤΕΛΙΚΟ ΑΦΜ του εκδότη όταν ο χρήστης του πρόσθεσε πρόθεμα
  * χώρας (π.χ. ο geocoder βρήκε Γερμανία ⇒ «144960040» → «DE144960040»). Τότε τα
@@ -325,33 +552,97 @@ export async function applyTraderToDocs(
   const rewritten = opts.vatId ? normalizeAfm(opts.vatId) : null;
   const next = rewritten && rewritten !== target ? rewritten : null;
 
-  const where = { status: 'COMPLETED', softoneTrdr: null, issuerAfm: target } as const;
-  const stamp = {
-    softoneTrdr: trader.trdr,
-    softoneCode: trader.code ?? null,
-    softoneName: trader.name,
-    softoneKind: trader.kind,
+  const stampFor = (t: TraderLink) => ({
+    softoneTrdr: t.trdr,
+    softoneCode: t.code ?? null,
+    softoneName: t.name,
+    softoneKind: t.kind,
     softoneChecked: new Date(),
+  });
+
+  // Οι καρτέλες του ΑΦΜ από τον καθρέφτη. Ο καλών έχει ήδη κάνει upsert τη νέα, οπότε είναι
+  // μέσα· ψάχνουμε και με τις δύο μορφές ΑΦΜ (γυμνό / με πρόθεμα χώρας).
+  const afmForms = Array.from(new Set([target, rewritten, opts.vatId ?? null].filter((v): v is string => !!v)));
+  const cardRows = await prisma.softoneTrader
+    .findMany({
+      where: { afm: { in: afmForms }, isActive: true },
+      select: { trdr: true, code: true, name: true, sodtype: true, kind: true },
+    })
+    .catch(() => [] as { trdr: number; code: string; name: string; sodtype: number; kind: string }[]);
+
+  // Το SODTYPE της καρτέλας που έδωσε ο χρήστης — από το όρισμα, αλλιώς από τον καθρέφτη.
+  const ownSodtype = trader.sodtype ?? cardRows.find((c) => c.trdr === trader.trdr)?.sodtype ?? null;
+  const cardFor = (sodtype: number): TraderLink | null => {
+    if (ownSodtype === sodtype) return trader;
+    const row = cardRows.find((c) => c.sodtype === sodtype);
+    return row ? { trdr: row.trdr, code: row.code || null, name: row.name, kind: row.kind, sodtype: row.sodtype } : null;
+  };
+  const sodtypeOf = new Map(cardRows.map((c) => [c.trdr, c.sodtype]));
+
+  // ── 1. Εκκρεμή έγγραφα (χωρίς συναλλασσόμενο) ────────────────────────
+  const pending = await prisma.ocrDocument.findMany({
+    where: { status: 'COMPLETED', softoneTrdr: null, issuerAfm: target },
+    select: { id: true, seriesSource: true, softoneSeries: true },
+  });
+
+  // ── 2. Ήδη συνδεδεμένα που ζητούν ΑΥΤΟΝ τον τύπο αλλά δείχνουν αλλού ──
+  const linked = ownSodtype == null ? [] : await prisma.ocrDocument.findMany({
+    where: {
+      status: 'COMPLETED', issuerAfm: target,
+      softoneTrdr: { not: null }, softoneSeries: { not: null }, seriesSource: { not: null },
+      postStatus: { not: 'POSTED' },
+    },
+    select: { id: true, seriesSource: true, softoneSeries: true, softoneTrdr: true },
+  });
+
+  const required = await requiredTraderKinds([...pending, ...linked]);
+  const kindOf = (d: { seriesSource: number | null; softoneSeries: string | null }) => {
+    const key = seriesKey(d);
+    return key ? required.get(key) ?? null : null;
   };
 
-  // Κοινή περίπτωση: ένα `updateMany` πάνω στο indexed `issuerAfm` — καμία
-  // ανάγνωση/σάρωση JSON.
+  /** Ποια καρτέλα παίρνει κάθε έγγραφο — `null` = δεν γράφεται τίποτα (μένει εκκρεμές). */
+  const assignment = new Map<string, TraderLink>();
+  for (const d of pending) {
+    const req = kindOf(d);
+    // Άγνωστη/μη υποστηριζόμενη σειρά: καμία πληροφορία — ό,τι έδωσε ο χρήστης.
+    const card = req ? cardFor(req.sodtype) : trader;
+    if (card) assignment.set(d.id, card);
+  }
+  for (const d of linked) {
+    const req = kindOf(d);
+    if (!req || req.sodtype !== ownSodtype) continue;
+    // Ήδη δείχνει σε καρτέλα του ΣΩΣΤΟΥ τύπου: δεν το πειράζουμε.
+    if (d.softoneTrdr != null && sodtypeOf.get(d.softoneTrdr) === req.sodtype) continue;
+    assignment.set(d.id, trader);
+  }
+  if (assignment.size === 0) return 0;
+
+  // Κοινή περίπτωση: ομαδικά `updateMany` ανά καρτέλα — καμία ανάγνωση/σάρωση JSON.
   if (!next) {
-    const res = await prisma.ocrDocument.updateMany({ where, data: stamp });
-    return res.count;
+    const byTrader = new Map<number, { link: TraderLink; ids: string[] }>();
+    for (const [id, link] of assignment) {
+      const bucket = byTrader.get(link.trdr) ?? { link, ids: [] };
+      bucket.ids.push(id);
+      byTrader.set(link.trdr, bucket);
+    }
+    let count = 0;
+    for (const { link, ids } of byTrader.values()) {
+      const res = await prisma.ocrDocument.updateMany({ where: { id: { in: ids } }, data: stampFor(link) });
+      count += res.count ?? ids.length;
+    }
+    return count;
   }
 
   // Αλλαγή ΑΦΜ: το κανονικό έγγραφο είναι JSON, οπότε χρειάζεται read-modify-write ανά έγγραφο.
   // ΔΕΝ γράφουμε `issuerAfm`/`extractedData` με το χέρι — θα τα ξαναέφτιαχνε από το `document` η
   // επόμενη αποθήκευση και το πρόθεμα θα χανόταν. Ο συναλλασσόμενος ταξιδεύει ως `also`, δηλαδή
   // στο ΙΔΙΟ transaction με το έγγραφο: ένα έγγραφο δεν μένει ποτέ μισο-ενημερωμένο.
-  const docs = await prisma.ocrDocument.findMany({ where, select: { id: true } });
-  if (docs.length === 0) return 0;
-  for (const d of docs) {
-    const document = setPath(await loadDocumentJson(d.id), 'issuer.vat', next);
-    await saveDocumentJson(d.id, document, { also: stamp });
+  for (const [id, link] of assignment) {
+    const document = setPath(await loadDocumentJson(id), 'issuer.vat', next);
+    await saveDocumentJson(id, document, { also: stampFor(link) });
   }
-  return docs.length;
+  return assignment.size;
 }
 
 // ============================================================
@@ -401,13 +692,22 @@ export interface ItemQueueGroup {
   code: string | null;
   lineCount: number;
   docCount: number;
-  category: MatchKind;
+  /**
+   * Ο τύπος μητρώου της ομάδας — **`null` = «χωρίς κατηγορία»**. Δεν είναι προεπιλογή που
+   * λείπει: είναι ρητή δήλωση ότι ΔΕΝ υπάρχει απόδειξη. Δες `lib/ocr/line-kind.ts`.
+   */
+  category: MatchKind | null;
   suggestions: QueueSuggestion[];
   lines: ItemQueueLine[];
   /** TRDR του εκδότη — για να δείξουμε πρώτα τα έργα του. */
   trdr: number | null;
   /** Η αναλυτική που θυμάται ο κανόνας της ομάδας — ΠΡΟΤΑΣΗ, όχι γραμμένη τιμή. */
   remembered: RememberedAnalytics | null;
+  /**
+   * Η **αιτιολόγηση** του μοντέλου για την κατηγορία («παροχή τρίτων, ομάδα 62 — …»). Γράφεται
+   * μόνο από το UI μετά από «Πρόταση με AI»: ο server δεν καλεί ποτέ μοντέλο μόνος του.
+   */
+  aiReason?: string | null;
 }
 
 /** Πόσες γραμμές-δείγμα επιστρέφονται ανά ομάδα. */
@@ -425,7 +725,16 @@ type UnmatchedLine = {
   total: unknown;
   softoneIsService: boolean | null;
 };
-type QueueDocInfo = { fileName: string | null; afm: string; supplier: string | null; trdr: number | null };
+type QueueDocInfo = {
+  fileName: string | null;
+  afm: string;
+  supplier: string | null;
+  trdr: number | null;
+  /** Ο πίνακας γραμμών του προορισμού της σειράς — ορίζει σε ποιο μητρώο ανήκει η γραμμή. */
+  lineTable: PostLineTable | null;
+  /** Η ετικέτα τύπου του συναλλασσομένου («Πιστωτής»…) — συμφραζόμενο για το μοντέλο. */
+  traderKind: string | null;
+};
 
 /** Οι εκκρεμείς γραμμές μαζί με τα στοιχεία εκδότη του παραστατικού τους. */
 async function loadUnmatchedLines(): Promise<{
@@ -447,12 +756,19 @@ async function loadUnmatchedLines(): Promise<{
   const docRows = docIds.length
     ? await prisma.ocrDocument.findMany({
         where: { id: { in: docIds } },
-        select: { id: true, fileName: true, extractedData: true, softoneName: true, issuerAfm: true, softoneTrdr: true },
+        select: {
+          id: true, fileName: true, extractedData: true, softoneName: true, issuerAfm: true,
+          softoneTrdr: true, softoneSeries: true, seriesSource: true, softoneKind: true,
+        },
       })
     : [];
+  // Ο ΠΡΟΟΡΙΣΜΟΣ της σειράς κάθε παραστατικού: ο πίνακας γραμμών ορίζει σε ποιο μητρώο πρέπει να
+  // δείχνει η γραμμή (LINLINES → χρεοπίστωση, EXPANAL → έξοδο…). Μία ανάγνωση για όλα.
+  const targets = await postingTargetsForSeries(docRows);
   const docs = new Map<string, QueueDocInfo>();
   for (const d of docRows) {
     const ed = (d.extractedData ?? {}) as Record<string, unknown>;
+    const key = seriesKey(d);
     docs.set(d.id, {
       fileName: d.fileName ?? null,
       // Το ΑΦΜ εκδότη έρχεται από τη στήλη· το JSON μένει μόνο για την επωνυμία-εφεδρεία.
@@ -460,6 +776,8 @@ async function loadUnmatchedLines(): Promise<{
       supplier: d.softoneName ?? str(ed.companyName),
       // Ο TRDR του εκδότη επιτρέπει να δείξουμε πρώτα τα ΕΡΓΑ ΤΟΥ (PRJC.TRDR).
       trdr: d.softoneTrdr ?? null,
+      lineTable: (key ? targets.get(key)?.lines : null) ?? null,
+      traderKind: d.softoneKind ?? null,
     });
   }
   return { lines, docs, truncated: lines.length >= MAX_QUEUE_LINES };
@@ -509,7 +827,7 @@ export async function loadItemQueue(opts: { suggestFor?: number } = {}): Promise
       code: g.code,
       lineCount: g.lineIds.length,
       docCount: g.docCount,
-      category: defaultCategory(groupLinesData, suggestions),
+      category: inferCategory(groupLinesData, suggestions, docs, g.sample),
       suggestions,
       trdr: docs.get(groupLinesData[0]?.documentId ?? '')?.trdr ?? null,
       remembered: rememberedByKey.get(`${g.afm}|${g.pattern}`) ?? null,
@@ -528,12 +846,26 @@ export async function loadItemQueue(opts: { suggestFor?: number } = {}): Promise
   return { groups, total: groups.length, truncated };
 }
 
-/** Προεπιλεγμένη κατηγορία: κανόνας μνήμης → `softoneIsService` των γραμμών → προϊόν. */
-function defaultCategory(lines: { softoneIsService: boolean | null }[], suggestions: QueueSuggestion[]): MatchKind {
+/**
+ * Η κατηγορία της ομάδας από ΝΤΕΤΕΡΜΙΝΙΣΤΙΚΕΣ ενδείξεις — `null` όταν δεν υπάρχει καμία.
+ *
+ * Η παλιά έκδοση επέστρεφε σταθερά `'product'` όταν δεν ήξερε, κι έτσι ΚΑΘΕ αταίριαστη γραμμή
+ * — από χρέωση cloud μέχρι ψωμί ταβέρνας — εμφανιζόταν ως «Προϊόν» με σιγουριά. Δες
+ * `lib/ocr/line-kind.ts` για τη σειρά των ενδείξεων και για το γιατί δεν μαντεύουμε.
+ */
+function inferCategory(
+  lines: { softoneIsService: boolean | null; documentId: string }[],
+  suggestions: QueueSuggestion[],
+  docs: Map<string, QueueDocInfo>,
+  sample: string,
+): MatchKind | null {
   const memory = suggestions.find((s) => s.by === 'memory');
-  if (memory) return memory.kind;
-  if (lines.some((l) => l.softoneIsService === true)) return 'service';
-  return 'product';
+  return inferLineKind({
+    memoryKind: memory?.kind ?? null,
+    matchedService: lines.some((l) => l.softoneIsService === true),
+    lineTables: Array.from(new Set(lines.map((l) => docs.get(l.documentId)?.lineTable ?? null))),
+    sample,
+  });
 }
 
 /** Τα δύο μεγαλύτερα «ουσιαστικά» tokens του pattern (≥ 4 χαρακτήρες). */
@@ -1183,19 +1515,17 @@ async function countItemGroups(): Promise<number> {
  * αγνοημένους) και πλήθος ΟΜΑΔΩΝ γραμμών — ό,τι ακριβώς μετρά και κάθε σελίδα.
  */
 export async function countQueues(): Promise<{ traders: number; items: number }> {
-  const [afmRows, ignoredRows, items] = await Promise.all([
-    // `groupBy` πάνω στο indexed `issuerAfm`: τα διακριτά ΑΦΜ χωρίς να κατέβει ούτε ένα JSON.
-    prisma.ocrDocument.groupBy({
-      by: ['issuerAfm'],
-      where: {
-        status: 'COMPLETED', softoneTrdr: null, softoneChecked: { not: null },
-        issuerAfm: { not: null },
-      },
-    }),
+  const [pending, ignoredRows, items] = await Promise.all([
+    // ΙΔΙΟΣ κανόνας με τη σελίδα (`collectPendingTraderDocs`) και όχι ένα φθηνότερο `groupBy` σε
+    // `softoneTrdr: null`: μετά την ανά τύπο εκκρεμότητα, ένα `groupBy` θα έλεγε άλλον αριθμό από
+    // τη λίστα — ένα badge που δεν συμφωνεί με τη σελίδα του είναι χειρότερο από ένα ακριβό badge.
+    collectPendingTraderDocs(),
     prisma.ignoredIssuer.findMany({ select: { afm: true } }),
     countItemGroups(),
   ]);
   const ignored = new Set(ignoredRows.map((r) => r.afm));
-  const traders = afmRows.filter((r) => r.issuerAfm && !ignored.has(r.issuerAfm)).length;
-  return { traders, items };
+  const afms = new Set(
+    pending.docs.map((d) => d.issuerAfm).filter((a): a is string => !!a && !ignored.has(a)),
+  );
+  return { traders: afms.size, items };
 }

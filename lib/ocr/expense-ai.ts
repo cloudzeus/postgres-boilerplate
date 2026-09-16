@@ -11,6 +11,8 @@ import 'server-only';
 import { prisma } from '@/lib/db';
 import { callTextLLM, callTextViaVision, resolveCfg } from './extract';
 import { suggestForGroup, type QueueSuggestion } from './queues';
+import { resolveOwnCompany, type OwnCompanyProfile } from './own-company';
+import type { MatchKind } from './line-match';
 
 /** Πάνω από αυτό το σκορ ο φθηνός δρόμος θεωρείται αρκετός — καμία κλήση μοντέλου. */
 export const CONFIDENT_SCORE = 0.8;
@@ -18,6 +20,14 @@ export const CONFIDENT_SCORE = 0.8;
 export const MAX_GROUPS = 20;
 /** Πόσους υποψήφιους στέλνουμε όταν ΔΕΝ έχει επιλεγεί κατηγορία δαπάνης. */
 export const MAX_CANDIDATES_FREE = 40;
+/**
+ * Κάτω από αυτή τη βεβαιότητα ΔΕΝ δηλώνουμε τύπο: η ομάδα μένει «χωρίς κατηγορία». Ένα chip με
+ * σιγουριά που είναι λάθος κοστίζει περισσότερο από ένα κενό που ζητά απόφαση.
+ */
+export const MIN_KIND_CONFIDENCE = 0.6;
+/** Πόσες γραμμές χαρακτηρισμού myDATA στέλνουμε ως λευκή λίστα (η λίστα είναι 123 + 30). */
+export const MAX_MYDATA_TYPES = 60;
+export const MAX_MYDATA_CATEGORIES = 30;
 /** …και όταν έχει επιλεγεί (τότε η λίστα είναι ήδη στενή και τη στέλνουμε σχεδόν ολόκληρη). */
 export const MAX_CANDIDATES_CATEGORY = 120;
 
@@ -28,17 +38,28 @@ export interface AiGroupInput {
   pattern: string;
   sample?: string | null;
   code?: string | null;
+  /** Η επωνυμία του εκδότη όπως τη δείχνει η ουρά — συμφραζόμενο, όχι κλειδί. */
+  supplier?: string | null;
 }
 
 export interface AiSuggestion {
   key: string;
-  /** MTRL της χρεοπίστωσης που προτείνεται. */
-  lin: number;
-  code: string;
-  name: string;
+  /**
+   * Ο ΤΥΠΟΣ μητρώου που προτείνει το μοντέλο (είδος / υπηρεσία / έξοδο / χρεοπίστωση).
+   * `null` όταν η βεβαιότητα είναι κάτω από το {@link MIN_KIND_CONFIDENCE} — τότε η ομάδα
+   * μένει ρητά «χωρίς κατηγορία» αντί να πάρει λάθος chip.
+   */
+  kind: MatchKind | null;
+  /** MTRL της χρεοπίστωσης που προτείνεται — `null` όταν το μοντέλο πρότεινε μόνο τύπο. */
+  lin: number | null;
+  code: string | null;
+  name: string | null;
   /** 0–1, όπως το δήλωσε το μοντέλο (φραγμένο). */
   confidence: number;
+  /** Σύντομη ελληνική αιτιολόγηση, με την ομάδα ΕΛΠ που επικαλείται το μοντέλο. */
   reason: string;
+  /** Ο χαρακτηρισμός myDATA που πρότεινε, ΜΟΝΟ αν ανήκει στη λίστα που στείλαμε. */
+  myDataType?: string | null;
 }
 
 export interface AiSuggestResult {
@@ -85,7 +106,17 @@ export const clearExpenseAiCache = (): void => cache.clear();
 
 // ── Καθαρός parser ─────────────────────────────────────────────────────────
 
-export interface ParsedAnswer { key: string; code: string; confidence: number; reason: string }
+export interface ParsedAnswer {
+  key: string;
+  /** Ο τύπος όπως τον έγραψε το μοντέλο — ΔΕΝ έχει ελεγχθεί ακόμη. */
+  kind: string;
+  /** Κωδικός χρεοπίστωσης· κενό όταν το μοντέλο πρότεινε μόνο τύπο. */
+  code: string;
+  /** Κωδικός χαρακτηρισμού myDATA· κενό όταν δεν πρότεινε. */
+  mydata: string;
+  confidence: number;
+  reason: string;
+}
 
 /**
  * Διαβάζει την απάντηση του μοντέλου. Ανέχεται markdown fences και σκουπίδια γύρω από το JSON.
@@ -109,13 +140,17 @@ export function parseAiAnswer(raw: string): ParsedAnswer[] {
     if (!row || typeof row !== 'object') continue;
     const key = String(row.key ?? '').trim();
     const code = String(row.code ?? '').trim();
-    if (!key || !code) continue;
+    const kind = String(row.kind ?? '').trim().toLowerCase();
+    // Μια απάντηση χωρίς ΟΥΤΕ τύπο ΟΥΤΕ κωδικό δεν λέει τίποτα.
+    if (!key || (!code && !kind)) continue;
     const c = Number(row.confidence);
     out.push({
       key,
+      kind,
       code,
+      mydata: String(row.mydata ?? '').trim(),
       confidence: Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0.5,
-      reason: String(row.reason ?? '').trim().slice(0, 200),
+      reason: String(row.reason ?? '').trim().slice(0, 300),
     });
   }
   return out;
@@ -173,10 +208,127 @@ async function loadCandidates(
   }));
 }
 
-const SYSTEM = 'Είσαι λογιστής. Αντιστοιχίζεις γραμμές τιμολογίων σε κωδικούς δαπάνης (χρεοπιστώσεις) '
-  + 'ενός ελληνικού ERP. Απαντάς ΜΟΝΟ με JSON της μορφής '
-  + '{"matches":[{"key":"<key>","code":"<code από τη λίστα>","confidence":0.0-1.0,"reason":"<λίγες λέξεις>"}]}. '
-  + 'Χρησιμοποιείς ΜΟΝΟ κωδικούς από τη λίστα υποψηφίων. Αν καμία δαπάνη δεν ταιριάζει, παραλείπεις τη γραμμή.';
+/** Οι τέσσερις τύποι μητρώου, όπως μπορεί να τους γράψει το μοντέλο (αγγλικά ή ελληνικά). */
+const KIND_WORDS: Record<string, MatchKind> = {
+  product: 'product', 'είδος': 'product', ειδος: 'product', 'προϊόν': 'product', 'προιον': 'product',
+  service: 'service', 'υπηρεσία': 'service', 'υπηρεσια': 'service',
+  expense: 'expense', 'έξοδο': 'expense', 'εξοδο': 'expense',
+  lineitem: 'lineitem', 'χρεοπίστωση': 'lineitem', 'χρεοπιστωση': 'lineitem',
+};
+
+/**
+ * Το system prompt.
+ *
+ * Η ΚΕΝΤΡΙΚΗ ιδέα δεν είναι «αναγνώρισε το αντικείμενο» αλλά **«τι κάνει με αυτό η αγοράστρια
+ * επιχείρηση»**: το ίδιο ψωμί είναι απόθεμα για φούρνο και έξοδο για γραφείο. Γι' αυτό το prompt
+ * δίνει ποιοι είμαστε ΕΜΕΙΣ, ποιος εκδίδει, και ζητά συλλογισμό μέσα στο **Ελληνικό Γενικό
+ * Λογιστικό Σχέδιο** (όπως το κληρονομούν τα ΕΛΠ από την ευρωπαϊκή λογιστική οδηγία) — όχι
+ * ελεύθερη κατηγοριοποίηση από το κείμενο της γραμμής.
+ */
+const SYSTEM = [
+  'Είσαι έμπειρος Έλληνας λογιστής. Κατατάσσεις γραμμές ΕΙΣΕΡΧΟΜΕΝΩΝ τιμολογίων μιας ελληνικής',
+  'επιχείρησης σε ΕΝΑ από τα τέσσερα μητρώα ενός ελληνικού ERP (SoftOne):',
+  '  • "product"  = ΕΙΔΟΣ (απόθεμα) — αγοράζεται για μεταπώληση ή για ανάλωση στην παραγωγή.',
+  '  • "service"  = ΥΠΗΡΕΣΙΑ που τηρείται ως εγγραφή υπηρεσίας στο μητρώο ειδών.',
+  '  • "expense"  = ΕΞΟΔΟ — οργανικό έξοδο κατ’ είδος, δεν αποθεματοποιείται.',
+  '  • "lineitem" = ΧΡΕΟΠΙΣΤΩΣΗ — γραμμή ειδικής συναλλαγής (δαπάνες προμηθευτών/πιστωτών).',
+  '',
+  'ΚΑΝΟΝΑΣ ΠΟΥ ΔΙΕΠΕΙ ΤΑ ΠΑΝΤΑ: το αν μια γραμμή είναι "product" ΔΕΝ είναι ιδιότητα του',
+  'πράγματος· είναι ιδιότητα του ΤΙ ΚΑΝΕΙ Η ΑΓΟΡΑΣΤΡΙΑ ΕΠΙΧΕΙΡΗΣΗ με αυτό. Το ίδιο ψωμί είναι',
+  'απόθεμα για φούρνο και έξοδο για γραφείο. Σκέψου ΠΡΩΤΑ τη δραστηριότητα του αγοραστή.',
+  '',
+  'Συλλογίσου μέσα στο Ελληνικό Γενικό Λογιστικό Σχέδιο (ΕΛΠ / ευρωπαϊκή λογιστική οδηγία):',
+  '  • Ομάδα 2 — ΑΠΟΘΕΜΑΤΑ: αγαθά για μεταπώληση ή ανάλωση στην παραγωγή  ⇒ "product".',
+  '  • Ομάδα 6 — ΟΡΓΑΝΙΚΑ ΕΞΟΔΑ ΚΑΤ’ ΕΙΔΟΣ:',
+  '      61 αμοιβές και έξοδα τρίτων (λογιστής, δικηγόρος, εργολάβος),',
+  '      62 παροχές τρίτων (ρεύμα, νερό, τηλεπικοινωνίες, ενοίκια, cloud/hosting, συντηρήσεις),',
+  '      63 φόροι και τέλη, 64 διάφορα έξοδα (μεταφορικά, έντυπα, φιλοξενία, καύσιμα).',
+  '    ⇒ "expense", ή "lineitem" όταν η δαπάνη καταχωρείται ως ειδική συναλλαγή.',
+  '  • Υπηρεσία που καταναλώνεται και τηρείται στο μητρώο ειδών ως υπηρεσία ⇒ "service".',
+  '',
+  'ΑΠΑΝΤΑΣ ΜΟΝΟ με JSON αυτής της μορφής, χωρίς κείμενο γύρω του:',
+  '{"matches":[{"key":"<key>","kind":"product|service|expense|lineitem",',
+  '"code":"<κωδικός ΜΟΝΟ από τη λίστα υποψηφίων, ή κενό>",',
+  '"mydata":"<κωδικός ΜΟΝΟ από τη λίστα χαρακτηρισμών myDATA, ή κενό>",',
+  '"confidence":0.0-1.0,"reason":"<μία σύντομη ελληνική πρόταση που ΟΝΟΜΑΖΕΙ την ομάδα ΕΛΠ>"}]}',
+  '',
+  'ΑΥΣΤΗΡΟΙ ΚΑΝΟΝΕΣ:',
+  '  • ΠΟΤΕ κωδικό εκτός της λίστας υποψηφίων και ΠΟΤΕ χαρακτηρισμό εκτός της λίστας myDATA.',
+  '  • Αν δεν βρίσκεις κωδικό που να ταιριάζει, άφησε το "code" κενό και δώσε μόνο το "kind".',
+  '  • Αν δεν είσαι σίγουρος για τον τύπο, βάλε ΧΑΜΗΛΟ confidence — μη μαντεύεις.',
+  '  • Το "reason" στα ελληνικά, έως 25 λέξεις, π.χ. «παροχή τρίτων, ομάδα 62 — υπηρεσία cloud',
+  '    που καταναλώνεται, δεν αποθεματοποιείται».',
+].join('\n');
+
+/** Στοιχεία εκδότη από τον τοπικό καθρέφτη — επωνυμία, δραστηριότητα, σχέση μαζί μας. */
+type IssuerInfo = { name: string | null; profession: string | null; kind: string | null };
+
+/**
+ * Ποιος εκδίδει: μία ανάγνωση για όλες τις ομάδες. Η **σχέση** (προμηθευτής / πιστωτής /
+ * χρεώστης) είναι αφ' εαυτής ένδειξη — καρτέλα πιστωτή σημαίνει δαπάνη, όχι εμπόρευμα.
+ */
+async function loadIssuers(groups: readonly AiGroupInput[]): Promise<Map<string, IssuerInfo>> {
+  const afms = Array.from(new Set(groups.map((g) => g.afm).filter(Boolean)));
+  const out = new Map<string, IssuerInfo>();
+  if (afms.length === 0) return out;
+  const rows = await prisma.softoneTrader
+    .findMany({
+      where: { afm: { in: afms }, isActive: true },
+      select: { afm: true, name: true, profession: true, kind: true },
+    })
+    .catch(() => [] as { afm: string | null; name: string; profession: string | null; kind: string }[]);
+  for (const r of rows) {
+    if (!r.afm || out.has(r.afm)) continue;
+    out.set(r.afm, { name: r.name ?? null, profession: r.profession ?? null, kind: r.kind ?? null });
+  }
+  return out;
+}
+
+/**
+ * Η ΠΡΑΓΜΑΤΙΚΗ ταξινομία χαρακτηρισμών myDATA, όπως τη συγχρονίσαμε από το SoftOne
+ * (`SoftoneMyDataClassType` / `SoftoneMyDataClassCategory`) — λευκή λίστα, ώστε το μοντέλο να
+ * συλλογίζεται μέσα στην ελληνική ταξινομία αντί να εφευρίσκει κατηγορίες.
+ *
+ * Φραγμένη σε {@link MAX_MYDATA_TYPES} + {@link MAX_MYDATA_CATEGORIES} γραμμές: οι πλήρεις
+ * λίστες (123 + 30) θα κόστιζαν σε κάθε κλήση περισσότερο απ' όσο αξίζουν.
+ */
+async function loadMyDataLists(): Promise<{ prompt: string; allowed: Set<string> }> {
+  const [types, cats] = await Promise.all([
+    prisma.softoneMyDataClassType
+      .findMany({ select: { code: true, name: true, myDataCode: true }, orderBy: { code: 'asc' }, take: MAX_MYDATA_TYPES })
+      .catch(() => [] as { code: number; name: string; myDataCode: string | null }[]),
+    prisma.softoneMyDataClassCategory
+      .findMany({ select: { code: true, name: true, myDataCode: true }, orderBy: { code: 'asc' }, take: MAX_MYDATA_CATEGORIES })
+      .catch(() => [] as { code: number; name: string; myDataCode: string | null }[]),
+  ]);
+  const allowed = new Set<string>();
+  const line = (r: { code: number; name: string; myDataCode: string | null }) => {
+    allowed.add(String(r.code));
+    return `${r.code} — ${r.name}${r.myDataCode ? ` (${r.myDataCode})` : ''}`;
+  };
+  const typeLines = types.map(line);
+  const catLines = cats.map(line);
+  if (typeLines.length === 0 && catLines.length === 0) {
+    return { prompt: 'Χαρακτηρισμοί myDATA: δεν έχουν συγχρονιστεί — άφησε το "mydata" κενό.', allowed };
+  }
+  return {
+    prompt: [
+      'Χαρακτηρισμοί myDATA (κωδικός — περιγραφή) — ΜΟΝΟ από εδώ:',
+      ...typeLines,
+      ...(catLines.length ? ['Κατηγορίες myDATA:', ...catLines] : []),
+    ].join('\n'),
+    allowed,
+  };
+}
+
+/** Ποιοι είμαστε, σε τρεις γραμμές prompt — με ΡΗΤΟ «άγνωστο» όπου δεν ξέρουμε. */
+function ownCompanyBlock(own: OwnCompanyProfile): string {
+  const name = own.name ?? '(άγνωστη επωνυμία)';
+  const afm = own.afm ?? '(άγνωστο ΑΦΜ)';
+  const activity = own.activity
+    ?? 'ΑΓΝΩΣΤΗ — δεν έχει καταχωρηθεί δραστηριότητα· ΜΗΝ υποθέσεις εμπορία ή μεταπώληση.';
+  return `Η ΔΙΚΗ ΜΑΣ ΕΠΙΧΕΙΡΗΣΗ (ο αγοραστής):\n  Επωνυμία: ${name}\n  ΑΦΜ: ${afm}\n  Δραστηριότητα: ${activity}`;
+}
 
 /**
  * Ζητά από το μοντέλο μία δαπάνη ανά ΑΝΑΠΑΝΤΗΤΗ ομάδα. Δεν πετάει ποτέ: αν και οι δύο πάροχοι
@@ -202,10 +354,9 @@ export async function suggestExpensesWithAi(input: {
     return { suggestions: [], asked: 0, skipped, cached: 0, degraded: false };
   }
 
+  // ΚΕΝΗ λίστα υποψηφίων ΔΕΝ ακυρώνει πια την κλήση: το μοντέλο μπορεί να μην έχει κωδικό να
+  // προτείνει και να έχει κάλλιστα άποψη για τον ΤΥΠΟ — που είναι το ερώτημα που πονάει.
   const candidates = await loadCandidates(unresolved, categoryId, deterministic);
-  if (candidates.length === 0) {
-    return { suggestions: [], asked: 0, skipped, cached: 0, degraded: false };
-  }
   // Η υπογραφή των υποψηφίων μπαίνει στο κλειδί της μνήμης: αλλάζει το μητρώο ⇒ νέα ερώτηση.
   // ΟΛΟΚΛΗΡΟ το σύνολο, όχι τα πρώτα λίγα: μια μετονομασία βαθιά στη λίστα πρέπει να την ακυρώνει.
   const signature = candidateSignature(candidates.map((c) => `${c.mtrl}:${c.code}:${c.name}`));
@@ -227,9 +378,41 @@ export async function suggestExpensesWithAi(input: {
 
   const byCode = new Map(candidates.map((c) => [c.code.trim().toUpperCase(), c]));
   const list = candidates.map((c) => `${c.code} — ${c.name}${c.category ? ` [${c.category}]` : ''}`).join('\n');
-  const lines = fresh.map((g) => `${g.key} :: ${(g.sample ?? g.pattern).slice(0, 160)}`).join('\n');
-  const user = `Γραμμές τιμολογίων:\n${lines}\n\nΥποψήφιες δαπάνες (κωδικός — περιγραφή):\n${list}\n\n`
-    + 'Επέστρεψε JSON με μία εγγραφή ανά γραμμή που ταιριάζει.';
+
+  // Ποιοι είμαστε, ποιος εκδίδει, και η ΠΡΑΓΜΑΤΙΚΗ ταξινομία της ΑΑΔΕ ως λευκή λίστα.
+  const [own, issuers, myData] = await Promise.all([
+    resolveOwnCompany().catch(() => ({ afm: null, name: null, activity: null })),
+    loadIssuers(fresh),
+    loadMyDataLists(),
+  ]);
+
+  const lines = fresh.map((g) => {
+    const iss = issuers.get(g.afm);
+    const who = [
+      iss?.name ?? g.supplier ?? null,
+      g.afm ? `ΑΦΜ ${g.afm}` : null,
+      iss?.profession ?? null,
+      // Η ΣΧΕΣΗ με τον εκδότη είναι από μόνη της ένδειξη: καρτέλα πιστωτή σημαίνει δαπάνη,
+      // όχι εμπόρευμα (οι σειρές πιστωτών καταχωρούν σε «Ειδικές συναλλαγές»).
+      iss?.kind ? `σχέση: ${iss.kind}` : null,
+    ].filter(Boolean).join(' · ');
+    return `${g.key} :: ${(g.sample ?? g.pattern).slice(0, 160)}${who ? `\n    εκδότης: ${who}` : ''}`;
+  }).join('\n');
+
+  const user = [
+    ownCompanyBlock(own),
+    '',
+    `Γραμμές τιμολογίων (${fresh.length}):`,
+    lines,
+    '',
+    'Υποψήφιες δαπάνες / χρεοπιστώσεις (κωδικός — περιγραφή):',
+    list || '(καμία)',
+    '',
+    myData.prompt,
+    '',
+    'Επέστρεψε JSON με ΜΙΑ εγγραφή ανά γραμμή. Δώσε πάντα "kind" και "reason"·',
+    'το "code" μόνο όταν υπάρχει πραγματικό ταίριασμα στη λίστα υποψηφίων.',
+  ].join('\n');
 
   const usage = { operation: 'ocr.suggest_expense', refType: 'OcrInvoiceItem', refId: fresh[0]?.key };
   const cfg = await resolveCfg();
@@ -259,12 +442,23 @@ export async function suggestExpensesWithAi(input: {
   for (const a of answers) {
     if (!askedKeys.has(a.key) || seen.has(a.key)) continue;
     // ΛΕΥΚΗ ΛΙΣΤΑ: δεκτός μόνο κωδικός που όντως στείλαμε. Ό,τι άλλο πετιέται σιωπηλά.
-    const c = byCode.get(a.code.trim().toUpperCase());
-    if (!c) continue;
+    const c = a.code ? byCode.get(a.code.trim().toUpperCase()) ?? null : null;
+    // Ο ΤΥΠΟΣ δηλώνεται μόνο πάνω από το κατώφλι βεβαιότητας: χαμηλή βεβαιότητα ⇒ «χωρίς
+    // κατηγορία», που είναι μια χρήσιμη απάντηση, όχι ένα λάθος chip.
+    const kind = a.confidence >= MIN_KIND_CONFIDENCE ? KIND_WORDS[a.kind] ?? null : null;
+    // Ούτε τύπος ούτε κωδικός ⇒ η απάντηση δεν προσθέτει τίποτα.
+    if (!c && !kind) continue;
     seen.add(a.key);
     const suggestion: AiSuggestion = {
-      key: a.key, lin: c.mtrl, code: c.code, name: c.name,
-      confidence: a.confidence, reason: a.reason || 'πρόταση μοντέλου',
+      key: a.key,
+      kind,
+      lin: c?.mtrl ?? null,
+      code: c?.code ?? null,
+      name: c?.name ?? null,
+      confidence: a.confidence,
+      reason: a.reason || 'πρόταση μοντέλου',
+      // Και ο χαρακτηρισμός περνά από λευκή λίστα: δεκτός μόνο αν τον στείλαμε εμείς.
+      myDataType: a.mydata && myData.allowed.has(a.mydata.trim()) ? a.mydata.trim() : null,
     };
     out.push(suggestion);
     cache.set(cacheKey(fresh.find((g) => g.key === a.key)!, categoryId, signature), { at: now, value: suggestion });
