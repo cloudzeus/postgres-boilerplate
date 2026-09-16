@@ -1,6 +1,6 @@
 import { FiUsers } from 'react-icons/fi';
 import { requirePermission, hasPermission } from '@/lib/rbac';
-import { loadTraderQueue } from '@/lib/ocr/queues';
+import { loadTraderQueue, loadTraderCodeSamples } from '@/lib/ocr/queues';
 import { softoneFetchTaxOffices } from '@/lib/softone';
 import { PageHeader } from '@/components/admin/page-header';
 import { NewTradersClient } from './queue-client';
@@ -15,11 +15,14 @@ export const dynamic = 'force-dynamic';
 export default async function NewTradersPage() {
   await requirePermission('ocr.read');
 
-  const [{ groups, ignored, truncated }, canManage, taxOffices] = await Promise.all([
+  const [{ groups, ignored, truncated }, canManage, taxOffices, codeSamples] = await Promise.all([
     loadTraderQueue({ includeIgnored: true }),
     hasPermission('ocr.categorize'),
     // Best-effort: χωρίς SoftOne η σελίδα δουλεύει, απλώς το πεδίο Δ.Ο.Υ. μένει κενό.
     softoneFetchTaxOffices().catch(() => [] as { code: string; name: string }[]),
+    // Υπάρχοντες κωδικοί ανά τύπο (τοπικός καθρέφτης) — δείχνονται ως ΠΑΡΑΔΕΙΓΜΑ
+    // στο πεδίο «Κωδικός». Καμία πρόταση, κανένα prefill.
+    loadTraderCodeSamples(),
   ]);
 
   return (
@@ -38,6 +41,7 @@ export default async function NewTradersPage() {
       ignored={ignored}
       truncated={truncated}
       taxOffices={taxOffices}
+      codeSamples={codeSamples}
       canManage={canManage}
     />
   );

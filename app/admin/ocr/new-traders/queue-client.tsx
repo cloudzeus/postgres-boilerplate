@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { QueueLayout, QueueEmpty, type QueueFilter, type QueueLayoutHandle } from '@/components/admin/queue-layout';
 import { Button } from '@/components/ui/button';
 import { TraderPanel, KIND_COLORS, fmtDate, fmtEuro, type TaxOffice } from './trader-panel';
-import type { IgnoredIssuerRow, TraderGroup } from '@/lib/ocr/queues';
+import type { IgnoredIssuerRow, TraderCodeSamples, TraderGroup } from '@/lib/ocr/queues';
 
 type FilterKey = 'all' | 'supplier' | 'creditor' | 'debtor' | 'foreign' | 'ignored';
 
@@ -33,6 +33,8 @@ export interface NewTradersClientProps {
   /** Η ουρά κόπηκε στο πλαφόν εγγράφων του server. */
   truncated: boolean;
   taxOffices: TaxOffice[];
+  /** Υπάρχοντες κωδικοί ανά τύπο — δείγμα μορφής για το πεδίο «Κωδικός». */
+  codeSamples: TraderCodeSamples;
   canManage: boolean;
 }
 
@@ -40,7 +42,7 @@ export interface NewTradersClientProps {
  * Ουρά «Νέοι συναλλασσόμενοι»: master–detail με πληκτρολόγιο (J/K/Enter/Esc),
  * αισιόδοξη αφαίρεση της γραμμής μόλις ο εκδότης λυθεί και πρόοδος συνεδρίας.
  */
-export function NewTradersClient({ header, groups, ignored, truncated, taxOffices, canManage }: NewTradersClientProps) {
+export function NewTradersClient({ header, groups, ignored, truncated, taxOffices, codeSamples, canManage }: NewTradersClientProps) {
   const router = useRouter();
   const layout = React.useRef<QueueLayoutHandle | null>(null);
   const [pending, setPending] = React.useState<TraderGroup[]>(groups);
@@ -188,6 +190,7 @@ export function NewTradersClient({ header, groups, ignored, truncated, taxOffice
           key={selected.group.afm}
           group={selected.group}
           taxOffices={taxOffices}
+          codeSamples={codeSamples}
           canManage={canManage}
           onResolved={handleResolved}
           onIgnored={handleIgnored}

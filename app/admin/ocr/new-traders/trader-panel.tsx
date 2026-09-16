@@ -15,7 +15,8 @@ import { cn } from '@/lib/utils';
 import { COUNTRY_NAMES_EL, countryLabel } from '@/lib/countries';
 import { VAT_COUNTRY_CODES, viesPrefix } from '@/lib/ocr/validate';
 import { applyVatPrefix, vatPrefixFor } from '@/lib/ocr/vat-prefix';
-import type { TraderGroup } from '@/lib/ocr/queues';
+import { validCoords, formatCoords } from '@/lib/coords';
+import type { TraderCodeSamples, TraderGroup } from '@/lib/ocr/queues';
 
 export interface TaxOffice { code: string; name: string }
 
@@ -50,7 +51,15 @@ interface GeoParts {
   city: string | null;
   zip: string | null;
   formatted: string;
+  /** Συντεταγμένες — `null` όταν ο πάροχος δεν έδωσε σημείο. Ποτέ 0 για «άγνωστο». */
+  lat: number | null;
+  lng: number | null;
+  /** `true` = ήρθε από τη μνήμη του server, χωρίς κλήση (και χρέωση) στον πάροχο. */
+  cached?: boolean;
 }
+
+/** Οι συντεταγμένες που θα γραφούν στο SoftOne — δεν ζουν στο `FormState`: δεν πληκτρολογούνται. */
+type Coords = { lat: number; lng: number } | null;
 
 type TraderKind = 'supplier' | 'creditor' | 'debtor';
 
@@ -68,6 +77,54 @@ const KIND_LABEL: Record<TraderKind, string> = {
   supplier: 'Προμηθευτής', creditor: 'Πιστωτής', debtor: 'Χρεώστης',
 };
 const KINDS: readonly TraderKind[] = ['supplier', 'creditor', 'debtor'];
+
+/**
+ * Τύποι για τους οποίους αυτή η εγκατάσταση ΑΠΟΔΕΔΕΙΓΜΕΝΑ απαιτεί κωδικό.
+ *
+ * Επιβεβαιωμένο ζωντανά (2026-09-16): `POST …/create` για **πιστωτή** χωρίς κωδικό
+ * γύρισε 502 με το μήνυμα του ίδιου του SoftOne «Δεν έχετε συμπληρώσει το πεδίο
+ * 'Κωδικός'» και δεν δημιουργήθηκε τίποτα. Για προμηθευτή/χρεώστη ΔΕΝ έχει
+ * επιβεβαιωθεί τίποτα — δεν τους μπλοκάρουμε και δεν τους υποσχόμαστε αυτόματη
+ * αρίθμηση· αν το SoftOne τους ζητήσει κωδικό, το μήνυμά του έρχεται στο πεδίο.
+ */
+const CODE_REQUIRED_KINDS: readonly TraderKind[] = ['creditor'];
+
+/** Ό,τι επιστρέφει το `GET /api/admin/ocr/new-traders/next-code`. */
+interface CodeSuggestion {
+  /** Ο επόμενος ελεύθερος κωδικός — `null` όταν δεν υπάρχει βάση για πρόταση. */
+  code: string | null;
+  source: 'pattern' | 'mask' | 'none';
+  prefix?: string;
+  width?: number;
+  /** Πόσοι κωδικοί του τύπου λήφθηκαν υπόψη. */
+  taken: number;
+  /** `true` = το SoftOne δεν απάντησε· η πρόταση βγήκε από τον τοπικό καθρέφτη. */
+  stale: boolean;
+}
+
+/**
+ * Τι λέει το πεδίο «Κωδικός». Καμία υπόσχεση που δεν μπορούμε να στηρίξουμε: το
+ * SoftOne ΔΕΝ αποδίδει κωδικό μόνο του σε αυτή την εγκατάσταση (`CODE` = required,
+ * calculated: false, χωρίς default) — τον προτείνουμε εμείς από ό,τι ήδη υπάρχει.
+ */
+function codeHint(kind: TraderKind, s: CodeSuggestion | null, busy: boolean): string {
+  if (busy) return 'Αναζήτηση επόμενου ελεύθερου κωδικού…';
+  const of = KIND_GENITIVE[kind];
+  if (!s) return `Το SoftOne δεν αποδίδει κωδικό μόνο του — συμπλήρωσε τον κωδικό ${of}.`;
+  const stale = s.stale ? ' (από τον τοπικό καθρέφτη — το SoftOne δεν απάντησε, μπορεί να έχει πιαστεί)' : '';
+  if (s.source === 'pattern') {
+    return `Προτεινόμενος: ο επόμενος ελεύθερος μετά τους ${s.taken} υπάρχοντες κωδικούς ${of}. Άλλαξέ τον ελεύθερα${stale}.`;
+  }
+  if (s.source === 'mask') {
+    return `Δεν υπάρχει ακόμη κανένας κωδικός ${of} — η πρόταση έρχεται από τη μάσκα των Ρυθμίσεων${stale}.`;
+  }
+  return `Δεν βρέθηκε κανένας υπάρχων κωδικός ${of} ούτε μάσκα: χρειάζεται ο κωδικός του λογιστή (Ρυθμίσεις → Διασυνδέσεις → «Μάσκα κωδικού»).`;
+}
+
+/** Ετικέτα γενικής για το δείγμα κωδικών («κωδικοί πιστωτών»). */
+const KIND_GENITIVE: Record<TraderKind, string> = {
+  supplier: 'προμηθευτών', creditor: 'πιστωτών', debtor: 'χρεωστών',
+};
 /** Χρώματα chip ανά τύπο (inline hex — ο JIT δεν κρατά δυναμικές κλάσεις). */
 export const KIND_COLORS: Record<TraderKind, { bg: string; fg: string }> = {
   supplier: { bg: '#EAF4FC', fg: '#0078D4' },
@@ -142,6 +199,10 @@ function validate(f: FormState): Partial<Record<FieldKey, string>> {
   if (!f.name.trim()) e.name = 'Η επωνυμία είναι υποχρεωτική.';
   else if (f.name.trim().length > 200) e.name = 'Έως 200 χαρακτήρες.';
   if (f.code.trim().length > 30) e.code = 'Έως 30 χαρακτήρες.';
+  // Δεν εφευρίσκουμε κωδικό· απλώς δεν στέλνουμε αίτημα που ξέρουμε ότι θα απορριφθεί.
+  else if (!f.code.trim() && CODE_REQUIRED_KINDS.includes(f.kind)) {
+    e.code = 'Ο κωδικός είναι υποχρεωτικός για πιστωτή — το SoftOne δεν τον αποδίδει μόνο του εδώ.';
+  }
   // Ο κανόνας «5 ψηφία» είναι ΕΛΛΗΝΙΚΟΣ: ένας ξένος Τ.Κ. (π.χ. «EC1A 1BB») δεν τον περνά.
   const zip = f.zip.trim();
   if (zip) {
@@ -160,6 +221,8 @@ function validate(f: FormState): Partial<Record<FieldKey, string>> {
 export interface TraderPanelProps {
   group: TraderGroup;
   taxOffices: TaxOffice[];
+  /** Υπάρχοντες κωδικοί ανά τύπο (τοπικός καθρέφτης) — δείγμα μορφής, όχι πρόταση. */
+  codeSamples: TraderCodeSamples;
   canManage: boolean;
   /** Μετά από δημιουργία ή σύνδεση — ο εκδότης φεύγει από την ουρά. */
   onResolved: (afm: string, message: string) => void;
@@ -175,7 +238,7 @@ export interface TraderPanelProps {
  * (δημιουργία / σύνδεση σε υπάρχοντα / αγνόηση) — χωρίς modal (spec §2, §4).
  */
 export function TraderPanel({
-  group, taxOffices, canManage, onResolved, onIgnored, primaryRef,
+  group, taxOffices, codeSamples, canManage, onResolved, onIgnored, primaryRef,
 }: TraderPanelProps) {
   const [form, setForm] = React.useState<FormState>(() => seed(group, taxOffices));
   const [touched, setTouched] = React.useState<Partial<Record<FieldKey, boolean>>>({});
@@ -193,7 +256,21 @@ export function TraderPanel({
   const [geo, setGeo] = React.useState<GeoParts | null>(null);
   const [geoBusy, setGeoBusy] = React.useState(false);
   const [geoMiss, setGeoMiss] = React.useState(false);
+  /** Συντεταγμένες που θα σταλούν στο SoftOne. `null` ⇒ τα δύο πεδία παραλείπονται. */
+  const [coords, setCoords] = React.useState<Coords>(null);
+  /** Το ΑΥΤΟΥΣΙΟ μήνυμα του SoftOne όταν απαίτησε ή απέρριψε κωδικό — κολλάει στο πεδίο. */
+  const [erpCodeError, setErpCodeError] = React.useState<string | null>(null);
+  /** Κωδικός που προτείνει ο server ΜΕΤΑ από άρνηση — ο χρήστης τον δέχεται ρητά. */
+  const [codeOffer, setCodeOffer] = React.useState<string | null>(null);
+  /** Ο επόμενος ελεύθερος κωδικός για τον επιλεγμένο τύπο. */
+  const [codeSuggestion, setCodeSuggestion] = React.useState<CodeSuggestion | null>(null);
+  const [codeBusy, setCodeBusy] = React.useState(false);
+  /** Η τελευταία πρόταση που γράψαμε εμείς — για να ξέρουμε τι επιτρέπεται να αλλάξουμε. */
+  const lastProposal = React.useRef<string>('');
   const kindRefs = React.useRef<Partial<Record<TraderKind, HTMLButtonElement | null>>>({});
+  const codeRef = React.useRef<HTMLInputElement | null>(null);
+  /** Ποια διεύθυνση έχει ήδη ζητηθεί αυτόματα — καμία επανάληψη σε re-render. */
+  const autoGeo = React.useRef<string | null>(null);
 
   const [showSearch, setShowSearch] = React.useState(false);
   const [ignoring, setIgnoring] = React.useState(false);
@@ -211,7 +288,41 @@ export function TraderPanel({
     setDryOpen(false); setDryPayload(null); setDryError(null);
     setVies(null); setViesBusy(false);
     setGeo(null); setGeoBusy(false); setGeoMiss(false);
+    setCoords(null); setErpCodeError(null); setCodeOffer(null);
+    lastProposal.current = '';
   }, [group, taxOffices]);
+
+  // Μόλις ο χρήστης αγγίξει τον κωδικό (ή αλλάξει τύπο), το μήνυμα του ERP παύει να ισχύει.
+  React.useEffect(() => { setErpCodeError(null); setCodeOffer(null); }, [form.code, form.kind]);
+
+  /**
+   * Ο **επόμενος ελεύθερος κωδικός** για τον επιλεγμένο τύπο, με φρέσκα δεδομένα από
+   * το SoftOne (read-only `GetTable`). Ξανατρέχει σε κάθε αλλαγή τύπου: ένας πιστωτής
+   * δεν κληρονομεί ποτέ την αρίθμηση των προμηθευτών.
+   *
+   * Η πρόταση ΔΕΝ κλειδώνει το πεδίο: γράφεται μόνο όταν αυτό είναι άδειο ή κρατά
+   * ακόμη προηγούμενη πρόταση. Ό,τι πληκτρολόγησε ο χρήστης μένει ανέγγιχτο.
+   */
+  React.useEffect(() => {
+    let ignore = false;
+    setCodeBusy(true);
+    fetch(`/api/admin/ocr/new-traders/next-code?kind=${form.kind}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: CodeSuggestion | null) => {
+        if (ignore) return;
+        setCodeSuggestion(d);
+        const proposal = d?.code ? String(d.code) : '';
+        setForm((f) => {
+          const cur = f.code.trim();
+          if (cur !== '' && cur !== lastProposal.current) return f;
+          lastProposal.current = proposal;
+          return { ...f, code: proposal };
+        });
+      })
+      .catch(() => { if (!ignore) setCodeSuggestion(null); })
+      .finally(() => { if (!ignore) setCodeBusy(false); });
+    return () => { ignore = true; };
+  }, [group.afm, form.kind]);
 
   // Τα στοιχεία ΑΑΔΕ φορτώνονται αυτόματα για τον επιλεγμένο ΑΦΜ. ΟΧΙ όμως για
   // εκδότη εκτός Ελλάδας: το ελληνικό μητρώο δεν τον ξέρει — εκεί ρωτάμε VIES.
@@ -240,7 +351,9 @@ export function TraderPanel({
   }, [group.afm, group.isForeign, aadeReload]);
 
   const errors = validate(form);
-  const errorOf = (k: FieldKey) => ((touched[k] || submitted) ? errors[k] : undefined);
+  // Το μήνυμα του ίδιου του SoftOne υπερισχύει: είναι η τελευταία λέξη για το πεδίο.
+  const errorOf = (k: FieldKey) =>
+    (k === 'code' && erpCodeError) ? erpCodeError : ((touched[k] || submitted) ? errors[k] : undefined);
   const set = (k: FieldKey, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const blur = (k: FieldKey) => setTouched((t) => ({ ...t, [k]: true }));
   /** Κοινά props πεδίου: τιμή, blur-validation και σύνδεση με το μήνυμα σφάλματος. */
@@ -266,6 +379,9 @@ export function TraderPanel({
     city: form.city.trim() || null,
     phone: form.phone.trim() || null,
     email: form.email.trim() || null,
+    // Άγνωστο σημείο ⇒ `null` και στα δύο· το SoftOne δεν παίρνει ποτέ 0 για «δεν ξέρω».
+    latitude: coords?.lat ?? null,
+    longitude: coords?.lng ?? null,
   });
 
   const create = React.useCallback(async () => {
@@ -284,6 +400,24 @@ export function TraderPanel({
         body: JSON.stringify(payload()),
       });
       const d = await res.json().catch(() => null);
+      // Το SoftOne ζήτησε κωδικό: σφάλμα ΠΕΔΙΟΥ, όχι banner. Δείχνουμε το δικό του
+      // μήνυμα πάνω στο «Κωδικός» και εστιάζουμε εκεί — δεν συμπληρώνουμε εμείς τίποτα.
+      if (res.status === 422 && d?.error === 'code_required') {
+        setErpCodeError(String(d.message || 'Το SoftOne απαιτεί συμπληρωμένο κωδικό.'));
+        setCodeOffer(d.suggestion ? String(d.suggestion) : null);
+        setFailure(null);
+        codeRef.current?.focus();
+        return;
+      }
+      // Ο κωδικός πιάστηκε στο μεσοδιάστημα. ΚΑΜΙΑ αυτόματη επανάληψη: ο χρήστης
+      // βλέπει τον νέο επόμενο ελεύθερο και πατά ο ίδιος ξανά «Δημιουργία».
+      if (res.status === 409 && d?.error === 'code_taken') {
+        setErpCodeError(String(d.message || 'Ο κωδικός υπάρχει ήδη στο SoftOne.'));
+        setCodeOffer(d.suggestion ? String(d.suggestion) : null);
+        setFailure(null);
+        codeRef.current?.focus();
+        return;
+      }
       if (!res.ok || !d?.ok) {
         setFailure(d?.message ?? 'Η δημιουργία στο SoftOne απέτυχε.');
         return;
@@ -362,10 +496,18 @@ export function TraderPanel({
     }
   };
 
-  /** Διεύθυνση → χώρα / πόλη / Τ.Κ. Δεν γράφει ΤΙΠΟΤΑ μόνο του: προτείνει. */
-  const runGeocode = async () => {
-    const address = form.address.trim();
-    if (!address || geoBusy) return;
+  /**
+   * Διεύθυνση → χώρα / πόλη / Τ.Κ. / συντεταγμένες. Δεν γράφει ΤΙΠΟΤΑ πάνω σε ό,τι
+   * πληκτρολόγησε ο χρήστης: χώρα/πόλη/Τ.Κ. μένουν ΠΡΟΤΑΣΕΙΣ με «Εφαρμογή».
+   *
+   * Εξαίρεση οι **συντεταγμένες**: δεν είναι πεδίο που γράφει άνθρωπος, οπότε
+   * συμπληρώνονται μόνο ΟΤΑΝ ΕΙΝΑΙ ΑΔΕΙΕΣ (`cur ?? c`) — ποτέ πάνω σε υπάρχουσα τιμή.
+   *
+   * Το route είναι μνημονικό: η ίδια διεύθυνση δεν ξαναρωτά τον πάροχο ποτέ.
+   */
+  const runGeocode = React.useCallback(async (address: string) => {
+    const q = address.trim();
+    if (!q) return;
     setGeoBusy(true); setGeo(null); setGeoMiss(false);
     try {
       const res = await fetch('/api/admin/geocode', {
@@ -373,17 +515,38 @@ export function TraderPanel({
         // Χωρίς hint: ο σκοπός της κλήσης είναι να ΒΡΕΘΕΙ η χώρα. Η προεπιλογή «Ελλάδα» της
         // φόρμας θα περιόριζε την αναζήτηση στην Ελλάδα και μια ξένη διεύθυνση δεν θα έβγαινε ποτέ.
         // Μόνο μια χώρα που προκύπτει από το πρόθεμα ΑΦΜ (ξένη) στέλνεται ως hint.
-        body: JSON.stringify({ address, countryHint: group.country && group.country !== 'GR' ? group.country : null }),
+        body: JSON.stringify({ address: q, countryHint: group.country && group.country !== 'GR' ? group.country : null }),
       });
       const d = await res.json().catch(() => null);
-      if (res.ok && d?.found) setGeo(d as GeoParts);
-      else setGeoMiss(true);
+      if (res.ok && d?.found) {
+        setGeo(d as GeoParts);
+        const c = validCoords(d.lat, d.lng);
+        if (c) setCoords((cur) => cur ?? c);
+      } else setGeoMiss(true);
     } catch {
       setGeoMiss(true);
     } finally {
       setGeoBusy(false);
     }
-  };
+  }, [group.country]);
+
+  /**
+   * ΑΥΤΟΜΑΤΟ geocoding: μόλις ανοίξει εκδότης που έχει διεύθυνση αλλά του λείπουν
+   * πόλη / Τ.Κ. / χώρα, ρωτάμε χωρίς να περιμένουμε κλικ. Μία φορά ανά (ΑΦΜ,
+   * διεύθυνση) — ο `autoGeo` κρατά το κλειδί ώστε ένα re-render ή ένα refresh της
+   * λίστας να μη ξαναστείλει τίποτα. Το κουμπί μένει για re-run μετά από αλλαγή.
+   */
+  React.useEffect(() => {
+    const address = (group.address ?? '').trim();
+    if (!address) return;
+    const key = `${group.afm}|${address}`;
+    if (autoGeo.current === key) return;
+    // Πόλη / Τ.Κ. ΔΕΝ υπάρχουν στην ομάδα (το OCR δίνει μόνο ελεύθερη διεύθυνση) και η
+    // φόρμα ξεκινά με κενά — άρα κάθε εκδότης με διεύθυνση έχει κάτι να κερδίσει.
+    // Αν κάποτε η ομάδα αποκτήσει πόλη/Τ.Κ., ο έλεγχος μπαίνει εδώ.
+    autoGeo.current = key;
+    void runGeocode(address);
+  }, [group.afm, group.address, runGeocode]);
 
   // Το dry-run δεν γράφει τίποτα: το ζητάμε κάθε φορά που ανοίγει η προεπισκόπηση.
   const loadDryRun = async () => {
@@ -421,6 +584,8 @@ export function TraderPanel({
     [taxOffices],
   );
   const kindColor = KIND_COLORS[form.kind];
+  // Το πεδίο κρατά ακόμη ΑΚΡΙΒΩΣ ό,τι προτείναμε — μόλις το αλλάξει ο χρήστης, το chip φεύγει.
+  const isProposedCode = !!lastProposal.current && form.code.trim() === lastProposal.current;
 
   const isForeign = group.isForeign;
   const viesCountry = viesPrefix(group.afm);
@@ -721,8 +886,41 @@ export function TraderPanel({
             />
           </Field>
 
-          <Field label="Κωδικός" id="tp-code" error={errorOf('code')} hint="Κενό = αυτόματος από SoftOne.">
-            <Input {...bind('code', 'tp-code')} className="h-8 text-[13px]" />
+          <Field
+            label="Κωδικός" id="tp-code"
+            required={CODE_REQUIRED_KINDS.includes(form.kind)}
+            error={errorOf('code')}
+            hint={codeHint(form.kind, codeSuggestion, codeBusy)}
+          >
+            <div className="flex items-center gap-2">
+              <Input {...bind('code', 'tp-code')} ref={codeRef} className="h-8 flex-1 font-mono text-[13px]" />
+              {/* Ο κωδικός είναι ΠΡΟΤΑΣΗ, όχι κλειδαριά: το chip το λέει, το πεδίο μένει ανοιχτό. */}
+              {isProposedCode && (
+                <span
+                  className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                  style={{ backgroundColor: '#EAF4FC', color: '#0078D4' }}
+                >
+                  προτεινόμενος — επόμενος ελεύθερος
+                </span>
+              )}
+            </div>
+            {/* Μετά από άρνηση του SoftOne: ο ΝΕΟΣ επόμενος ελεύθερος, με ρητή αποδοχή. */}
+            {codeOffer && codeOffer !== form.code.trim() && (
+              <Button
+                type="button" variant="outline" size="xs"
+                className="w-fit cursor-pointer"
+                onClick={() => { set('code', codeOffer); lastProposal.current = codeOffer; }}
+              >
+                <FiRefreshCw aria-hidden className="size-3" /> Χρήση του {codeOffer}
+              </Button>
+            )}
+            {/* Δείγμα από τα ΥΠΑΡΧΟΝΤΑ δεδομένα — δείχνει τη μορφή, δεν την επιβάλλει. */}
+            {codeSamples[form.kind].length > 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                Υπάρχοντες κωδικοί {KIND_GENITIVE[form.kind]}:{' '}
+                <span className="font-mono">{codeSamples[form.kind].join(', ')}</span>
+              </p>
+            )}
           </Field>
 
           <Field
@@ -769,12 +967,12 @@ export function TraderPanel({
                 type="button" variant="outline" size="sm"
                 className="h-8 shrink-0 cursor-pointer"
                 disabled={!form.address.trim() || geoBusy}
-                onClick={() => void runGeocode()}
+                onClick={() => void runGeocode(form.address)}
               >
                 {geoBusy
                   ? <FiLoader aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" />
                   : <FiMapPin aria-hidden className="size-3.5" />}
-                Συμπλήρωση από διεύθυνση
+                {geo || geoMiss ? 'Νέα αναζήτηση' : 'Συμπλήρωση από διεύθυνση'}
               </Button>
             </div>
           </Field>
@@ -790,6 +988,7 @@ export function TraderPanel({
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-neutral-4 px-2 py-1">
                 <span className="truncate text-[11px] text-muted-foreground" title={geo.formatted}>
                   {geo.formatted}
+                  {geo.cached && <span className="ml-1 opacity-70">· από τη μνήμη</span>}
                 </span>
                 <button
                   type="button"
@@ -800,6 +999,8 @@ export function TraderPanel({
                       city: geo.city || f.city,
                       zip: geo.zip || f.zip,
                     }));
+                    const c = validCoords(geo.lat, geo.lng);
+                    if (c) setCoords(c);
                     toast.success('Συμπληρώθηκαν τα στοιχεία της διεύθυνσης');
                   }}
                   className="shrink-0 cursor-pointer rounded-sm text-[12px] font-medium text-sisyphus-700 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-sisyphus-500"
@@ -827,6 +1028,23 @@ export function TraderPanel({
                     </Button>
                   </li>
                 ))}
+                {/* Οι συντεταγμένες μπαίνουν μόνες τους όταν το πεδίο είναι άδειο·
+                    η «Εφαρμογή» εδώ χρειάζεται για re-run μετά από αλλαγή διεύθυνσης. */}
+                <li className="grid grid-cols-[88px_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-[12px]">
+                  <span className="text-muted-foreground">Συντεταγμένες</span>
+                  <span className="truncate font-mono text-foreground">
+                    {formatCoords(validCoords(geo.lat, geo.lng)) || '—'}
+                  </span>
+                  <Button
+                    type="button" variant="ghost" size="xs"
+                    className="cursor-pointer"
+                    disabled={!validCoords(geo.lat, geo.lng)}
+                    aria-label="Εφαρμογή συντεταγμένων από τη διεύθυνση"
+                    onClick={() => { const c = validCoords(geo.lat, geo.lng); if (c) setCoords(c); }}
+                  >
+                    Εφαρμογή
+                  </Button>
+                </li>
               </ul>
             </div>
           )}
@@ -837,6 +1055,30 @@ export function TraderPanel({
 
           <Field label="Πόλη" id="tp-city" error={errorOf('city')}>
             <Input {...bind('city', 'tp-city')} className="h-8 text-[13px]" />
+          </Field>
+
+          <Field
+            label="Συντεταγμένες" id="tp-coords" className="sm:col-span-2"
+            hint={coords
+              ? 'Θα γραφούν στα πεδία «Γεωγραφικό πλάτος» / «Γεωγραφικό μήκος» του SoftOne.'
+              : 'Άγνωστες — τα δύο πεδία του SoftOne δεν θα σταλούν καθόλου (ποτέ 0).'}
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                id="tp-coords" readOnly aria-readonly
+                value={formatCoords(coords)} placeholder="—"
+                className="h-8 flex-1 bg-neutral-4 font-mono text-[13px]"
+              />
+              {coords && (
+                <Button
+                  type="button" variant="ghost" size="sm"
+                  className="h-8 shrink-0 cursor-pointer"
+                  onClick={() => setCoords(null)}
+                >
+                  <FiX aria-hidden className="size-3.5" /> Αφαίρεση
+                </Button>
+              )}
+            </div>
           </Field>
 
           <Field label="Τηλέφωνο" id="tp-phone" error={errorOf('phone')}>
