@@ -532,9 +532,10 @@ export function TraderPanel({
         setGeo(d as GeoParts);
         const c = validCoords(d.lat, d.lng);
         if (c) setCoords((cur) => cur ?? c);
-      } else if (!res.ok || d?.unavailable) {
+      } else if (d?.unavailable || (!res.ok && res.status !== 400)) {
         // Ο πάροχος δεν μίλησε: τίποτα δεν μπήκε στη μνήμη του server, άρα το
         // «Νέα αναζήτηση» έχει πραγματικό νόημα. Δεν το λέμε «δεν βρέθηκε».
+        // Το 400 εξαιρείται: εκεί φταίει η ΔΙΕΥΘΥΝΣΗ (κενή / υπερμεγέθης), όχι ο πάροχος.
         setGeoDown(true);
       } else setGeoMiss(true);
     } catch {
