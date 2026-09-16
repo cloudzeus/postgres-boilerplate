@@ -83,6 +83,21 @@ function isPending(row: Record<string, unknown>): boolean {
   return row.softoneMatchedBy !== 'skipped';
 }
 
+
+/**
+ * Ό,τι ΒΛΕΠΕΙ το κελί της γραμμής και ξαναστέλνει με κάθε αντιστοίχιση — οι ίδιες στήλες
+ * που περνά ο server στο `LineMatchCell`. Χωρίς αυτό τα tests δοκίμαζαν ένα σχήμα που το UI
+ * δεν παράγει ποτέ, και έκρυβαν ότι μια «Αλλαγή» έσβηνε την αναλυτική.
+ */
+const uiAnalytics = (lineId: string) => {
+  const row = store.lines.get(lineId)!;
+  return {
+    costCntr: (row.softoneCostCntr ?? null) as number | null,
+    prjc: (row.softonePrjc ?? null) as number | null,
+    prjcStage: (row.softonePrjcStage ?? null) as number | null,
+  };
+};
+
 const lastUpdateFor = (id: string) =>
   db.ocrInvoiceItem.update.mock.calls.map((c) => c[0]).filter((a) => a.where.id === id).pop()?.data as
     Record<string, unknown> | undefined;
@@ -395,7 +410,50 @@ describe('applyAnalyticsToLine — κέντρο κόστους / έργο / δρ
   it('η επόμενη αντιστοίχιση της ίδιας γραμμής κουβαλά την αναλυτική στη μνήμη', async () => {
     seedDoc('doc1', 'l1');
     await applyAnalyticsToLine({ lineId: 'l1', analytics: { prjc: 7 } });
-    await applyMatchToLine({ lineId: 'l1', target: { mtrl: ITEM.mtrl }, analytics: { prjc: 7 } });
+    // ΟΠΩΣ ΤΟ ΣΤΕΛΝΕΙ ΤΟ UI: το κελί ξαναστέλνει την αναλυτική που δείχνει η οθόνη.
+    await applyMatchToLine({ lineId: 'l1', target: { mtrl: ITEM.mtrl }, analytics: uiAnalytics('l1') });
     expect(store.rules[0]).toMatchObject({ mtrl: ITEM.mtrl, prjc: 7 });
+  });
+
+  // ── Το λάθος που έκανε η πρώτη έκδοση: «Αλλαγή» χωρίς αναλυτική ─────────────
+  it('ΑΛΛΑΓΗ είδους ΔΕΝ σβήνει την αναλυτική της γραμμής ούτε την ξεμαθαίνει ο κανόνας', async () => {
+    seedDoc('doc1', 'l1');
+    // Ο χρήστης εκπαίδευσε τον κανόνα (εδώ ή από την ουρά): στόχος + κέντρο κόστους + έργο.
+    await applyMatchToLine({ lineId: 'l1', target: { lin: LINEITEM.mtrl }, analytics: { costCntr: 5, prjc: 7 } });
+    expect(store.rules[0]).toMatchObject({ lin: LINEITEM.mtrl, costCntr: 5, prjc: 7 });
+
+    // Αργότερα πατά «Αλλαγή» και διαλέγει άλλο είδος. Το UI ξαναστέλνει ό,τι ΒΛΕΠΕΙ.
+    await applyMatchToLine({ lineId: 'l1', target: { mtrl: ITEM.mtrl }, analytics: uiAnalytics('l1') });
+
+    expect(store.lines.get('l1')).toMatchObject({
+      softoneMtrl: ITEM.mtrl, softoneLinMtrl: null, softoneCostCntr: 5, softonePrjc: 7,
+    });
+    // Και κυρίως: ο κανόνας του εκδότη ΔΕΝ ξέχασε την αναλυτική.
+    expect(store.rules).toHaveLength(1);
+    expect(store.rules[0]).toMatchObject({ mtrl: ITEM.mtrl, lin: null, costCntr: 5, prjc: 7 });
+  });
+
+  it('ΤΟ ΣΥΜΒΟΛΑΙΟ: παραλειπόμενη αναλυτική ΣΗΜΑΙΝΕΙ «καμία» — γι\' αυτό ο καλών την ξαναστέλνει', async () => {
+    seedDoc('doc1', 'l1');
+    await applyMatchToLine({ lineId: 'l1', target: { mtrl: ITEM.mtrl }, analytics: { costCntr: 5 } });
+
+    // Χωρίς `analytics` ο server γράφει nulls — και στη γραμμή και στον κανόνα. Δεν είναι
+    // «μην αγγίξεις»: είναι «καμία». Κάθε UI που αντιστοιχίζει οφείλει να ξαναστέλνει ό,τι
+    // δείχνει στην οθόνη, όπως κάνουν η ουρά και το κελί της γραμμής.
+    await applyMatchToLine({ lineId: 'l1', target: { mtrl: ITEM.mtrl } });
+
+    expect(store.lines.get('l1')).toMatchObject({ softoneCostCntr: null });
+    expect(store.rules[0]).toMatchObject({ costCntr: null });
+  });
+
+  it('ΑΛΛΑΓΗ σε ΕΞΟΔΟ: το UI δεν στέλνει αναλυτική και η γραμμή μένει καθαρή για το EXPANAL', async () => {
+    seedDoc('doc1', 'l1');
+    await applyMatchToLine({ lineId: 'l1', target: { mtrl: ITEM.mtrl }, analytics: { costCntr: 5 } });
+
+    // `analytics: undefined` — ακριβώς ό,τι στέλνει το κελί όταν η κατηγορία είναι «Έξοδο».
+    await applyMatchToLine({ lineId: 'l1', target: { expn: EXPENSE.expn }, analytics: undefined });
+
+    expect(store.lines.get('l1')).toMatchObject({ softoneExpn: EXPENSE.expn, softoneCostCntr: null });
+    expect(store.rules[0]).toMatchObject({ expn: EXPENSE.expn, mtrl: null, costCntr: null });
   });
 });

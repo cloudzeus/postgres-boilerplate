@@ -33,7 +33,12 @@ const Body = z.object({
     prjc: z.number().int().positive().nullish(),
     prjcStage: z.number().int().positive().nullish(),
   }).optional(),
-});
+}).refine(
+  // ΕΝΑΣ στόχος τη φορά. Δύο μαζί είναι ασαφές αίτημα και θα γραφόταν σιωπηλά ο ένας —
+  // η ουρά το απορρίπτει με `z.union`, το ίδιο κάνει κι εδώ.
+  (b) => [b.mtrl, b.expn, b.lin].filter((v) => v != null).length <= 1,
+  { message: 'Δώσε ΕΝΑΝ στόχο: είδος (mtrl), έξοδο (expn) ή χρεοπίστωση (lin).', path: ['mtrl'] },
+);
 
 export async function POST(req: Request) {
   const u = await requirePermission('ocr.categorize');

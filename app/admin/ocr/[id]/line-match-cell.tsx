@@ -124,6 +124,14 @@ export function LineMatchCell({
         lineId,
         ...(picked === 'expense' ? { expn: id } : picked === 'lineitem' ? { lin: id } : { mtrl: id }),
         isService: picked === 'service',
+        // Η αναλυτική που ΒΛΕΠΕΙ ο χρήστης ταξιδεύει μαζί — ίδια σύμβαση με την ουρά
+        // (`new-items/queue-client.tsx`). Χωρίς αυτήν, μια «Αλλαγή» είδους έστελνε σιωπηλά
+        // κενή αναλυτική: έσβηνε το κέντρο κόστους της γραμμής ΚΑΙ το ξε-μάθαινε από τον
+        // κανόνα μνήμης του εκδότη — δηλαδή ακριβώς το αντίθετο από το «να το θυμάται».
+        // Έξοδο → EXPANAL, που δεν έχει αναλυτική: δεν στέλνουμε τιμές που θα πετιόνταν.
+        analytics: picked === 'expense' ? undefined : {
+          costCntr: analytics.costCntr.id, prjc: analytics.prjc.id, prjcStage: analytics.prjcStage.id,
+        },
       },
       (d) => {
         const m = (d.match ?? {}) as Partial<LineMatch>;
@@ -311,6 +319,7 @@ export function LineMatchCell({
                 id={`an-pj-${lineId}`} kind="projects" label="Έργο"
                 value={analytics.prjc} disabled={busy || !analyticsSupported}
                 onChange={(v) => void setAnalytic('prjc', v)}
+                note={!analyticsSupported ? EXPENSE_NOTE : undefined}
                 trdr={trdr}
                 scopeAll={projectScopeAll}
                 onScopeAll={setProjectScopeAll}
@@ -319,6 +328,7 @@ export function LineMatchCell({
                 id={`an-ps-${lineId}`} kind="projectstages" label="Κατηγορία δραστηριότητας"
                 value={analytics.prjcStage} disabled={busy || !analyticsSupported}
                 onChange={(v) => void setAnalytic('prjcStage', v)}
+                note={!analyticsSupported ? EXPENSE_NOTE : undefined}
               />
             </div>
           </div>
