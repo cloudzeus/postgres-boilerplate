@@ -2,20 +2,31 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { FiCheckCircle } from 'react-icons/fi';
+import { FiCheckCircle, FiCpu, FiLoader } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { QueueEmpty, QueueLayout, type QueueLayoutHandle } from '@/components/admin/queue-layout';
 import type { ItemQueueGroup, QueueSuggestion } from '@/lib/ocr/queues';
 import type { MatchKind } from '@/lib/ocr/line-match';
-import { CATEGORY_META, ItemPanel, docLabel, lineLabel, type UnitOption, type VatOption } from './item-panel';
+import {
+  CATEGORY_META, ItemPanel, docLabel, lineLabel,
+  type LineCategoryOption, type UnitOption, type VatOption,
+} from './item-panel';
+import { Button } from '@/components/ui/button';
 
 const FILTERS = [
   { key: 'all', label: 'Όλα' },
   { key: 'product', label: 'Προϊόντα' },
   { key: 'service', label: 'Υπηρεσίες' },
   { key: 'expense', label: 'Έξοδα' },
+  { key: 'lineitem', label: 'Χρεοπιστώσεις' },
   { key: 'none', label: 'Χωρίς πρόταση' },
 ] as const;
+
+/** Πόσες αναπάντητες ομάδες ρωτάμε το μοντέλο με μία κλήση. */
+const AI_BATCH = 20;
+
+/** Η τελευταία κατηγορία δαπάνης που διάλεξε ο χρήστης — κρατιέται όσο ζει η καρτέλα. */
+const CATEGORY_STORAGE_KEY = 'ocr.newItems.lineCategory';
 
 /** Ό,τι επιστρέφουν και οι τρεις ενέργειες της ουράς. */
 interface ActionResult { linesUpdated: number; name?: string | null; code?: string | null }
@@ -41,6 +52,7 @@ export function NewItemsClient({
   canManage,
   vats,
   units,
+  lineCategories,
 }: {
   /** Έτοιμο `PageHeader` από τον server (κρατά το wiki `?` icon). */
   header: React.ReactNode;
@@ -53,6 +65,7 @@ export function NewItemsClient({
   canManage: boolean;
   vats: VatOption[];
   units: UnitOption[];
+  lineCategories: LineCategoryOption[];
 }) {
   const router = useRouter();
   const layout = React.useRef<QueueLayoutHandle | null>(null);
@@ -76,6 +89,23 @@ export function NewItemsClient({
   // Η επιλεγμένη κατηγορία ανά ομάδα (segmented) — ξεκινά από την προεπιλογή
   // του server και κρατιέται όσο ο χρήστης γυρίζει πάνω-κάτω στην ουρά.
   const [categories, setCategories] = React.useState<Record<string, MatchKind>>({});
+  // Η κατηγορία δαπάνης που διάλεξε ο χρήστης — στενεύει ΚΑΙ την αναζήτηση χρεοπιστώσεων ΚΑΙ
+  // τους υποψηφίους που στέλνονται στο μοντέλο. Θυμάται την τελευταία επιλογή μέσα στη συνεδρία·
+  // είναι ευκολία, όχι κρίσιμη κατάσταση, γι' αυτό κάθε πρόσβαση στο storage είναι σε try/catch.
+  const [lineCategory, setLineCategoryState] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    try {
+      const n = Number(sessionStorage.getItem(CATEGORY_STORAGE_KEY));
+      if (Number.isFinite(n) && n > 0) setLineCategoryState(n);
+    } catch { /* private mode / αποκλεισμένο storage: το φίλτρο ξεκινά κενό */ }
+  }, []);
+  const setLineCategory = React.useCallback((v: number | null) => {
+    setLineCategoryState(v);
+    try {
+      if (v == null) sessionStorage.removeItem(CATEGORY_STORAGE_KEY);
+      else sessionStorage.setItem(CATEGORY_STORAGE_KEY, String(v));
+    } catch { /* το φίλτρο ισχύει ούτως ή άλλως για την τρέχουσα επιλογή */ }
+  }, []);
 
   /** «Χωρίς πρόταση» μόνο για ομάδες που έχουν όντως υπολογιστεί. */
   const noSuggestion = React.useCallback(
@@ -103,6 +133,7 @@ export function NewItemsClient({
     product: groups.filter((g) => g.category === 'product').length,
     service: groups.filter((g) => g.category === 'service').length,
     expense: groups.filter((g) => g.category === 'expense').length,
+    lineitem: groups.filter((g) => g.category === 'lineitem').length,
     none: groups.filter(noSuggestion).length,
   }), [groups, noSuggestion]);
 
@@ -198,7 +229,7 @@ export function NewItemsClient({
     }
   }
 
-  const match = React.useCallback(async (target: { mtrl?: number; expn?: number }, isService: boolean) => {
+  const match = React.useCallback(async (target: { mtrl?: number; expn?: number; lin?: number }, isService: boolean) => {
     if (!selected || busy || !canManage) return;
     const g = selected;
     setBusy(true);
@@ -206,7 +237,7 @@ export function NewItemsClient({
       const d = await post<ActionResult>('/api/admin/ocr/new-items/match', {
         afm: g.afm,
         pattern: g.pattern,
-        target: target.expn != null ? { expn: target.expn } : { mtrl: target.mtrl },
+        target: target.lin != null ? { lin: target.lin } : target.expn != null ? { expn: target.expn } : { mtrl: target.mtrl },
         isService,
       });
       if (!d) return;
@@ -255,13 +286,73 @@ export function NewItemsClient({
     }
   }, [selected, busy, canManage, retire]);
 
+  // ── Πρόταση δαπάνης με AI ────────────────────────────────────────────
+  // Τρέχει ΜΟΝΟ με κλικ, ΜΟΝΟ για ομάδες που δεν έλυσε το string-matching, και προτείνει:
+  // η αντιστοίχιση γίνεται πάντα με ρητή επιβεβαίωση του χρήστη (και τότε γράφεται ο κανόνας).
+  const [aiBusy, setAiBusy] = React.useState(false);
+  const [aiAsked, setAiAsked] = React.useState(0);
+  const aiSuggest = React.useCallback(async () => {
+    if (aiBusy || !canManage) return;
+    // Στέλνουμε τις ορατές ομάδες που έχουν ήδη υπολογισμένες (ή καθόλου) προτάσεις.
+    const batch = visible.slice(0, AI_BATCH).map((g) => ({
+      key: g.key, afm: g.afm, pattern: g.pattern, sample: g.sample, code: g.code,
+    }));
+    if (batch.length === 0) return;
+    setAiBusy(true);
+    setAiAsked(batch.length);
+    try {
+      const d = await post<{
+        suggestions: { key: string; lin: number; code: string; name: string; confidence: number; reason: string }[];
+        asked: number; skipped: number; cached: number; degraded: boolean;
+      }>('/api/admin/ocr/new-items/ai-suggest', { groups: batch, categoryId: lineCategory });
+      if (!d) return;
+      if (d.degraded) {
+        toast.info('Το μοντέλο δεν είναι διαθέσιμη αυτή τη στιγμή — καμία πρόταση.');
+        return;
+      }
+      if (d.suggestions.length === 0) {
+        toast.info(
+          d.skipped > 0
+            ? `Καμία νέα πρόταση — ${d.skipped} ${d.skipped === 1 ? 'ομάδα λύθηκε' : 'ομάδες λύθηκαν'} χωρίς AI.`
+            : 'Το μοντέλο δεν βρήκε δαπάνη που να ταιριάζει.',
+        );
+        return;
+      }
+      // Η πρόταση μπαίνει ΠΡΩΤΗ στην ομάδα της, ως υποψήφια χρεοπίστωση προς επιβεβαίωση.
+      const byKey = new Map(d.suggestions.map((x) => [x.key, x]));
+      setGroups((prev) => prev.map((g) => {
+        const a = byKey.get(g.key);
+        if (!a) return g;
+        const suggestion: QueueSuggestion = {
+          mtrl: null, expn: null, lin: a.lin, kind: 'lineitem',
+          code: a.code, name: a.name, score: a.confidence, by: 'ai',
+        };
+        const rest = g.suggestions.filter((x) => x.lin !== a.lin);
+        return { ...g, suggestions: [suggestion, ...rest] };
+      }));
+      // Οι ομάδες με πρόταση δείχνουν «Χρεοπίστωση» — αλλιώς η πρόταση θα κρυβόταν από το segmented.
+      setCategories((prev) => {
+        const next = { ...prev };
+        for (const k of byKey.keys()) next[k] = 'lineitem';
+        return next;
+      });
+      toast.success(
+        `${d.suggestions.length} ${d.suggestions.length === 1 ? 'πρόταση' : 'προτάσεις'} από το AI`,
+        { description: 'Έλεγξέ τες και επιβεβαίωσε — η επιβεβαίωση διδάσκει τον κανόνα για την επόμενη φορά.' },
+      );
+    } finally {
+      setAiBusy(false);
+      setAiAsked(0);
+    }
+  }, [aiBusy, canManage, visible, lineCategory]);
+
   /** Enter στη λίστα = αντιστοίχιση με την πρώτη πρόταση της κατηγορίας. */
   const onPrimary = React.useCallback((id: string) => {
     if (!selected || selected.key !== id || !canManage) return;
     const first = shownSuggestions[0];
     if (!first) { toast.info('Καμία πρόταση — διάλεξε από το μητρώο ή δημιούργησε νέο.'); return; }
     void match(
-      first.expn != null ? { expn: first.expn } : { mtrl: first.mtrl ?? undefined },
+      first.lin != null ? { lin: first.lin } : first.expn != null ? { expn: first.expn } : { mtrl: first.mtrl ?? undefined },
       first.kind === 'service',
     );
   }, [selected, canManage, shownSuggestions, match]);
@@ -290,6 +381,19 @@ export function NewItemsClient({
       onPrimary={canManage ? onPrimary : undefined}
       keysEnabled={!busy}
       listLabel="Ουρά γραμμών"
+      listActions={canManage ? (
+        <Button
+          type="button" variant="outline" size="sm"
+          disabled={aiBusy || visible.length === 0}
+          onClick={() => void aiSuggest()}
+          className="h-8 w-full cursor-pointer"
+          title="Ρωτά το μοντέλο μόνο για τις γραμμές που δεν λύθηκαν αυτόματα"
+        >
+          {aiBusy
+            ? <><FiLoader aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" /> Ερώτηση για {aiAsked}…</>
+            : <><FiCpu aria-hidden className="size-3.5" /> Πρόταση με AI</>}
+        </Button>
+      ) : undefined}
       empty={
         groups.length === 0 ? (
           <QueueEmpty
@@ -323,6 +427,9 @@ export function NewItemsClient({
           onSkip={skip}
           vats={vats}
           units={units}
+          lineCategories={lineCategories}
+          lineCategory={lineCategory}
+          onLineCategory={setLineCategory}
         />
       ) : (
         <QueueEmpty

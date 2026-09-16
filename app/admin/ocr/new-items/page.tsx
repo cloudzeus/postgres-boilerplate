@@ -16,7 +16,7 @@ const SUGGEST_FOR = 50;
 export default async function NewItemsPage() {
   await requirePermission('ocr.read');
 
-  const [queue, canManage, vats, units] = await Promise.all([
+  const [queue, canManage, vats, units, lineCategories] = await Promise.all([
     loadItemQueue({ suggestFor: SUGGEST_FOR }),
     // Χωρίς `ocr.categorize` η σελίδα είναι μόνο για ανάγνωση (ίδιο με «Νέοι συναλλασσόμενοι»).
     hasPermission('ocr.categorize'),
@@ -31,6 +31,12 @@ export default async function NewItemsPage() {
       where: { kind: 'MTRUNIT' },
       orderBy: { order: 'asc' },
       select: { code: true, name: true },
+    }),
+    // Κατηγορίες δαπανών (LINCATEGORY): το φίλτρο που κάνει τη λίστα χρεοπιστώσεων χρησιμοποιήσιμη.
+    prisma.softoneLineCategory.findMany({
+      where: { isActive: true },
+      orderBy: { name: 'asc' },
+      select: { mtrCategory: true, code: true, name: true },
     }),
   ]);
 
@@ -51,6 +57,7 @@ export default async function NewItemsPage() {
       canManage={canManage}
       vats={vats.map((v) => ({ code: v.code, label: v.rate != null ? `${v.descr} (${v.rate}%)` : v.descr, rate: v.rate }))}
       units={units.map((u) => ({ code: u.code, label: u.name }))}
+      lineCategories={lineCategories.map((c) => ({ id: c.mtrCategory, label: c.name || c.code }))}
     />
   );
 }

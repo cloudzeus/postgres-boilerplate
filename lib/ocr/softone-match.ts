@@ -61,7 +61,7 @@ function writeDocTally(docId: string, total: number, matched: number): Promise<u
 
 /**
  * Ξαναϋπολογίζει `itemsTotal/itemsMatched` για τα δοθέντα παραστατικά διαβάζοντας
- * τις γραμμές τους (αντιστοιχισμένη = έχει `softoneMtrl` ή `softoneExpn`). Το
+ * τις γραμμές τους (αντιστοιχισμένη = έχει `softoneMtrl`, `softoneExpn` ή `softoneLinMtrl`). Το
  * χρησιμοποιούν οι ουρές (`lib/ocr/queues.ts`) μετά από ομαδική αντιστοίχιση.
  */
 export async function refreshDocTallies(docIds: string[]): Promise<void> {
@@ -69,14 +69,14 @@ export async function refreshDocTallies(docIds: string[]): Promise<void> {
   if (ids.length === 0) return;
   const lines = await prisma.ocrInvoiceItem.findMany({
     where: { documentId: { in: ids } },
-    select: { documentId: true, softoneMtrl: true, softoneExpn: true },
+    select: { documentId: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true },
   });
   const tally = new Map(ids.map((id) => [id, { total: 0, matched: 0 }]));
   for (const l of lines) {
     const t = tally.get(l.documentId);
     if (!t) continue;
     t.total++;
-    if (l.softoneMtrl != null || l.softoneExpn != null) t.matched++;
+    if (l.softoneMtrl != null || l.softoneExpn != null || l.softoneLinMtrl != null) t.matched++;
   }
   await Promise.all(Array.from(tally.entries()).map(([id, t]) => writeDocTally(id, t.total, t.matched)));
 }
@@ -85,13 +85,14 @@ export async function refreshDocTallies(docIds: string[]): Promise<void> {
 type LineMatchUpdate = {
   softoneMtrl: number | null;
   softoneExpn: number | null;
+  softoneLinMtrl: number | null;
   softoneCode: string | null;
   softoneName: string | null;
   softoneIsService: boolean | null;
   softoneMatchedBy: string | null;
 };
 const NO_MATCH: LineMatchUpdate = {
-  softoneMtrl: null, softoneExpn: null, softoneCode: null, softoneName: null,
+  softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneCode: null, softoneName: null,
   softoneIsService: null, softoneMatchedBy: null,
 };
 
@@ -106,12 +107,12 @@ const NO_MATCH: LineMatchUpdate = {
  *
  * Γραμμές αντιστοιχισμένες χειροκίνητα (`manual`) ή που ο χρήστης παρέλειψε ρητά
  * (`skipped`) δεν ξαναγράφονται. Μια γραμμή μετράει ως αντιστοιχισμένη όταν έχει
- * `softoneMtrl` ή `softoneExpn`.
+ * `softoneMtrl`, `softoneExpn` ή `softoneLinMtrl`.
  */
 export async function matchDocItems(docId: string): Promise<{ matched: number; total: number }> {
   const items = await prisma.ocrInvoiceItem.findMany({
     where: { documentId: docId },
-    select: { id: true, code: true, name: true, softoneMatchedBy: true, softoneMtrl: true, softoneExpn: true },
+    select: { id: true, code: true, name: true, softoneMatchedBy: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true },
   });
   if (items.length === 0) {
     await writeDocTally(docId, 0, 0);
@@ -139,7 +140,7 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     // Χειροκίνητη γραμμή: δεν την ξαναγράφουμε, αλλά μετράει ως αντιστοιχισμένη ΜΟΝΟ αν
     // κρατάει πράγματι είδος ή έξοδο — ίδιος κανόνας με το `refreshDocTallies`.
     if (it.softoneMatchedBy === 'manual') {
-      if (it.softoneMtrl != null || it.softoneExpn != null) matched++;
+      if (it.softoneMtrl != null || it.softoneExpn != null || it.softoneLinMtrl != null) matched++;
       continue;
     }
     if (it.softoneMatchedBy === 'skipped') continue;
@@ -154,7 +155,7 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     if (m) {
       matched++;
       updates.set(it.id, {
-        softoneMtrl: m.mtrl, softoneExpn: null, softoneCode: m.code,
+        softoneMtrl: m.mtrl, softoneExpn: null, softoneLinMtrl: null, softoneCode: m.code,
         softoneName: m.name, softoneIsService: m.isService, softoneMatchedBy: by,
       });
       continue;
@@ -172,7 +173,7 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     const patterns = Array.from(new Set(unmatched.map((u) => u.pattern)));
     const rules = await prisma.lineMatchRule.findMany({
       where: { pattern: { in: patterns }, afm: { in: afm ? [afm, ''] : [''] } },
-      select: { id: true, afm: true, pattern: true, mtrl: true, expn: true, isService: true },
+      select: { id: true, afm: true, pattern: true, mtrl: true, expn: true, lin: true, isService: true },
     });
 
     if (rules.length > 0) {
@@ -184,16 +185,21 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
       }
       const mtrls = Array.from(new Set(rules.map((r) => r.mtrl).filter((v): v is number => v != null)));
       const expns = Array.from(new Set(rules.map((r) => r.expn).filter((v): v is number => v != null)));
-      const [ruleItems, ruleExpenses] = await Promise.all([
+      const lins = Array.from(new Set(rules.map((r) => r.lin).filter((v): v is number => v != null)));
+      const [ruleItems, ruleExpenses, ruleLineItems] = await Promise.all([
         mtrls.length
           ? prisma.softoneItem.findMany({ where: { mtrl: { in: mtrls } }, select: { mtrl: true, code: true, name: true, isService: true } })
           : Promise.resolve([]),
         expns.length
           ? prisma.softoneExpense.findMany({ where: { expn: { in: expns } }, select: { expn: true, code: true, name: true } })
           : Promise.resolve([]),
+        lins.length
+          ? prisma.softoneLineItem.findMany({ where: { mtrl: { in: lins } }, select: { mtrl: true, code: true, name: true } })
+          : Promise.resolve([]),
       ]);
       const itemByMtrl = new Map(ruleItems.map((i) => [i.mtrl, i]));
       const expenseByExpn = new Map(ruleExpenses.map((e) => [e.expn, e]));
+      const lineItemByMtrl = new Map(ruleLineItems.map((l) => [l.mtrl, l]));
 
       const usage = new Map<string, number>();
       for (const u of unmatched) {
@@ -203,16 +209,23 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
         if (r.mtrl != null) {
           const i = itemByMtrl.get(r.mtrl);
           data = {
-            softoneMtrl: r.mtrl, softoneExpn: null,
+            softoneMtrl: r.mtrl, softoneExpn: null, softoneLinMtrl: null,
             softoneCode: i?.code ?? null, softoneName: i?.name ?? null,
             softoneIsService: i?.isService ?? r.isService, softoneMatchedBy: 'memory',
           };
         } else if (r.expn != null) {
           const e = expenseByExpn.get(r.expn);
           data = {
-            softoneMtrl: null, softoneExpn: r.expn,
+            softoneMtrl: null, softoneExpn: r.expn, softoneLinMtrl: null,
             softoneCode: e?.code ?? null, softoneName: e?.name ?? null,
             softoneIsService: r.isService, softoneMatchedBy: 'memory',
+          };
+        } else if (r.lin != null) {
+          const l = lineItemByMtrl.get(r.lin);
+          data = {
+            softoneMtrl: null, softoneExpn: null, softoneLinMtrl: r.lin,
+            softoneCode: l?.code ?? null, softoneName: l?.name ?? null,
+            softoneIsService: false, softoneMatchedBy: 'memory',
           };
         }
         if (!data) continue;

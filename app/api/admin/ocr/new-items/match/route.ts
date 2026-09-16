@@ -13,11 +13,13 @@ const Body = z.object({
   target: z.union([
     z.object({ mtrl: z.number().int().positive() }),
     z.object({ expn: z.number().int().positive() }),
+    // Χρεοπίστωση (LINEITEM → MTRL SODTYPE 53) — ο στόχος των «Ειδικών συναλλαγών».
+    z.object({ lin: z.number().int().positive() }),
   ]),
   isService: z.boolean().optional(),
 });
 
-// POST — αντιστοιχίζει ΟΛΕΣ τις γραμμές μιας ομάδας σε είδος (MTRL) ή έξοδο (EXPN)
+// POST — αντιστοιχίζει ΟΛΕΣ τις γραμμές μιας ομάδας σε είδος (MTRL), έξοδο (EXPN) ή χρεοπίστωση (LIN)
 // και γράφει τη μνήμη (`LineMatchRule`) για τις επόμενες σαρώσεις (spec §3).
 export async function POST(req: Request) {
   const u = await requirePermission('ocr.categorize');
@@ -34,9 +36,9 @@ export async function POST(req: Request) {
     await logAudit({
       userId: u.id, userEmail: u.email,
       action: 'ocr.line.match', resource: 'ocr_line_group', resourceId: `${b.afm}|${b.pattern}`,
-      metadata: { mtrl: r.mtrl, expn: r.expn, code: r.code, name: r.name, linesUpdated: r.linesUpdated },
+      metadata: { mtrl: r.mtrl, expn: r.expn, lin: r.lin, code: r.code, name: r.name, linesUpdated: r.linesUpdated },
     }).catch(() => null);
-    return NextResponse.json({ ok: true, linesUpdated: r.linesUpdated, mtrl: r.mtrl, expn: r.expn, code: r.code, name: r.name });
+    return NextResponse.json({ ok: true, linesUpdated: r.linesUpdated, mtrl: r.mtrl, expn: r.expn, lin: r.lin, code: r.code, name: r.name });
   } catch (e) {
     if (e instanceof QueueError) {
       return NextResponse.json({ error: e.code, message: e.message }, { status: e.status });

@@ -4,7 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import {
   FiAlertCircle, FiAlertTriangle, FiCheck, FiCornerDownLeft, FiDollarSign, FiExternalLink,
-  FiInfo, FiLoader, FiPackage, FiPlusCircle, FiRefreshCw, FiSkipForward, FiTool,
+  FiInfo, FiLoader, FiPackage, FiPlusCircle, FiRefreshCw, FiSkipForward, FiTag, FiTool,
 } from 'react-icons/fi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +21,12 @@ export const CATEGORY_META: Record<MatchKind, { label: string; bg: string; fg: s
   product: { label: 'Προϊόν', bg: '#EAF4FC', fg: '#0078D4' },
   service: { label: 'Υπηρεσία', bg: '#E8F7F0', fg: '#047857' },
   expense: { label: 'Έξοδο', bg: '#FDF3E3', fg: '#B45309' },
+  // Χρεοπίστωση (LINEITEM): ό,τι δέχεται η γραμμή «Ειδικών συναλλαγών» (LINLINES).
+  lineitem: { label: 'Χρεοπίστωση', bg: '#F3EEFF', fg: '#6D28D9' },
 };
+
+/** Μία κατηγορία δαπάνης (LINCATEGORY) για το φίλτρο των χρεοπιστώσεων. */
+export interface LineCategoryOption { id: number; label: string }
 
 const eur = new Intl.NumberFormat('el-GR', { style: 'currency', currency: 'EUR' });
 export const money = (v: number | null) => (v == null ? '—' : eur.format(v));
@@ -42,6 +47,7 @@ const REASON: Record<string, string> = {
   code1: 'barcode',
   code2: 'κωδικός εργοστασίου',
   name: 'ομοιότητα ονόματος',
+  ai: 'πρόταση AI',
 };
 
 /** Πόσο περιμένουμε μετά την τελευταία πληκτρολόγηση πριν ξαναζητήσουμε dry-run. */
@@ -51,9 +57,11 @@ const KIND_ICON: Record<MatchKind, React.ReactNode> = {
   product: <FiPackage aria-hidden className="size-3.5" />,
   service: <FiTool aria-hidden className="size-3.5" />,
   expense: <FiDollarSign aria-hidden className="size-3.5" />,
+  lineitem: <FiTag aria-hidden className="size-3.5" />,
 };
 
-const SEGMENTS: MatchKind[] = ['product', 'service', 'expense'];
+const SEGMENTS: MatchKind[] = ['product', 'service', 'expense', 'lineitem'];
+
 
 /** Πρόταση κωδικού όταν η γραμμή δεν έχει δικό της: slug από το κείμενο. */
 function slugCode(sample: string): string {
@@ -79,6 +87,7 @@ function defaultUnit(units: UnitOption[]): string {
 export function ItemPanel({
   group, category, onCategory, suggestions, hiddenSuggestions, loadingSuggestions,
   suggestionsFailed, onRetrySuggestions, canManage, busy, onMatch, onCreate, onSkip, vats, units,
+  lineCategories = [], lineCategory, onLineCategory,
 }: {
   group: ItemQueueGroup;
   category: MatchKind;
@@ -92,17 +101,26 @@ export function ItemPanel({
   /** `ocr.categorize` — χωρίς αυτό το panel είναι μόνο για ανάγνωση. */
   canManage: boolean;
   busy: boolean;
-  onMatch: (target: { mtrl?: number; expn?: number }, isService: boolean) => void | Promise<void>;
+  onMatch: (target: { mtrl?: number; expn?: number; lin?: number }, isService: boolean) => void | Promise<void>;
   onCreate: (input: {
     kind: MatchKind; code: string; name: string; vat: string | null; unit: string | null; price: number | null;
   }) => void | Promise<void>;
   onSkip: () => void | Promise<void>;
   vats: VatOption[];
   units: UnitOption[];
+  /** Κατηγορίες δαπανών (LINCATEGORY) για το φίλτρο των χρεοπιστώσεων. */
+  lineCategories?: LineCategoryOption[];
+  /** Η επιλεγμένη κατηγορία δαπάνης (ελέγχεται από την ουρά: τη χρειάζεται και το AI). */
+  lineCategory: number | null;
+  onLineCategory: (v: number | null) => void;
 }) {
   const cat = CATEGORY_META[category];
-  const needsUnit = category !== 'expense';
+  const needsUnit = category !== 'expense' && category !== 'lineitem';
   const locked = busy || !canManage;
+  // Χρεοπιστώσεις: η δημιουργία γίνεται ΜΟΝΟ στο SoftOne — η εφαρμογή δεν γράφει ποτέ μητρώο
+  // χρεοπιστώσεων, οπότε η φόρμα «Δημιουργία» δεν εμφανίζεται εκεί.
+  const canCreate = category !== 'lineitem';
+
 
   const [creating, setCreating] = React.useState(false);
   const segmentRefs = React.useRef<Partial<Record<MatchKind, HTMLButtonElement | null>>>({});
@@ -349,7 +367,7 @@ export function ItemPanel({
           <ul className="space-y-1.5">
             {suggestions.map((s, i) => (
               <SuggestionRow
-                key={`${s.mtrl ?? 's'}-${s.expn ?? 'e'}-${s.code}`}
+                key={`${s.mtrl ?? 'm'}-${s.expn ?? 'e'}-${s.lin ?? 'l'}-${s.code}`}
                 suggestion={s}
                 first={i === 0}
                 disabled={locked}
@@ -365,13 +383,41 @@ export function ItemPanel({
           </p>
         )}
 
-        <div className="mt-3">
+        <div className="mt-3 space-y-2">
+          {/* Η κατηγορία δαπάνης είναι ΤΟ κλειδί για να βρεθεί η σωστή χρεοπίστωση:
+              χωρίς αυτήν η λίστα είναι εκατοντάδες κωδικοί σε μία σειρά. */}
+          {category === 'lineitem' && (
+            <div>
+              <label htmlFor="lineitem-category" className="text-caption font-medium text-muted-foreground">
+                Κατηγορία δαπάνης
+              </label>
+              <select
+                id="lineitem-category"
+                value={lineCategory ?? ''}
+                disabled={locked || lineCategories.length === 0}
+                onChange={(e) => onLineCategory(e.target.value ? Number(e.target.value) : null)}
+                className="mt-1 h-9 w-full cursor-pointer rounded-lg border border-input bg-background px-2.5 text-[13px]"
+              >
+                <option value="">Όλες οι κατηγορίες</option>
+                {lineCategories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.label}</option>
+                ))}
+              </select>
+              {lineCategories.length === 0 && (
+                <p className="mt-1 text-caption text-muted-foreground">
+                  Δεν έχουν συγχρονιστεί κατηγορίες δαπανών — Είδη → «Κατηγορίες δαπανών» → «Συγχρονισμός από SoftOne».
+                </p>
+              )}
+            </div>
+          )}
           <RegistrySearch
             kind={category}
             disabled={locked}
             id={`registry-${category}`}
+            category={lineCategory}
+            label={category === 'lineitem' ? 'Αναζήτηση χρεοπίστωσης…' : 'Άλλο είδος/έξοδο…'}
             onPick={(p) => onMatch(
-              p.kind === 'expense' ? { expn: p.id } : { mtrl: p.id },
+              p.kind === 'expense' ? { expn: p.id } : p.kind === 'lineitem' ? { lin: p.id } : { mtrl: p.id },
               p.kind === 'service',
             )}
           />
@@ -380,7 +426,13 @@ export function ItemPanel({
 
       {/* ── Δημιουργία στο SoftOne ──────────────────────────────────── */}
       <section className="px-4 py-3">
-        {!creating ? (
+        {!canCreate ? (
+          <p className="flex items-start gap-1.5 rounded-lg bg-neutral-6 px-3 py-2 text-body-sm text-muted-foreground">
+            <FiInfo aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+            Νέα χρεοπίστωση δημιουργείται μόνο μέσα στο SoftOne («Χρεοπιστώσεις»). Μετά τη δημιουργία,
+            τρέξε «Συγχρονισμός από SoftOne» στη σελίδα Είδη για να εμφανιστεί εδώ.
+          </p>
+        ) : !creating ? (
           <Button
             type="button"
             variant="outline"
@@ -577,7 +629,7 @@ function SuggestionRow({
   first: boolean;
   /** Τρέχει ενέργεια ή λείπει το δικαίωμα `ocr.categorize`. */
   disabled: boolean;
-  onMatch: (target: { mtrl?: number; expn?: number }, isService: boolean) => void | Promise<void>;
+  onMatch: (target: { mtrl?: number; expn?: number; lin?: number }, isService: boolean) => void | Promise<void>;
 }) {
   const pct = Math.round(Math.max(0, Math.min(1, s.score)) * 100);
   const meta = CATEGORY_META[s.kind];
@@ -603,13 +655,23 @@ function SuggestionRow({
             <span aria-hidden>·</span>
             <span>{REASON[s.by] ?? 'άλλο'}</span>
           </p>
+          {/* Ο χαρακτηρισμός myDATA έρχεται από το ΜΗΤΡΩΟ στο SoftOne — δεν τον ορίζει η εφαρμογή
+              και δεν αλλάζει ανά γραμμή. Λάθος χαρακτηρισμός διορθώνεται στο ίδιο το ERP. */}
+          <p className="mt-0.5 text-caption" style={{ color: s.noClass ? '#B45309' : '#047857' }}>
+            {s.noClass
+              ? 'Χαρακτηρισμός myDATA: κανένας στο μητρώο — θα καταχωριστεί αχαρακτήριστη'
+              : `Χαρακτηρισμός myDATA: ${s.myData}`}
+          </p>
         </div>
         <Button
           type="button"
           size="sm"
           variant={first ? 'default' : 'outline'}
           disabled={disabled}
-          onClick={() => void onMatch(s.expn != null ? { expn: s.expn } : { mtrl: s.mtrl ?? undefined }, s.kind === 'service')}
+          onClick={() => void onMatch(
+            s.lin != null ? { lin: s.lin } : s.expn != null ? { expn: s.expn } : { mtrl: s.mtrl ?? undefined },
+            s.kind === 'service',
+          )}
           className="h-8 shrink-0 cursor-pointer"
         >
           {first && <FiCornerDownLeft aria-hidden />} Αντιστοίχιση

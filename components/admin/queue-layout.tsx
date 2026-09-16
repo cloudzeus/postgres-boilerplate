@@ -84,6 +84,8 @@ export interface QueueLayoutBaseProps<T> {
 
   /** Accessible name of the listbox, e.g. «Ουρά εκδοτών». */
   listLabel?: string;
+  /** Ενέργειες που αφορούν ΟΛΗ τη λίστα (π.χ. μαζική πρόταση), κάτω από τα φίλτρα. */
+  listActions?: React.ReactNode;
   /** Detail panel. */
   children?: React.ReactNode;
   panelClassName?: string;
@@ -195,6 +197,7 @@ export function QueueLayout<T,>({
   onEscape,
   keysEnabled = true,
   listLabel = 'Ουρά εργασιών',
+  listActions,
   children,
   panelClassName,
   className,
@@ -356,6 +359,10 @@ export function QueueLayout<T,>({
               </div>
             )}
           </div>
+
+          {listActions && (
+            <div className="border-b border-border bg-neutral-4 px-3 py-2">{listActions}</div>
+          )}
 
           {notice && (
             <p className="border-b border-border bg-neutral-4 px-3 py-1.5 text-caption text-muted-foreground">

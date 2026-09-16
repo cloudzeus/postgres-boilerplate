@@ -9,6 +9,9 @@ const { db } = vi.hoisted(() => ({
     ignoredIssuer: { findMany: vi.fn() },
     softoneItem: { findMany: vi.fn(), findUnique: vi.fn() },
     softoneExpense: { findMany: vi.fn(), findUnique: vi.fn() },
+    softoneLineItem: { findMany: vi.fn(), findUnique: vi.fn() },
+    softoneMyDataClassType: { findMany: vi.fn() },
+    softoneMyDataClassCategory: { findMany: vi.fn() },
     lineMatchRule: { findMany: vi.fn(), upsert: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -23,6 +26,7 @@ vi.mock('@/lib/softone', () => ({
   TRADER_KIND_SODTYPE: { supplier: 12, creditor: 16 },
 }));
 
+import { clearClassificationCache } from '../mydata-labels';
 import {
   loadTraderQueue, applyTraderToDocs, loadItemQueue, suggestForGroup,
   applyMatchToGroup, skipGroup, countQueues, QueueError,
@@ -56,6 +60,11 @@ beforeEach(() => {
   db.softoneItem.findUnique.mockResolvedValue(null);
   db.softoneExpense.findMany.mockResolvedValue([]);
   db.softoneExpense.findUnique.mockResolvedValue(null);
+  db.softoneLineItem.findMany.mockResolvedValue([]);
+  db.softoneLineItem.findUnique.mockResolvedValue(null);
+  db.softoneMyDataClassType.findMany.mockResolvedValue([]);
+  db.softoneMyDataClassCategory.findMany.mockResolvedValue([]);
+  clearClassificationCache();
   db.lineMatchRule.findMany.mockResolvedValue([]);
   db.lineMatchRule.upsert.mockResolvedValue({});
   db.ocrDocument.findUnique.mockResolvedValue(null);
@@ -274,6 +283,29 @@ describe('suggestForGroup', () => {
       { name: { contains: 'αζωτο', mode: 'insensitive' } },
       { name: { contains: 'φιαλη', mode: 'insensitive' } },
     ]);
+    // Οι χρεοπιστώσεις είναι το τέταρτο μητρώο της ουράς, με το ίδιο φίλτρο.
+    const lineItems = db.softoneLineItem.findMany.mock.calls[0][0];
+    expect(lineItems.take).toBe(200);
+    expect(lineItems.where.OR).toEqual([
+      { code: { in: ['76-71106'] } },
+      { name: { contains: 'αζωτο', mode: 'insensitive' } },
+      { name: { contains: 'φιαλη', mode: 'insensitive' } },
+    ]);
+  });
+
+  it('προτείνει και ΧΡΕΟΠΙΣΤΩΣΕΙΣ, με το MTRL τους στο `lin`', async () => {
+    db.softoneLineItem.findMany.mockResolvedValue([
+      { mtrl: 777, code: 'ΧΡ01', name: 'ΥΓΡΟ ΑΖΩΤΟ' },
+    ]);
+    const s = await suggestForGroup({ afm: '094073495', pattern: 'υγρο αζωτο' });
+    expect(s[0]).toMatchObject({ lin: 777, mtrl: null, expn: null, kind: 'lineitem' });
+  });
+
+  it('κανόνας μνήμης σε χρεοπίστωση επιστρέφεται ως πρόταση «μνήμη»', async () => {
+    db.lineMatchRule.findMany.mockResolvedValue([{ afm: '094073495', mtrl: null, expn: null, lin: 777, isService: false }]);
+    db.softoneLineItem.findUnique.mockResolvedValue({ mtrl: 777, code: 'ΧΡ01', name: 'ΕΝΟΙΚΙΑ' });
+    const s = await suggestForGroup({ afm: '094073495', pattern: 'ενοικια' });
+    expect(s[0]).toMatchObject({ lin: 777, kind: 'lineitem', by: 'memory' });
   });
 
   it('βαθμολογεί κωδικό = 1 και ομοιότητα ονόματος, είδη + έξοδα μαζί', async () => {
@@ -296,8 +328,8 @@ describe('suggestForGroup', () => {
       { mtrl: 77, code: '76-71106', code1: null, code2: null, name: 'ΥΓΡΟ ΑΖΩΤΟ', isService: false },
     ]);
     db.lineMatchRule.findMany.mockResolvedValue([
-      { afm: '', mtrl: 99, expn: null, isService: false },
-      { afm: '094073495', mtrl: 77, expn: null, isService: false },
+      { afm: '', mtrl: 99, expn: null, lin: null, isService: false },
+      { afm: '094073495', mtrl: 77, expn: null, lin: null, isService: false },
     ]);
     db.softoneItem.findUnique.mockResolvedValue({ mtrl: 77, code: '76-71106', name: 'ΥΓΡΟ ΑΖΩΤΟ', isService: false });
 
@@ -324,17 +356,38 @@ describe('applyMatchToGroup', () => {
     const upd = db.ocrInvoiceItem.updateMany.mock.calls[0][0];
     expect(upd.where).toEqual({ id: { in: ['l1', 'l2'] } });
     expect(upd.data).toEqual({
-      softoneMtrl: 77, softoneExpn: null, softoneCode: '76-71106', softoneName: 'ΥΓΡΟ ΑΖΩΤΟ',
+      softoneMtrl: 77, softoneExpn: null, softoneLinMtrl: null, softoneCode: '76-71106', softoneName: 'ΥΓΡΟ ΑΖΩΤΟ',
       softoneIsService: false, softoneMatchedBy: 'manual',
     });
     expect(db.lineMatchRule.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { afm_pattern: { afm: '094073495', pattern: 'υγρο αζωτο kg' } },
       // Ο κανόνας ξαναχρησιμοποιήθηκε → +1 χρήση.
-      update: { mtrl: 77, expn: null, isService: false, timesUsed: { increment: 1 } },
-      create: { afm: '094073495', pattern: 'υγρο αζωτο kg', mtrl: 77, expn: null, isService: false, createdById: 'u1' },
+      update: { mtrl: 77, expn: null, lin: null, isService: false, timesUsed: { increment: 1 } },
+      create: { afm: '094073495', pattern: 'υγρο αζωτο kg', mtrl: 77, expn: null, lin: null, isService: false, createdById: 'u1' },
     }));
     // refreshDocTallies: ένα update ανά παραστατικό που άγγιξε η ομάδα.
     expect(db.ocrDocument.update).toHaveBeenCalledTimes(2);
+  });
+
+  it('αντιστοιχίζει σε ΧΡΕΟΠΙΣΤΩΣΗ και τη γράφει σε δική της στήλη', async () => {
+    db.ocrInvoiceItem.findMany.mockResolvedValue(LINES);
+    db.ocrDocument.findMany.mockResolvedValue(DOCS);
+    db.softoneLineItem.findUnique.mockResolvedValue({ mtrl: 777, code: 'ΧΡ01', name: 'ΕΝΟΙΚΙΑ' });
+
+    const r = await applyMatchToGroup({ afm: '094073495', pattern: 'υγρο αζωτο kg', target: { lin: 777 } });
+
+    expect(r).toMatchObject({ lin: 777, mtrl: null, expn: null, code: 'ΧΡ01' });
+    const upd = db.ocrInvoiceItem.updateMany.mock.calls[0][0];
+    expect(upd.data).toMatchObject({ softoneLinMtrl: 777, softoneMtrl: null, softoneExpn: null, softoneIsService: false });
+    expect(db.lineMatchRule.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      update: expect.objectContaining({ lin: 777 }),
+    }));
+  });
+
+  it('χρεοπίστωση εκτός μητρώου → 404, καμία εγγραφή', async () => {
+    db.softoneLineItem.findUnique.mockResolvedValue(null);
+    await expect(applyMatchToGroup({ afm: '', pattern: 'κατι', target: { lin: 999 } })).rejects.toMatchObject({ code: 'lineitem_not_found' });
+    expect(db.ocrInvoiceItem.updateMany).not.toHaveBeenCalled();
   });
 
   it('αντιστοιχίζει σε έξοδο (EXPN) και γράφει γενικό κανόνα όταν λείπει ΑΦΜ', async () => {

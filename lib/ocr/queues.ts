@@ -14,6 +14,7 @@ import {
   type MatchCandidate,
   type MatchKind,
 } from '@/lib/ocr/line-match';
+import { cachedClassificationLabeller, type ClassificationRef } from '@/lib/ocr/mydata-labels';
 
 /**
  * Server-side λογική για τις δύο ουρές του spec 2026-09-11 (§2 «Νέοι συναλλασσόμενοι»,
@@ -311,10 +312,11 @@ export async function applyTraderToDocs(
 // §3 — Ουρά «Είδη & έξοδα»
 // ============================================================
 
-/** Μια γραμμή είναι εκκρεμής όταν δεν έχει ούτε είδος ούτε έξοδο και δεν παραλείφθηκε ρητά. */
+/** Εκκρεμής = χωρίς είδος, έξοδο ή χρεοπίστωση, και χωρίς ρητή παράλειψη. */
 const UNMATCHED_LINE_WHERE: Prisma.OcrInvoiceItemWhereInput = {
   softoneMtrl: null,
   softoneExpn: null,
+  softoneLinMtrl: null,
   // `not` σε nullable πεδίο δεν επιστρέφει NULL — τα κενά τα ζητάμε ρητά.
   OR: [{ softoneMatchedBy: null }, { softoneMatchedBy: { not: 'skipped' } }],
 };
@@ -322,12 +324,18 @@ const UNMATCHED_LINE_WHERE: Prisma.OcrInvoiceItemWhereInput = {
 export interface QueueSuggestion {
   mtrl: number | null;
   expn: number | null;
+  /** MTRL χρεοπίστωσης (`SoftoneLineItem`) όταν η πρόταση είναι «Ειδικές συναλλαγές». */
+  lin: number | null;
   kind: MatchKind;
   code: string;
   name: string;
   score: number;
-  /** code2 | code1 | code | name | memory */
+  /** code2 | code1 | code | name | memory | ai */
   by: string;
+  /** Ο χαρακτηρισμός myDATA του ΜΗΤΡΩΟΥ σε ελληνικά (null = δεν έχει). */
+  myData?: string | null;
+  /** `true` όταν το μητρώο δεν κουβαλά κανέναν χαρακτηρισμό — θα καταχωριστεί αχαρακτήριστη. */
+  noClass?: boolean;
 }
 export interface ItemQueueLine {
   id: string;
@@ -494,10 +502,14 @@ const itemCandidate = (i: {
 const expenseCandidate = (e: { expn: number; code: string; name: string }): MatchCandidate => ({
   id: `expn:${e.expn}`, kind: 'expense', code: e.code, name: e.name, code1: null, code2: null,
 });
+const lineItemCandidate = (l: { mtrl: number; code: string; name: string }): MatchCandidate => ({
+  id: `lin:${l.mtrl}`, kind: 'lineitem', code: l.code, name: l.name, code1: null, code2: null,
+});
 
 const toSuggestion = (c: MatchCandidate & { score: number; by: string }): QueueSuggestion => ({
   mtrl: c.id.startsWith('mtrl:') ? Number(c.id.slice(5)) : null,
   expn: c.id.startsWith('expn:') ? Number(c.id.slice(5)) : null,
+  lin: c.id.startsWith('lin:') ? Number(c.id.slice(4)) : null,
   kind: c.kind, code: c.code, name: c.name, score: c.score, by: c.by,
 });
 
@@ -520,50 +532,73 @@ export async function suggestForGroup(input: {
 
   const itemOr: Prisma.SoftoneItemWhereInput[] = [];
   const expenseOr: Prisma.SoftoneExpenseWhereInput[] = [];
+  const linOr: Prisma.SoftoneLineItemWhereInput[] = [];
   if (code) {
     itemOr.push({ code: { in: [code] } }, { code1: { in: [code] } }, { code2: { in: [code] } });
     expenseOr.push({ code: { in: [code] } });
+    linOr.push({ code: { in: [code] } });
   }
   for (const t of tokens) {
     const safe = likeEscape(t);
     itemOr.push({ name: { contains: safe, mode: 'insensitive' } });
     expenseOr.push({ name: { contains: safe, mode: 'insensitive' } });
+    linOr.push({ name: { contains: safe, mode: 'insensitive' } });
   }
 
-  const [items, expenses, rules] = await Promise.all([
+  const [items, expenses, lineItems, rules] = await Promise.all([
     itemOr.length
       ? prisma.softoneItem.findMany({
           where: { isActive: true, OR: itemOr },
-          select: { mtrl: true, code: true, code1: true, code2: true, name: true, isService: true },
+          select: { mtrl: true, code: true, code1: true, code2: true, name: true, isService: true, myDataCode: true },
           take: CANDIDATE_TAKE,
         })
       : Promise.resolve([]),
     expenseOr.length
       ? prisma.softoneExpense.findMany({
           where: { isActive: true, OR: expenseOr },
-          select: { expn: true, code: true, name: true },
+          select: { expn: true, code: true, name: true, classTypeX: true, classCategoryX: true },
+          take: CANDIDATE_TAKE,
+        })
+      : Promise.resolve([]),
+    linOr.length
+      ? prisma.softoneLineItem.findMany({
+          where: { isActive: true, OR: linOr },
+          select: { mtrl: true, code: true, name: true, classType: true, classCategory: true, myDataCode: true },
           take: CANDIDATE_TAKE,
         })
       : Promise.resolve([]),
     prisma.lineMatchRule.findMany({
       where: { pattern, afm: { in: afm ? [afm, ''] : [''] } },
-      select: { afm: true, mtrl: true, expn: true, isService: true },
+      select: { afm: true, mtrl: true, expn: true, lin: true, isService: true },
     }),
   ]);
 
   const candidates: MatchCandidate[] = [
     ...items.map(itemCandidate),
     ...expenses.map(expenseCandidate),
+    ...lineItems.map(lineItemCandidate),
   ];
   const scored = scoreCandidates({ code, name: input.sample ?? pattern }, candidates);
-  const out = scored.map(toSuggestion);
+  // Ο χαρακτηρισμός myDATA είναι ιδιότητα του ΜΗΤΡΩΟΥ: τον δείχνουμε δίπλα στην πρόταση ώστε ο
+  // χρήστης να ξέρει πώς θα χαρακτηριστεί η γραμμή πριν πατήσει «Αντιστοίχιση».
+  const label = await cachedClassificationLabeller();
+  const classOf = new Map<string, ClassificationRef>([
+    ...items.map((i) => [`mtrl:${i.mtrl}`, { myDataCode: i.myDataCode }] as const),
+    // Για παραστατικά που ΛΑΜΒΑΝΟΥΜΕ ισχύει το ζεύγος χαρακτηρισμού ΕΞΟΔΩΝ (…X).
+    ...expenses.map((e) => [`expn:${e.expn}`, { classType: e.classTypeX, classCategory: e.classCategoryX }] as const),
+    ...lineItems.map((l) => [`lin:${l.mtrl}`, { classType: l.classType, classCategory: l.classCategory, myDataCode: l.myDataCode }] as const),
+  ]);
+  const out: QueueSuggestion[] = scored.map((c) => {
+    const cls = label(classOf.get(c.id) ?? {});
+    return { ...toSuggestion(c), myData: cls.label, noClass: cls.missing };
+  });
 
   // Ο κανόνας του εκδότη υπερισχύει του γενικού· η μνήμη μπαίνει πρώτη.
   const rule = rules.find((r) => r.afm !== '') ?? rules[0];
-  if (rule && (rule.mtrl != null || rule.expn != null)) {
+  if (rule && (rule.mtrl != null || rule.expn != null || rule.lin != null)) {
     const memory = await memorySuggestion(rule);
     if (memory) {
-      const dup = out.findIndex((s) => s.mtrl === memory.mtrl && s.expn === memory.expn);
+      const dup = out.findIndex((s) => s.mtrl === memory.mtrl && s.expn === memory.expn && s.lin === memory.lin);
       if (dup >= 0) out.splice(dup, 1);
       out.unshift(memory);
     }
@@ -572,8 +607,16 @@ export async function suggestForGroup(input: {
 }
 
 async function memorySuggestion(rule: {
-  mtrl: number | null; expn: number | null; isService: boolean;
+  mtrl: number | null; expn: number | null; lin: number | null; isService: boolean;
 }): Promise<QueueSuggestion | null> {
+  if (rule.lin != null) {
+    const l = await prisma.softoneLineItem.findUnique({
+      where: { mtrl: rule.lin },
+      select: { mtrl: true, code: true, name: true },
+    });
+    if (!l) return null;
+    return { mtrl: null, expn: null, lin: l.mtrl, kind: 'lineitem', code: l.code, name: l.name, score: MEMORY_SCORE, by: 'memory' };
+  }
   if (rule.mtrl != null) {
     const i = await prisma.softoneItem.findUnique({
       where: { mtrl: rule.mtrl },
@@ -581,7 +624,7 @@ async function memorySuggestion(rule: {
     });
     if (!i) return null;
     return {
-      mtrl: i.mtrl, expn: null, kind: i.isService ? 'service' : 'product',
+      mtrl: i.mtrl, expn: null, lin: null, kind: i.isService ? 'service' : 'product',
       code: i.code, name: i.name, score: MEMORY_SCORE, by: 'memory',
     };
   }
@@ -592,7 +635,7 @@ async function memorySuggestion(rule: {
     });
     if (!e) return null;
     return {
-      mtrl: null, expn: e.expn, kind: 'expense',
+      mtrl: null, expn: e.expn, lin: null, kind: 'expense',
       code: e.code, name: e.name, score: MEMORY_SCORE, by: 'memory',
     };
   }
@@ -616,12 +659,15 @@ async function groupLineIds(afm: string, pattern: string): Promise<{ lineIds: st
 export interface MatchTarget {
   mtrl?: number | null;
   expn?: number | null;
+  /** MTRL χρεοπίστωσης (`SoftoneLineItem`) — οι «Ειδικές συναλλαγές» δέχονται μόνο αυτό. */
+  lin?: number | null;
 }
 export interface GroupMatchResult {
   linesUpdated: number;
   docIds: string[];
   mtrl: number | null;
   expn: number | null;
+  lin: number | null;
   code: string | null;
   name: string | null;
 }
@@ -644,8 +690,9 @@ export async function applyMatchToGroup(input: {
 
   const mtrl = input.target.mtrl != null ? Number(input.target.mtrl) : null;
   const expn = input.target.expn != null ? Number(input.target.expn) : null;
-  if (mtrl == null && expn == null) {
-    throw new QueueError('missing_target', 'Δώσε είδος (mtrl) ή έξοδο (expn).');
+  const lin = input.target.lin != null ? Number(input.target.lin) : null;
+  if (mtrl == null && expn == null && lin == null) {
+    throw new QueueError('missing_target', 'Δώσε είδος (mtrl), έξοδο (expn) ή χρεοπίστωση (lin).');
   }
 
   let code: string | null = null;
@@ -657,6 +704,13 @@ export async function applyMatchToGroup(input: {
     code = item.code;
     name = item.name;
     isService = item.isService;
+  } else if (lin != null) {
+    const lineItem = await prisma.softoneLineItem.findUnique({ where: { mtrl: lin } });
+    if (!lineItem) throw new QueueError('lineitem_not_found', `Η χρεοπίστωση ${lin} δεν βρέθηκε στο μητρώο.`, 404);
+    code = lineItem.code;
+    name = lineItem.name;
+    // Μια χρεοπίστωση δεν είναι υπηρεσία: το flag αφορά μόνο τον διαχωρισμό ITELINES/SRVLINES.
+    isService = false;
   } else {
     const expense = await prisma.softoneExpense.findUnique({ where: { expn: expn! } });
     if (!expense) throw new QueueError('expense_not_found', `Το έξοδο ${expn} δεν βρέθηκε στο μητρώο.`, 404);
@@ -668,13 +722,13 @@ export async function applyMatchToGroup(input: {
   // Καμία γραμμή: η ομάδα έφυγε από την ουρά όσο ο χρήστης αποφάσιζε (άλλη καρτέλα, νέα
   // σάρωση). Δεν γράφουμε μνήμη για ομάδα-φάντασμα — θα «διόρθωνε» γραμμές που κανείς δεν είδε.
   if (lineIds.length === 0) {
-    return { linesUpdated: 0, docIds, mtrl, expn, code, name };
+    return { linesUpdated: 0, docIds, mtrl, expn, lin, code, name };
   }
 
   await prisma.ocrInvoiceItem.updateMany({
     where: { id: { in: lineIds } },
     data: {
-      softoneMtrl: mtrl, softoneExpn: expn, softoneCode: code, softoneName: name,
+      softoneMtrl: mtrl, softoneExpn: expn, softoneLinMtrl: lin, softoneCode: code, softoneName: name,
       softoneIsService: isService, softoneMatchedBy: 'manual',
     },
   });
@@ -682,12 +736,12 @@ export async function applyMatchToGroup(input: {
   // Ο κανόνας ξαναχρησιμοποιήθηκε (ο χρήστης επιβεβαίωσε την ίδια αντιστοίχιση): +1 χρήση.
   await prisma.lineMatchRule.upsert({
     where: { afm_pattern: { afm, pattern } },
-    update: { mtrl, expn, isService, timesUsed: { increment: 1 } },
-    create: { afm, pattern, mtrl, expn, isService, createdById: input.userId ?? null },
+    update: { mtrl, expn, lin, isService, timesUsed: { increment: 1 } },
+    create: { afm, pattern, mtrl, expn, lin, isService, createdById: input.userId ?? null },
   });
 
   await refreshDocTallies(docIds);
-  return { linesUpdated: lineIds.length, docIds, mtrl, expn, code, name };
+  return { linesUpdated: lineIds.length, docIds, mtrl, expn, lin, code, name };
 }
 
 /**

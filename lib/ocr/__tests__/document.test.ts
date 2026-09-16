@@ -121,8 +121,8 @@ describe('linesToRows', () => {
 describe('carryForward', () => {
   const rows = linesToRows(docWith(ITEMS).lines);
   const old = [
-    { rowIndex: 0, code: 'A1', name: 'Είδος Α', softoneMtrl: 11, softoneExpn: null, softoneCode: 'K1', softoneName: 'ΕΙΔΟΣ', softoneIsService: false, softoneMatchedBy: 'manual' },
-    { rowIndex: 1, code: 'B2', name: 'Είδος Β', softoneMtrl: null, softoneExpn: 77, softoneCode: null, softoneName: null, softoneIsService: null, softoneMatchedBy: 'memory' },
+    { rowIndex: 0, code: 'A1', name: 'Είδος Α', softoneMtrl: 11, softoneExpn: null, softoneLinMtrl: null, softoneCode: 'K1', softoneName: 'ΕΙΔΟΣ', softoneIsService: false, softoneMatchedBy: 'manual' },
+    { rowIndex: 1, code: 'B2', name: 'Είδος Β', softoneMtrl: null, softoneExpn: 77, softoneLinMtrl: null, softoneCode: null, softoneName: null, softoneIsService: null, softoneMatchedBy: 'memory' },
   ];
 
   it('carries the SoftOne match (item AND expense) when code+name are unchanged', () => {
@@ -141,7 +141,7 @@ describe('carryForward', () => {
   it('drops the match when the line became a different article', () => {
     const changed = [{ ...rows[0], code: 'Z9', name: 'Άλλο' }];
     expect(carryForward(changed, old)[0]).toEqual({
-      softoneMtrl: null, softoneExpn: null, softoneCode: null, softoneName: null,
+      softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneCode: null, softoneName: null,
       softoneIsService: null, softoneMatchedBy: null,
     });
   });
@@ -172,7 +172,7 @@ describe('saveDocumentJson', () => {
 
   it('replaces the item rows, carrying the SoftOne match forward', async () => {
     db.ocrInvoiceItem.findMany.mockResolvedValue([
-      { rowIndex: 0, code: 'A1', name: 'Είδος Α', softoneMtrl: 11, softoneExpn: null, softoneCode: 'K1', softoneName: 'ΕΙΔΟΣ', softoneIsService: false, softoneMatchedBy: 'manual' },
+      { rowIndex: 0, code: 'A1', name: 'Είδος Α', softoneMtrl: 11, softoneExpn: null, softoneLinMtrl: null, softoneCode: 'K1', softoneName: 'ΕΙΔΟΣ', softoneIsService: false, softoneMatchedBy: 'manual' },
     ]);
     await saveDocumentJson('d1', docWith(ITEMS), { replaceItems: true });
     expect(db.ocrInvoiceItem.deleteMany).toHaveBeenCalledWith({ where: { documentId: 'd1' } });

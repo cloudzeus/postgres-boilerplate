@@ -12,10 +12,10 @@ export async function POST(req: Request) {
   if (mtrl == null) {
     await prisma.ocrInvoiceItem.update({
       where: { id: String(lineId) },
-      // Καθαρίζουμε ΚΑΙ το έξοδο: αλλιώς μια γραμμή αντιστοιχισμένη σε EXPN έμενε
-      // «αντιστοιχισμένη» και δεν επέστρεφε ποτέ στην ουρά (spec §3).
+      // Καθαρίζουμε ΚΑΙ το έξοδο ΚΑΙ τη χρεοπίστωση: αλλιώς μια γραμμή αντιστοιχισμένη σε EXPN
+      // ή σε χρεοπίστωση έμενε «αντιστοιχισμένη» και δεν επέστρεφε ποτέ στην ουρά (spec §3).
       data: {
-        softoneMtrl: null, softoneExpn: null, softoneCode: null,
+        softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneCode: null,
         softoneName: null, softoneIsService: null, softoneMatchedBy: null,
       },
     });
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   await prisma.ocrInvoiceItem.update({
     where: { id: String(lineId) },
     data: {
-      softoneMtrl: item.mtrl, softoneExpn: null, softoneCode: item.code, softoneName: item.name,
+      softoneMtrl: item.mtrl, softoneExpn: null, softoneLinMtrl: null, softoneCode: item.code, softoneName: item.name,
       softoneIsService: item.isService, softoneMatchedBy: 'manual',
     },
   });

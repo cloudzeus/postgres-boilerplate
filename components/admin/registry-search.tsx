@@ -6,28 +6,39 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 /** Ποιο μητρώο ψάχνουμε — ίδιες τιμές με το `MatchKind` της ουράς. */
-export type RegistryKind = 'product' | 'service' | 'expense';
+export type RegistryKind = 'product' | 'service' | 'expense' | 'lineitem';
 
 export interface RegistryPick {
-  /** MTRL για είδος/υπηρεσία, EXPN για έξοδο. */
+  /** MTRL για είδος/υπηρεσία/χρεοπίστωση, EXPN για έξοδο. */
   id: number;
   kind: RegistryKind;
   code: string;
   name: string;
+  /** Κατηγορία ΦΠΑ του μητρώου (αν υπάρχει) — προσυμπληρώνει γραμμή χωρίς τυπωμένο ΦΠΑ. */
+  vat?: string | null;
+  /** Ο χαρακτηρισμός myDATA του ΜΗΤΡΩΟΥ, ήδη σε ελληνικά. */
+  myData?: string | null;
+  /** `true` όταν το μητρώο δεν κουβαλά κανέναν χαρακτηρισμό myDATA. */
+  noClass?: boolean;
 }
 
-type Result = { id: number; code: string; name: string; sub?: string; isService?: boolean };
+type Result = {
+  id: number; code: string; name: string; sub?: string; isService?: boolean;
+  vat?: string | null; myData?: string | null; noClass?: boolean;
+};
 
 const ENDPOINT: Record<RegistryKind, string> = {
   product: 'products',
   service: 'services',
   expense: 'expenses',
+  lineitem: 'lineitems',
 };
 
 const PLACEHOLDER: Record<RegistryKind, string> = {
   product: 'Αναζήτηση είδους (κωδικός ή περιγραφή)…',
   service: 'Αναζήτηση υπηρεσίας (κωδικός ή περιγραφή)…',
   expense: 'Αναζήτηση εξόδου (κωδικός ή περιγραφή)…',
+  lineitem: 'Αναζήτηση χρεοπίστωσης (κωδικός ή περιγραφή)…',
 };
 
 /**
@@ -41,12 +52,15 @@ export function RegistrySearch({
   disabled,
   label = 'Άλλο είδος/έξοδο…',
   id = 'registry-search',
+  category,
 }: {
   kind: RegistryKind;
   onPick: (pick: RegistryPick) => void | Promise<void>;
   disabled?: boolean;
   label?: string;
   id?: string;
+  /** Μόνο για `lineitem`: MTRCATEGORY που στενεύει την αναζήτηση σε μία κατηγορία δαπάνης. */
+  category?: number | null;
 }) {
   const [q, setQ] = React.useState('');
   const [results, setResults] = React.useState<Result[]>([]);
@@ -59,7 +73,7 @@ export function RegistrySearch({
   const listId = `${id}-list`;
 
   // Αλλαγή μητρώου (segmented) ⇒ τα προηγούμενα αποτελέσματα δεν ισχύουν πια.
-  React.useEffect(() => { setResults([]); setOpen(false); setActive(0); setFailed(false); }, [kind]);
+  React.useEffect(() => { setResults([]); setOpen(false); setActive(0); setFailed(false); }, [kind, category]);
 
   React.useEffect(() => {
     const term = q.trim();
@@ -68,7 +82,8 @@ export function RegistrySearch({
     let ignore = false;
     setLoading(true);
     const h = setTimeout(() => {
-      fetch(`/api/admin/softone/search?type=${ENDPOINT[kind]}&q=${encodeURIComponent(term)}`)
+      const cat = kind === 'lineitem' && category ? `&category=${category}` : '';
+      fetch(`/api/admin/softone/search?type=${ENDPOINT[kind]}&q=${encodeURIComponent(term)}${cat}`)
         .then(async (r) => {
           // Σφάλμα δικτύου/διακομιστή δεν είναι «δεν βρέθηκε»: το λέμε ρητά.
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -85,7 +100,7 @@ export function RegistrySearch({
         .finally(() => { if (!ignore) setLoading(false); });
     }, 250);
     return () => { ignore = true; clearTimeout(h); };
-  }, [q, kind, reload]);
+  }, [q, kind, category, reload]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -102,9 +117,12 @@ export function RegistrySearch({
     setResults([]);
     await onPick({
       id: r.id,
-      kind: kind === 'expense' ? 'expense' : r.isService ? 'service' : 'product',
+      kind: kind === 'expense' || kind === 'lineitem' ? kind : r.isService ? 'service' : 'product',
       code: r.code,
       name: r.name,
+      vat: r.vat ?? null,
+      myData: r.myData ?? null,
+      noClass: r.noClass ?? false,
     });
   };
 
@@ -177,6 +195,10 @@ export function RegistrySearch({
                 <span className="text-caption text-muted-foreground">
                   <span className="font-mono">{r.code}</span>
                   {r.sub ? ` · ${r.sub}` : ''}
+                </span>
+                {/* Ο χαρακτηρισμός myDATA του μητρώου — μόνο ενημερωτικά, δεν τον ορίζει η εφαρμογή. */}
+                <span className="text-caption" style={{ color: r.noClass ? '#B45309' : '#047857' }}>
+                  {r.noClass ? 'myDATA: χωρίς χαρακτηρισμό' : `myDATA: ${r.myData}`}
                 </span>
               </button>
             </li>

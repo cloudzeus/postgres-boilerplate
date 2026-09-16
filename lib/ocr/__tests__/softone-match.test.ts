@@ -97,7 +97,7 @@ describe('matchDocItems — memory pass', () => {
     expect(r).toEqual({ matched: 2, total: 2 });
     for (const id of ['l1', 'l2']) {
       expect(updateFor(id)).toMatchObject({
-        softoneMtrl: 5, softoneExpn: null, softoneCode: '00022', softoneName: 'ΥΓΡΟ ΑΖΩΤΟ',
+        softoneMtrl: 5, softoneExpn: null, softoneLinMtrl: null, softoneCode: '00022', softoneName: 'ΥΓΡΟ ΑΖΩΤΟ',
         softoneIsService: false, softoneMatchedBy: 'memory',
       });
     }
@@ -118,7 +118,7 @@ describe('matchDocItems — memory pass', () => {
 
     expect(r).toEqual({ matched: 1, total: 1 });
     expect(updateFor('l1')).toMatchObject({
-      softoneMtrl: null, softoneExpn: 103, softoneCode: '103', softoneName: 'Μεταφορικά Αγορών',
+      softoneMtrl: null, softoneExpn: 103, softoneLinMtrl: null, softoneCode: '103', softoneName: 'Μεταφορικά Αγορών',
       softoneIsService: true, softoneMatchedBy: 'memory',
     });
     expect(db.ocrDocument.update).toHaveBeenCalledWith({ where: { id: 'doc1' }, data: { itemsTotal: 1, itemsMatched: 1 } });
@@ -133,7 +133,7 @@ describe('matchDocItems — memory pass', () => {
 
     expect(r).toEqual({ matched: 0, total: 1 });
     expect(updateFor('l1')).toEqual({
-      softoneMtrl: null, softoneExpn: null, softoneCode: null, softoneName: null,
+      softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneCode: null, softoneName: null,
       softoneIsService: null, softoneMatchedBy: null,
     });
   });

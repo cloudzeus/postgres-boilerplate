@@ -1,6 +1,6 @@
 /**
  * Καθαρή λογική αντιστοίχισης γραμμών παραστατικού με το μητρώο SoftOne
- * (είδη/υπηρεσίες MTRL, έξοδα EXPN) — spec 2026-09-11 §3.
+ * (είδη/υπηρεσίες MTRL, έξοδα EXPN, χρεοπιστώσεις LINEITEM) — spec 2026-09-11 §3.
  *
  * Δεν αγγίζει DB ούτε SoftOne: κανονικοποίηση κειμένου, ομαδοποίηση όμοιων
  * γραμμών, ομοιότητα ονομάτων (Dice σε bigrams) και πρόταση τύπου συναλλασσομένου.
@@ -61,7 +61,12 @@ export function dice(a: string | null | undefined, b: string | null | undefined)
   return (2 * inter) / (nx + ny);
 }
 
-export type MatchKind = 'product' | 'service' | 'expense';
+/**
+ * Σε τι μπορεί να αντιστοιχιστεί μια γραμμή. Το `lineitem` είναι η ΧΡΕΟΠΙΣΤΩΣΗ (SoftOne object
+ * LINEITEM → MTRL με SODTYPE 53): το μόνο πράγμα που δέχεται το `MTRL` μιας γραμμής LINLINES,
+ * δηλαδή των «Ειδικών συναλλαγών» — δεν είναι ούτε είδος, ούτε υπηρεσία, ούτε έξοδο EXPN.
+ */
+export type MatchKind = 'product' | 'service' | 'expense' | 'lineitem';
 export type MatchedBy = 'code2' | 'code1' | 'code' | 'name';
 
 export interface MatchCandidate {
