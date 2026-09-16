@@ -3,18 +3,24 @@
 // λευκή λίστα κωδικών, με κρυφή μνήμη, και χωρίς να σκάει όταν δεν υπάρχει μοντέλο.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { db, queues, extract } = vi.hoisted(() => ({
+const { db, queues, extract, ownAfm } = vi.hoisted(() => ({
   db: {
     softoneLineItem: { findMany: vi.fn() },
     softoneLineCategory: { findUnique: vi.fn(), findMany: vi.fn() },
     // Συμφραζόμενα του prompt: ποιος εκδίδει και η πραγματική ταξινομία myDATA.
     softoneTrader: { findMany: vi.fn() },
+    // Το ΜΗΤΡΩΟ ΕΞΟΔΩΝ: λευκή λίστα στο prompt αντί για αφηρημένες ομάδες ΕΛΠ.
+    softoneExpense: { findMany: vi.fn() },
     softoneMyDataClassType: { findMany: vi.fn() },
     softoneMyDataClassCategory: { findMany: vi.fn() },
     company: { findFirst: vi.fn() },
   },
   queues: { suggestForGroup: vi.fn() },
   extract: { resolveCfg: vi.fn(), callTextLLM: vi.fn(), callTextViaVision: vi.fn() },
+  // Το ΑΦΜ μας: το `resolveOwnAfm` έχει δική του cache ΑΝΑ ΗΜΕΡΑ σε module-level μεταβλητή,
+  // που κανένα `clearOwnCompanyCache` δεν αγγίζει — ένα test θα κλείδωνε την τιμή για όλα τα
+  // επόμενα. Το mock-άρουμε ώστε κάθε test να ορίζει ρητά αν ξέρουμε ποιοι είμαστε.
+  ownAfm: { resolveOwnAfm: vi.fn() },
 }));
 
 vi.mock('@/lib/db', () => ({ prisma: db }));
@@ -24,6 +30,8 @@ vi.mock('@/lib/ocr/queues', () => queues);
 vi.mock('../extract', () => extract);
 vi.mock('@/lib/ocr/extract', () => extract);
 vi.mock('@/lib/settings', () => ({ getSetting: vi.fn(async () => ''), setSetting: vi.fn() }));
+vi.mock('../own-afm', () => ownAfm);
+vi.mock('@/lib/ocr/own-afm', () => ownAfm);
 
 import {
   suggestExpensesWithAi, parseAiAnswer, clearExpenseAiCache, MAX_GROUPS, resolveAnswerKey,
@@ -33,6 +41,16 @@ import { clearOwnCompanyCache } from '../own-company';
 const CANDIDATES = [
   { mtrl: 777, code: 'ΧΡ01', name: 'ΕΝΟΙΚΙΑ ΚΤΙΡΙΩΝ', mtrCategory: 5 },
   { mtrl: 778, code: 'ΧΡ02', name: 'ΗΛΕΚΤΡΙΚΟ ΡΕΥΜΑ', mtrCategory: 5 },
+];
+
+/** Το πραγματικό μητρώο εξόδων του ζωντανού tenant — έξι γραμμές, ολόκληρο. */
+const EXPENSES = [
+  { code: '100', name: 'Παρακράτηση Φόρου' },
+  { code: '101', name: 'Φόρος Ανακύκλωσης' },
+  { code: '102', name: 'Έξοδα Επεξεργασίας' },
+  { code: '103', name: 'Μεταφορικά Αγορών' },
+  { code: '104', name: 'Μεταφορικά Πωλήσεων' },
+  { code: 'EFK', name: 'EFK web' },
 ];
 
 const group = (key: string, sample: string) => ({ key, afm: '094073495', pattern: key, sample });
@@ -45,9 +63,11 @@ beforeEach(() => {
   clearExpenseAiCache();
   clearOwnCompanyCache();
   db.softoneTrader.findMany.mockResolvedValue([]);
+  db.softoneExpense.findMany.mockResolvedValue(EXPENSES);
   db.softoneMyDataClassType.findMany.mockResolvedValue([]);
   db.softoneMyDataClassCategory.findMany.mockResolvedValue([]);
   db.company.findFirst.mockResolvedValue(null);
+  ownAfm.resolveOwnAfm.mockResolvedValue('997939640');
   queues.suggestForGroup.mockResolvedValue(weak);
   db.softoneLineItem.findMany.mockResolvedValue(CANDIDATES);
   db.softoneLineCategory.findUnique.mockResolvedValue({ name: 'ΛΕΙΤΟΥΡΓΙΚΑ' });
@@ -306,5 +326,202 @@ describe('resolveAnswerKey', () => {
   it('άσχετο ή κενό κλειδί → null, η λευκή λίστα μένει λευκή λίστα', () => {
     expect(resolveAnswerKey('κατι αλλο', asked)).toBeNull();
     expect(resolveAnswerKey('   ', asked)).toBeNull();
+  });
+});
+
+/**
+ * Η γραμμή «εκδότης» του prompt δεν λέει πια σκέτο «σχέση: Προμηθευτής» — λέει ΤΙ ΣΥΝΕΠΑΓΕΤΑΙ
+ * η καρτέλα υπό τα ΕΛΠ. Η σκέτη ετικέτα άφηνε το μοντέλο να μαντέψει, και μάντευε ασταθώς:
+ * ίδιος εκδότης, ίδιο είδος προϊόντος, διαφορετική απάντηση ανά παρτίδα.
+ */
+describe('η σχέση με τον εκδότη μέσα στο prompt', () => {
+  const promptText = () => String(extract.callTextViaVision.mock.calls[0][2]);
+
+  it('καρτέλα προμηθευτή (12) ⇒ αγορά για μεταπώληση, ομάδα 2', async () => {
+    db.softoneTrader.findMany.mockResolvedValue([
+      { afm: '094073495', name: 'BESSEY', profession: null, sodtype: 12 },
+    ]);
+    await suggestExpensesWithAi({ groups: [group('g1', 'ΣΦΙΓΚΤΗΡΑΣ')] });
+    expect(promptText()).toContain('ΠΡΟΜΗΘΕΥΤΗΣ');
+    expect(promptText()).toContain('ομάδα 2');
+  });
+
+  it('καρτέλα πιστωτή (16) ⇒ δαπάνη/παροχή τρίτων, ομάδα 6, ΟΧΙ απόθεμα', async () => {
+    db.softoneTrader.findMany.mockResolvedValue([
+      { afm: '094073495', name: 'ENTERSOFT', profession: null, sodtype: 16 },
+    ]);
+    await suggestExpensesWithAi({ groups: [group('g1', 'ΣΥΝΤΗΡΗΣΗ')] });
+    expect(promptText()).toContain('ΠΙΣΤΩΤΗΣ');
+    expect(promptText()).toContain('ομάδα 6');
+  });
+
+  /**
+   * Η παλιά `loadIssuers` κρατούσε την ΠΡΩΤΗ γραμμή ανά ΑΦΜ, οπότε ένας εκδότης με δύο
+   * καρτέλες δήλωνε αυθαίρετα τη μία — ανάλογα με τη σειρά των εγγραφών στη βάση.
+   */
+  it('ΚΑΙ ΟΙ ΔΥΟ καρτέλες ⇒ το prompt λέει ρητά ότι η σχέση ΔΕΝ αποφασίζει', async () => {
+    db.softoneTrader.findMany.mockResolvedValue([
+      { afm: '094073495', name: 'ΔΙΠΛΗ ΑΕ', profession: null, sodtype: 12 },
+      { afm: '094073495', name: 'ΔΙΠΛΗ ΑΕ', profession: null, sodtype: 16 },
+    ]);
+    await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+    expect(promptText()).toContain('ΔΕΝ αποφασίζει');
+  });
+
+  it('χωρίς καρτέλα δεν γράφεται καθόλου «σχέση»', async () => {
+    db.softoneTrader.findMany.mockResolvedValue([]);
+    await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+    expect(promptText()).not.toContain('σχέση:');
+  });
+});
+
+/**
+ * Το «προϊόν ή έξοδο;» είναι στην ουσία «για μεταπώληση ή για ανάλωση;» — και αυτό δεν
+ * απαντιέται χωρίς τη δραστηριότητα του ΑΓΟΡΑΣΤΗ. Η έλλειψη πρέπει να ΦΑΙΝΕΤΑΙ.
+ */
+describe('η δική μας δραστηριότητα', () => {
+  const promptText = () => String(extract.callTextViaVision.mock.calls[0][2]);
+
+  it('χωρίς καρτέλα εταιρείας ⇒ ownCompanyUnknown και ΡΗΤΟ «ΑΓΝΩΣΤΗ» στο prompt', async () => {
+    db.company.findFirst.mockResolvedValue(null);
+    const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+    expect(r.ownCompanyUnknown).toBe(true);
+    expect(promptText()).toContain('ΑΓΝΩΣΤΗ');
+  });
+
+  it('με δραστηριότητα ⇒ ownCompanyUnknown false', async () => {
+    db.company.findFirst.mockResolvedValue({
+      name: 'DGSOFT ΕΕ', profession: 'ΑΝΑΠΤΥΞΗ ΛΟΓΙΣΜΙΚΟΥ', gemiObjective: null, activities: [],
+    });
+    const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+    expect(r.ownCompanyUnknown).toBe(false);
+  });
+
+  /**
+   * Η ΚΥΡΙΑ δραστηριότητα είναι μία και συχνά δεν είναι η εμπορική: με μόνο «ανάπτυξη
+   * λογισμικού» στο prompt, ένας αγορασμένος υπολογιστής είναι — πάνω στα δεδομένα που
+   * δόθηκαν — έξοδο.
+   */
+  it('οι ΕΜΠΟΡΙΚΟΙ ΚΑΔ (45/46/47) μπαίνουν χωριστά στο prompt', async () => {
+    db.company.findFirst.mockResolvedValue({
+      name: 'DGSOFT ΕΕ',
+      profession: 'ΥΠΗΡΕΣΙΕΣ ΑΝΑΠΤΥΞΗΣ ΛΟΓΙΣΜΙΚΟΥ',
+      gemiObjective: null,
+      activities: [
+        { codeAade: '62011103', codeWithoutDots: '62011103', description: 'ΑΝΑΠΤΥΞΗ ΛΟΓΙΣΜΙΚΟΥ', kind: 'PRIMARY', order: 0 },
+        { codeAade: '46500000', codeWithoutDots: '46500000', description: 'ΧΟΝΔΡΙΚΟ ΕΜΠΟΡΙΟ ΕΞΟΠΛΙΣΜΟΥ ΠΛΗΡΟΦΟΡΙΚΗΣ', kind: 'SECONDARY', order: 1 },
+      ],
+    });
+    await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+    expect(promptText()).toContain('Εμπορικές δραστηριότητες');
+    expect(promptText()).toContain('ΧΟΝΔΡΙΚΟ ΕΜΠΟΡΙΟ ΕΞΟΠΛΙΣΜΟΥ ΠΛΗΡΟΦΟΡΙΚΗΣ');
+    // Η κύρια (ΚΑΔ 62) ΔΕΝ είναι εμπορική και δεν μπαίνει στη λίστα μεταπώλησης.
+    expect(promptText()).not.toContain('• 62011103');
+  });
+
+  it('κανένας εμπορικός ΚΑΔ ⇒ το prompt το λέει ΡΗΤΑ («δεν μεταπωλούμε»)', async () => {
+    db.company.findFirst.mockResolvedValue({
+      name: 'ΓΡΑΦΕΙΟ ΕΠΕ', profession: 'ΛΟΓΙΣΤΙΚΕΣ ΥΠΗΡΕΣΙΕΣ', gemiObjective: null,
+      activities: [
+        { codeAade: '69200000', codeWithoutDots: '69200000', description: 'ΛΟΓΙΣΤΙΚΕΣ ΥΠΗΡΕΣΙΕΣ', kind: 'PRIMARY', order: 0 },
+      ],
+    });
+    await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+    expect(promptText()).toContain('ΚΑΜΙΑ στο μητρώο');
+  });
+});
+
+/**
+ * Το μητρώο εξόδων μιας εγκατάστασης είναι ΜΙΚΡΟ — έξι γραμμές στον ζωντανό tenant — και το
+ * στέλνουμε ΟΛΟΚΛΗΡΟ. Ένας κατάλογος έξι ονομάτων απαντά το «ποιο έξοδο;» πολύ πιο αξιόπιστα
+ * από αφηρημένες ομάδες ΕΛΠ, που έδιναν διαφορετική απάντηση ανά παρτίδα για το ίδιο πράγμα.
+ */
+describe('το μητρώο εξόδων (EXPN) μέσα στο prompt', () => {
+  const promptText = () => String(extract.callTextViaVision.mock.calls[0][2]);
+
+  it('στέλνονται όλες οι γραμμές που ΙΣΧΥΟΥΝ εδώ, με κωδικό και όνομα', async () => {
+    await suggestExpensesWithAi({ groups: [group('g1', 'ΜΕΤΑΦΟΡΙΚΑ')] });
+    for (const e of EXPENSES.filter((x) => x.code !== '104')) {
+      expect(promptText()).toContain(`${e.code} — ${e.name}`);
+    }
+  });
+
+  /**
+   * Η ΠΑΓΙΔΑ: το μητρώο κρατά ζευγάρια αγορών/πωλήσεων. Η εφαρμογή καταχωρεί ΜΟΝΟ εισερχόμενα,
+   * οπότε «Μεταφορικά Πωλήσεων» σε τιμολόγιο αγοράς είναι λάθος που κανείς δεν θα πρόσεχε.
+   *
+   * Ο έλεγχος είναι ότι η γραμμή **ΛΕΙΠΕΙ**, όχι ότι υπάρχει προειδοποίηση γι' αυτήν: μια
+   * πρόταση μέσα στο prompt δεν επιβάλλει τίποτα, ενώ ό,τι δεν στάλθηκε δεν μπορεί να επιλεγεί.
+   */
+  it('τα έξοδα ΠΩΛΗΣΕΩΝ ΔΕΝ στέλνονται καθόλου — ούτε ο κωδικός ούτε το όνομα', async () => {
+    await suggestExpensesWithAi({ groups: [group('g1', 'ΜΕΤΑΦΟΡΙΚΑ')] });
+    expect(promptText()).not.toContain('104');
+    expect(promptText()).not.toContain('Μεταφορικά Πωλήσεων');
+    expect(promptText()).not.toContain('ΠΩΛΗΣΕΩΝ');
+    // …ενώ η πλευρά των ΑΓΟΡΩΝ είναι κανονικά εκεί.
+    expect(promptText()).toContain('103 — Μεταφορικά Αγορών');
+  });
+
+  it('ασυγχρόνιστο μητρώο ⇒ το λέει, δεν σιωπά και δεν εφευρίσκει', async () => {
+    db.softoneExpense.findMany.mockResolvedValue([]);
+    await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+    expect(promptText()).toContain('δεν έχει συγχρονιστεί');
+  });
+});
+
+/**
+ * Οι ΚΑΔ που δηλώνουν **μεταπώληση**. Η λίστα παρουσιάζεται στο μοντέλο ως ΚΛΕΙΣΤΗ («ΜΟΝΟ αυτά
+ * μεταπωλούμε»), οπότε κάθε λάθος εδώ είναι θετικός ισχυρισμός, όχι παράλειψη.
+ */
+describe('επιλογή εμπορικών ΚΑΔ', () => {
+  const promptText = () => String(extract.callTextViaVision.mock.calls[0][2]);
+  const act = (code: string, description: string, kind = 'SECONDARY') =>
+    ({ codeAade: code, codeWithoutDots: code, code, description, kind });
+
+  const withActivities = (activities: unknown[]) => {
+    db.company.findFirst.mockResolvedValue({
+      name: 'ΔΟΚΙΜΗ ΕΕ', profession: 'ΚΑΤΙ', gemiObjective: null, activities,
+    });
+  };
+
+  /**
+   * Το `46.1` είναι «έναντι αμοιβής ή βάσει σύμβασης» — μεσίτες που ΔΕΝ αποκτούν ποτέ κυριότητα
+   * των αγαθών. Τυπωμένο κάτω από «ΜΟΝΟ αυτά μεταπωλούμε» λέει το ΑΝΤΙΘΕΤΟ απ' ό,τι δηλώνει.
+   */
+  it('το 46.1 (εμπόριο ΕΝΑΝΤΙ ΑΜΟΙΒΗΣ) ΕΞΑΙΡΕΙΤΑΙ', async () => {
+    withActivities([act('46140100', 'ΥΠΗΡΕΣΙΕΣ ΧΟΝΔΡΙΚΟΥ ΕΜΠΟΡΙΟΥ ΕΝΑΝΤΙ ΑΜΟΙΒΗΣ Η ΒΑΣΕΙ ΣΥΜΒΑΣΗΣ')]);
+    await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+    expect(promptText()).not.toContain('46140100');
+    // …και επειδή δεν έμεινε καμία άλλη, το prompt λέει ρητά «δεν μεταπωλούμε».
+    expect(promptText()).toContain('ΚΑΜΙΑ στο μητρώο');
+  });
+
+  it('το 46.5 (πραγματικό χονδρικό) ΜΕΝΕΙ', async () => {
+    withActivities([act('46500000', 'ΧΟΝΔΡΙΚΟ ΕΜΠΟΡΙΟ ΕΞΟΠΛΙΣΜΟΥ ΠΛΗΡΟΦΟΡΙΚΗΣ')]);
+    await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+    expect(promptText()).toContain('46500000');
+  });
+
+  /**
+   * Υπάρχουν ζωντανές εταιρείες όπου ΚΑΘΕ γραμμή δραστηριότητας έχει `codeAade` και
+   * `codeWithoutDots` NULL και μόνο το `code` συμπληρωμένο. Χωρίς fallback, μια εταιρεία
+   * ΛΙΑΝΙΚΟΥ ΕΜΠΟΡΙΟΥ θα δηλωνόταν ως «δεν μεταπωλούμε» — ελλιπή δεδομένα ως θετικός ισχυρισμός.
+   */
+  it('όταν λείπουν codeAade/codeWithoutDots, διαβάζεται το code με τις τελείες', async () => {
+    withActivities([
+      { codeAade: null, codeWithoutDots: null, code: '47.19.10', description: 'ΛΙΑΝΙΚΟ ΕΜΠΟΡΙΟ', kind: 'PRIMARY' },
+    ]);
+    await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+    expect(promptText()).toContain('ΛΙΑΝΙΚΟ ΕΜΠΟΡΙΟ');
+    expect(promptText()).not.toContain('ΚΑΜΙΑ στο μητρώο');
+  });
+
+  /** Λίστα που παρουσιάζεται ως ΚΛΕΙΣΤΗ δεν επιτρέπεται να κόβεται σιωπηλά. */
+  it('όσες δεν χωράνε ΔΗΛΩΝΟΝΤΑΙ, και η ΚΥΡΙΑ μπαίνει πρώτη', async () => {
+    const many = Array.from({ length: 15 }, (_, i) => act(`465000${String(i).padStart(2, '0')}`, `ΧΟΝΔΡΙΚΟ ${i}`));
+    withActivities([...many, act('47191000', 'ΤΟ ΚΥΡΙΟ ΛΙΑΝΙΚΟ', 'PRIMARY')]);
+    await suggestExpensesWithAi({ groups: [group('g1', 'ΚΑΤΙ')] });
+    expect(promptText()).toContain('ΤΟ ΚΥΡΙΟ ΛΙΑΝΙΚΟ');
+    expect(promptText()).toContain('…και άλλες 4 εμπορικές δραστηριότητες');
   });
 });
