@@ -15,6 +15,30 @@ import { getSetting, setSetting } from '@/lib/settings';
  * ArrayBuffer + iconv-lite, never res.json()/res.text().
  */
 
+/**
+ * Αποτυχία που ΑΝΗΚΕΙ στο SoftOne: δίκτυο, μη-JSON απάντηση, ή `success:false` από υπηρεσία.
+ *
+ * Υπάρχει για να μη χρεώνεται ο ERP σφάλματα που δεν είναι δικά του: ένα `502 softone_error`
+ * πάνω από μια αποτυχία της ΤΟΠΙΚΗΣ βάσης στέλνει τον διαχειριστή να ψάξει λάθος σύστημα.
+ * Ό,τι φεύγει από αυτό το αρχείο ως σφάλμα επικοινωνίας με τον ERP είναι `SoftoneError`·
+ * οτιδήποτε άλλο σκάσει μέσα σε έναν συγχρονισμό (Prisma, transaction timeout) μένει σκέτο
+ * `Error` και αναγνωρίζεται ως τοπικό.
+ */
+export class SoftoneError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'SoftoneError';
+  }
+}
+
+/** Λείπουν ρυθμίσεις σύνδεσης — ούτε ο ERP φταίει, ούτε η βάση: η διαμόρφωση. */
+export class SoftoneConfigError extends SoftoneError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SoftoneConfigError';
+  }
+}
+
 export interface SoftoneConfig {
   endpoint: string; // https://<subdomain>.oncloud.gr/s1services
   appId: string;
@@ -63,7 +87,7 @@ export async function loadSoftoneConfig(): Promise<SoftoneConfig> {
   if (!username) missing.push('Username');
   if (!password) missing.push('Password');
   if (missing.length) {
-    throw new Error(`Λείπουν ρυθμίσεις SoftOne: ${missing.join(', ')}`);
+    throw new SoftoneConfigError(`Λείπουν ρυθμίσεις SoftOne: ${missing.join(', ')}`);
   }
 
   // Accept either a bare subdomain ("kolleris") or a full host/URL — normalise to endpoint.
@@ -89,12 +113,19 @@ export async function softoneFetch<T = Record<string, unknown>>(
   endpoint: string,
   payload: object,
 ): Promise<T> {
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept-Encoding': 'gzip' },
-    body: JSON.stringify(payload),
-    cache: 'no-store',
-  });
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept-Encoding': 'gzip' },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+    });
+  } catch (e) {
+    // Δίκτυο/DNS/TLS: το SoftOne δεν απάντησε καν. Τυποποιείται, για να μην μπερδευτεί
+    // αργότερα με αποτυχία της τοπικής βάσης.
+    throw new SoftoneError(`Το SoftOne δεν απάντησε (${(e as Error).message})`, { cause: e });
+  }
 
   // Always ArrayBuffer — res.text()/res.json() assume UTF-8 and corrupt Greek.
   let buf = Buffer.from(await res.arrayBuffer());
@@ -103,7 +134,15 @@ export async function softoneFetch<T = Record<string, unknown>>(
     if (buf[0] === 0x1f && buf[1] === 0x8b) buf = Buffer.from(gunzipSync(buf));
   }
   const text = iconv.decode(buf, 'win1253');
-  return JSON.parse(text) as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch (e) {
+    // Απάντηση που δεν είναι JSON (HTML σφάλματος από proxy, άδειο σώμα κ.λπ.).
+    throw new SoftoneError(
+      `Μη αναγνώσιμη απάντηση SoftOne (HTTP ${res.status}): ${text.slice(0, 200)}`,
+      { cause: e },
+    );
+  }
 }
 
 /** Step 1: login → temporary clientID + available companies. */
@@ -163,10 +202,18 @@ export function getCachedToken(): string | null {
   return isFresh(cachedToken) ? cachedToken.clientID : null;
 }
 
-export function clearCachedToken(): void {
+/**
+ * Πετάει το token ΚΑΙ από τη μνήμη ΚΑΙ από το `AppSetting` — και περιμένει να γραφτεί.
+ *
+ * Δεν επιτρέπεται να είναι «fire-and-forget»: το `softoneGetToken` πέφτει πίσω στο persisted
+ * αντίγραφο, οπότε ένα αίτημα που θα έπεφτε μέσα στο παράθυρο (ή οποιοδήποτε άλλο instance)
+ * θα ξανα-υιοθετούσε το ΙΔΙΟ `clientID`, δεμένο στην προηγούμενη εταιρία. Ο caller περιμένει
+ * το `await` πριν συνεχίσει· αν η γραφή αποτύχει, το σφάλμα ΔΕΝ καταπίνεται — ο καθαρισμός
+ * είναι το νόημα της κλήσης, και μια σιωπηλή αποτυχία είναι ακριβώς το bug που διορθώνουμε.
+ */
+export async function clearCachedToken(): Promise<void> {
   cachedToken = null;
-  // Best-effort persistent clear; ignore failures.
-  void setSetting(TOKEN_CACHE_KEY, null).catch(() => {});
+  await setSetting(TOKEN_CACHE_KEY, null);
 }
 
 /**
@@ -186,7 +233,7 @@ export async function softoneGetToken(force = false): Promise<string> {
   const cfg = await loadSoftoneConfig();
   const login = await softoneLogin(cfg);
   if (!login.success || !login.clientID) {
-    throw new Error(`SoftOne login απέτυχε: ${login.error ?? 'άγνωστο σφάλμα'}`);
+    throw new SoftoneError(`SoftOne login απέτυχε: ${login.error ?? 'άγνωστο σφάλμα'}`);
   }
 
   // Data services (getBrowserInfo etc.) REQUIRE an authenticated session — the
@@ -208,7 +255,7 @@ export async function softoneGetToken(force = false): Promise<string> {
 
   const auth = await softoneAuthenticate(authCfg, login.clientID);
   if (!auth.success || !auth.clientID) {
-    throw new Error(`SoftOne authenticate απέτυχε: ${auth.error ?? 'άγνωστο σφάλμα'}`);
+    throw new SoftoneError(`SoftOne authenticate απέτυχε: ${auth.error ?? 'άγνωστο σφάλμα'}`);
   }
   cachedToken = { clientID: auth.clientID, at: Date.now() };
   // Persist so other requests/instances reuse the same token for its 30-min life.
@@ -233,7 +280,7 @@ export async function softoneCall<T extends { success?: boolean; errorcode?: num
 
   let data = await run(token);
   if (data && data.success === false && typeof data.errorcode === 'number' && data.errorcode < 0) {
-    clearCachedToken();
+    await clearCachedToken();
     const fresh = await softoneGetToken(true);
     data = await run(fresh);
   }
@@ -256,7 +303,7 @@ export async function softoneGetData(
     { OBJECT: object, KEY: String(key), ...(locateInfo ? { LOCATEINFO: locateInfo } : {}) },
   );
   if (res.success === false) {
-    throw new Error(res.error ?? `getData ${object} ${key} απέτυχε (code ${res.errorcode ?? '?'})`);
+    throw new SoftoneError(res.error ?? `getData ${object} ${key} απέτυχε (code ${res.errorcode ?? '?'})`);
   }
   const tables = (res.data ?? {}) as Record<string, unknown>;
   const out: Record<string, Record<string, unknown>[]> = {};
@@ -317,7 +364,7 @@ export async function softoneBrowseAll(
 ): Promise<Array<Record<string, unknown>>> {
   const info = await softoneCall<BrowserInfoResp>('getBrowserInfo', { object, list, filters });
   if (info.success === false || !info.reqID) {
-    throw new Error(`getBrowserInfo ${object} απέτυχε: ${info.error ?? `code ${info.errorcode ?? '?'}`}`);
+    throw new SoftoneError(`getBrowserInfo ${object} απέτυχε: ${info.error ?? `code ${info.errorcode ?? '?'}`}`);
   }
 
   const fields = info.fields ?? [];
@@ -577,7 +624,7 @@ export async function softoneGetTable(
 ): Promise<Array<Record<string, string>>> {
   const res = await softoneCall<GetTableResp>('GetTable', { TABLE: table, FIELDS: fields.join(','), FILTER: filter });
   if (res.success === false) {
-    throw new Error(`GetTable ${table} απέτυχε: ${res.error ?? `code ${res.errorcode ?? '?'}`}`);
+    throw new SoftoneError(`GetTable ${table} απέτυχε: ${res.error ?? `code ${res.errorcode ?? '?'}`}`);
   }
   const rows = res.data ?? [];
   return rows.map((r) => {
@@ -796,9 +843,23 @@ const cleanS1Label = (s: string): string => {
 // SoftOne aux tables → local lookups. label = the el value, prefixed with code when useful.
 const LOOKUP_TABLES = ['MTRUNIT', 'MTRGROUP', 'MTRCATEGORY', 'MTRMANFCTR', 'MTRMARK'] as const;
 
+export type LookupRow = { kind: string; code: string; name: string };
+
+export type LookupFetchResult = {
+  rows: LookupRow[];
+  /**
+   * Βοηθητικοί πίνακες που ΔΕΝ απάντησαν (η `GetTable` πέταξε). ΔΕΝ είναι το ίδιο με «άδειος»:
+   * μια εγκατάσταση μπορεί κάλλιστα να μην έχει μάρκες. Ο καλών το χρειάζεται για να μην
+   * καθαρίσει είδος που απλώς δεν μίλησε — μέχρι τώρα η αποτυχία καταπινόταν με `.catch(() => [])`
+   * και ο συγχρονισμός έσβηνε ΟΛΟ το μητρώο του συγκεκριμένου πίνακα νομίζοντας ότι άδειασε.
+   */
+  failed: string[];
+};
+
 /** Fetches all aux/classification tables flat ({kind, code, name}) for the lookups sync. */
-export async function softoneFetchLookups(): Promise<{ kind: string; code: string; name: string }[]> {
-  const out: { kind: string; code: string; name: string }[] = [];
+export async function softoneFetchLookups(): Promise<LookupFetchResult> {
+  const out: LookupRow[] = [];
+  const failed: string[] = [];
   // Aux tables are company-scoped → GetTable returns the same code per company.
   // Dedupe on (kind, code) to satisfy the unique constraint.
   const seen = new Set<string>();
@@ -815,11 +876,14 @@ export async function softoneFetchLookups(): Promise<{ kind: string; code: strin
   const companyFilter = cfg?.company ? ` AND COMPANY=${cfg.company}` : '';
   const onlyCompany = cfg?.company ? `COMPANY=${cfg.company}` : '';
 
-  const vats = await softoneGetTable('VAT', ['VAT', 'NAME', 'PERCNT'], `ISACTIVE=1${companyFilter}`).catch(() => []);
+  // Η αποτυχία ενός πίνακα δεν σταματάει τους υπόλοιπους — αλλά ΚΑΤΑΓΡΑΦΕΤΑΙ.
+  const vats = await softoneGetTable('VAT', ['VAT', 'NAME', 'PERCNT'], `ISACTIVE=1${companyFilter}`)
+    .catch(() => { failed.push('VAT'); return []; });
   for (const r of vats) add('VAT', String(r.VAT), `${cleanS1Label(r.NAME)} (${r.PERCNT}%)`);
 
   for (const table of LOOKUP_TABLES) {
-    const rows = await softoneGetTable(table, [table, 'CODE', 'NAME'], onlyCompany).catch(() => []);
+    const rows = await softoneGetTable(table, [table, 'CODE', 'NAME'], onlyCompany)
+      .catch(() => { failed.push(table); return []; });
     for (const r of rows) {
       // MTRUNIT keeps the label in CODE (NAME holds the company); the rest use NAME.
       const name = table === 'MTRUNIT'
@@ -828,7 +892,7 @@ export async function softoneFetchLookups(): Promise<{ kind: string; code: strin
       add(table, String(r[table]), name);
     }
   }
-  return out;
+  return { rows: out, failed };
 }
 
 /** Loads the item classification lookup tables from SoftOne (small, cached upstream). */
@@ -882,7 +946,7 @@ export async function softoneCreateItem(input: CreateItemInput): Promise<number>
     'setData', buildItemPayload(input),
   );
   if (res.success === false || res.id == null) {
-    throw new Error(res.error ?? `setData ITEM απέτυχε (code ${res.errorcode ?? '?'})`);
+    throw new SoftoneError(res.error ?? `setData ITEM απέτυχε (code ${res.errorcode ?? '?'})`);
   }
   return Number(res.id);
 }
@@ -1120,14 +1184,14 @@ export async function softoneCreateTrader(
     'setData', buildTraderPayload(kind, input, countries),
   );
   if (res.success === false || res.id == null) {
-    throw new Error(res.error ?? `setData ${object} απέτυχε (code ${res.errorcode ?? '?'})`);
+    throw new SoftoneError(res.error ?? `setData ${object} απέτυχε (code ${res.errorcode ?? '?'})`);
   }
   const trdr = Number(res.id);
   const back = await softoneGetTable('TRDR', ['TRDR', 'CODE', 'SODTYPE'], `TRDR=${trdr}`);
   const row = back.find((r) => Number(r.TRDR) === trdr) ?? back[0];
   const expected = TRADER_KIND_SODTYPE[kind];
   if (!row || Number(row.SODTYPE) !== expected) {
-    throw new Error(
+    throw new SoftoneError(
       `Η εγγραφή δεν επιβεβαιώθηκε στο SoftOne (TRDR ${trdr}, SODTYPE ${row?.SODTYPE ?? '—'} ≠ ${expected}).`,
     );
   }
@@ -1207,7 +1271,10 @@ export interface TraderLookupRow {
  * preferring a formal supplier, then a creditor, then a debtor when the ΑΦΜ exists as more than
  * one. Used by the OCR pipeline to tag scanned documents with their SoftOne trader.
  */
-export async function softoneFindTraderByAfm(afm: string): Promise<TraderLookupRow | null> {
+export async function softoneFindTraderByAfm(
+  afm: string,
+  opts: { prefer?: readonly number[] } = {},
+): Promise<TraderLookupRow | null> {
   const clean = String(afm).replace(/[^0-9A-Za-z]/g, '').toUpperCase();
   if (!clean) return null;
   // Ένας ΞΕΝΟΣ εκδότης μπορεί να είναι ήδη καταχωρισμένος είτε με το πρόθεμα
@@ -1222,9 +1289,19 @@ export async function softoneFindTraderByAfm(afm: string): Promise<TraderLookupR
   );
   const valid = rows.filter((o) => Number.isFinite(Number(o.TRDR)));
   if (valid.length === 0) return null;
-  // ISSUER_SODTYPES is ordered 12 → 16 → 15, so its index is the preference order.
-  const pref: readonly number[] = ISSUER_SODTYPES;
-  valid.sort((a, b) => pref.indexOf(Number(a.SODTYPE)) - pref.indexOf(Number(b.SODTYPE)));
+  // Η προτίμηση είναι ΡΗΤΗ όταν ο καλών ξέρει τι θέλει: η κεφαλίδα ενός `LINCREDOC` δέχεται
+  // ΠΙΣΤΩΤΗ (16) και ενός `LINDEBDOC` ΧΡΕΩΣΤΗ (15), οπότε η προεπιλεγμένη προτίμηση «πρώτα
+  // προμηθευτής» θα έδινε λάθος TRDR. Χωρίς `prefer`, η σειρά του ISSUER_SODTYPES (12 → 16 → 15)
+  // είναι η σειρά προτίμησης — ο χρεώστης τελευταίος, ώστε κανένα έγγραφο που σήμερα λύνεται σε
+  // προμηθευτή ή πιστωτή να μην αλλάξει αντιστοίχιση.
+  const pref: readonly number[] = opts.prefer?.length ? opts.prefer : ISSUER_SODTYPES;
+  // `rank` αντί για σκέτο `indexOf`: ένα SODTYPE εκτός της λίστας προτίμησης πρέπει να πάει
+  // ΤΕΛΕΥΤΑΙΟ, ενώ το `indexOf` θα επέστρεφε -1 και θα το έφερνε πρώτο.
+  const rank = (v: unknown) => {
+    const i = pref.indexOf(Number(v));
+    return i === -1 ? pref.length : i;
+  };
+  valid.sort((a, b) => rank(a.SODTYPE) - rank(b.SODTYPE));
   const r = valid[0];
   const sodtype = Number(r.SODTYPE);
   return {
@@ -1400,7 +1477,7 @@ export async function softoneLoadExpenseTemplate(templateExpn?: number | null): 
     { OBJECT: 'EXPENSES', KEY: String(key), LOCATEINFO: `EXPN:${EXPENSE_FLAG_FIELDS.join(',')}` },
   );
   if (res.success === false) {
-    throw new Error(res.error ?? `getData EXPENSES ${key} απέτυχε (code ${res.errorcode ?? '?'})`);
+    throw new SoftoneError(res.error ?? `getData EXPENSES ${key} απέτυχε (code ${res.errorcode ?? '?'})`);
   }
   // Η απάντηση έρχεται ως { data: { EXPN: [ {…} ] } } — κρατάμε τον πρώτο πίνακα με γραμμές.
   const tables = (res.data ?? {}) as Record<string, unknown>;
@@ -1453,14 +1530,14 @@ export async function softoneCreateExpense(
     'setData', buildExpensePayload(input, template.flags),
   );
   if (res.success === false || res.id == null) {
-    throw new Error(res.error ?? `setData EXPENSES απέτυχε (code ${res.errorcode ?? '?'})`);
+    throw new SoftoneError(res.error ?? `setData EXPENSES απέτυχε (code ${res.errorcode ?? '?'})`);
   }
   const expn = Number(res.id);
   // Read back — «success: true» δεν σημαίνει ότι γράφτηκε.
   const back = await softoneGetTable('EXPN', EXPN_FIELDS, `EXPN=${expn}`);
   const row = back[0];
   if (!row || !Number.isFinite(Number(row.EXPN))) {
-    throw new Error(`Το έξοδο ${expn} δεν βρέθηκε μετά τη δημιουργία (setData EXPENSES)`);
+    throw new SoftoneError(`Το έξοδο ${expn} δεν βρέθηκε μετά τη δημιουργία (setData EXPENSES)`);
   }
   return { expn, code: row.CODE, name: row.NAME, templateExpn: template.expn };
 }
@@ -1542,22 +1619,28 @@ const mapLineCategory = (o: Record<string, string>): LineCategoryRow => ({
 /**
  * Διαβάζει τις κατηγορίες δαπανών (MTRCATEGORY SODTYPE 53). Ο πίνακας MTRCATEGORY είναι ΚΟΙΝΟΣ
  * για είδη/υπηρεσίες/χρεοπιστώσεις/πάγια και είναι company-scoped, γι' αυτό φιλτράρουμε και τα δύο.
- * Αν η εγκατάσταση δεν εκθέτει στήλη SODTYPE, ξαναδοκιμάζουμε ΧΩΡΙΣ αυτήν — αλλά μόνο όταν το
- * σφάλμα αφορά όντως τη στήλη, ώστε ένα σφάλμα δικτύου να μην περνά για «όλες οι κατηγορίες».
+ *
+ * Αν η εγκατάσταση δεν εκθέτει στήλη SODTYPE, ΔΕΝ κατεβάζουμε σιωπηλά ΟΛΕΣ τις κατηγορίες σαν να
+ * ήταν δαπανών: η εφεδρεία είναι ΡΗΤΗ (`allowUnfiltered`) και το αποτέλεσμα σημαδεύεται με
+ * `filtered: false`, ώστε να φαίνεται στο UI ότι ο κατάλογος μπορεί να περιέχει και κατηγορίες
+ * ειδών / υπηρεσιών / παγίων.
  */
-export async function softoneFetchLineCategories(): Promise<LineCategoryRow[]> {
+export async function softoneFetchLineCategories(
+  opts: { allowUnfiltered?: boolean } = {},
+): Promise<{ rows: LineCategoryRow[]; filtered: boolean }> {
   const cfg = await loadSoftoneConfig().catch(() => null);
   const company = cfg?.company ? ` AND COMPANY=${cfg.company}` : '';
   try {
     const rows = await softoneGetTable(
       'MTRCATEGORY', LINCATEGORY_FIELDS, `SODTYPE=${LINEITEM_SODTYPE} AND ISACTIVE=1${company}`,
     );
-    return rows.map(mapLineCategory).filter((r) => Number.isFinite(r.mtrCategory));
+    return { rows: rows.map(mapLineCategory).filter((r) => Number.isFinite(r.mtrCategory)), filtered: true };
   } catch (e) {
     const msg = String((e as Error)?.message ?? '');
-    if (!/SODTYPE/i.test(msg)) throw e;
+    // Μόνο σφάλμα που αφορά όντως τη στήλη, και μόνο αν το ζήτησε ρητά ο καλών.
+    if (!opts.allowUnfiltered || !/SODTYPE/i.test(msg)) throw e;
     const rows = await softoneGetTable('MTRCATEGORY', LINCATEGORY_FIELDS, `ISACTIVE=1${company}`);
-    return rows.map(mapLineCategory).filter((r) => Number.isFinite(r.mtrCategory));
+    return { rows: rows.map(mapLineCategory).filter((r) => Number.isFinite(r.mtrCategory)), filtered: false };
   }
 }
 
@@ -1602,4 +1685,86 @@ export async function softoneFetchMyDataClassCategories(): Promise<MyDataClassRo
       name: cleanS1Label(o.NAME) || str(o.MYDATACODE),
     }))
     .filter((r) => Number.isFinite(r.code) && r.name);
+}
+
+// ============================================================
+// Αναλυτική ανά γραμμή — κέντρα κόστους, έργα, δραστηριότητες
+// Και τα τρία μπαίνουν ΑΝΑ ΓΡΑΜΜΗ σε ITELINES / SRVLINES / LINLINES (ποτέ σε EXPANAL) και είναι
+// ΠΡΟΑΙΡΕΤΙΚΑ στο SoftOne. Μόνο ΑΝΑΓΝΩΣΗ.
+// ============================================================
+
+export interface CostCenterRow {
+  costcntr: number;
+  code: string;
+  name: string;
+  name2: string | null;
+  sohCode: string | null;
+  acnmsk: string | null;
+  isActive: boolean;
+}
+
+/** Object PRSCOSTCNTR «Κέντρα κόστους» → DB πίνακας COSTCNTR. */
+export async function softoneFetchCostCenters(): Promise<CostCenterRow[]> {
+  const rows = await softoneGetTable(
+    'COSTCNTR', ['COSTCNTR', 'CODE', 'NAME', 'NAME2', 'SOHCODE', 'ACNMSK', 'ISACTIVE'], 'ISACTIVE=1',
+  );
+  return rows
+    .map((o) => ({
+      costcntr: Number(o.COSTCNTR),
+      code: o.CODE,
+      name: cleanS1Label(o.NAME) || o.CODE,
+      name2: idOrNull(o.NAME2),
+      sohCode: idOrNull(o.SOHCODE),
+      acnmsk: idOrNull(o.ACNMSK),
+      isActive: o.ISACTIVE !== '0',
+    }))
+    .filter((r) => Number.isFinite(r.costcntr) && r.costcntr !== 0);
+}
+
+export interface ProjectRow {
+  prjc: number;
+  code: string;
+  name: string;
+  /** TRDR («Πελάτης») — επιτρέπει να δείξουμε πρώτα τα έργα ΤΟΥ εκδότη του παραστατικού. */
+  trdr: number | null;
+  prjType: number | null;
+  isActive: boolean;
+}
+
+/** Object PRJC «Έργα» → DB πίνακας PRJC. */
+export async function softoneFetchProjects(): Promise<ProjectRow[]> {
+  const rows = await softoneGetTable(
+    'PRJC', ['PRJC', 'CODE', 'NAME', 'TRDR', 'PRJTYPE', 'ISACTIVE'], 'ISACTIVE=1',
+  );
+  return rows
+    .map((o) => ({
+      prjc: Number(o.PRJC),
+      code: o.CODE,
+      name: cleanS1Label(o.NAME) || o.CODE,
+      trdr: intOrNull(o.TRDR),
+      prjType: intOrNull(o.PRJTYPE),
+      isActive: o.ISACTIVE !== '0',
+    }))
+    .filter((r) => Number.isFinite(r.prjc) && r.prjc !== 0);
+}
+
+export interface ProjectStageRow {
+  prjcStage: number;
+  code: string;
+  name: string;
+  isActive: boolean;
+}
+
+/** Object PRJCSTAGE «Δραστηριότητες» → DB πίνακας PRJCSTAGE («Κατηγορία δραστηριότητας» στη γραμμή). */
+export async function softoneFetchProjectStages(): Promise<ProjectStageRow[]> {
+  const rows = await softoneGetTable('PRJCSTAGE', ['PRJCSTAGE', 'CODE', 'NAME', 'ISACTIVE'], 'ISACTIVE=1');
+  return rows
+    .map((o) => ({
+      prjcStage: Number(o.PRJCSTAGE),
+      code: o.CODE,
+      // Το NAME είναι προαιρετικό στο SoftOne: χωρίς αυτό, η σύντμηση ΕΙΝΑΙ το όνομα.
+      name: cleanS1Label(o.NAME) || o.CODE,
+      isActive: o.ISACTIVE !== '0',
+    }))
+    .filter((r) => Number.isFinite(r.prjcStage) && r.prjcStage !== 0);
 }

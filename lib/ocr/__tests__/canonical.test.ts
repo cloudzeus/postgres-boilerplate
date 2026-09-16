@@ -191,6 +191,57 @@ describe('toLegacy', () => {
   });
 });
 
+describe('γραμμές: μονάδα μέτρησης + ανά γραμμή ειδικά πεδία', () => {
+  const ITEMS = [
+    {
+      code: 'A1', name: 'Είδος Α', unit: 'ΤΕΜ', quantity: 2, price: 25, discount: 0,
+      vatRate: 24, total: 50, customFields: { partida: 'L-77' },
+    },
+    { code: 'B2', name: 'Είδος Β', unit: 'ΚΙΛ', quantity: 1, price: 50, discount: 0, vatRate: 13, total: 50 },
+  ];
+
+  it('fromLegacy κρατάει το unit στη γραμμή και δεν το χώνει στο custom', () => {
+    const doc = fromLegacy({}, ITEMS, 'invoice');
+    expect(doc.lines.map((l) => l.unit)).toEqual(['ΤΕΜ', 'ΚΙΛ']);
+    expect(doc.lines[0].custom).toEqual({ partida: 'L-77' });
+    expect(doc.lines[1].custom).toEqual({});
+  });
+
+  it('round trip fromLegacy → toLegacy: ούτε η μονάδα ούτε τα ειδικά πεδία χάνονται', () => {
+    const back = toLegacy(fromLegacy({}, ITEMS, 'invoice'));
+    expect(back.items).toEqual(ITEMS);
+  });
+
+  it('δεύτερο πέρασμα (αποθήκευση πάνω σε αποθήκευση) δίνει το ίδιο ακριβώς αποτέλεσμα', () => {
+    const once = toLegacy(fromLegacy({}, ITEMS, 'invoice'));
+    const twice = toLegacy(fromLegacy(once, once.items as unknown[], 'invoice'));
+    expect(twice.items).toEqual(once.items);
+  });
+
+  it('τα ανά γραμμή ειδικά πεδία βγαίνουν ΕΝΘΕΤΑ (items[].customFields), όπως τα διαβάζει η καρτέλα', () => {
+    const doc = fromLegacy({}, ITEMS, 'invoice');
+    const first = (toLegacy(doc).items as Record<string, unknown>[])[0];
+    expect(first.customFields).toEqual({ partida: 'L-77' });
+    expect('partida' in first).toBe(false);
+  });
+
+  it('παλιά γραμμή με ΕΠΙΠΕΔΑ άγνωστα κλειδιά μαζεύεται κι αυτή στο custom', () => {
+    const doc = fromLegacy({}, [{ code: 'C3', name: 'Γ', total: 10, partida: 'L-1' }], 'invoice');
+    expect(doc.lines[0].custom).toEqual({ partida: 'L-1' });
+    expect((toLegacy(doc).items as Record<string, unknown>[])[0].customFields).toEqual({ partida: 'L-1' });
+  });
+
+  it('γραμμή χωρίς μονάδα δεν αποκτά θορυβώδες unit: null', () => {
+    const back = toLegacy(fromLegacy({}, [{ code: 'A', name: 'A', total: 1 }], 'invoice'));
+    expect('unit' in (back.items as Record<string, unknown>[])[0]).toBe(false);
+  });
+
+  it('η διαδρομή lines.unit είναι δηλωμένη στο μητρώο και διαβάζεται', () => {
+    expect(DOCUMENT_PATHS.some((p) => p.path === 'lines.unit' && p.isLine)).toBe(true);
+    expect(getPath(fromLegacy({}, ITEMS, 'invoice'), 'lines.unit')).toEqual(['ΤΕΜ', 'ΚΙΛ']);
+  });
+});
+
 describe('getPath / setPath', () => {
   const doc = fromLegacy(LEGACY, LEGACY.items, 'invoice');
 

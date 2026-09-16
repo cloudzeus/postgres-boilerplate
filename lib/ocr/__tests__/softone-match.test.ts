@@ -8,13 +8,16 @@ const { db } = vi.hoisted(() => ({
     ocrDocument: { findUnique: vi.fn(), update: vi.fn() },
     softoneItem: { findMany: vi.fn() },
     softoneExpense: { findMany: vi.fn() },
+    softoneTrader: { findUnique: vi.fn(), findFirst: vi.fn() },
+    purchaseDocType: { findUnique: vi.fn() },
+    softoneDocSeries: { findUnique: vi.fn() },
     lineMatchRule: { findMany: vi.fn(), update: vi.fn() },
   },
 }));
 
 vi.mock('@/lib/db', () => ({ prisma: db }));
 
-import { matchDocItems } from '../softone-match';
+import { matchDocItems, alignTraderToTarget } from '../softone-match';
 
 const updateFor = (id: string) =>
   db.ocrInvoiceItem.update.mock.calls.map((c) => c[0]).find((a) => a.where.id === id)?.data;
@@ -136,5 +139,57 @@ describe('matchDocItems — memory pass', () => {
       softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneCode: null, softoneName: null,
       softoneIsService: null, softoneMatchedBy: null,
     });
+  });
+});
+
+describe('alignTraderToTarget — ο τύπος του συναλλασσομένου ακολουθεί τη σειρά', () => {
+  /** Έγγραφο με ΑΦΜ, τρέχοντα συναλλασσόμενο και σειρά, όπως το διαβάζει η συνάρτηση. */
+  const docRow = (over: Record<string, unknown> = {}) => ({
+    issuerAfm: '094073495', softoneTrdr: 100, softoneSeries: '6645', seriesSource: 1553, ...over,
+  });
+
+  beforeEach(() => {
+    db.softoneDocSeries.findUnique.mockResolvedValue({ name: 'Τιμολόγιο Δαπανών', section: '6645', postObject: null, postLines: null });
+    db.purchaseDocType.findUnique.mockResolvedValue(null);
+  });
+
+  it('σειρά 1553: ο προμηθευτής αντικαθίσταται από τον ΧΡΕΩΣΤΗ του ίδιου ΑΦΜ', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue(docRow());
+    // Ο τρέχων είναι προμηθευτής (12) — το LINDEBDOC θέλει 15.
+    db.softoneTrader.findUnique.mockResolvedValue({ sodtype: 12 });
+    db.softoneTrader.findFirst.mockResolvedValue({ trdr: 200, code: 'Χ.0001', name: 'ΑΛΦΑ ΑΕ', sodtype: 15 });
+
+    expect(await alignTraderToTarget('d1')).toBe(true);
+    // Ψάχνει ΜΟΝΟ στον τοπικό καθρέφτη, με το ΑΦΜ και το SODTYPE που απαιτεί το object.
+    expect(db.softoneTrader.findFirst.mock.calls[0][0].where)
+      .toMatchObject({ afm: '094073495', sodtype: 15, isActive: true });
+    expect(db.ocrDocument.update.mock.calls.at(-1)?.[0].data)
+      .toMatchObject({ softoneTrdr: 200, softoneCode: 'Χ.0001', softoneKind: 'Χρεώστης' });
+  });
+
+  it('σωστός ήδη ο τύπος → καμία αλλαγή, καμία αναζήτηση', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue(docRow());
+    db.softoneTrader.findUnique.mockResolvedValue({ sodtype: 15 });
+
+    expect(await alignTraderToTarget('d1')).toBe(false);
+    expect(db.softoneTrader.findFirst).not.toHaveBeenCalled();
+    expect(db.ocrDocument.update).not.toHaveBeenCalled();
+  });
+
+  it('δεν υπάρχει χρεώστης με αυτό το ΑΦΜ → δεν αλλάζει τίποτα (το λέει το εμπόδιο)', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue(docRow());
+    db.softoneTrader.findUnique.mockResolvedValue({ sodtype: 12 });
+    db.softoneTrader.findFirst.mockResolvedValue(null);
+
+    expect(await alignTraderToTarget('d1')).toBe(false);
+    expect(db.ocrDocument.update).not.toHaveBeenCalled();
+  });
+
+  it('μη υποστηριζόμενη ενότητα → δεν μαντεύουμε τύπο', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue(docRow({ seriesSource: 1261 }));
+    db.softoneTrader.findUnique.mockResolvedValue({ sodtype: 12 });
+
+    expect(await alignTraderToTarget('d1')).toBe(false);
+    expect(db.softoneTrader.findFirst).not.toHaveBeenCalled();
   });
 });

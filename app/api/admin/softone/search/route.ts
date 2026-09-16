@@ -34,6 +34,54 @@ export async function GET(req: Request) {
     });
   }
 
+  // ── Αναλυτική ανά γραμμή: κέντρο κόστους / έργο / δραστηριότητα ─────────────
+  if (type === 'costcenters') {
+    const rows = await prisma.softoneCostCenter.findMany({
+      where: { isActive: true, OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q } }] },
+      take: 25, orderBy: { name: 'asc' },
+      select: { costcntr: true, code: true, name: true, sohCode: true },
+    });
+    return NextResponse.json({
+      results: rows.map((r) => ({
+        id: r.costcntr, code: r.code, name: r.name,
+        sub: ['κέντρο κόστους', r.sohCode && `ιεραρχία ${r.sohCode}`].filter(Boolean).join(' · '),
+      })),
+    });
+  }
+
+  if (type === 'projects') {
+    // `trdr`: τα έργα ΤΟΥ εκδότη πρώτα — μια σύντομη σωστή λίστα είναι όλο το νόημα.
+    const trdr = Number(sp.get('trdr'));
+    const onlyTrader = sp.get('scope') !== 'all' && Number.isFinite(trdr) && trdr > 0;
+    const rows = await prisma.softoneProject.findMany({
+      where: {
+        isActive: true,
+        ...(onlyTrader ? { trdr } : {}),
+        OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q } }],
+      },
+      take: 25, orderBy: { name: 'asc' },
+      select: { prjc: true, code: true, name: true, trdr: true },
+    });
+    return NextResponse.json({
+      scope: onlyTrader ? 'trader' : 'all',
+      results: rows.map((r) => ({
+        id: r.prjc, code: r.code, name: r.name,
+        sub: ['έργο', r.trdr ? `συναλλασσόμενος ${r.trdr}` : null].filter(Boolean).join(' · '),
+      })),
+    });
+  }
+
+  if (type === 'projectstages') {
+    const rows = await prisma.softoneProjectStage.findMany({
+      where: { isActive: true, OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q } }] },
+      take: 25, orderBy: { name: 'asc' },
+      select: { prjcStage: true, code: true, name: true },
+    });
+    return NextResponse.json({
+      results: rows.map((r) => ({ id: r.prjcStage, code: r.code, name: r.name, sub: 'κατηγορία δραστηριότητας' })),
+    });
+  }
+
   if (type === 'lineitems') {
     // Χρεοπιστώσεις (LINEITEM → MTRL SODTYPE 53): το μόνο που δέχεται γραμμή LINLINES.
     const category = Number(sp.get('category'));

@@ -1,29 +1,17 @@
 import { NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/rbac';
-import { logAudit } from '@/lib/audit';
-import { syncMyDataClassTypes, syncMyDataClassCategories } from '@/lib/softone-registry-sync';
+import { syncMyDataClasses, syncFailureResponse, withResyncLock } from '@/lib/softone/resync';
 
-// Οι δύο λίστες χαρακτηρισμού myDATA (MYDATACLTYPE / MYDATACLCATEGORY) μαζί: είναι ζεύγος και
-// εμφανίζονται μαζί. ΜΟΝΟ ανάγνωση από το SoftOne.
+// Οι δύο λίστες χαρακτηρισμού myDATA (MYDATACLTYPE / MYDATACLCATEGORY) — ζεύγος.
+// ΜΟΝΟ ΑΝΑΓΝΩΣΗ από το SoftOne. Η λογική ζει στο `lib/softone/resync.ts` — ΜΙΑ υλοποίηση, ίδια
+// με αυτήν που τρέχει το «Συγχρονισμός όλων», και ίδια κλειδαριά.
 export async function POST() {
   const u = await requirePermission('metadata.manage');
   try {
-    const [types, categories] = await Promise.all([syncMyDataClassTypes(u.id), syncMyDataClassCategories(u.id)]);
-    await logAudit({
-      userId: u.id, userEmail: u.email,
-      action: 'metadata.mydataclasses.sync_softone', resource: 'setting',
-      metadata: { types: types.total, categories: categories.total },
-    });
-    return NextResponse.json({
-      ok: true,
-      total: types.total + categories.total,
-      created: types.created + categories.created,
-      updated: types.updated + categories.updated,
-      deactivated: 0,
-      types, categories,
-      syncedAt: types.syncedAt,
-    });
+    const r = await withResyncLock(u, ['mydataclasses'], () => syncMyDataClasses(u));
+    return NextResponse.json({ ok: true, total: r.total, created: r.created, updated: r.updated, skipped: r.skipped, ...r.detail, syncedAt: r.syncedAt });
   } catch (e) {
-    return NextResponse.json({ error: 'softone_error', message: (e as Error).message }, { status: 502 });
+    const { status, body } = syncFailureResponse(e);
+    return NextResponse.json(body, { status });
   }
 }

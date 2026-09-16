@@ -9,6 +9,7 @@ import {
 } from 'react-icons/fi';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { docTypeOf } from '@/lib/ocr/canonical';
 import { ReextractDialog } from './reextract-dialog';
 import type { ExtractDocType } from '@/lib/ocr/templates';
 
@@ -146,6 +147,8 @@ export function OcrResultModal({ open, documentId, onClose }: ResultModalProps) 
       missing: s.required && !present,
     };
   });
+  // Το ΙΔΙΟ κριτήριο με την επεξεργάσιμη καρτέλα: ό,τι μπορεί να διορθωθεί, πρέπει και να φαίνεται.
+  const showLines = docTypeOf(doc?.docType) !== 'general_text' || (doc?.items?.length ?? 0) > 0;
   const missingCount = fields.filter((f) => f.missing).length;
   const completeness = spec.length ? Math.round(((spec.length - missingCount) / spec.length) * 100) : 100;
   const fileUrl = doc ? `/api/admin/ocr/${doc.id}/file` : '';
@@ -387,8 +390,11 @@ export function OcrResultModal({ open, documentId, onClose }: ResultModalProps) 
                     </div>
                   ))}
 
-                  {/* Invoice items table */}
-                  {doc?.docType === 'INVOICE' && Array.isArray(doc.items) && doc.items.length > 0 && (
+                  {/* Γραμμές — ΙΔΙΟ κριτήριο με την επεξεργάσιμη καρτέλα (`row-detail.tsx`):
+                      δεν είναι προνόμιο του τιμολογίου. Μια απόδειξη έχει κι αυτή είδη, και με το
+                      παλιό `docType === 'INVOICE'` η προβολή έκρυβε γραμμές που ο χρήστης μόλις
+                      είχε διορθώσει. Κρύβονται μόνο σε γνήσιο ελεύθερο κείμενο χωρίς γραμμές. */}
+                  {showLines && Array.isArray(doc?.items) && doc.items.length > 0 && (
                     <div className="mt-4 overflow-hidden rounded-md border border-border">
                       <div className="border-b border-border bg-neutral-6/60 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                         Γραμμές ({doc.items.length})
@@ -399,17 +405,24 @@ export function OcrResultModal({ open, documentId, onClose }: ResultModalProps) 
                             <th className="px-2 py-1.5">Κωδ.</th>
                             <th className="px-2 py-1.5">Περιγραφή</th>
                             <th className="px-2 py-1.5 text-right">Ποσ.</th>
+                            <th className="px-2 py-1.5">Μον.</th>
                             <th className="px-2 py-1.5 text-right">Τιμή</th>
                             <th className="px-2 py-1.5 text-right">ΦΠΑ %</th>
                             <th className="px-2 py-1.5 text-right">Σύνολο</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                          {doc.items.map((it: any) => (
+                          {doc.items.map((it: any, idx: number) => (
                             <tr key={it.id} className="hover:bg-neutral-6/40">
                               <td className="px-2 py-1.5 font-mono text-[11px]">{it.code ?? '-'}</td>
                               <td className="px-2 py-1.5">{it.name}</td>
                               <td className="px-2 py-1.5 text-right tabular-nums">{it.quantity ?? '-'}</td>
+                              {/* Η μονάδα δεν έχει στήλη στη βάση — ζει στο κανονικό JSON (`lines.unit`),
+                                  στην ίδια θέση με τη γραμμή. Χωρίς αυτή τη στήλη ο χρήστης διόρθωνε
+                                  πεδίο που δεν εμφανιζόταν πουθενά. */}
+                              <td className="px-2 py-1.5 text-muted-foreground">
+                                {((data as any).items?.[idx]?.unit ?? '') || '—'}
+                              </td>
                               <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoney(it.price)}</td>
                               <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
                                 {it.vatRate != null ? `${it.vatRate}%` : '—'}

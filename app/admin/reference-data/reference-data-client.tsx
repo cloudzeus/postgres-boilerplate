@@ -7,9 +7,11 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SoftoneResyncPanel } from '@/components/admin/softone-resync';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
+import { syncErrorMessage } from '@/lib/softone/sync-error';
 
 type SyncKind = 'gemi' | 'vat' | 'purdoc' | 'docseries' | 'traders' | 'lookups' | 'expenses';
 type Stat = {
@@ -103,7 +105,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού ΦΠΑ');
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού ΦΠΑ'));
     }
   };
 
@@ -116,7 +118,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού');
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού'));
     }
   };
 
@@ -130,7 +132,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού σειρών');
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού σειρών'));
     }
   };
 
@@ -142,14 +144,14 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού');
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού'));
     }
   };
 
   const syncLookups = async () => {
     const res = await fetch('/api/admin/metadata/sync-lookups-softone', { method: 'POST' });
     if (res.ok) { const d = await res.json(); toast.success(`Βοηθητικοί πίνακες: ${d.total.toLocaleString('el-GR')} εγγραφές`); router.refresh(); }
-    else { const e = await res.json().catch(() => ({})); toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία'); }
+    else { const e = await res.json().catch(() => ({})); toast.error(syncErrorMessage(e, 'Αποτυχία')); }
   };
 
   const syncExpenses = async () => {
@@ -161,7 +163,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού εξόδων');
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού εξόδων'));
     }
   };
 
@@ -183,6 +185,19 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
 
   return (
     <div className="space-y-4">
+      {canManage && (
+        <div className="rounded-md border border-border bg-background p-3">
+          <SoftoneResyncPanel
+            title="Συγχρονισμός όλων των βοηθητικών πινάκων"
+            description={
+              'Τρέχει με τη σειρά και τους επτά συγχρονισμούς SoftOne: κατηγορίες ΦΠΑ, βοηθητικοί πίνακες, '
+              + 'έξοδα, είδη & υπηρεσίες, συναλλασσόμενοι, τύποι παραστατικών αγορών, σειρές παραστατικών. '
+              + 'Αν κάποιος αποτύχει, οι υπόλοιποι συνεχίζουν. Ασφαλές να ξανατρέξει.'
+            }
+          />
+        </div>
+      )}
+
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
         {stats.map((s) => {
           const st = SOURCE_STYLE[s.source] ?? DEFAULT_STYLE;

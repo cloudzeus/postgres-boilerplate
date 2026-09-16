@@ -11,10 +11,11 @@ import { DataTable } from '@/components/ui/data-table';
 import { Combobox } from '@/components/ui/combobox';
 import { Switch } from '@/components/ui/switch';
 import {
-  LINES_FOR_OBJECT, POST_LINES_LABEL, POST_OBJECTS, POST_OBJECT_SHORT,
-  defaultPostingTarget, resolvePostingTarget,
-  type PostLineTable, type PostObject,
+  LINES_FOR_OBJECT, POST_LINES_LABEL, POST_OBJECT_SHORT,
+  defaultPostingTarget, objectsForSosource, resolvePostingTarget,
+  type PostLineTable,
 } from '@/lib/ocr/posting-target';
+import { syncErrorMessage } from '@/lib/softone/sync-error';
 
 export type DocSeriesRecord = {
   id: number;
@@ -137,7 +138,7 @@ export function DocSeriesTabs({
       router.refresh();
     } else {
       const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού');
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού'));
     }
   };
 
@@ -156,16 +157,7 @@ export function DocSeriesTabs({
   };
   const toggle = (rec: DocSeriesRecord, enabled: boolean) => void patch(rec, { enabled });
 
-  /**
-   * Αλλαγή object: ο πίνακας γραμμών μπορεί να μην υπάρχει πια εκεί (π.χ. EXPANAL σε LINSUPDOC),
-   * οπότε τον καθαρίζουμε ώστε να ξαναϊσχύσει η προεπιλογή αντί για μια αδύνατη ρύθμιση.
-   */
-  const setObject = (rec: DocSeriesRecord, value: string) => {
-    const postObject = value || null;
-    const allowed = postObject ? LINES_FOR_OBJECT[postObject as PostObject] : null;
-    const keep = rec.postLines && allowed && allowed.includes(rec.postLines as PostLineTable);
-    void patch(rec, { postObject, postLines: keep ? rec.postLines : null });
-  };
+
 
   const showModuleColumn = activeModule == null;
   const columns = React.useMemo<ColumnDef<DocSeriesRecord>[]>(() => {
@@ -204,7 +196,7 @@ export function DocSeriesTabs({
     // σημαίνει τίποτα και θα γέμιζε τον πίνακα με θόρυβο.
     cols.push({
       id: 'postTarget', header: 'Καταχώριση', size: 420, enableSorting: false,
-      cell: ({ row }) => <PostTargetCell rec={row.original} canManage={canManage} onObject={setObject} onLines={(r, v) => void patch(r, { postLines: v || null })} />,
+      cell: ({ row }) => <PostTargetCell rec={row.original} canManage={canManage} onLines={(r, v) => void patch(r, { postLines: v || null })} />,
     });
     if (showModuleColumn) {
       cols.push({
@@ -310,15 +302,15 @@ export function DocSeriesTabs({
 }
 
 /**
- * Πού καταχωρείται μια σειρά: SoftOne object + πίνακας γραμμών. Κενή επιλογή = «προεπιλογή», και
- * η προεπιλογή γράφεται δίπλα με ελληνικά ώστε ο χρήστης να βλέπει ΤΙ θα γίνει χωρίς να διαλέξει.
+ * Πού καταχωρείται μια σειρά. Το **παραστατικό** ΔΕΝ επιλέγεται: το ορίζει η ενότητα (SOSOURCE)
+ * της σειράς, γιατί ο αριθμός σειράς μιας κεφαλίδας FINDOC ανήκει σε μία ενότητα και μόνο.
+ * Επιλέγεται μόνο ο **πίνακας γραμμών**, που είναι η πραγματική ρύθμιση της εγκατάστασης.
  */
 function PostTargetCell({
-  rec, canManage, onObject, onLines,
+  rec, canManage, onLines,
 }: {
   rec: DocSeriesRecord;
   canManage: boolean;
-  onObject: (rec: DocSeriesRecord, value: string) => void;
   onLines: (rec: DocSeriesRecord, value: string) => void;
 }) {
   const fallback = defaultPostingTarget({ sosource: rec.sosource, section: rec.section, name: rec.name });
@@ -326,31 +318,29 @@ function PostTargetCell({
     sosource: rec.sosource, section: rec.section, name: rec.name,
     postObject: rec.postObject, postLines: rec.postLines,
   });
-  const allowed = LINES_FOR_OBJECT[effective.object];
 
   if (!rec.enabled) {
     return <span className="text-[11px] text-muted-foreground/70">—</span>;
   }
+  // Ενότητα χωρίς υποστηριζόμενο object: το λέμε αντί να προσφέρουμε μια επιλογή που θα έσπαγε.
+  if (objectsForSosource(rec.sosource).length === 0 || !effective.supported) {
+    return (
+      <span className="text-[11px]" style={{ color: '#B45309' }}>
+        Η ενότητα δεν υποστηρίζεται για καταχώριση
+      </span>
+    );
+  }
 
-  const selectCls = 'h-7 max-w-[13rem] cursor-pointer rounded-sm border border-border bg-white px-1.5 text-[11px] disabled:cursor-default disabled:opacity-60';
+  const allowed = LINES_FOR_OBJECT[effective.object];
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-1.5">
-        <select
-          aria-label={`Παραστατικό SoftOne για τη σειρά ${rec.code}`}
-          className={selectCls}
-          disabled={!canManage}
-          value={rec.postObject ?? ''}
-          onChange={(e) => onObject(rec, e.target.value)}
-        >
-          <option value="">Προεπιλογή — {POST_OBJECT_SHORT[fallback.object]}</option>
-          {POST_OBJECTS.map((o) => (
-            <option key={o} value={o}>{POST_OBJECT_SHORT[o]}</option>
-          ))}
-        </select>
+        <span className="inline-flex items-center rounded-sm border border-border bg-neutral-6 px-1.5 py-0.5 text-[11px] text-foreground/80">
+          {POST_OBJECT_SHORT[effective.object]}
+        </span>
         <select
           aria-label={`Πίνακας γραμμών για τη σειρά ${rec.code}`}
-          className={selectCls}
+          className="h-7 max-w-[15rem] cursor-pointer rounded-sm border border-border bg-white px-1.5 text-[11px] disabled:cursor-default disabled:opacity-60"
           disabled={!canManage}
           value={rec.postLines && allowed.includes(rec.postLines as PostLineTable) ? rec.postLines : ''}
           onChange={(e) => onLines(rec, e.target.value)}

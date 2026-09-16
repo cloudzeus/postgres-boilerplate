@@ -15,7 +15,7 @@ type PurdocHeader = Record<string, string | number>;
 type PurdocLine = Record<string, string | number>;
 type PayloadData = {
   PURDOC?: PurdocHeader[]; LINSUPDOC?: PurdocHeader[]; LINCREDOC?: PurdocHeader[]; LINDEBDOC?: PurdocHeader[];
-  ITELINES?: PurdocLine[]; SRVLINES?: PurdocLine[]; ASSLINES?: PurdocLine[];
+  ITELINES?: PurdocLine[]; SRVLINES?: PurdocLine[];
   EXPANAL?: PurdocLine[]; LINLINES?: PurdocLine[];
 };
 type Preview = {
@@ -23,7 +23,7 @@ type Preview = {
   blockers: { code: string; message: string }[];
   warnings: { code: string; message: string }[];
   /** Πού πάει: SoftOne object + πίνακας γραμμών, με ελληνική περιγραφή και το «γιατί». */
-  target: { object: string; lines: string; source: 'configured' | 'default'; reason: string; label: string };
+  target: { object: string; lines: string; source: 'configured' | 'default'; supported: boolean; reason: string; label: string };
   payload: { OBJECT: string; KEY: string; DATA: PayloadData };
   summary: { series: string | null; trader: string | null; trdr: number | null; date: string | null; number: string | null; lines: number };
   postStatus: string;
@@ -131,7 +131,6 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
   const payloadRows: { kind: string; row: PurdocLine }[] = React.useMemo(() => [
     ...(lines?.ITELINES ?? []).map((row) => ({ kind: 'Είδος', row })),
     ...(lines?.SRVLINES ?? []).map((row) => ({ kind: 'Υπηρεσία', row })),
-    ...(lines?.ASSLINES ?? []).map((row) => ({ kind: 'Πάγιο', row })),
     ...(lines?.EXPANAL ?? []).map((row) => ({ kind: 'Έξοδο', row })),
     ...(lines?.LINLINES ?? []).map((row) => ({ kind: 'Χρεοπίστωση', row })),
   ], [lines]);
@@ -232,7 +231,8 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
           )}
 
           {/* Πού πάει: το πρώτο πράγμα που θέλει να δει ο χρήστης πριν σταλεί οτιδήποτε. */}
-          <div className="rounded-lg border border-border bg-muted/40 p-2.5 text-[12px]">
+          <div className="rounded-lg border p-2.5 text-[12px]"
+            style={preview.target.supported ? { borderColor: 'var(--border)', backgroundColor: 'color-mix(in srgb, var(--muted) 40%, transparent)' } : { borderColor: '#B4530940', backgroundColor: '#FDF3E3', color: '#B45309' }}>
             <p className="font-semibold">Προορισμός: {preview.target.label}</p>
             <p className="mt-0.5 text-muted-foreground">
               {preview.target.source === 'default' ? 'Προεπιλογή ενότητας' : 'Ρύθμιση σειράς'} · {preview.target.reason}
@@ -273,7 +273,8 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
                     <th scope="col" className="py-1 pr-2 font-medium">Περιγραφή</th>
                     <th scope="col" className="py-1 pr-2 text-right font-medium">Ποσότητα</th>
                     <th scope="col" className="py-1 pr-2 text-right font-medium">Τιμή / Αξία</th>
-                    <th scope="col" className="py-1 text-right font-medium">ΦΠΑ</th>
+                    <th scope="col" className="py-1 pr-2 text-right font-medium">ΦΠΑ</th>
+                    <th scope="col" className="py-1 font-medium">Αναλυτική</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -285,7 +286,15 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
                       <td className="py-1 pr-2">{row.COMMENTS ?? '—'}</td>
                       <td className="py-1 pr-2 text-right">{row.QTY1 ?? '—'}</td>
                       <td className="py-1 pr-2 text-right">{money(Number(row.PRICE ?? row.EXPVAL))}</td>
-                      <td className="py-1 text-right">{row.VAT ?? '—'}</td>
+                      <td className="py-1 pr-2 text-right">{row.VAT ?? '—'}</td>
+                      {/* Κέντρο κόστους / έργο / δραστηριότητα — προαιρετικά, και ποτέ σε EXPANAL. */}
+                      <td className="py-1">
+                        {[
+                          row.COSTCNTR != null ? `ΚΚ ${row.COSTCNTR}` : null,
+                          row.PRJC != null ? `Έργο ${row.PRJC}` : null,
+                          row.PRJCSTAGE != null ? `Δρ. ${row.PRJCSTAGE}` : null,
+                        ].filter(Boolean).join(' · ') || '—'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

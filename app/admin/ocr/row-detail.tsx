@@ -8,6 +8,7 @@ import { CreateSoftoneItemModal } from '@/components/admin/create-softone-item-m
 import { cn } from '@/lib/utils';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { reconcileInvoice, analyzeLine } from '@/lib/ocr/invoice-math';
+import { docTypeOf } from '@/lib/ocr/canonical';
 import { SoftoneChecksStrip } from '@/components/admin/softone-checks-strip';
 import { ZoomablePreview } from '@/components/admin/zoomable-preview';
 import { type OcrRow, type SeriesOption } from './ocr-table';
@@ -77,8 +78,17 @@ const CATEGORY_OPTIONS = [
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-interface LineItem { code: string; name: string; quantity: string; price: string; discount: string; vatRate: string; total: string }
-const EMPTY_LINE: LineItem = { code: '', name: '', quantity: '', price: '', discount: '', vatRate: '', total: '' };
+/**
+ * Η γραμμή όπως τη δουλεύει η φόρμα. Το `customFields` (ό,τι διάβασε ένα πρότυπο για ΑΥΤΗ τη
+ * γραμμή) ταξιδεύει ΜΑΖΙ της: αν το ξαναβρίσκαμε κάθε φορά από το `data.items[i]`, μια προσθήκη ή
+ * διαγραφή γραμμής θα μετακινούσε τους δείκτες και τα ειδικά πεδία θα κατέληγαν σε άλλο είδος.
+ */
+interface LineItem {
+  code: string; name: string; unit: string; quantity: string; price: string;
+  discount: string; vatRate: string; total: string;
+  customFields?: Record<string, unknown>;
+}
+const EMPTY_LINE: LineItem = { code: '', name: '', unit: '', quantity: '', price: '', discount: '', vatRate: '', total: '' };
 
 function toNum(v: unknown): number | null {
   const s = String(v ?? '').trim().replace(/\s/g, '').replace(',', '.');
@@ -100,11 +110,15 @@ function toLineItems(raw: any): LineItem[] {
   return raw.map((it) => ({
     code: it?.code != null ? String(it.code) : '',
     name: it?.name != null ? String(it.name) : '',
+    unit: it?.unit != null ? String(it.unit) : '',
     quantity: it?.quantity != null ? String(it.quantity) : '',
     price: it?.price != null ? String(it.price) : '',
     discount: it?.discount != null ? String(it.discount) : '',
     vatRate: it?.vatRate != null ? String(it.vatRate) : '',
     total: it?.total != null ? String(it.total) : '',
+    ...(it?.customFields && typeof it.customFields === 'object'
+      ? { customFields: it.customFields as Record<string, unknown> }
+      : {}),
   }));
 }
 
@@ -237,6 +251,13 @@ export function OcrRowDetail({
     JSON.stringify(items) !== JSON.stringify(initialItems) ||
     category !== (row.category ?? '') || seriesKey !== initialSeriesKey || docType !== row.docType;
 
+  // Οι «Γραμμές» ΔΕΝ είναι προνόμιο του τιμολογίου: μια απόδειξη έχει κι αυτή είδη, και από τότε
+  // που ο τύπος αποφασίζεται «Αυτόματα» οι αποδείξεις είναι ο κανόνας — με το παλιό
+  // `docType === 'INVOICE'` η καρτέλα τους δεν είχε καν καρτέλα γραμμών, άρα ΟΥΤΕ ΦΠΑ ούτε μονάδα
+  // μπορούσε να διορθωθεί. Κρύβεται μόνο σε γνήσιο ελεύθερο κείμενο — κι εκεί μόνο όσο δεν έχει
+  // γραμμές.
+  const showLines = docTypeOf(docType) !== 'general_text' || items.length > 0;
+
   const missing = specs.filter((s) => s.required && !String(form[s.key] ?? '').trim());
   const fileUrl = `/api/admin/ocr/${row.id}/file`;
   const isPdf = row.mimeType === 'application/pdf';
@@ -273,21 +294,23 @@ export function OcrRowDetail({
       else if (s.numeric || s.group === 'totals') out[s.key] = toNum(v);
       else out[s.key] = String(v ?? '').trim() || null;
     }
-    if (isInvoice) {
-      out.items = items.map((it, i) => {
-        // Η φόρμα δείχνει 7 στήλες — η γραμμή όμως μπορεί να κουβαλάει περισσότερα (`unit`, ανά
-        // γραμμή `customFields`, ό,τι διάβασε ένα πρότυπο). Ξεκινάμε από την ΥΠΑΡΧΟΥΣΑ γραμμή ώστε
-        // μια χειροκίνητη διόρθωση συνόλου να μη σβήνει τη μονάδα μέτρησης του τιμολογίου.
-        const prev = (data.items?.[i] as any) ?? {};
-        const prevCf = prev.customFields;
-        return {
-          ...prev,
-          code: it.code.trim() || null, name: it.name.trim(),
-          quantity: toNum(it.quantity), price: toNum(it.price), discount: toNum(it.discount),
-          vatRate: toNum(it.vatRate), total: toNum(it.total),
-          ...(prevCf ? { customFields: prevCf } : {}),
-        };
-      }).filter((it) => it.name || it.code || it.total != null);
+    if (showLines) {
+      // Κάθε πεδίο της γραμμής βγαίνει από την ΙΔΙΑ τη γραμμή της φόρμας — όχι από το `data.items[i]`:
+      // μετά από μια προσθήκη ή διαγραφή γραμμής οι δείκτες δεν ταιριάζουν πια, και η μονάδα ή τα
+      // ειδικά πεδία θα κατέληγαν σε λάθος είδος.
+      out.items = items.map((it) => ({
+        code: it.code.trim() || null, name: it.name.trim(),
+        ...(it.unit.trim() ? { unit: it.unit.trim() } : {}),
+        quantity: toNum(it.quantity), price: toNum(it.price), discount: toNum(it.discount),
+        vatRate: toNum(it.vatRate), total: toNum(it.total),
+        ...(it.customFields && Object.keys(it.customFields).length ? { customFields: it.customFields } : {}),
+      // Κρατάμε κάθε γραμμή που κουβαλάει ΕΣΤΩ ΕΝΑ στοιχείο. Το παλιό φίλτρο ζητούσε περιγραφή,
+      // κωδικό ή σύνολο — και έσβηνε σιωπηλά γραμμή με μόνο ποσότητα και τιμή (ή μόνο μονάδα),
+      // δηλαδή ακριβώς ό,τι μόλις είχε πληκτρολογήσει ο χρήστης. Φεύγει μόνο η ΕΝΤΕΛΩΣ κενή.
+      })).filter((it) =>
+        it.name || it.code || it.unit || it.total != null
+        || it.quantity != null || it.price != null || it.discount != null || it.vatRate != null,
+      );
     }
     return out;
   }
@@ -306,7 +329,7 @@ export function OcrRowDetail({
         body.softoneSeries = seriesKey ? seriesKey.slice(sep + 1) : null;
         body.seriesSource = seriesKey ? Number(seriesKey.slice(0, sep)) : null;
       }
-      if (isInvoice) body.items = extractedData.items;
+      if (showLines) body.items = extractedData.items;
       const res = await fetch(`/api/admin/ocr/${row.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
@@ -328,7 +351,7 @@ export function OcrRowDetail({
       const extractedData = buildExtractedData();
       await fetch(`/api/admin/ocr/${row.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category, extractedData, ...(isInvoice ? { items: extractedData.items } : {}) }),
+        body: JSON.stringify({ category, extractedData, ...(showLines ? { items: extractedData.items } : {}) }),
       });
       const res = await fetch(`/api/admin/ocr/${row.id}/post-softone`, { method: 'POST' });
       const json = await res.json();
@@ -459,7 +482,7 @@ export function OcrRowDetail({
                     </span>
                   )}
                 </TabsTrigger>
-                {isInvoice && <TabsTrigger value="items" className="text-[12px]">Γραμμές ({items.length})</TabsTrigger>}
+                {showLines && <TabsTrigger value="items" className="text-[12px]">Γραμμές ({items.length})</TabsTrigger>}
                 <TabsTrigger value="json" className="text-[12px]">JSON</TabsTrigger>
               </TabsList>
             </div>
@@ -506,7 +529,7 @@ export function OcrRowDetail({
             </TabsContent>
 
             {/* ---------- Γραμμές ---------- */}
-            {isInvoice && (
+            {showLines && (
               <TabsContent value="items" className="max-h-[480px] overflow-auto p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-[11px] font-bold uppercase tracking-wide text-foreground">Γραμμές <span className="text-foreground">({items.length})</span></span>
@@ -518,11 +541,12 @@ export function OcrRowDetail({
                   )}
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-border">
-                  <table className="w-full min-w-[680px]">
+                  <table className="w-full min-w-[760px]">
                     <thead className="border-b border-border bg-sisyphus-500/10 text-left text-[11px] font-bold uppercase tracking-wide text-sisyphus-700 dark:text-sisyphus-300">
                       <tr>
                         <th className="px-3 py-1.5">Κωδ.</th>
                         <th className="px-3 py-1.5">Περιγραφή</th>
+                        <th className="w-[80px] px-3 py-1.5">Μονάδα</th>
                         <th className="w-[86px] px-3 py-1.5 text-right">Ποσ.</th>
                         <th className="w-[110px] px-3 py-1.5 text-right">Τιμή</th>
                         <th className="w-[96px] px-3 py-1.5 text-right">Έκπτ.</th>
@@ -533,16 +557,17 @@ export function OcrRowDetail({
                     </thead>
                     <tbody className="divide-y divide-border">
                       {items.length === 0 ? (
-                        <tr><td colSpan={ro ? 7 : 8} className="px-3 py-5 text-center text-[12px] text-muted-foreground">Δεν υπάρχουν γραμμές.</td></tr>
+                        <tr><td colSpan={ro ? 8 : 9} className="px-3 py-5 text-center text-[12px] text-muted-foreground">Δεν υπάρχουν γραμμές.</td></tr>
                       ) : items.map((it, i) => {
                         const la = analyzeLine(it);
                         const dTitle = la.discountKind === 'percent' ? 'Έκπτωση επί τοις %' : la.discountKind === 'amount' ? 'Έκπτωση ως ποσό' : undefined;
-                        const lineCf = lineCustomFieldsText((data.items?.[i]?.customFields) as Record<string, unknown> | undefined);
+                        const lineCf = lineCustomFieldsText(it.customFields);
                         return (
                         <React.Fragment key={i}>
                         <tr className={cn('hover:bg-sisyphus-500/5', !la.consistent ? 'bg-amber-500/5' : 'odd:bg-muted/20')}>
                           <td className="px-1.5 py-1"><CellInput value={it.code} onChange={(v) => setLine(i, 'code', v)} disabled={ro} className="font-mono" /></td>
                           <td className="px-1.5 py-1"><CellInput value={it.name} onChange={(v) => setLine(i, 'name', v)} disabled={ro} /></td>
+                          <td className="px-1.5 py-1"><CellInput value={it.unit} onChange={(v) => setLine(i, 'unit', v)} disabled={ro} /></td>
                           <td className="px-1.5 py-1"><CellInput value={it.quantity} onChange={(v) => setLine(i, 'quantity', v)} disabled={ro} numeric align="right" /></td>
                           <td className="px-1.5 py-1"><CellInput value={it.price} onChange={(v) => setLine(i, 'price', v)} disabled={ro} numeric align="right" /></td>
                           <td className="px-1.5 py-1" title={dTitle}><CellInput value={it.discount} onChange={(v) => setLine(i, 'discount', v)} disabled={ro} numeric align="right" className={cn(la.discountKind === 'percent' && 'text-sisyphus-700 dark:text-sisyphus-300')} /></td>
@@ -567,7 +592,7 @@ export function OcrRowDetail({
                         </tr>
                         {lineCf.length > 0 && (
                           <tr className="bg-sisyphus-500/5">
-                            <td colSpan={ro ? 7 : 8} className="px-3 py-1.5 text-[11px] text-muted-foreground">
+                            <td colSpan={ro ? 8 : 9} className="px-3 py-1.5 text-[11px] text-muted-foreground">
                               {lineCf.map((e) => (
                                 <span key={e.label} className="mr-3"><strong className="text-foreground">{e.label}:</strong> {e.text}</span>
                               ))}
@@ -579,7 +604,7 @@ export function OcrRowDetail({
                     </tbody>
                     <tfoot className="border-t border-border bg-muted/50">
                       <tr className="text-[12px]">
-                        <td colSpan={ro ? 6 : 7} className="px-3 py-1.5 text-right font-semibold text-foreground">Άθροισμα γραμμών (καθαρό)</td>
+                        <td colSpan={ro ? 7 : 8} className="px-3 py-1.5 text-right font-semibold text-foreground">Άθροισμα γραμμών (καθαρό)</td>
                         <td className="px-3 py-1.5 text-right font-bold tabular-nums text-foreground">{fmtMoney(linesNet)}</td>
                         {!ro && <td />}
                       </tr>

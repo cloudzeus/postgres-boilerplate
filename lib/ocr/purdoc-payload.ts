@@ -9,7 +9,8 @@
 // παραστατικό χρεώστη σε `LINDEBDOC`/`LINLINES`.
 import type { DocumentJson } from './canonical';
 import {
-  LINES_FOR_OBJECT, POST_LINES_LABEL, type PostLineTable, type PostingTarget,
+  LINES_FOR_OBJECT, POST_LINES_LABEL, SODTYPE_FOR_OBJECT,
+  type PostLineTable, type PostingTarget,
 } from './posting-target';
 
 /** Η πρώτη νέα γραμμή. Το SoftOne θέλει LINENUM που δεν υπάρχει ήδη στο παραστατικό. */
@@ -29,12 +30,20 @@ export type PurdocLineCtx = {
   isService?: boolean | null;
   /**
    * MYDATACODE του ΜΗΤΡΩΟΥ στο οποίο ταίριαξε η γραμμή. Στέλνεται μόνο εκεί όπου ο πίνακας
-   * γραμμών το έχει (ITELINES / SRVLINES / ASSLINES) — το EXPANAL και το LINLINES δεν έχουν
+   * γραμμών το έχει (ITELINES / SRVLINES) — το EXPANAL και το LINLINES δεν έχουν
    * πεδίο χαρακτηρισμού, εκεί τον εφαρμόζει το SoftOne από το μητρώο.
    */
   myDataCode?: string | null;
   /** `true` όταν το μητρώο δεν κουβαλά κανέναν χαρακτηρισμό myDATA (προειδοποίηση, όχι εμπόδιο). */
   noClassification?: boolean;
+  /**
+   * Αναλυτική ανά γραμμή: κέντρο κόστους, έργο, κατηγορία δραστηριότητας. Υπάρχουν σε
+   * `ITELINES` / `SRVLINES` / `LINLINES` και ΔΕΝ υπάρχουν στο `EXPANAL` — εκεί απλώς δεν
+   * στέλνονται. Είναι ΠΡΟΑΙΡΕΤΙΚΑ στο SoftOne: κενά δεν εμποδίζουν ποτέ την καταχώριση.
+   */
+  costCntr?: number | null;
+  prjc?: number | null;
+  prjcStage?: number | null;
 };
 
 export type PurdocContext = {
@@ -69,10 +78,11 @@ export type PurdocHeader = {
   MYDATAUID?: string;
 };
 
-/** Γραμμή ειδών/υπηρεσιών/παγίων (DB MTRLINES) σε PURDOC. */
+/** Γραμμή ειδών/υπηρεσιών (DB MTRLINES) σε PURDOC. */
 export type PurdocItemLine = {
   LINENUM: number; MTRL: number; QTY1: number; PRICE: number; DISC1PRC: number;
   VAT?: number; COMMENTS?: string; MYDATACODE?: string;
+  COSTCNTR?: number; PRJC?: number; PRJCSTAGE?: number;
 };
 /** Γραμμή ανάλυσης εξόδων (EXPANAL) — δεν έχει ποσότητα/τιμή, μόνο αξία. */
 export type PurdocExpenseLine = { LINENUM: number; EXPN: number; VAT?: number; EXPVAL: number };
@@ -80,6 +90,7 @@ export type PurdocExpenseLine = { LINENUM: number; EXPN: number; VAT?: number; E
 export type PurdocLinLine = {
   LINENUM: number; MTRL: number; MTRTYPE: number; QTY1: number; PRICE: number; DISC1PRC: number;
   NETLINEVAL: number; VAT?: number; COMMENTS?: string;
+  COSTCNTR?: number; PRJC?: number; PRJCSTAGE?: number;
 };
 
 export type PostingObjectName = 'PURDOC' | 'LINSUPDOC' | 'LINCREDOC' | 'LINDEBDOC';
@@ -94,7 +105,6 @@ export type PostingPayload = {
     LINDEBDOC?: PurdocHeader[];
     ITELINES?: PurdocItemLine[];
     SRVLINES?: PurdocItemLine[];
-    ASSLINES?: PurdocItemLine[];
     EXPANAL?: PurdocExpenseLine[];
     LINLINES?: PurdocLinLine[];
   };
@@ -109,6 +119,15 @@ export type PostingDoc = {
   softoneTrdr: number | null;
   softoneSeries: string | null;
   seriesSource: number | null;
+  /** `false` όταν η σειρά του εγγράφου ΔΕΝ υπάρχει στο συγχρονισμένο μητρώο σειρών. */
+  seriesKnown: boolean;
+  /** `false` όταν η σειρά υπάρχει αλλά δεν είναι «σε χρήση». */
+  seriesEnabled: boolean;
+  /**
+   * TRDR.SODTYPE του συναλλασσομένου του εγγράφου (12 προμηθευτής, 16 πιστωτής).
+   * `null` = άγνωστο (δεν υπάρχει στον τοπικό καθρέφτη) — τότε ΔΕΝ κρίνουμε.
+   */
+  traderSodtype: number | null;
 };
 
 export type BlockerCode =
@@ -126,7 +145,10 @@ export type BlockerCode =
   | 'lines_need_expn'
   | 'lines_need_lineitem'
   | 'lines_lineitem_unsupported'
-  | 'lines_no_mtrtype';
+  | 'lines_no_mtrtype'
+  | 'series_unknown'
+  | 'series_module_unsupported'
+  | 'trader_kind_mismatch';
 
 /** Μη-αποτρεπτικές παρατηρήσεις: φαίνονται στην προεπισκόπηση, δεν κλειδώνουν το κουμπί. */
 export type WarningCode = 'no_mydata_classification' | 'mydata_from_master';
@@ -139,6 +161,16 @@ const text = (v: unknown): string | undefined => {
 
 /** Ημερομηνία εγγράφου → `YYYY-MM-DD` (το έγγραφο είναι ήδη κανονικοποιημένο· κόβουμε ώρα αν υπάρχει). */
 const trnDate = (date: string | null): string => (date ?? '').slice(0, 10);
+
+/**
+ * Κέντρο κόστους / έργο / δραστηριότητα, μόνο όταν έχουν οριστεί. Ποτέ `0` ή κενό: το SoftOne
+ * διαβάζει το 0 ως «κανένα», αλλά ένα ρητό 0 σε πεδίο FK είναι θόρυβος στο payload.
+ */
+const analyticsOf = (m: PurdocLineCtx): { COSTCNTR?: number; PRJC?: number; PRJCSTAGE?: number } => ({
+  ...(m.costCntr ? { COSTCNTR: m.costCntr } : {}),
+  ...(m.prjc ? { PRJC: m.prjc } : {}),
+  ...(m.prjcStage ? { PRJCSTAGE: m.prjcStage } : {}),
+});
 
 const vatIdFor = (rate: number | null, map: Record<number, number>): number | undefined => {
   if (rate == null || !Number.isFinite(rate)) return undefined;
@@ -156,7 +188,7 @@ const autoTableFor = (m: PurdocLineCtx): 'ITELINES' | 'SRVLINES' | 'EXPANAL' | n
 /** Το «τι ταίριαξε» της γραμμής ταιριάζει με τον πίνακα που ζήτησε η σειρά; */
 function lineFits(table: PostLineTable, m: PurdocLineCtx): boolean {
   switch (table) {
-    case 'ITELINES': case 'SRVLINES': case 'ASSLINES': return m.mtrl != null;
+    case 'ITELINES': case 'SRVLINES': return m.mtrl != null;
     case 'EXPANAL': return m.expn != null;
     case 'LINLINES': return m.lin != null;
     case 'AUTO': return autoTableFor(m) != null;
@@ -189,9 +221,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
   const uid = text(document.digital.uid);
   if (uid) header.MYDATAUID = uid;
 
-  const items: Record<'ITELINES' | 'SRVLINES' | 'ASSLINES', PurdocItemLine[]> = {
-    ITELINES: [], SRVLINES: [], ASSLINES: [],
-  };
+  const items: Record<'ITELINES' | 'SRVLINES', PurdocItemLine[]> = { ITELINES: [], SRVLINES: [] };
   const expenses: PurdocExpenseLine[] = [];
   const linLines: PurdocLinLine[] = [];
 
@@ -212,6 +242,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
         PRICE: num(line.unitPrice, 0),
         DISC1PRC: num(line.discount, 0),
         NETLINEVAL: num(line.net, 0),
+        ...analyticsOf(match),
       };
       if (vat != null) row.VAT = vat;
       if (name) row.COMMENTS = name;
@@ -219,6 +250,8 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
       return;
     }
     if (target === 'EXPANAL') {
+      // Η «Ανάλυση εξόδων» ΔΕΝ έχει COSTCNTR / PRJC / PRJCSTAGE: δεν τα στέλνουμε εδώ, και το UI
+      // το λέει ρητά αντί να αφήσει τον χρήστη να διαλέξει κάτι που θα χανόταν.
       expenses.push({
         LINENUM: FIRST_LINENUM + expenses.length,
         EXPN: match.expn as number,
@@ -234,6 +267,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
       QTY1: num(line.quantity, 1),
       PRICE: num(line.unitPrice, 0),
       DISC1PRC: num(line.discount, 0),
+      ...analyticsOf(match),
     };
     if (vat != null) row.VAT = vat;
     if (name) row.COMMENTS = name;
@@ -246,7 +280,6 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
   const DATA: PostingPayload['DATA'] = { [object]: [header] };
   if (items.ITELINES.length) DATA.ITELINES = items.ITELINES;
   if (items.SRVLINES.length) DATA.SRVLINES = items.SRVLINES;
-  if (items.ASSLINES.length) DATA.ASSLINES = items.ASSLINES;
   if (expenses.length) DATA.EXPANAL = expenses;
   if (linLines.length) DATA.LINLINES = linLines;
   return { OBJECT: object, KEY: '', DATA };
@@ -279,6 +312,20 @@ export function postingBlockers(
   if (!doc.category) out.push('no_category');
   if (!doc.softoneTrdr) out.push('no_trader');
   if (!doc.softoneSeries || !doc.seriesSource) out.push('no_series');
+  // Σειρά που δεν υπάρχει στο μητρώο: το `SERIES` θα έφευγε ούτως ή άλλως, αλλά κανείς δεν ξέρει
+  // τι είναι — και καμία ρύθμιση στόχου δεν μπορεί να εφαρμοστεί πάνω της.
+  else if (!doc.seriesKnown) out.push('series_unknown');
+  else if (!doc.seriesEnabled) out.push('series_unknown');
+  if (!ctx.target.supported) out.push('series_module_unsupported');
+  // Ο τύπος του συναλλασσομένου πρέπει να ταιριάζει με το πεδίο του object: το `LINCREDOC.TRDR`
+  // δέχεται ΠΙΣΤΩΤΗ (16), το `PURDOC`/`LINSUPDOC` ΠΡΟΜΗΘΕΥΤΗ (12). Το read-back δεν το πιάνει,
+  // γιατί συγκρίνει με ό,τι στείλαμε.
+  if (
+    ctx.target.supported && doc.softoneTrdr && doc.traderSodtype != null
+    && doc.traderSodtype !== SODTYPE_FOR_OBJECT[ctx.target.object]
+  ) {
+    out.push('trader_kind_mismatch');
+  }
   if (!trnDate(document.date)) out.push('no_date');
   if (!text(document.type.number)) out.push('no_number');
 

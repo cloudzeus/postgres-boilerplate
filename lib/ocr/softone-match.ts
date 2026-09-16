@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db';
-import { softoneFindTraderByAfm, softoneCheckPurchaseDoc } from '@/lib/softone';
+import { SODTYPE_LABEL, softoneFindTraderByAfm, softoneCheckPurchaseDoc } from '@/lib/softone';
+import { SODTYPE_FOR_OBJECT, resolvePostingTarget } from '@/lib/ocr/posting-target';
 import { normalizeLineText } from '@/lib/ocr/line-match';
 
 /**
@@ -86,6 +87,10 @@ type LineMatchUpdate = {
   softoneMtrl: number | null;
   softoneExpn: number | null;
   softoneLinMtrl: number | null;
+  /** Αναλυτική από τη μνήμη· `undefined` = μην την αγγίξεις (π.χ. αντιστοίχιση με κωδικό). */
+  softoneCostCntr?: number | null;
+  softonePrjc?: number | null;
+  softonePrjcStage?: number | null;
   softoneCode: string | null;
   softoneName: string | null;
   softoneIsService: boolean | null;
@@ -173,7 +178,10 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     const patterns = Array.from(new Set(unmatched.map((u) => u.pattern)));
     const rules = await prisma.lineMatchRule.findMany({
       where: { pattern: { in: patterns }, afm: { in: afm ? [afm, ''] : [''] } },
-      select: { id: true, afm: true, pattern: true, mtrl: true, expn: true, lin: true, isService: true },
+      select: {
+        id: true, afm: true, pattern: true, mtrl: true, expn: true, lin: true, isService: true,
+        costCntr: true, prjc: true, prjcStage: true,
+      },
     });
 
     if (rules.length > 0) {
@@ -229,6 +237,11 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
           };
         }
         if (!data) continue;
+        // Η αναλυτική που έμαθε ο κανόνας εφαρμόζεται μαζί με το είδος: αυτό ακριβώς ζήτησε ο
+        // χρήστης («αν το κάνει μια φορά να το θυμάται»). Παραμένει επεξεργάσιμη στη γραμμή.
+        if (r.costCntr != null) data.softoneCostCntr = r.costCntr;
+        if (r.prjc != null) data.softonePrjc = r.prjc;
+        if (r.prjcStage != null) data.softonePrjcStage = r.prjcStage;
         updates.set(u.id, data);
         matched++;
         usage.set(r.id, (usage.get(r.id) ?? 0) + 1);
@@ -248,4 +261,65 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
   await writeDocTally(docId, items.length, matched);
 
   return { matched, total: items.length };
+}
+
+/**
+ * Ευθυγραμμίζει τον συναλλασσόμενο του εγγράφου με ΤΟΝ ΤΥΠΟ που δέχεται ο στόχος της σειράς του.
+ *
+ * Ο ίδιος εκδότης υπάρχει συχνά δύο φορές στο SoftOne — μία ως προμηθευτής (SODTYPE 12) και μία
+ * ως πιστωτής (16) — και η αντιστοίχιση στο σάρωμα προτιμά τον προμηθευτή, γιατί τότε ακόμη δεν
+ * ξέρουμε σε ποια σειρά θα ταξινομηθεί το παραστατικό. Μόλις η σειρά γίνει γνωστή, ξέρουμε και τι
+ * θέλει η κεφαλίδα: `LINCREDOC.TRDR` δέχεται ΠΙΣΤΩΤΗ, `PURDOC`/`LINSUPDOC` ΠΡΟΜΗΘΕΥΤΗ.
+ *
+ * Ψάχνει ΜΟΝΟ στον τοπικό καθρέφτη — καμία κλήση SoftOne, καμία εγγραφή προς το ERP. Αν δεν
+ * υπάρχει ο σωστός τύπος, δεν αλλάζει τίποτα: ο έλεγχος `trader_kind_mismatch` θα το πει δυνατά
+ * στην προεπισκόπηση, και ο χρήστης θα διαλέξει συναλλασσόμενο μόνος του.
+ */
+export async function alignTraderToTarget(docId: string): Promise<boolean> {
+  try {
+    const doc = await prisma.ocrDocument.findUnique({
+      where: { id: docId },
+      select: { issuerAfm: true, softoneTrdr: true, softoneSeries: true, seriesSource: true },
+    });
+    if (!doc?.softoneTrdr || !doc.issuerAfm || !doc.softoneSeries || !doc.seriesSource) return false;
+
+    const row = doc.seriesSource === 1251
+      ? await prisma.purchaseDocType.findUnique({
+          where: { code: doc.softoneSeries },
+          select: { name: true, section: true, postObject: true, postLines: true },
+        })
+      : await prisma.softoneDocSeries.findUnique({
+          where: { sosource_code: { sosource: doc.seriesSource, code: doc.softoneSeries } },
+          select: { name: true, section: true, postObject: true, postLines: true },
+        });
+    const target = resolvePostingTarget({ sosource: doc.seriesSource, ...(row ?? {}) });
+    if (!target.supported) return false;
+
+    const want = SODTYPE_FOR_OBJECT[target.object];
+    const current = await prisma.softoneTrader.findUnique({
+      where: { trdr: doc.softoneTrdr }, select: { sodtype: true },
+    });
+    if (current?.sodtype === want) return false;
+
+    const alt = await prisma.softoneTrader.findFirst({
+      where: { afm: doc.issuerAfm, sodtype: want, isActive: true },
+      select: { trdr: true, code: true, name: true, sodtype: true },
+    });
+    if (!alt) return false;
+
+    await prisma.ocrDocument.update({
+      where: { id: docId },
+      data: {
+        softoneTrdr: alt.trdr,
+        softoneCode: alt.code,
+        softoneName: alt.name,
+        softoneKind: SODTYPE_LABEL[alt.sodtype] ?? `Τύπος ${alt.sodtype}`,
+      },
+    });
+    return true;
+  } catch (e) {
+    // Best-effort, όπως όλη η συσχέτιση: μια αποτυχία εδώ δεν ρίχνει τη σάρωση.
+    console.error('[softone-match] trader alignment failed', docId, (e as Error).message);
+    return false;
+  }
 }

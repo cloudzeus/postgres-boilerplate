@@ -3,11 +3,12 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
-import { FiRefreshCw, FiCheck, FiSlash } from 'react-icons/fi';
+import { FiRefreshCw, FiCheck, FiSlash, FiAlertTriangle } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
+import { syncErrorMessage } from '@/lib/softone/sync-error';
 
 // Κατηγορίες δαπανών SoftOne (object LINCATEGORY → MTRCATEGORY με SODTYPE 53). Είναι η
 // ΟΜΑΔΟΠΟΙΗΣΗ πάνω από τις χρεοπιστώσεις — αυτή που κάνει την επιλογή δαπάνης εφικτή.
@@ -18,6 +19,8 @@ export type LineCategoryRecord = {
   vat: string | null;
   acnmsk: string | null;
   lineItems: number;
+  /** `false` = η γραμμή ήρθε από εφεδρεία χωρίς φίλτρο SODTYPE, άρα μπορεί να μην είναι δαπάνης. */
+  sodtypeFiltered: boolean;
   isActive: boolean;
 };
 
@@ -44,8 +47,8 @@ export function LineCategoriesTableClient({
       toast.success(`Κατηγορίες δαπανών: ${d.total.toLocaleString('el-GR')} (νέες ${d.created}, ενημερώσεις ${d.updated})`);
       router.refresh();
     } else {
-      const e = await res.json().catch(() => ({}));
-      toast.error(e.error === 'softone_error' ? `Σφάλμα SoftOne: ${e.message ?? ''}` : 'Αποτυχία συγχρονισμού');
+      // Ένα μήνυμα, μία μετάφραση: το ίδιο helper με τα υπόλοιπα κουμπιά συγχρονισμού.
+      toast.error(syncErrorMessage(await res.json().catch(() => ({}))));
     }
   };
 
@@ -56,7 +59,17 @@ export function LineCategoriesTableClient({
     },
     {
       accessorKey: 'name', header: 'Περιγραφή', size: 360,
-      cell: ({ row }) => <span className="text-[12px] font-medium text-foreground">{row.original.name || '—'}</span>,
+      cell: ({ row }) => (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="text-[12px] font-medium text-foreground">{row.original.name || '—'}</span>
+          {!row.original.sodtypeFiltered && (
+            <span className="inline-flex items-center gap-1 text-[11px]" style={{ color: '#B45309' }}
+              title="Κατέβηκε χωρίς φίλτρο SODTYPE — μπορεί να μην είναι κατηγορία δαπάνης">
+              <FiAlertTriangle className="h-3 w-3" aria-hidden /> αφιλτράριστη
+            </span>
+          )}
+        </span>
+      ),
     },
     {
       accessorKey: 'lineItems', header: 'Χρεοπιστώσεις', size: 130,
@@ -103,6 +116,12 @@ export function LineCategoriesTableClient({
     <div className="space-y-2">
       <p className="text-[12px] text-muted-foreground">
         Η κατηγορία δαπάνης είναι το φίλτρο της αναζήτησης χρεοπιστώσεων στην ουρά «Είδη &amp; έξοδα».
+        {rows.some((r) => !r.sodtypeFiltered) && (
+          <span style={{ color: '#B45309' }}>
+            {' '}Κάποιες γραμμές κατέβηκαν <strong>χωρίς φίλτρο SODTYPE</strong> (η εγκατάσταση δεν το
+            εκθέτει) και μπορεί να είναι κατηγορίες ειδών, υπηρεσιών ή παγίων.
+          </span>
+        )}
       </p>
       <DataTable
         columns={columns}

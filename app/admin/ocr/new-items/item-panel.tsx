@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RegistrySearch } from '@/components/admin/registry-search';
+import { AnalyticsPicker, type AnalyticsValue } from '@/components/admin/analytics-picker';
 import type { ItemQueueGroup, QueueSuggestion } from '@/lib/ocr/queues';
 import type { MatchKind } from '@/lib/ocr/line-match';
 import { cn } from '@/lib/utils';
@@ -27,6 +28,18 @@ export const CATEGORY_META: Record<MatchKind, { label: string; bg: string; fg: s
 
 /** Μία κατηγορία δαπάνης (LINCATEGORY) για το φίλτρο των χρεοπιστώσεων. */
 export interface LineCategoryOption { id: number; label: string }
+
+/** Η αναλυτική μιας ομάδας: κέντρο κόστους, έργο, κατηγορία δραστηριότητας. */
+export interface AnalyticsState {
+  costCntr: AnalyticsValue;
+  prjc: AnalyticsValue;
+  prjcStage: AnalyticsValue;
+}
+export const EMPTY_ANALYTICS: AnalyticsState = {
+  costCntr: { id: null, label: null, source: null },
+  prjc: { id: null, label: null, source: null },
+  prjcStage: { id: null, label: null, source: null },
+};
 
 const eur = new Intl.NumberFormat('el-GR', { style: 'currency', currency: 'EUR' });
 export const money = (v: number | null) => (v == null ? '—' : eur.format(v));
@@ -87,7 +100,7 @@ function defaultUnit(units: UnitOption[]): string {
 export function ItemPanel({
   group, category, onCategory, suggestions, hiddenSuggestions, loadingSuggestions,
   suggestionsFailed, onRetrySuggestions, canManage, busy, onMatch, onCreate, onSkip, vats, units,
-  lineCategories = [], lineCategory, onLineCategory,
+  lineCategories = [], lineCategory, onLineCategory, analytics, onAnalytics, analyticsSupported,
 }: {
   group: ItemQueueGroup;
   category: MatchKind;
@@ -113,6 +126,14 @@ export function ItemPanel({
   /** Η επιλεγμένη κατηγορία δαπάνης (ελέγχεται από την ουρά: τη χρειάζεται και το AI). */
   lineCategory: number | null;
   onLineCategory: (v: number | null) => void;
+  /** Αναλυτική της τρέχουσας ομάδας (κέντρο κόστους / έργο / δραστηριότητα). */
+  analytics: AnalyticsState;
+  onAnalytics: (v: AnalyticsState) => void;
+  /**
+   * `false` όταν η σειρά του παραστατικού καταχωρεί σε «Ανάλυση εξόδων» (EXPANAL), που ΔΕΝ έχει
+   * πεδία αναλυτικής. Τότε τα δείχνουμε ανενεργά με εξήγηση αντί να δεχτούμε τιμή που θα χανόταν.
+   */
+  analyticsSupported?: boolean;
 }) {
   const cat = CATEGORY_META[category];
   const needsUnit = category !== 'expense' && category !== 'lineitem';
@@ -120,6 +141,9 @@ export function ItemPanel({
   // Χρεοπιστώσεις: η δημιουργία γίνεται ΜΟΝΟ στο SoftOne — η εφαρμογή δεν γράφει ποτέ μητρώο
   // χρεοπιστώσεων, οπότε η φόρμα «Δημιουργία» δεν εμφανίζεται εκεί.
   const canCreate = category !== 'lineitem';
+  // Τα έργα του εκδότη είναι η χρήσιμη προεπιλογή· ο χρήστης βλέπει όλα με ένα κλικ.
+  const [projectScopeAll, setProjectScopeAll] = React.useState(false);
+  React.useEffect(() => setProjectScopeAll(false), [group.key]);
 
 
   const [creating, setCreating] = React.useState(false);
@@ -420,6 +444,38 @@ export function ItemPanel({
               p.kind === 'expense' ? { expn: p.id } : p.kind === 'lineitem' ? { lin: p.id } : { mtrl: p.id },
               p.kind === 'service',
             )}
+          />
+        </div>
+      </section>
+
+      {/* ── Αναλυτική γραμμής ───────────────────────────────────────── */}
+      <section className="px-4 py-3">
+        <h3 className="mb-1.5 text-caption font-semibold uppercase tracking-wider text-muted-foreground">
+          Αναλυτική γραμμής
+        </h3>
+        <p className="mb-2 text-caption text-muted-foreground">
+          Προαιρετικά — δεν εμποδίζουν ποτέ την καταχώριση. Ό,τι επιβεβαιώσεις θα{' '}
+          <strong>θυμάται</strong> για την ίδια περιγραφή την επόμενη φορά.
+        </p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <AnalyticsPicker
+            id="an-costcntr" kind="costcenters" label="Κέντρο κόστους"
+            value={analytics.costCntr} disabled={locked || analyticsSupported === false}
+            onChange={(v) => onAnalytics({ ...analytics, costCntr: v })}
+            note={analyticsSupported === false ? 'Η σειρά καταχωρεί σε «Ανάλυση εξόδων», που δεν έχει αναλυτική.' : undefined}
+          />
+          <AnalyticsPicker
+            id="an-prjc" kind="projects" label="Έργο"
+            value={analytics.prjc} disabled={locked || analyticsSupported === false}
+            onChange={(v) => onAnalytics({ ...analytics, prjc: v })}
+            trdr={group.trdr}
+            scopeAll={projectScopeAll}
+            onScopeAll={setProjectScopeAll}
+          />
+          <AnalyticsPicker
+            id="an-prjcstage" kind="projectstages" label="Κατηγορία δραστηριότητας"
+            value={analytics.prjcStage} disabled={locked || analyticsSupported === false}
+            onChange={(v) => onAnalytics({ ...analytics, prjcStage: v })}
           />
         </div>
       </section>

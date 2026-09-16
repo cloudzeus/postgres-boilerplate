@@ -433,7 +433,9 @@ export function coerceDocument(raw: unknown, docType?: CanonicalDocType): Docume
  */
 const PROMOTED_ALWAYS = ['time', 'itemsCount'] as const;
 const PROMOTED_GENERAL = ['title', 'fullText', 'summary', 'keywords'] as const;
-const LEGACY_ITEM_KEYS = new Set(['code', 'name', 'quantity', 'price', 'discount', 'vatRate', 'total', 'unit']);
+const LEGACY_ITEM_KEYS = new Set([
+  'code', 'name', 'quantity', 'price', 'discount', 'vatRate', 'total', 'unit', 'customFields',
+]);
 const HANDLED_LEGACY_KEYS = new Set([
   ...Object.keys(LEGACY_KEY_TO_PATH).filter((k) => !k.startsWith('items.')),
   'items', 'bankAccounts', 'customFields',
@@ -445,8 +447,12 @@ function lineFromLegacyItem(raw: unknown): Record<string, unknown> | null {
   const net = parseNumber(raw.total);
   const rate = parseNumber(raw.vatRate);
   const vatAmount = net != null && rate != null ? round2((net * rate) / 100) : null;
+  // Τα ανά γραμμή ειδικά πεδία ζουν στο ΕΝΘΕΤΟ `customFields` — έτσι τα γράφει το `toLegacy` και
+  // έτσι τα διαβάζουν η καρτέλα και η προβολή αποτελέσματος. Ό,τι άγνωστο κλειδί βρεθεί ΕΠΙΠΕΔΑ
+  // πάνω στη γραμμή (έγγραφα γραμμένα πριν αυτή τη συμφωνία) μαζεύεται κι αυτό, ώστε να μη χαθεί.
   const custom: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw)) if (!LEGACY_ITEM_KEYS.has(k)) custom[k] = v;
+  if (isObj(raw.customFields)) Object.assign(custom, raw.customFields);
   return {
     code: raw.code ?? null,
     name: raw.name ?? null,
@@ -562,7 +568,6 @@ export function toLegacy(document: DocumentJson): Record<string, unknown> {
     out.totalAmount = document.totals.total;
     out.bankAccounts = document.payment.ibans.map((b) => ({ bank: b.bank, iban: b.iban }));
     out.items = document.lines.map((line) => ({
-      ...line.custom,
       code: line.code,
       name: line.name ?? '',
       // Μόνο όταν υπάρχει: η στήλη `unit` δεν έχει legacy αντίστοιχο, και ένα `unit: null` θα
@@ -573,6 +578,10 @@ export function toLegacy(document: DocumentJson): Record<string, unknown> {
       discount: line.discount,
       vatRate: line.vatRate,
       total: line.net,
+      // ΕΝΘΕΤΑ, όχι σκορπισμένα στη γραμμή: η καρτέλα (`row-detail`) και η προβολή αποτελέσματος
+      // διαβάζουν `items[].customFields`, και ένα επίπεδο `po: 'PO-9'` δίπλα στο `vatRate` θα
+      // μπερδευόταν με στήλη της φόρμας.
+      ...(Object.keys(line.custom).length ? { customFields: { ...line.custom } } : {}),
     }));
   }
   if (Object.keys(custom).length) out.customFields = custom;

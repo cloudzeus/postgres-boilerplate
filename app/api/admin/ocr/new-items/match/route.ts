@@ -17,6 +17,12 @@ const Body = z.object({
     z.object({ lin: z.number().int().positive() }),
   ]),
   isService: z.boolean().optional(),
+  // Αναλυτική γραμμής — προαιρετική, και μαθαίνεται με το ίδιο κλειδί μνήμης.
+  analytics: z.object({
+    costCntr: z.number().int().positive().nullish(),
+    prjc: z.number().int().positive().nullish(),
+    prjcStage: z.number().int().positive().nullish(),
+  }).optional(),
 });
 
 // POST — αντιστοιχίζει ΟΛΕΣ τις γραμμές μιας ομάδας σε είδος (MTRL), έξοδο (EXPN) ή χρεοπίστωση (LIN)
@@ -31,12 +37,13 @@ export async function POST(req: Request) {
 
   try {
     const r = await applyMatchToGroup({
-      afm: b.afm, pattern: b.pattern, target: b.target, isService: b.isService, userId: u.id,
+      afm: b.afm, pattern: b.pattern, target: b.target, isService: b.isService,
+      analytics: b.analytics, userId: u.id,
     });
     await logAudit({
       userId: u.id, userEmail: u.email,
       action: 'ocr.line.match', resource: 'ocr_line_group', resourceId: `${b.afm}|${b.pattern}`,
-      metadata: { mtrl: r.mtrl, expn: r.expn, lin: r.lin, code: r.code, name: r.name, linesUpdated: r.linesUpdated },
+      metadata: { mtrl: r.mtrl, expn: r.expn, lin: r.lin, code: r.code, name: r.name, linesUpdated: r.linesUpdated, ...r.analytics },
     }).catch(() => null);
     return NextResponse.json({ ok: true, linesUpdated: r.linesUpdated, mtrl: r.mtrl, expn: r.expn, lin: r.lin, code: r.code, name: r.name });
   } catch (e) {

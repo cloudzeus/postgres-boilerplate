@@ -47,6 +47,9 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   lines_need_lineitem: 'Οι «Ειδικές συναλλαγές» (LINLINES) δέχονται μόνο ΧΡΕΟΠΙΣΤΩΣΕΙΣ — υπάρχει γραμμή αντιστοιχισμένη σε είδος, υπηρεσία ή έξοδο',
   lines_lineitem_unsupported: 'Η σειρά καταχωρεί σε παραστατικό αγορών, που δεν έχει γραμμές χρεοπίστωσης — άλλαξε τον πίνακα γραμμών σε «Ειδικές συναλλαγές» ή αντιστοίχισε τη γραμμή σε είδος/υπηρεσία/έξοδο',
   lines_no_mtrtype: 'Χρεοπίστωση χωρίς «Τύπο» (MTRTYPE) στο μητρώο — συγχρόνισε ξανά τις χρεοπιστώσεις',
+  series_unknown: 'Η σειρά του παραστατικού δεν υπάρχει (ή δεν είναι σε χρήση) στο μητρώο σειρών — διάλεξε σειρά από τη λίστα ή συγχρόνισε τις σειρές',
+  series_module_unsupported: 'Η ενότητα της σειράς δεν υποστηρίζεται για καταχώριση — επίλεξε σειρά αγορών (1251), προμηθευτών (1253) ή πιστωτών (1653)',
+  trader_kind_mismatch: 'Ο συναλλασσόμενος δεν είναι του τύπου που δέχεται το παραστατικό — άλλαξέ τον από «Νέοι συναλλασσόμενοι» ή διάλεξε άλλη σειρά',
   posting_disabled: 'Η καταχώριση είναι απενεργοποιημένη (Ρυθμίσεις → Διασυνδέσεις)',
   already_posted: 'Έχει ήδη καταχωριστεί στο SoftOne',
 };
@@ -116,18 +119,26 @@ type Gathered = {
  * Οι σειρές αγορών ζουν σε άλλο μητρώο (`PurchaseDocType`, SOSOURCE 1251) από τις υπόλοιπες
  * (`SoftoneDocSeries`) — ο ίδιος κωδικός υπάρχει και στα δύο, οπότε ψάχνουμε με ΑΜΦΟΤΕΡΑ.
  */
-async function loadTarget(code: string | null, sosource: number | null): Promise<PostingTarget> {
-  if (!code) return resolvePostingTarget({ sosource });
+async function loadTarget(
+  code: string | null, sosource: number | null,
+): Promise<{ target: PostingTarget; known: boolean; enabled: boolean }> {
+  if (!code) return { target: resolvePostingTarget({ sosource }), known: false, enabled: false };
   const row = sosource === 1251
     ? await prisma.purchaseDocType.findUnique({
         where: { code },
-        select: { name: true, section: true, postObject: true, postLines: true },
+        select: { name: true, section: true, postObject: true, postLines: true, enabled: true },
       })
     : await prisma.softoneDocSeries.findUnique({
         where: { sosource_code: { sosource: sosource ?? 0, code } },
-        select: { name: true, section: true, postObject: true, postLines: true },
+        select: { name: true, section: true, postObject: true, postLines: true, enabled: true },
       });
-  return resolvePostingTarget({ sosource, ...(row ?? {}) });
+  // Σειρά που ΔΕΝ βρέθηκε: δεν προσποιούμαστε ότι ισχύει η προεπιλογή της ενότητας — το λέμε,
+  // ώστε να μη φύγει `SERIES` που κανείς δεν αναγνωρίζει (και καμία ρύθμιση να μη «χάνεται»).
+  return {
+    target: resolvePostingTarget({ sosource, ...(row ?? {}) }),
+    known: Boolean(row),
+    enabled: Boolean(row?.enabled),
+  };
 }
 
 /**
@@ -145,13 +156,14 @@ async function gather(id: string): Promise<Gathered> {
   });
   if (!doc) throw new PostError('not_found', POST_ERROR_TEXT.not_found);
 
-  const [document, items, vats, target] = await Promise.all([
+  const [document, items, vats, seriesTarget, traderRow] = await Promise.all([
     loadDocumentJson(id),
     prisma.ocrInvoiceItem.findMany({
       where: { documentId: id },
       orderBy: { rowIndex: 'asc' },
       select: {
         rowIndex: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneIsService: true,
+        softoneCostCntr: true, softonePrjc: true, softonePrjcStage: true,
       },
     }),
     // Η σειρά ΔΕΝ είναι διακοσμητική: δύο ενεργές εγγραφές με τον ίδιο συντελεστή (π.χ. κανονικό /
@@ -163,7 +175,13 @@ async function gather(id: string): Promise<Gathered> {
       select: { code: true, rate: true },
     }),
     loadTarget(doc.softoneSeries, doc.seriesSource),
+    // Ο ΤΥΠΟΣ του συναλλασσομένου (12/16) από τον τοπικό καθρέφτη: τον κρίνει ο έλεγχος
+    // `trader_kind_mismatch`. `null` = δεν τον ξέρουμε, οπότε δεν κρίνουμε.
+    doc.softoneTrdr
+      ? prisma.softoneTrader.findUnique({ where: { trdr: doc.softoneTrdr }, select: { sodtype: true } })
+      : Promise.resolve(null),
   ]);
+  const target = seriesTarget.target;
 
   // Ο ΧΑΡΑΚΤΗΡΙΣΜΟΣ myDATA και το MTRTYPE της χρεοπίστωσης ζουν στα μητρώα, όχι στη γραμμή.
   // Τα διαβάζουμε μαζικά για όσους κωδικούς ταίριαξαν — μία ερώτηση ανά μητρώο, όχι ανά γραμμή.
@@ -220,6 +238,9 @@ async function gather(id: string): Promise<Gathered> {
       lin: i.softoneLinMtrl,
       linMtrType: lin?.mtrType ?? null,
       isService: i.softoneIsService,
+      costCntr: i.softoneCostCntr,
+      prjc: i.softonePrjc,
+      prjcStage: i.softonePrjcStage,
       myDataCode,
       noClassification: Boolean(matched) && !hasClass,
     };
@@ -240,6 +261,9 @@ async function gather(id: string): Promise<Gathered> {
     softoneTrdr: doc.softoneTrdr,
     softoneSeries: seriesOk ? doc.softoneSeries : null,
     seriesSource: doc.seriesSource,
+    seriesKnown: seriesTarget.known,
+    seriesEnabled: seriesTarget.enabled,
+    traderSodtype: traderRow?.sodtype ?? null,
   }, ctx);
 
   return {
@@ -336,8 +360,27 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
   try {
     const object = ctx.target.object;
     const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>('setData', payload);
-    if (res.success === false || res.id == null) {
+    // ΚΑΘΑΡΗ αποτυχία: το SoftOne είπε «όχι». Τίποτα δεν δημιουργήθηκε.
+    if (res.success === false) {
       throw new Error(res.error ?? `setData ${object} απέτυχε (code ${res.errorcode ?? '?'})`);
+    }
+    // ΑΓΝΩΣΤΗ έκβαση: `success` χωρίς `id`. Μπορεί κάλλιστα να έχει δημιουργηθεί παραστατικό που
+    // δεν ξέρουμε να ονομάσουμε — αν το γράψουμε «απέτυχε» και σκέτο, κάποιος θα το ξαναστείλει
+    // και θα γίνουν δύο. Κρατάμε ό,τι απάντησε το ERP στο μήνυμα και το λέμε ρητά.
+    if (res.id == null) {
+      await prisma.ocrDocument.update({
+        where: { id },
+        data: {
+          postStatus: 'FAILED',
+          postError: `ΑΓΝΩΣΤΗ ΕΚΒΑΣΗ: το SoftOne απάντησε επιτυχία ΧΩΡΙΣ αριθμό παραστατικού για ${object}. `
+            + 'ΜΗΝ ξανακαταχωρίσεις πριν ελέγξεις στο ERP αν δημιουργήθηκε. '
+            + `Απάντηση: ${JSON.stringify(res).slice(0, 800)}`,
+        },
+      });
+      throw new Error(
+        `Η καταχώριση ${object} είχε άγνωστη έκβαση: επιτυχία χωρίς αριθμό παραστατικού. `
+        + 'Έλεγξε στο SoftOne αν δημιουργήθηκε πριν ξαναπροσπαθήσεις.',
+      );
     }
     const ref = String(res.id);
     // Το παραστατικό ΥΠΑΡΧΕΙ πλέον στο SoftOne. Το `postedRef` αποθηκεύεται ΑΜΕΣΩΣ, πριν από την
@@ -347,9 +390,13 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
 
     // Η επαλήθευση διαβάζει ΤΟ ΙΔΙΟ object που γράφτηκε — αλλιώς «επιβεβαιώνει» άλλο παραστατικό.
     const tables = await softoneGetData(object, ref);
-    const row = tables[object]?.[0] ?? tables.FINDOC?.[0] ?? Object.values(tables).find((t) => t.length)?.[0];
+    // ΜΟΝΟ η κεφαλίδα του object μετράει. Ένα «πάρε ό,τι βρεις» θα μπορούσε να πιάσει `MTRDOC` ή
+    // κάποιον πίνακα γραμμών, που δεν έχει FINCODE/TRDR — και θα «επιβεβαίωνε» με undefined.
+    const row = tables[object]?.[0];
     if (!row) {
-      throw new Error(`Η καταχώριση δεν επιβεβαιώθηκε: το SoftOne δεν επέστρεψε το παραστατικό ${ref}`);
+      throw new Error(
+        `Η καταχώριση δεν επιβεβαιώθηκε: το SoftOne δεν επέστρεψε κεφαλίδα ${object} για το παραστατικό ${ref}`,
+      );
     }
     if (!sameRef(row.FINCODE, document.type.number) || Number(row.TRDR) !== ctx.trdr) {
       throw new Error(

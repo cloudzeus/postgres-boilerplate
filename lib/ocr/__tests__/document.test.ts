@@ -16,7 +16,7 @@ vi.mock('@/lib/db', () => ({ prisma: db }));
 import { Prisma } from '@prisma/client';
 
 import { carryForward, linesToRows, loadDocumentJson, mergeLegacyPatch, saveDocumentJson } from '../document';
-import { emptyDocument, fromLegacy, normalizeDocument, reconcileDocument, setPath, type DocumentJson } from '../canonical';
+import { emptyDocument, fromLegacy, normalizeDocument, reconcileDocument, setPath, toLegacy, type DocumentJson } from '../canonical';
 
 const LEGACY = {
   companyName: 'ΚΑΠΑΛΙΝΕ ΑΕ',
@@ -236,6 +236,24 @@ describe('mergeLegacyPatch', () => {
     });
     expect(merged.custom).toMatchObject({ keep_me: 'ναι', poso: '5' });
     expect(merged.payment.ibans).toEqual([{ bank: 'Alpha', iban: 'GR7' }]);
+  });
+
+  it('κρατάει τη μονάδα μέτρησης και τα ανά γραμμή ειδικά πεδία του PATCH', () => {
+    const merged = mergeLegacyPatch(existing, {}, [
+      { code: 'X', name: 'Νέο', unit: 'ΤΕΜ', quantity: 2, price: 10, total: 20, vatRate: 24,
+        customFields: { partida: 'L-9' } },
+    ]);
+    expect(merged.lines[0]).toMatchObject({ unit: 'ΤΕΜ', custom: { partida: 'L-9' } });
+    expect((toLegacy(merged).items as Record<string, unknown>[])[0])
+      .toMatchObject({ unit: 'ΤΕΜ', customFields: { partida: 'L-9' } });
+  });
+
+  it('μια απλή διόρθωση συνόλου δεν σβήνει τη μονάδα των γραμμών που ήδη υπάρχουν', () => {
+    const withUnit = mergeLegacyPatch(existing, {}, [
+      { code: 'X', name: 'Νέο', unit: 'ΚΙΛ', quantity: 1, price: 10, total: 10, vatRate: 24 },
+    ]);
+    const merged = mergeLegacyPatch(withUnit, { totalAmount: 12.4 });
+    expect(merged.lines[0].unit).toBe('ΚΙΛ');
   });
 
   it('re-derives the kind when a recipient appears', () => {

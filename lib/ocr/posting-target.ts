@@ -5,7 +5,7 @@
 // παραστατικού είναι mtrllines, srvlines, linlines».
 //
 // Τι λέει το schema του SoftOne (επαληθευμένο στο cached softone-full-schema):
-//   • PURDOC    «Παραστατικά αγορών»            → ITELINES · SRVLINES · ASSLINES (DB MTRLINES) + EXPANAL
+//   • PURDOC    «Παραστατικά αγορών»            → ITELINES · SRVLINES (DB MTRLINES) + EXPANAL
 //   • LINSUPDOC «Ειδικές συναλλαγές προμηθευτών»→ LINLINES (DB MTRLINES)
 //   • LINCREDOC «Ειδικές συναλλαγές πιστωτών»   → LINLINES (DB MTRLINES)
 //   • LINDEBDOC «Ειδικές συναλλαγές χρεωστών»   → LINLINES (DB MTRLINES)
@@ -33,7 +33,17 @@ export const POST_OBJECT_SHORT: Record<PostObject, string> = {
   LINDEBDOC: 'Ειδικές συναλλαγές χρεωστών',
 };
 
-export const POST_LINE_TABLES =['AUTO', 'ITELINES', 'SRVLINES', 'ASSLINES', 'EXPANAL', 'LINLINES'] as const;
+/**
+ * Ο πίνακας γραμμών. `AUTO` = «ανά γραμμή» (μόνο για PURDOC): κάθε γραμμή πάει στον πίνακα που
+ * της αναλογεί ανάλογα με το τι ταίριαξε — είδος → ITELINES, υπηρεσία → SRVLINES, έξοδο → EXPANAL.
+ *
+ * ΓΙΑΤΙ ΛΕΙΠΕΙ ΤΟ `ASSLINES`: οι γραμμές παγίων απαιτούν `MTRL` που είναι ΠΑΓΙΟ (editor ASSET,
+ * MTRL με SODTYPE 54), καθώς και `WHOUSE` και `ASSDEPR` — και τα τρία required χωρίς default.
+ * Η εφαρμογή δεν καθρεφτίζει μητρώο παγίων (`SoftoneItem` = SODTYPE 51/52 μόνο) και δεν ξέρει
+ * ούτε αποθήκη ούτε εγγραφή απόσβεσης, οπότε κάθε τέτοιο payload θα απορριπτόταν από το SoftOne.
+ * Ο στόχος θα ξαναμπεί όταν υπάρχει μητρώο παγίων· μέχρι τότε δεν προσφέρεται καν.
+ */
+export const POST_LINE_TABLES = ['AUTO', 'ITELINES', 'SRVLINES', 'EXPANAL', 'LINLINES'] as const;
 export type PostLineTable = (typeof POST_LINE_TABLES)[number];
 
 export const POST_OBJECT_LABEL: Record<PostObject, string> = {
@@ -47,17 +57,55 @@ export const POST_LINES_LABEL: Record<PostLineTable, string> = {
   AUTO: 'Αυτόματα ανά γραμμή (Είδη / Υπηρεσίες / Έξοδα)',
   ITELINES: 'Είδη',
   SRVLINES: 'Υπηρεσίες',
-  ASSLINES: 'Πάγια',
   EXPANAL: 'Έξοδα',
   LINLINES: 'Ειδικές συναλλαγές',
 };
 
-/** Ποιοι πίνακες γραμμών υπάρχουν πραγματικά σε κάθε object (από το schema του SoftOne). */
+/** Ποιοι πίνακες γραμμών προσφέρονται σε κάθε object (βλ. σημείωση για τα πάγια πιο πάνω). */
 export const LINES_FOR_OBJECT: Record<PostObject, PostLineTable[]> = {
-  PURDOC: ['AUTO', 'ITELINES', 'SRVLINES', 'ASSLINES', 'EXPANAL'],
+  PURDOC: ['AUTO', 'ITELINES', 'SRVLINES', 'EXPANAL'],
   LINSUPDOC: ['LINLINES'],
   LINCREDOC: ['LINLINES'],
   LINDEBDOC: ['LINLINES'],
+};
+
+/**
+ * Η ΕΝΟΤΗΤΑ (SOSOURCE) ορίζει το object, όχι εμείς: το `SERIES` μιας κεφαλίδας FINDOC ανήκει σε
+ * ΜΙΑ ενότητα, οπότε μια σειρά αγορών (1251) δεν μπορεί να καταχωρηθεί ως ειδική συναλλαγή (1253)
+ * — θα έστελνε αριθμό σειράς που δεν υπάρχει εκεί. Γι' αυτό το UI προσφέρει μόνο το object της
+ * ενότητας και κάθε ρύθμιση εκτός ενότητας αγνοείται.
+ */
+export const OBJECTS_FOR_SOSOURCE: Record<number, PostObject> = {
+  1251: 'PURDOC',     // Παραστατικά αγορών
+  1253: 'LINSUPDOC',  // Λοιπές / ειδικές συναλλαγές προμηθευτών
+  1553: 'LINDEBDOC',  // Λοιπές / ειδικές συναλλαγές ΧΡΕΩΣΤΩΝ
+  1653: 'LINCREDOC',  // Παραστατικά (ειδικές συναλλαγές) πιστωτών
+};
+
+/** Ποιο object επιτρέπεται για μια ενότητα — κενό όταν η ενότητα δεν υποστηρίζεται καθόλου. */
+export const objectsForSosource = (sosource: number | null | undefined): PostObject[] => {
+  const o = OBJECTS_FOR_SOSOURCE[Number(sosource)];
+  return o ? [o] : [];
+};
+
+/**
+ * Ποιον ΤΥΠΟ συναλλασσομένου δέχεται η κεφαλίδα του κάθε object (TRDR.SODTYPE):
+ * `LINCREDOC.TRDR` έχει editor CREDITOR (16), `LINDEBDOC.TRDR` έχει DEBTOR (15), και
+ * `PURDOC`/`LINSUPDOC` έχουν SUPPLIER (12). Ένας προμηθευτής σε πεδίο πιστωτή ή χρεώστη ΔΕΝ είναι
+ * τυπογραφικό — είναι λάθος εγγραφή στο ERP.
+ */
+export const SODTYPE_FOR_OBJECT: Record<PostObject, number> = {
+  PURDOC: 12,
+  LINSUPDOC: 12,
+  LINCREDOC: 16,
+  LINDEBDOC: 15,
+};
+
+export const SODTYPE_LABEL_FOR_OBJECT: Record<PostObject, string> = {
+  PURDOC: 'προμηθευτής',
+  LINSUPDOC: 'προμηθευτής',
+  LINCREDOC: 'πιστωτής',
+  LINDEBDOC: 'χρεώστης',
 };
 
 export const isPostObject = (v: unknown): v is PostObject =>
@@ -70,6 +118,11 @@ export interface PostingTarget {
   lines: PostLineTable;
   /** `configured` = το διάλεξε ο χρήστης στη σειρά· `default` = προέκυψε από την ενότητα. */
   source: 'configured' | 'default';
+  /**
+   * `false` όταν η ενότητα της σειράς ΔΕΝ αντιστοιχεί σε object που ξέρουμε να γράψουμε.
+   * Το `object`/`lines` τότε είναι απλώς placeholder — η καταχώριση μπλοκάρεται.
+   */
+  supported: boolean;
   /** Ελληνική εξήγηση για το UI («γιατί αυτό»). */
   reason: string;
 }
@@ -80,96 +133,89 @@ export interface SeriesTargetInput {
   sosource: number | null | undefined;
   /** FPRMS / «Τύπος» της σειράς. */
   section?: string | null;
-  /** Περιγραφή της σειράς — χρήσιμη μόνο για το «μυρίζει πάγιο». */
+  /** Περιγραφή της σειράς. */
   name?: string | null;
   postObject?: string | null;
   postLines?: string | null;
 }
 
-/** Ελληνικά χωρίς τόνους και κεφαλαία, για να πιάνουν τα μοτίβα ό,τι κι αν έγραψε ο χρήστης. */
-const flat = (s: string): string =>
-  s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
-
-/** «Πάγια» στην περιγραφή/τύπο μιας σειράς αγορών — αδιαμφισβήτητο. */
-const ASSET_HINT = /ΠΑΓΙ/;
 /**
- * Σειρά «δαπάνης / υπηρεσίας» μέσα στην ενότητα αγορών. Οι λέξεις προέρχονται από την ίδια την
- * οθόνη του πελάτη (§14.8 του spec: «Τιμολόγιο Δαπανών ΚΕ.Π.Υ.Ο», «Υπηρεσίες Ε.Ε.», «Υπηρεσίες
- * Τρίτες Χώρες») — ένα τέτοιο παραστατικό ΔΕΝ είναι αγορά εμπορευμάτων.
- */
-const EXPENSE_HINT = /ΔΑΠΑΝ|ΕΞΟΔ|ΥΠΗΡΕΣΙ|ΠΑΡΟΧΗΣ|ΚΕ\.?Π\.?Υ\.?Ο|ΤΠΥ|ΑΠΥ/;
-
-/**
- * Η προεπιλογή ανά ενότητα, με τον κανόνα γραμμένο ρητά:
+ * Η προεπιλογή ανά ενότητα. Ο κανόνας είναι σκόπιμα ΣΤΕΝΟΣ: η ενότητα ορίζει το object, και ο
+ * πίνακας γραμμών είναι ο μόνος που έχει νόημα για αυτό το object.
  *
- *  • 1653 «Παραστατικά πιστωτών» → LINCREDOC / LINLINES. Εκεί ζουν οι ΕΝΕΡΓΟΠΟΙΗΜΕΝΕΣ σειρές του
- *    πελάτη («Τιμολόγιο Δαπανών (Λήψη)» κ.λπ.) και εκεί δείχνει το §14.8 του spec, δηλαδή η οθόνη
- *    «Ειδικές συναλλαγές → Δαπάνες Προμηθευτών (Int)».
- *  • 1253 «Λοιπές συναλλαγές προμηθευτών» → LINSUPDOC / LINLINES (ένας πίνακας γραμμών υπάρχει).
+ *  • 1653 «Παραστατικά πιστωτών»          → LINCREDOC / LINLINES. Εκεί ζουν οι ενεργοποιημένες
+ *    σειρές δαπανών του πελάτη και εκεί δείχνει το §14.8 του spec («Ειδικές συναλλαγές →
+ *    Δαπάνες Προμηθευτών»).
+ *  • 1253 «Λοιπές συναλλαγές προμηθευτών» → LINSUPDOC / LINLINES.
  *  • 1553 «Λοιπές συναλλαγές χρεωστών»    → LINDEBDOC / LINLINES. Η αρίθμηση των ενοτήτων είναι
  *    `1<οντότητα><είδος>` (καταγεγραμμένη στο `SOSOURCE_LABELS` του `lib/softone.ts`, επαληθευμένη
  *    στον πίνακα SERIES του πελάτη): οντότητα 2=προμηθευτές 3=πελάτες 4=τράπεζες 5=ΧΡΕΩΣΤΕΣ
- *    6=πιστωτές, είδος 53=λοιπές (ειδικές) συναλλαγές. Το 1553 είναι ο ίδιος ο συνδυασμός με το
- *    1253, μόνο για χρεώστες — και οι σειρές του το επιβεβαιώνουν μία προς μία («Τιμολόγιο
+ *    6=πιστωτές, είδος 53=λοιπές (ειδικές) συναλλαγές. Το 1553 είναι ΑΚΡΙΒΩΣ ο ίδιος συνδυασμός
+ *    με το 1253, μόνο για χρεώστες — και οι σειρές του το επιβεβαιώνουν μία προς μία («Τιμολόγιο
  *    Δαπανών», «Τιμολόγιο παροχής υπηρεσιών», «Πιστωτικό …», «Χρέωση/Πίστωση Έναρξης»).
- *  • 1251 «Αγορές»:
- *      – σειρά που μυρίζει ΔΑΠΑΝΗ/ΥΠΗΡΕΣΙΑ → LINSUPDOC / LINLINES (ίδια λογική με το §14.8),
- *      – σειρά ΠΑΓΙΩΝ                       → PURDOC / ASSLINES,
- *      – αλλιώς (καθαρή αγορά εμπορευμάτων) → PURDOC με πίνακα ΑΝΑ ΓΡΑΜΜΗ (`AUTO`): για γραμμή
- *        αντιστοιχισμένη σε είδος αυτό ΕΙΝΑΙ το ITELINES — απλώς δεν αρνείται μια μεμονωμένη
- *        γραμμή υπηρεσίας ή εξόδου μέσα στο ίδιο τιμολόγιο αγοράς.
- *  • Οτιδήποτε άλλο → PURDOC / AUTO (η γενική), για να μην αλλάξει σιωπηλά καμία υπάρχουσα σειρά.
+ *  • 1251 «Αγορές»                        → PURDOC με πίνακα ΑΝΑ ΓΡΑΜΜΗ (`AUTO`): για γραμμή
+ *    αντιστοιχισμένη σε είδος αυτό ΕΙΝΑΙ το ITELINES· απλώς δεν αρνείται μια μεμονωμένη γραμμή
+ *    υπηρεσίας ή εξόδου μέσα στο ίδιο τιμολόγιο αγοράς.
+ *  • Οποιαδήποτε άλλη ενότητα             → ΔΕΝ υποστηρίζεται (`supported: false`).
  *
- * ΚΑΘΕ προεπιλογή παρακάμπτεται ανά σειρά από το /admin/doc-series — ποια σειρά πάει πού είναι
- * ρύθμιση της εγκατάστασης, όχι κανόνας που μπορούμε να συμπεράνουμε από το schema.
+ * ΔΕΝ υπάρχει πια κανόνας «σειρά αγορών που μοιάζει με δαπάνη → LINSUPDOC»: το `SERIES` μιας
+ * κεφαλίδας ανήκει σε μία ενότητα, οπότε ένας τέτοιος κανόνας θα έστελνε αριθμό σειράς 1251 σε
+ * παραστατικό 1253. Αν μια σειρά αγορών πρέπει να καταχωρείται αλλού, αυτό είναι αλλαγή σειράς
+ * στο ERP, όχι ρύθμιση εδώ.
  */
 export function defaultPostingTarget(input: SeriesTargetInput): PostingTarget {
   const sosource = Number(input.sosource);
-  const text = flat(`${input.section ?? ''} ${input.name ?? ''}`);
-
-  if (sosource === 1653) {
-    return { object: 'LINCREDOC', lines: 'LINLINES', source: 'default', reason: 'Ενότητα 1653 «Παραστατικά πιστωτών» → Ειδικές συναλλαγές πιστωτών' };
+  const object = OBJECTS_FOR_SOSOURCE[sosource];
+  if (!object) {
+    return {
+      object: 'PURDOC', lines: 'AUTO', source: 'default', supported: false,
+      reason: `Η ενότητα ${Number.isFinite(sosource) ? sosource : '—'} δεν υποστηρίζεται για καταχώριση`,
+    };
   }
-  if (sosource === 1253) {
-    return { object: 'LINSUPDOC', lines: 'LINLINES', source: 'default', reason: 'Ενότητα 1253 «Λοιπές συναλλαγές προμηθευτών» → Ειδικές συναλλαγές προμηθευτών' };
+  if (object === 'PURDOC') {
+    return {
+      object, lines: 'AUTO', source: 'default', supported: true,
+      reason: 'Ενότητα 1251 «Αγορές» → Παραστατικό αγορών, πίνακας ανά γραμμή',
+    };
   }
-  if (sosource === 1553) {
-    return { object: 'LINDEBDOC', lines: 'LINLINES', source: 'default', reason: 'Ενότητα 1553 «Λοιπές συναλλαγές χρεωστών» → Ειδικές συναλλαγές χρεωστών' };
-  }
-  if (sosource === 1251) {
-    if (ASSET_HINT.test(text)) {
-      return { object: 'PURDOC', lines: 'ASSLINES', source: 'default', reason: 'Σειρά αγορών παγίων → Παραστατικό αγορών, γραμμές παγίων' };
-    }
-    if (EXPENSE_HINT.test(text)) {
-      return { object: 'LINSUPDOC', lines: 'LINLINES', source: 'default', reason: 'Σειρά δαπανών/υπηρεσιών → Ειδικές συναλλαγές προμηθευτών' };
-    }
-    return { object: 'PURDOC', lines: 'AUTO', source: 'default', reason: 'Σειρά αγοράς εμπορευμάτων → Παραστατικό αγορών, πίνακας ανά γραμμή' };
-  }
-  return { object: 'PURDOC', lines: 'AUTO', source: 'default', reason: 'Χωρίς προεπιλογή για την ενότητα — ισχύει η γενική (Παραστατικό αγορών)' };
+  // Το «γιατί» ανά object: ΔΕΝ είναι δυαδικό. Ένα ternary «LINCREDOC ; αλλιώς 1253» θα έλεγε σε
+  // μια σειρά χρεωστών ότι ανήκει στην ενότητα 1253 των προμηθευτών — λάθος αιτιολογία στην κάρτα
+  // προεπισκόπησης και στα toasts.
+  const REASON: Record<Exclude<PostObject, 'PURDOC'>, string> = {
+    LINSUPDOC: 'Ενότητα 1253 «Λοιπές συναλλαγές προμηθευτών» → Ειδικές συναλλαγές προμηθευτών',
+    LINCREDOC: 'Ενότητα 1653 «Παραστατικά πιστωτών» → Ειδικές συναλλαγές πιστωτών',
+    LINDEBDOC: 'Ενότητα 1553 «Λοιπές συναλλαγές χρεωστών» → Ειδικές συναλλαγές χρεωστών',
+  };
+  return { object, lines: 'LINLINES', source: 'default', supported: true, reason: REASON[object] };
 }
 
 /**
- * Ο τελικός στόχος: ό,τι έθεσε ο χρήστης στη σειρά, αλλιώς η προεπιλογή της ενότητας.
- * Ασυνεπής ρύθμιση (π.χ. object LINSUPDOC με πίνακα EXPANAL) ΔΕΝ γίνεται δεκτή σιωπηλά —
- * πέφτει στον μοναδικό/πρώτο έγκυρο πίνακα του object, ώστε το payload να μένει πάντα χτίσιμο.
+ * Ο τελικός στόχος: το object το ορίζει ΠΑΝΤΑ η ενότητα (μια ρύθμιση που δείχνει αλλού αγνοείται),
+ * ενώ ο πίνακας γραμμών είναι η πραγματική ρύθμιση της εγκατάστασης. Ασυνεπής πίνακας πέφτει στην
+ * προεπιλογή, ώστε το payload να μένει πάντα χτίσιμο.
  */
 export function resolvePostingTarget(input: SeriesTargetInput): PostingTarget {
   const fallback = defaultPostingTarget(input);
-  const object = isPostObject(input.postObject) ? input.postObject : null;
-  const lines = isPostLineTable(input.postLines) ? input.postLines : null;
-  if (!object && !lines) return fallback;
+  if (!fallback.supported) return fallback;
 
-  const obj = object ?? fallback.object;
-  const allowed = LINES_FOR_OBJECT[obj];
-  const picked = lines && allowed.includes(lines)
-    ? lines
-    : (allowed.includes(fallback.lines) ? fallback.lines : allowed[0]);
+  const allowed = LINES_FOR_OBJECT[fallback.object];
+  const lines = isPostLineTable(input.postLines) && allowed.includes(input.postLines)
+    ? input.postLines
+    : null;
+  // Ρύθμιση object εκτός ενότητας: την αγνοούμε σιωπηλά — δεν υπάρχει έγκυρη περίπτωση.
+  const objectOverridden = isPostObject(input.postObject) && input.postObject !== fallback.object;
 
+  if (!lines) {
+    return objectOverridden
+      ? { ...fallback, reason: `${fallback.reason} (η ρύθμιση «${input.postObject}» δεν ανήκει στην ενότητα και αγνοήθηκε)` }
+      : fallback;
+  }
   return {
-    object: obj,
-    lines: picked,
+    object: fallback.object,
+    lines,
     source: 'configured',
-    reason: `Ρύθμιση σειράς: ${POST_OBJECT_LABEL[obj]} · ${POST_LINES_LABEL[picked]}`,
+    supported: true,
+    reason: `Ρύθμιση σειράς: ${POST_OBJECT_LABEL[fallback.object]} · ${POST_LINES_LABEL[lines]}`,
   };
 }
 
@@ -179,7 +225,9 @@ export const describeTarget = (t: PostingTarget): string =>
 
 /** «Ειδικές συναλλαγές προμηθευτών · γραμμές LINLINES» — η μορφή που ζητήθηκε για την κάρτα. */
 export const describeTargetShort = (t: PostingTarget): string =>
-  `${POST_OBJECT_SHORT[t.object]} · ${t.lines === 'AUTO' ? 'γραμμές ανά είδος αντιστοίχισης' : `γραμμές ${t.lines}`}`;
+  t.supported
+    ? `${POST_OBJECT_SHORT[t.object]} · ${t.lines === 'AUTO' ? 'γραμμές ανά είδος αντιστοίχισης' : `γραμμές ${t.lines}`}`
+    : 'Χωρίς υποστηριζόμενο προορισμό';
 
 /* ------------------------------------------------------------------ */
 /* Πλευρά συναλλασσομένου μιας ενότητας                                */
@@ -200,11 +248,18 @@ const SIDE_BY_OBJECT: Partial<Record<PostObject, SeriesTraderKind>> = {
 
 /**
  * Η πλευρά μιας ενότητας (SOSOURCE), από ΤΗΝ ΙΔΙΑ πηγή αλήθειας με την καταχώριση
- * (`defaultPostingTarget`) — όχι από δεύτερη λίστα μαγικών αριθμών: αν η ενότητα καταχωρεί σε
+ * (`OBJECTS_FOR_SOSOURCE`) — όχι από δεύτερη λίστα μαγικών αριθμών: αν η ενότητα καταχωρεί σε
  * «Ειδικές συναλλαγές πιστωτών/χρεωστών», ο συναλλασσόμενός της είναι πιστωτής/χρεώστης.
+ *
+ * Διαβάζουμε τον χάρτη ΑΠΕΥΘΕΙΑΣ και όχι το `defaultPostingTarget`, γιατί εκείνο επιστρέφει
+ * `PURDOC` ως placeholder για ενότητα που δεν υποστηρίζεται: θα ήταν σιωπηρή απάντηση «αγορών»
+ * για κάτι άγνωστο. Εδώ η άγνωστη ενότητα πέφτει ρητά στη γενική πλευρά προμηθευτή, που είναι
+ * ΜΟΝΟ πρόταση για την ουρά — δεν καταχωρεί τίποτα.
  */
-export const seriesTraderKind = (sosource: number): SeriesTraderKind =>
-  SIDE_BY_OBJECT[defaultPostingTarget({ sosource }).object] ?? 'purchase';
+export const seriesTraderKind = (sosource: number): SeriesTraderKind => {
+  const object = OBJECTS_FOR_SOSOURCE[Number(sosource)];
+  return (object && SIDE_BY_OBJECT[object]) ?? 'purchase';
+};
 
 /** Ελληνική ετικέτα πλευράς — για αιτιολογίες και chips («Πιστωτών», «Χρεωστών»). */
 export const SERIES_SIDE_LABEL: Record<SeriesTraderKind, string> = {

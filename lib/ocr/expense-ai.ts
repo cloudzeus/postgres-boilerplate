@@ -53,6 +53,23 @@ export interface AiSuggestResult {
   degraded: boolean;
 }
 
+/**
+ * Σταθερή, σύντομη υπογραφή που καλύπτει ΟΛΟΥΣ τους υποψηφίους (πλήθος + hash). Ένα σκέτο
+ * `slice()` πάνω στη λίστα θα άφηνε μια αλλαγή στο τέλος να περάσει απαρατήρητη.
+ */
+export function candidateSignature(parts: string[]): string {
+  let h = 2166136261;
+  for (const part of parts) {
+    for (let i = 0; i < part.length; i++) {
+      h ^= part.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    h ^= 0x2c; // διαχωριστικό, ώστε ['ab','c'] ≠ ['a','bc']
+    h = Math.imul(h, 16777619);
+  }
+  return `${parts.length}:${(h >>> 0).toString(36)}`;
+}
+
 // ── Κρυφή μνήμη ────────────────────────────────────────────────────────────
 // Κλειδί = ομάδα + κατηγορία + ΥΠΟΓΡΑΦΗ ΥΠΟΨΗΦΙΩΝ: αν αλλάξει το μητρώο ή η κατηγορία, η
 // απάντηση δεν ισχύει πια και ξαναρωτιέται. Ζει όσο η διεργασία — αρκεί για «ξαναφόρτωσα
@@ -190,7 +207,8 @@ export async function suggestExpensesWithAi(input: {
     return { suggestions: [], asked: 0, skipped, cached: 0, degraded: false };
   }
   // Η υπογραφή των υποψηφίων μπαίνει στο κλειδί της μνήμης: αλλάζει το μητρώο ⇒ νέα ερώτηση.
-  const signature = `${candidates.length}:${candidates.map((c) => c.mtrl).join(',').slice(0, 120)}`;
+  // ΟΛΟΚΛΗΡΟ το σύνολο, όχι τα πρώτα λίγα: μια μετονομασία βαθιά στη λίστα πρέπει να την ακυρώνει.
+  const signature = candidateSignature(candidates.map((c) => `${c.mtrl}:${c.code}:${c.name}`));
 
   const now = Date.now();
   const fresh: AiGroupInput[] = [];

@@ -15,6 +15,7 @@ import { LocaleMultiSelect } from '@/components/i18n/locale-multi-select';
 import { LocaleBadge } from '@/components/i18n/locale-badge';
 import { LOCALES } from '@/i18n/locales';
 import { MediaPicker, type PickedMediaFile } from '@/components/media/media-picker';
+import { SoftoneResyncPanel } from '@/components/admin/softone-resync';
 
 type ItemType = 'text'|'password'|'url'|'email'|'number'|'boolean'|'textarea'|'locale'|'locales-multi'|'media';
 type Item = {
@@ -53,6 +54,10 @@ export function SettingsForm({ items, categories }: { items: Item[]; categories:
   const [dirty, setDirty] = React.useState<Set<string>>(new Set());
   const [s1Testing, setS1Testing] = React.useState(false);
   const [s1Result, setS1Result] = React.useState<SoftoneTestResult | null>(null);
+  // Η αποθήκευση άλλαξε τη σύνδεση SoftOne; Τότε ΟΛΟΙ οι βοηθητικοί πίνακες περιγράφουν την
+  // προηγούμενη εταιρία/υποκατάστημα. Δεν συγχρονίζουμε μόνοι μας — είναι πολύωρη, βαριά δουλειά
+  // πάνω στον ERP· το λέμε καθαρά και αφήνουμε τον χρήστη να πατήσει.
+  const [s1Stale, setS1Stale] = React.useState(false);
 
   const update = (key: string, v: unknown) => {
     setValues((prev) => ({ ...prev, [key]: v }));
@@ -68,7 +73,16 @@ export function SettingsForm({ items, categories }: { items: Item[]; categories:
       body: JSON.stringify({ updates }),
     });
     setSaving(false);
-    if (res.ok) { toast.success(`Αποθηκεύτηκαν ${dirty.size} ρυθμίσεις`); setDirty(new Set()); router.refresh(); }
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      toast.success(`Αποθηκεύτηκαν ${dirty.size} ρυθμίσεις`);
+      setDirty(new Set());
+      if (data?.softoneConnectionChanged) {
+        setS1Result(null);            // το προηγούμενο token αφορούσε την παλιά σύνδεση
+        setS1Stale(true);
+      }
+      router.refresh();
+    }
     else toast.error('Αποτυχία αποθήκευσης');
   };
 
@@ -233,6 +247,22 @@ export function SettingsForm({ items, categories }: { items: Item[]; categories:
                 </div>
               ))}
             </div>
+
+            {cat.id === 'integrations' && s1Stale && (
+              <div className="mt-5">
+                <SoftoneResyncPanel
+                  variant="alert"
+                  title="Η σύνδεση SoftOne άλλαξε — τα βοηθητικά μητρώα είναι πλέον άκυρα"
+                  description={
+                    'Συναλλασσόμενοι, είδη & υπηρεσίες, έξοδα, κατηγορίες ΦΠΑ, σειρές παραστατικών και τύποι '
+                    + 'παραστατικών αγορών κατέβηκαν με την ΠΡΟΗΓΟΥΜΕΝΗ σύνδεση: αν άλλαξε εταιρία ή '
+                    + 'υποκατάστημα, δεν είναι απλώς παλιά — περιγράφουν άλλη εταιρία. Ο συγχρονισμός είναι '
+                    + 'βαρύς (πολλά λεπτά) και ασφαλής να ξανατρέξει· τρέξε τον όποτε σε βολεύει.'
+                  }
+                  buttonLabel="Συγχρονισμός τώρα"
+                />
+              </div>
+            )}
 
             {cat.id === 'integrations' && (
               <div className="mt-5 border-t border-border pt-4">

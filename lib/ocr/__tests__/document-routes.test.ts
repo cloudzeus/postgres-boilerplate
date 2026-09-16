@@ -319,6 +319,19 @@ describe('PATCH /api/admin/ocr/[id]', () => {
     expect(db.ocrInvoiceItem.createMany).not.toHaveBeenCalled();
   });
 
+  it('η μονάδα μέτρησης και τα ανά γραμμή ειδικά πεδία φτάνουν ΜΕΧΡΙ τον γραφέα', async () => {
+    // Το σχήμα του route πετάει ό,τι δεν δηλώνει, και τα `items` του σώματος νικούν το
+    // `extractedData.items` — άρα ένα άγνωστο `unit` εξαφανιζόταν σιωπηλά σε ΚΑΘΕ αποθήκευση.
+    await patchDoc(patch({
+      items: [{
+        code: 'X', name: 'Νέο', unit: 'ΤΕΜ', quantity: 1, price: 10, total: 10, vatRate: 24,
+        customFields: { partida: 'L-9' },
+      }],
+    }), ctx());
+    const [, saved] = writer.saveDocumentJson.mock.calls[0];
+    expect((saved as DocumentJson).lines[0]).toMatchObject({ unit: 'ΤΕΜ', custom: { partida: 'L-9' } });
+  });
+
   it('σκέτο {extractedData} ΔΕΝ ξαναγράφει τις γραμμές ούτε ξανατρέχει αντιστοίχιση', async () => {
     await patchDoc(patch({ extractedData: { ...LEGACY, totalAmount: 200 } }), ctx());
     const [, , opts] = writer.saveDocumentJson.mock.calls[0];
