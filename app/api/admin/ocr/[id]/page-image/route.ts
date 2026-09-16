@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
@@ -24,6 +25,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const doc = await prisma.ocrDocument.findUnique({ where: { id } });
   if (!doc) return NextResponse.json({ error: 'not found' }, { status: 404 });
 
+  // Η εικόνα είναι καθαρή συνάρτηση του (κλειδί, σελίδα, κλίμακα) και το κλειδί δεν
+  // ξαναχρησιμοποιείται — άρα το ETag την ταυτοποιεί. Ξαναρωτάμε σε κάθε αίτημα αντί για το
+  // παλιό `max-age=86400`, που κρατούσε μια αντικατασταθείσα σελίδα ζωντανή ως 24 ώρες.
+  const etag = `W/"${createHash('sha1').update(`${doc.storageKey}:${page}:${scale}`).digest('hex')}"`;
+  if (req.headers.get('if-none-match') === etag) {
+    return new NextResponse(null, { status: 304, headers: { ETag: etag, 'Cache-Control': 'private, max-age=0, must-revalidate' } });
+  }
+
   let buf: Buffer;
   try {
     const dl = await bunnyDownload(doc.storageKey);
@@ -48,7 +57,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   return new NextResponse(new Uint8Array(out), {
     headers: {
       'Content-Type': 'image/webp',
-      'Cache-Control': 'private, max-age=86400',
+      'Content-Length': String(out.byteLength),
+      'Cache-Control': 'private, max-age=0, must-revalidate',
+      ETag: etag,
     },
   });
 }

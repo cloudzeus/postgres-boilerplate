@@ -4,14 +4,14 @@ module: ocr
 slug: correction
 roles: [ADMIN, EMPLOYEE]
 order: 100
-updatedAt: 2026-09-10
+updatedAt: 2026-09-16
 description: "Διόρθωση πεδίων OCR με μαρκάρισμα περιοχής πάνω στο έγγραφο."
 screenshots:
   - file: list.png
     route: /admin/ocr
     caption: "Λίστα παραστατικών OCR"
 related: [lines-editor, template-runs, templates]
-helpAnchors: [ocr-correction]
+helpAnchors: [ocr-correction, ocr-viewer]
 ---
 
 ## Επισκόπηση
@@ -31,4 +31,16 @@ helpAnchors: [ocr-correction]
 Για να διαβάζονται **σωστά από την αρχή** τα έγγραφα ενός συγκεκριμένου εκδότη, φτιάξε ένα
 [πρότυπο εξαγωγής](/wiki/ocr/templates) με τις περιοχές του εντύπου. Το πρότυπο τρέχει
 αυτόματα με βάση το ΑΦΜ εκδότη — δες [Εκτέλεση προτύπων](/wiki/ocr/template-runs).
+</Callout>
+
+## Η προβολή του εγγράφου
+
+Το πρωτότυπο αρχείο εμφανίζεται στον ενσωματωμένο viewer του browser. Μεγάλα σαρωμένα PDF
+(αρκετά MB) ανοίγουν και μετακινούνται κανονικά: ο server απαντά πλέον σε **αιτήματα τμήματος**,
+οπότε ο viewer ζητάει μόνο ό,τι χρειάζεται για να δείξει τη σελίδα που κοιτάς αντί να κατεβάζει
+ξανά ολόκληρο το αρχείο σε κάθε κύλιση ή αλλαγή σελίδας.
+
+<Callout type="info">
+Το αρχείο **δεν** γίνεται δημόσιο: παραμένει πίσω από το δικαίωμα `ocr.read` και η απάντηση
+μένει `private` — ο browser απλώς επιβεβαιώνει ότι δεν άλλαξε, αντί να το ξανακατεβάζει.
 </Callout>
