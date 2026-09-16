@@ -58,10 +58,16 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
   const runs: RunDto[] = runRows.map(toRunDto);
   const templates: TemplateSummary[] = templateRows;
   // «Τύπος: ΤΠΥ — Τιμολόγιο Παροχής Υπηρεσιών · 92 % · <αιτιολογία>» (spec 2026-09-11 §1.5).
+  // Η σειρά ζει σε δύο μητρώα: αγορές (1251) στο `PurchaseDocType`, ΚΑΘΕ άλλη ενότητα στο
+  // `SoftoneDocSeries`. Το `family` είναι το όνομα της ίδιας της ενότητας, ό,τι κι αν είναι αυτή.
   const series = doc.softoneSeries
-    ? doc.seriesSource === 1653
-      ? await prisma.softoneDocSeries.findFirst({ where: { code: doc.softoneSeries, sosource: 1653 }, select: { abbrev: true, name: true } })
-      : await prisma.purchaseDocType.findUnique({ where: { code: doc.softoneSeries }, select: { abbrev: true, name: true } })
+    ? (doc.seriesSource ?? 1251) === 1251
+      ? await prisma.purchaseDocType.findUnique({ where: { code: doc.softoneSeries }, select: { abbrev: true, name: true } })
+        .then((r) => (r ? { ...r, family: 'Παραστατικά αγορών' } : null))
+      : await prisma.softoneDocSeries.findFirst({
+        where: { code: doc.softoneSeries, sosource: doc.seriesSource ?? undefined },
+        select: { abbrev: true, name: true, family: true },
+      })
     : null;
   const manualSeries = doc.seriesBy === 'manual';
   const seriesTone = manualSeries || (doc.seriesConfidence ?? 0) >= 0.8 ? '#047857' : doc.seriesConfidence != null ? '#B45309' : '#94A3B8';
@@ -105,7 +111,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
                 <span className="font-semibold text-foreground">
                   Τύπος: {series?.abbrev ?? doc.softoneSeries}{series?.name ? ` — ${series.name}` : ''}
                 </span>
-                <span>· {doc.seriesSource === 1653 ? 'Πιστωτών' : 'Αγορών'}</span>
+                {series?.family && <span>· {series.family}</span>}
                 {manualSeries
                   ? <span>· χειροκίνητη επιλογή</span>
                   : (

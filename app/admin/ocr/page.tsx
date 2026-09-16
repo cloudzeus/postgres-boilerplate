@@ -8,10 +8,13 @@ import { OcrTable, type OcrRow, type SeriesOption } from './ocr-table';
 
 export const dynamic = 'force-dynamic';
 
+/** Η ετικέτα της ενότητας αγορών — ζει στο `PurchaseDocType`, που δεν κρατά στήλη `family`. */
+const PURCHASE_FAMILY = 'Παραστατικά αγορών';
+
 export default async function AdminOcrPage() {
   await requirePermission('ocr.read');
 
-  const [docs, canCategorize, canPost, canDelete, canCreateCompany, purchaseSeries, creditorSeries] = await Promise.all([
+  const [docs, canCategorize, canPost, canDelete, canCreateCompany, purchaseSeries, otherSeries] = await Promise.all([
     prisma.ocrDocument.findMany({
       orderBy: { createdAt: 'desc' },
       take: 500,
@@ -41,18 +44,19 @@ export default async function AdminOcrPage() {
       orderBy: [{ order: 'asc' }, { code: 'asc' }],
       select: { code: true, abbrev: true, name: true, section: true },
     }),
-    // Σειρές πιστωτών (SOSOURCE 1653): μόνο όσες έχει ενεργοποιήσει ο χρήστης — ο ταξινομητής
-    // διαλέγει από το ίδιο σύνολο (spec 2026-09-11 §1.1).
+    // Σειρές ΚΑΘΕ ΑΛΛΗΣ ενότητας: μόνο όσες έχει ενεργοποιήσει ο χρήστης — ο ταξινομητής διαλέγει
+    // από το ίδιο σύνολο (spec 2026-09-11 §1.1, `loadEnabledSeries`). Δεν φιλτράρουμε σε 1653:
+    // ποιες ενότητες χρησιμοποιεί η εγκατάσταση το λέει το /admin/doc-series, όχι ο κώδικας.
     prisma.softoneDocSeries.findMany({
-      where: { enabled: true, isActive: true, sosource: 1653 },
-      orderBy: [{ order: 'asc' }, { code: 'asc' }],
-      select: { code: true, abbrev: true, name: true, section: true },
+      where: { enabled: true, isActive: true },
+      orderBy: [{ sosource: 'asc' }, { order: 'asc' }, { code: 'asc' }],
+      select: { code: true, abbrev: true, name: true, section: true, sosource: true, family: true },
     }),
   ]);
 
   const seriesRows: SeriesOption[] = [
-    ...purchaseSeries.map((s) => ({ ...s, kind: 'purchase' as const, sosource: 1251, enabled: true })),
-    ...creditorSeries.map((s) => ({ ...s, kind: 'creditor' as const, sosource: 1653, enabled: true })),
+    ...purchaseSeries.map((s) => ({ ...s, family: PURCHASE_FAMILY, sosource: 1251, enabled: true })),
+    ...otherSeries.map((s) => ({ ...s, enabled: true })),
   ];
   // Ένα παραστατικό μπορεί να κρατάει σειρά που απενεργοποιήθηκε μετά την ταξινόμηση. Χωρίς αυτήν
   // στον επιλογέα η γραμμή θα έδειχνε γυμνό κωδικό και το <select> θα φαινόταν άδειο· τη φέρνουμε
@@ -167,17 +171,14 @@ async function loadInactiveSeries(
     otherCodes.length
       ? prisma.softoneDocSeries.findMany({
         where: { code: { in: otherCodes }, sosource: { in: [...missing.keys()].filter((s) => s !== 1251) } },
-        select: { code: true, abbrev: true, name: true, section: true, sosource: true },
+        select: { code: true, abbrev: true, name: true, section: true, sosource: true, family: true },
       })
       : [],
   ]);
   return [
-    ...purchases.map((s) => ({ ...s, kind: 'purchase' as const, sosource: 1251, enabled: false })),
-    ...others
-      .filter((s) => missing.get(s.sosource)?.has(s.code))
-      // Πιστωτής είναι ΜΟΝΟ η ενότητα 1653. Ένα παραστατικό μπορεί να κρατάει σειρά από
-      // εντελώς άλλη ενότητα (παλιό δεδομένο/import): μπαίνει ως «Άλλη ενότητα», όχι ως πιστωτών.
-      .map((s) => ({ ...s, kind: s.sosource === 1653 ? ('creditor' as const) : ('other' as const), enabled: false })),
+    ...purchases.map((s) => ({ ...s, family: PURCHASE_FAMILY, sosource: 1251, enabled: false })),
+    // Η ενότητα κουβαλά το δικό της όνομα — καμία σειρά δεν εμφανίζεται πια ως «Άλλη ενότητα».
+    ...others.filter((s) => missing.get(s.sosource)?.has(s.code)).map((s) => ({ ...s, enabled: false })),
   ];
 }
 

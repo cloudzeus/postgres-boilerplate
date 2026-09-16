@@ -5,31 +5,40 @@ import {
   type ClassifyResult, type SeriesCandidate,
 } from './doc-type-classify';
 import { callTextLLM, callTextViaVision, resolveCfg } from './extract';
+import { SERIES_SIDE_LABEL, seriesTraderKind } from './posting-target';
 
 /**
- * Ενεργοποιημένες σειρές: αγορών (PurchaseDocType, SOSOURCE 1251) ∪ πιστωτών
- * (SoftoneDocSeries, SOSOURCE 1653). Μόνο αυτές μπορεί να επιλέξει ο ταξινομητής (spec §1.1).
+ * Ενεργοποιημένες σειρές: αγορών (`PurchaseDocType`, SOSOURCE 1251) ∪ ΚΑΘΕ ΑΛΛΗ ενότητα που
+ * ενεργοποίησε ο χρήστης (`SoftoneDocSeries`, οποιοδήποτε SOSOURCE). Μόνο αυτές μπορεί να
+ * επιλέξει ο ταξινομητής (spec §1.1).
+ *
+ * ΔΕΝ φιλτράρουμε σε 1653: το «ποια ενότητα χρησιμοποιούμε» είναι ρύθμιση της εγκατάστασης —
+ * ο χρήστης την κάνει από το /admin/doc-series ανά σειρά. Ένα φίλτρο εδώ σήμαινε ότι μια
+ * ενεργοποιημένη σειρά 1253 (ειδικές συναλλαγές προμηθευτών) ή 1553 (χρεωστών) δεν θα γινόταν
+ * ΠΟΤΕ επιλέξιμη, όσο κι αν την είχε ενεργοποιήσει.
  */
 export async function loadEnabledSeries(): Promise<SeriesCandidate[]> {
-  const [purchases, creditors] = await Promise.all([
+  const [purchases, others] = await Promise.all([
     prisma.purchaseDocType.findMany({
       where: { enabled: true, isActive: true },
       select: { code: true, abbrev: true, name: true },
     }),
     prisma.softoneDocSeries.findMany({
-      where: { enabled: true, isActive: true, sosource: 1653 },
+      where: { enabled: true, isActive: true },
       select: { code: true, abbrev: true, name: true, sosource: true },
     }),
   ]);
   return [
     ...purchases.map((x) => ({ ...x, kind: 'purchase' as const, sosource: 1251 })),
-    ...creditors.map((x) => ({ ...x, kind: 'creditor' as const })),
+    ...others.map((x) => ({ ...x, kind: seriesTraderKind(x.sosource) })),
   ];
 }
 
 /** `softoneKind` του εγγράφου (ετικέτα SoftOne) → πλευρά για τον ταξινομητή. */
-const issuerKindOf = (softoneKind: string | null): 'supplier' | 'creditor' | null =>
-  softoneKind === 'Προμηθευτής' ? 'supplier' : softoneKind === 'Πιστωτής' ? 'creditor' : null;
+const issuerKindOf = (softoneKind: string | null): 'supplier' | 'creditor' | 'debtor' | null =>
+  softoneKind === 'Προμηθευτής' ? 'supplier'
+    : softoneKind === 'Πιστωτής' ? 'creditor'
+      : softoneKind === 'Χρεώστης' ? 'debtor' : null;
 
 /**
  * Ταξινομεί το έγγραφο σε μία ενεργοποιημένη σειρά και το αποθηκεύει.
@@ -131,7 +140,7 @@ async function modelTieBreak(
   // Κάθε επιλογή δηλώνεται με την ΠΛΗΡΗ ταυτότητά της (`sosource:code`) — ο σκέτος κωδικός
   // δεν ξεχωρίζει τη σειρά αγορών από την ομώνυμη σειρά πιστωτών.
   const list = options
-    .map((o) => `${seriesKey(o)} — ${o.abbrev ?? ''} ${o.name} (${o.kind === 'purchase' ? 'αγορών' : 'πιστωτών'})`)
+    .map((o) => `${seriesKey(o)} — ${o.abbrev ?? ''} ${o.name} (${SERIES_SIDE_LABEL[o.kind].toLowerCase()})`)
     .join('\n');
   const lines = Array.isArray(d.items)
     ? (d.items as { name?: unknown }[]).slice(0, 5).map((i) => String(i?.name ?? '')).join('; ')

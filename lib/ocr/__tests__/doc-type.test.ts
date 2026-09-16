@@ -58,9 +58,24 @@ describe('loadEnabledSeries', () => {
     expect(c).toHaveLength(4);
     expect(c[0]).toMatchObject({ code: '2061', kind: 'purchase', sosource: 1251 });
     expect(c[3]).toMatchObject({ code: '1002', kind: 'creditor', sosource: 1653 });
-    // Μόνο ενεργοποιημένες και ενεργές σειρές, πιστωτών μόνο 1653.
+    // Μόνο ενεργοποιημένες και ενεργές σειρές — ΧΩΡΙΣ φίλτρο ενότητας: ποια ενότητα
+    // χρησιμοποιείται το λέει το /admin/doc-series, όχι ο κώδικας.
     expect(db.purchaseDocType.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { enabled: true, isActive: true } }));
-    expect(db.softoneDocSeries.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { enabled: true, isActive: true, sosource: 1653 } }));
+    expect(db.softoneDocSeries.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { enabled: true, isActive: true } }));
+  });
+
+  it('μια ενεργοποιημένη σειρά 1253/1553 γίνεται υποψήφια, με τη ΔΙΚΗ της πλευρά', async () => {
+    // Αυτό ακριβώς ήταν απροσπέλαστο όσο ο loader φιλτράριζε σε 1653: ο στόχος LINSUPDOC
+    // (ειδικές συναλλαγές προμηθευτών) και ο LINDEBDOC (χρεωστών) δεν γίνονταν ΠΟΤΕ επιλέξιμοι.
+    db.softoneDocSeries.findMany.mockResolvedValue([
+      { code: '1001', abbrev: 'ΤΔΑ', name: 'Τιμολόγιο Δαπανών - αγορών (Λήψη)', sosource: 1253 },
+      { code: '6645', abbrev: 'ΤΙΔΠ', name: 'Τιμολόγιο Δαπανών', sosource: 1553 },
+    ]);
+    const c = await loadEnabledSeries();
+    expect(c).toHaveLength(4);
+    // 1253 = πλευρά προμηθευτή (ίδια με τις αγορές), 1553 = πλευρά χρεώστη.
+    expect(c[2]).toMatchObject({ code: '1001', kind: 'purchase', sosource: 1253 });
+    expect(c[3]).toMatchObject({ code: '6645', kind: 'debtor', sosource: 1553 });
   });
 });
 

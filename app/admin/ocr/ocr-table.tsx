@@ -22,6 +22,7 @@ import type { RunStatus } from '@/lib/templates/schema';
 import { OcrRowDetail } from './row-detail';
 import { ReextractDialog } from './reextract-dialog';
 import type { ExtractDocType } from '@/lib/ocr/templates';
+import { SERIES_SIDE_LABEL, seriesTraderKind } from '@/lib/ocr/posting-target';
 
 export interface OcrRow {
   id: string;
@@ -77,9 +78,14 @@ export interface SeriesOption {
   abbrev: string | null;
   name: string;
   section: string | null;
-  /** Πλευρά: αγορών (1251) / πιστωτών (1653) — «other» για ανενεργή σειρά άλλης ενότητας. */
-  kind: 'purchase' | 'creditor' | 'other';
-  /** SOSOURCE: 1251 αγορών, 1653 πιστωτών. Ταυτότητα της σειράς είναι το ζεύγος `sosource:code`. */
+/**
+   * Ελληνική ετικέτα της ΕΝΟΤΗΤΑΣ («Παραστατικά αγορών», «Παραστατικά πιστωτών», «Λοιπές
+   * συναλλαγές χρεωστών»…). Αντικατέστησε το παλιό δυαδικό `kind`: οι ενότητες που μπορεί να
+   * ενεργοποιήσει ο χρήστης δεν είναι δύο, και μια σειρά δεν πρέπει να εμφανίζεται ως «Αγορών»
+   * επειδή απλώς δεν είναι πιστωτών.
+   */
+  family: string;
+  /** SOSOURCE της ενότητας. Ταυτότητα της σειράς είναι το ζεύγος `sosource:code`. */
   sosource: number;
   /** Ενεργοποιημένη στην εφαρμογή — μόνο αυτές βλέπει ο αυτόματος ταξινομητής. */
   enabled: boolean;
@@ -543,7 +549,7 @@ export function OcrTable({
               )}
             </span>
             <span className="text-[10px] text-muted-foreground">
-              {r.seriesSource === 1653 ? 'Πιστωτών' : 'Αγορών'}{manual ? ' · χειροκίνητη' : ''}
+              {opt?.family ?? SERIES_SIDE_LABEL[seriesTraderKind(r.seriesSource ?? 1251)]}{manual ? ' · χειροκίνητη' : ''}
             </span>
           </button>
         );

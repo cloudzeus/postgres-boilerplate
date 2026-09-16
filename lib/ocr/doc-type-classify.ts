@@ -1,10 +1,15 @@
 // lib/ocr/doc-type-classify.ts — PURE. Maps a scanned document to one of the ENABLED SoftOne series (spec 2026-09-11 §1).
 import { n as toNumber } from './invoice-math';
+import { SERIES_SIDE_LABEL, type SeriesTraderKind } from './posting-target';
 
-export type SeriesKind = 'purchase' | 'creditor';
+/**
+ * Η ΠΛΕΥΡΑ μιας σειράς — ίδια έννοια με το `SeriesTraderKind` του `posting-target.ts`, από όπου
+ * και προκύπτει: αγορές/ειδικές συναλλαγές προμηθευτών, πιστωτών ή χρεωστών.
+ */
+export type SeriesKind = SeriesTraderKind;
 export type SeriesCandidate = { code: string; abbrev: string | null; name: string; kind: SeriesKind; sosource: number };
 export type Family = 'TPY' | 'TDA' | 'TIM' | 'DA' | 'PT' | 'APY' | 'ALP' | 'LOG';
-export type ClassifyInput = { documentTypeLabel: string | null | undefined; issuerKind: 'supplier' | 'creditor' | null; totalAmount: number | null | undefined; invoiceKind: 'service' | 'product' | 'mixed' | null | undefined };
+export type ClassifyInput = { documentTypeLabel: string | null | undefined; issuerKind: 'supplier' | 'creditor' | 'debtor' | null; totalAmount: number | null | undefined; invoiceKind: 'service' | 'product' | 'mixed' | null | undefined };
 export type ClassifyResult = { code: string; sosource: number; kind: SeriesKind; confidence: number; reason: string; tie: boolean; alternatives: { code: string; sosource: number; abbrev: string | null; name: string; score: number }[] };
 
 // Τελεία ανάμεσα σε ΜΟΝΟΓΡΑΜΜΑΤΕΣ συντμήσεις σβήνεται («Δ.Α.» → «ΔΑ», «Τ.Δ.Α.» → «ΤΔΑ»)· τελεία πριν από
@@ -99,7 +104,10 @@ export function classifySeries(input: ClassifyInput, candidates: SeriesCandidate
   const isCredit = docFam === 'PT' || (typeof input.totalAmount === 'number' && input.totalAmount < 0);
   // «mixed» δεν δείχνει πλευρά: το αντιμετωπίζουμε σαν άγνωστο περιεχόμενο (spec §1.2).
   const sideHint: SeriesKind | null = input.invoiceKind === 'service' ? 'creditor' : input.invoiceKind === 'product' ? 'purchase' : null;
-  const wantedSide: SeriesKind | null = input.issuerKind === 'supplier' ? 'purchase' : input.issuerKind === 'creditor' ? 'creditor' : null;
+  // Ο ΤΥΠΟΣ ΤΟΥ ΕΚΔΟΤΗ στο μητρώο είναι η μόνη σίγουρη ένδειξη πλευράς: προμηθευτής → αγορές,
+  // πιστωτής → πιστωτών, χρεώστης → χρεωστών.
+  const ISSUER_SIDE = { supplier: 'purchase', creditor: 'creditor', debtor: 'debtor' } as const;
+  const wantedSide: SeriesKind | null = input.issuerKind ? ISSUER_SIDE[input.issuerKind] : null;
   const pool = wantedSide ? candidates.filter((c) => c.kind === wantedSide) : candidates;
   const emptyPool = !!wantedSide && !pool.length;
   const scored = (pool.length ? pool : candidates).map((c) => {
@@ -127,10 +135,12 @@ export function classifySeries(input: ClassifyInput, candidates: SeriesCandidate
   if (sideDecidedOnly) confidence = Math.min(confidence, 0.7);
   const reason = [
     docFam ? `τύπος «${input.documentTypeLabel}» → ${docFam}` : 'χωρίς τυπωμένο τύπο',
-    input.issuerKind === 'supplier' ? 'εκδότης προμηθευτής' : input.issuerKind === 'creditor' ? 'εκδότης πιστωτής' : 'εκδότης άγνωστος',
+    input.issuerKind === 'supplier' ? 'εκδότης προμηθευτής'
+      : input.issuerKind === 'creditor' ? 'εκδότης πιστωτής'
+      : input.issuerKind === 'debtor' ? 'εκδότης χρεώστης' : 'εκδότης άγνωστος',
     isCredit ? 'πιστωτικό' : null,
     input.invoiceKind ? `περιεχόμενο ${input.invoiceKind}` : null,
-    emptyPool ? `δεν υπάρχουν ενεργές σειρές ${wantedSide === 'creditor' ? 'πιστωτών' : 'αγορών'}` : null,
+    emptyPool && wantedSide ? `δεν υπάρχουν ενεργές σειρές ${SERIES_SIDE_LABEL[wantedSide].toLowerCase()}` : null,
   ].filter(Boolean).join(' · ');
   return { code: best.c.code, sosource: best.c.sosource, kind: best.c.kind, confidence: clamp01(confidence), reason, tie, alternatives: scored.slice(0, 5).map((s) => ({ code: s.c.code, sosource: s.c.sosource, abbrev: s.c.abbrev, name: s.c.name, score: Math.round(clamp01(s.score) * 100) / 100 })) };
 }

@@ -140,31 +140,44 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 }
 
 /**
- * Fallback όταν ο client δεν έστειλε `seriesSource`: αγορές πρώτα (SOSOURCE 1251) και μετά
- * ΜΟΝΟ οι πιστωτές (1653) — οι δύο ενότητες που μπορεί να επιλέξει ο χρήστης. Χωρίς το φίλτρο
- * η αναζήτηση θα κατέληγε σε άσχετη ενότητα που τυχαίνει να έχει τον ίδιο κωδικό σειράς.
+ * Επιτρέπεται η σειρά; Ναι μόνο αν είναι ΕΝΕΡΓΟΠΟΙΗΜΕΝΗ — σε ΟΠΟΙΑΔΗΠΟΤΕ ενότητα. Ποιες ενότητες
+ * χρησιμοποιεί η εγκατάσταση είναι ρύθμιση του χρήστη (/admin/doc-series), όχι σταθερά του κώδικα:
+ * ένα φίλτρο σε 1251/1653 έκανε μια ενεργοποιημένη σειρά 1253 (ειδικές συναλλαγές προμηθευτών) ή
+ * 1553 (χρεωστών) ΜΗ αποθηκεύσιμη, δηλαδή τον στόχο LINSUPDOC/LINDEBDOC απροσπέλαστο.
+ *
+ * Η ΤΑΥΤΟΤΗΤΑ της σειράς μένει το ζεύγος `sosource:code`: χωρίς γνωστό `sosource` δεν δεχόμαστε
+ * τίποτα, γιατί ο ίδιος κωδικός υπάρχει σε πολλές ενότητες.
  */
 async function seriesIsEnabled(code: string, sosource: number | null): Promise<boolean> {
+  if (sosource == null) return false;
   if (sosource === 1251) {
     const row = await prisma.purchaseDocType.findFirst({
       where: { code, enabled: true, isActive: true }, select: { id: true },
     });
     return !!row;
   }
-  if (sosource === 1653) {
-    const row = await prisma.softoneDocSeries.findFirst({
-      where: { code, sosource: 1653, enabled: true, isActive: true }, select: { id: true },
-    });
-    return !!row;
-  }
-  return false;
+  const row = await prisma.softoneDocSeries.findFirst({
+    where: { code, sosource, enabled: true, isActive: true }, select: { id: true },
+  });
+  return !!row;
 }
 
+/**
+ * Fallback όταν ο client δεν έστειλε `seriesSource`: αγορές πρώτα (SOSOURCE 1251), μετά η
+ * ΕΝΕΡΓΟΠΟΙΗΜΕΝΗ σειρά με αυτόν τον κωδικό — «ενεργοποιημένη» είναι το κριτήριο που κάνει την
+ * επιλογή μονοσήμαντη, αφού ο ίδιος κωδικός υπάρχει σε πολλές ενότητες. Η ταξινόμηση κατά
+ * `sosource` κρατά το αποτέλεσμα ντετερμινιστικό αν κάποιος ενεργοποίησε τον ίδιο κωδικό σε δύο.
+ */
 async function sourceOfSeries(code: string): Promise<number | null> {
-  const purchase = await prisma.purchaseDocType.findUnique({ where: { code }, select: { id: true } });
-  if (purchase) return 1251;
-  const creditor = await prisma.softoneDocSeries.findFirst({ where: { code, sosource: 1653 }, select: { sosource: true } });
-  return creditor?.sosource ?? null;
+  const purchase = await prisma.purchaseDocType.findUnique({ where: { code }, select: { enabled: true } });
+  if (purchase?.enabled) return 1251;
+  const enabled = await prisma.softoneDocSeries.findFirst({
+    where: { code, enabled: true, isActive: true },
+    orderBy: { sosource: 'asc' },
+    select: { sosource: true },
+  });
+  if (enabled) return enabled.sosource;
+  return purchase ? 1251 : null;
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {

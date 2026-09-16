@@ -189,9 +189,7 @@ function CheckRow({ ok, label, got, exp }: { ok: boolean | null | undefined; lab
 /* ------------------------------------------------------------------ */
 
 /** Ετικέτες ομάδων του επιλογέα σειράς. «Άλλη ενότητα» = ανενεργή σειρά εκτός 1251/1653. */
-const SERIES_GROUP_LABEL: Record<'purchase' | 'creditor' | 'other', string> = {
-  purchase: 'Αγορών', creditor: 'Πιστωτών', other: 'Άλλη ενότητα',
-};
+
 
 export function OcrRowDetail({
   row, canCategorize, canPost, seriesOptions = [],
@@ -644,12 +642,12 @@ export function OcrRowDetail({
                 <span className={LABEL_CLS}>Τύπος παραστατικού (SoftOne)</span>
                 <select value={seriesKey} disabled={ro} onChange={(e) => setSeriesKey(e.target.value)} className={cn(INPUT_CLS, 'w-full cursor-pointer')}>
                   <option value="">— Επιλογή σειράς —</option>
-                  {/* Ομαδοποίηση όπως στο SoftOne: σειρές αγορών (1251) και σειρές πιστωτών (1653). */}
-                  {(['purchase', 'creditor', 'other'] as const).map((kind) => {
-                    const group = seriesOptions.filter((o) => o.kind === kind);
+                  {/* Ομαδοποίηση όπως στο SoftOne: μία ομάδα ανά ΕΝΟΤΗΤΑ, με το όνομά της. */}
+                  {[...new Set(seriesOptions.map((o) => o.family))].map((family) => {
+                    const group = seriesOptions.filter((o) => o.family === family);
                     if (!group.length) return null;
                     return (
-                      <optgroup key={kind} label={SERIES_GROUP_LABEL[kind]}>
+                      <optgroup key={family} label={family}>
                         {group.map((o) => (
                           // Ανενεργή σειρά: μπαίνει μόνο επειδή τη δείχνει ήδη το παραστατικό —
                           // φαίνεται, αλλά δεν ξαναεπιλέγεται.
