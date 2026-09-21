@@ -40,6 +40,8 @@ export async function loadAccountChart(masks: readonly (string | null | undefine
 export async function lineAccountsFor(items: {
   rowIndex: number; softoneLinMtrl: number | null; softoneMtrl: number | null;
   softoneExpn: number | null; softoneIsService: boolean | null;
+  /** Ο ΦΠΑ της γραμμής (Decimal/αριθμός/κείμενο) — για την παρατήρηση ΦΠΑ. */
+  vatRate?: unknown;
 }[]): Promise<Record<number, AccountCheckLine>> {
   const linIds = items.map((i) => i.softoneLinMtrl).filter((v): v is number => v != null);
   const lins = linIds.length
@@ -57,6 +59,7 @@ export async function lineAccountsFor(items: {
         rowIndex: i.rowIndex, path: 'LINLINES' as const,
         article: l ? `${l.code} — ${l.name}` : null,
         acnmsk: l?.acnmsk ?? null, acnmskKnown: Boolean(l?.acnmskSyncedAt),
+        vatRate: i.vatRate == null || i.vatRate === '' || !Number.isFinite(Number(i.vatRate)) ? null : Number(i.vatRate),
       };
     }
     if (i.softoneMtrl != null) return { rowIndex: i.rowIndex, path: i.softoneIsService ? 'SRVLINES' as const : 'ITELINES' as const };

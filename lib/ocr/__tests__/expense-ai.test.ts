@@ -18,7 +18,7 @@ const { db, queues, extract, ownAfm } = vi.hoisted(() => ({
     softoneAccount: { findMany: vi.fn() },
     lineMatchRule: { findMany: vi.fn() },
   },
-  queues: { suggestForGroup: vi.fn() },
+  queues: { suggestForGroup: vi.fn(), groupVatRates: vi.fn() },
   extract: { resolveCfg: vi.fn(), callTextLLM: vi.fn(), callTextViaVision: vi.fn() },
   // Το ΑΦΜ μας: το `resolveOwnAfm` έχει δική του cache ΑΝΑ ΗΜΕΡΑ σε module-level μεταβλητή,
   // που κανένα `clearOwnCompanyCache` δεν αγγίζει — ένα test θα κλείδωνε την τιμή για όλα τα
@@ -72,6 +72,7 @@ beforeEach(() => {
   db.company.findFirst.mockResolvedValue(null);
   ownAfm.resolveOwnAfm.mockResolvedValue('997939640');
   queues.suggestForGroup.mockResolvedValue(weak);
+  queues.groupVatRates.mockResolvedValue(new Map());
   db.softoneLineItem.findMany.mockResolvedValue(CANDIDATES);
   db.softoneLineCategory.findUnique.mockResolvedValue({ name: 'ΛΕΙΤΟΥΡΓΙΚΑ' });
   db.softoneLineCategory.findMany.mockResolvedValue([{ mtrCategory: 5, name: 'ΛΕΙΤΟΥΡΓΙΚΑ' }]);
@@ -617,13 +618,13 @@ describe('γείωση στο λογιστικό σχέδιο', () => {
 
   it('ιστορικό εκδότη: μόνο κανόνες με άνθρωπο, ως ένδειξη', async () => {
     db.lineMatchRule.findMany.mockResolvedValue([
-      { afm: '094073495', lin: 777, createdById: 'u1' },
-      { afm: '094073495', lin: 777, createdById: 'u2' },
-      { afm: '094073495', lin: 779, createdById: 'u1' },
+      { afm: '094073495', lin: 777, createdById: 'u1', targetSource: 'manual' },
+      { afm: '094073495', lin: 777, createdById: 'u2', targetSource: 'manual' },
+      { afm: '094073495', lin: 779, createdById: 'u1', targetSource: 'manual' },
     ]);
     await suggestExpensesWithAi({ groups: [group('g1', 'ΕΝΟΙΚΙΟ')] });
     expect(db.lineMatchRule.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ lin: { not: null }, createdById: { not: null } }),
+      where: expect.objectContaining({ lin: { not: null }, createdById: { not: null }, targetSource: 'manual' }),
     }));
     expect(userPrompt()).toContain('επιβεβαιωμένες από άνθρωπο γραμμές του εκδότη: 62.04 «Ενοίκια» ×2, 64.00 «Έξοδα μεταφορών» ×1');
   });
@@ -638,5 +639,62 @@ describe('γείωση στο λογιστικό σχέδιο', () => {
     db.softoneAccount.findMany.mockResolvedValue(ACCOUNTS.map((a) => (a.code === '62.04.00.0024' ? { ...a, name: 'Μετονομασμένος' } : a)));
     await suggestExpensesWithAi({ groups: [group('g1', 'ΕΝΟΙΚΙΟ')] });
     expect(extract.callTextViaVision).toHaveBeenCalledTimes(2);
+  });
+
+  describe('ΦΠΑ γραμμής', () => {
+    it('ο ΦΠΑ κάθε ομάδας φτάνει στο prompt μαζί με τον κανόνα της 4ης βαθμίδας', async () => {
+      queues.groupVatRates.mockResolvedValue(new Map([['094073495|g1', [6]], ['094073495|g2', [6, 13]]]));
+      await suggestExpensesWithAi({ groups: [group('g1', 'ΡΕΥΜΑ'), group('g2', 'ΡΕΥΜΑ Β'), group('g3', 'ΚΑΤΙ')] });
+      const user = userPrompt();
+      expect(user).toContain('g1 :: ΡΕΥΜΑ\n    ΦΠΑ γραμμής: 6%');
+      expect(user).toContain('g2 :: ΡΕΥΜΑ Β\n    ΦΠΑ γραμμών: 6%, 13% (μικτοί)');
+      expect(user).toContain('g3 :: ΚΑΤΙ\n    ΦΠΑ γραμμής: άγνωστος');
+      expect(user).toContain('η 4η βαθμίδα του λογαριασμού κωδικοποιεί τον ΣΥΝΤΕΛΕΣΤΗ ΦΠΑ');
+      expect(user).toContain('ΠΡΟΤΙΜΗΣΕ τη χρεοπίστωση της οποίας ο λογαριασμός ταιριάζει');
+    });
+
+    it('άλλος ΦΠΑ ⇒ άλλο κλειδί κρυφής μνήμης (νέα ερώτηση)', async () => {
+      queues.groupVatRates.mockResolvedValue(new Map([['094073495|g1', [24]]]));
+      await suggestExpensesWithAi({ groups: [group('g1', 'ΡΕΥΜΑ')] });
+      await suggestExpensesWithAi({ groups: [group('g1', 'ΡΕΥΜΑ')] });
+      expect(extract.callTextViaVision).toHaveBeenCalledTimes(1);
+      queues.groupVatRates.mockResolvedValue(new Map([['094073495|g1', [6]]]));
+      await suggestExpensesWithAi({ groups: [group('g1', 'ΡΕΥΜΑ')] });
+      expect(extract.callTextViaVision).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('σημείωση ΦΠΑ πάνω στην πρόταση — ένδειξη, όχι απόφαση', () => {
+    const answer = (code: string) => extract.callTextViaVision.mockResolvedValue({
+      content: JSON.stringify({ matches: [{ key: 'g1', kind: 'lineitem', code, confidence: 0.85, reason: 'ενοίκιο γραφείου' }] }),
+    });
+
+    it('λογαριασμός 24% σε ομάδα 6% ⇒ η πρόταση ΜΕΝΕΙ, ίδια βεβαιότητα, με σημείωση στο reason', async () => {
+      queues.groupVatRates.mockResolvedValue(new Map([['094073495|g1', [6]]]));
+      answer('ΧΡ01');
+      const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΕΝΟΙΚΙΟ')] });
+      expect(r.suggestions[0]).toMatchObject({ lin: 777, code: 'ΧΡ01', confidence: 0.85 });
+      expect(r.suggestions[0].reason).toBe('ενοίκιο γραφείου · ⚠ ο λογαριασμός 62.04.00.0024 είναι για ΦΠΑ 24% αλλά η γραμμή έχει 6%');
+    });
+
+    it('ίδιος ΦΠΑ (ή ένας από μικτούς) ⇒ καμία σημείωση', async () => {
+      queues.groupVatRates.mockResolvedValue(new Map([['094073495|g1', [6, 24]]]));
+      answer('ΧΡ01');
+      const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΕΝΟΙΚΙΟ')] });
+      expect(r.suggestions[0].reason).toBe('ενοίκιο γραφείου');
+    });
+
+    it('άγνωστος ΦΠΑ ⇒ καμία σημείωση', async () => {
+      answer('ΧΡ01');
+      const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΕΝΟΙΚΙΟ')] });
+      expect(r.suggestions[0].reason).toBe('ενοίκιο γραφείου');
+    });
+
+    it('κατάληξη 0224 (ΦΙΧ 24%) δεν είναι σκέτος συντελεστής ⇒ καμία σημείωση ακόμη και με ΦΠΑ 16%', async () => {
+      queues.groupVatRates.mockResolvedValue(new Map([['094073495|g1', [16]]]));
+      answer('ΚΑΥ');
+      const r = await suggestExpensesWithAi({ groups: [group('g1', 'ΑΜΟΛΥΒΔΗ')] });
+      expect(r.suggestions[0]).toMatchObject({ code: 'ΚΑΥ', reason: 'ενοίκιο γραφείου' });
+    });
   });
 });

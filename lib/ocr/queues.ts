@@ -724,6 +724,7 @@ type UnmatchedLine = {
   price: unknown;
   total: unknown;
   softoneIsService: boolean | null;
+  vatRate?: unknown;
 };
 type QueueDocInfo = {
   fileName: string | null;
@@ -746,7 +747,7 @@ async function loadUnmatchedLines(): Promise<{
     where: UNMATCHED_LINE_WHERE,
     select: {
       id: true, documentId: true, code: true, name: true,
-      quantity: true, price: true, total: true, softoneIsService: true,
+      quantity: true, price: true, total: true, softoneIsService: true, vatRate: true,
     },
     orderBy: { id: 'asc' },
     take: MAX_QUEUE_LINES,
@@ -1032,6 +1033,31 @@ async function memorySuggestion(rule: {
   return null;
 }
 
+/**
+ * Οι συντελεστές ΦΠΑ των εκκρεμών γραμμών κάθε ομάδας, κλειδί `afm|pattern` — ΟΛΟΙ οι διαφορετικοί,
+ * ταξινομημένοι (μια ομάδα μπορεί να έχει μικτούς). Διαβάζονται από τις ίδιες τις γραμμές στη βάση,
+ * όχι από το σώμα του αιτήματος: το UI δεν είναι πηγή αλήθειας για τον ΦΠΑ. Γραμμή χωρίς ΦΠΑ δεν
+ * συνεισφέρει τίποτα· ομάδα χωρίς κανέναν γνωστό ΦΠΑ λείπει από τον χάρτη.
+ */
+export async function groupVatRates(): Promise<Map<string, number[]>> {
+  const { lines, docs } = await loadUnmatchedLines();
+  const rateById = new Map<string, number>();
+  for (const l of lines) {
+    const n = l.vatRate == null || l.vatRate === '' ? NaN : Number(l.vatRate);
+    if (Number.isFinite(n)) rateById.set(l.id, n);
+  }
+  const grouped = groupLines(lines.map((l) => ({
+    id: l.id, afm: docs.get(l.documentId)?.afm ?? '', docId: l.documentId, name: l.name, code: l.code,
+  })));
+  const out = new Map<string, number[]>();
+  for (const g of grouped) {
+    const rates = [...new Set(g.lineIds.map((id) => rateById.get(id)).filter((r): r is number => r != null))]
+      .sort((a, b) => a - b);
+    if (rates.length) out.set(`${g.afm}|${g.pattern}`, rates);
+  }
+  return out;
+}
+
 /** Οι εκκρεμείς γραμμές μιας ομάδας (ΑΦΜ + pattern), όπως τη βλέπει η σελίδα. */
 async function groupLineIds(afm: string, pattern: string): Promise<{ lineIds: string[]; docIds: string[] }> {
   const { lines, docs } = await loadUnmatchedLines();
@@ -1161,18 +1187,47 @@ export async function rememberLineMatch(input: {
   match: ResolvedMatch;
   analytics: LineAnalytics;
   userId?: string | null;
+  /**
+   * ΠΟΙΟΣ διάλεξε τον ΣΤΟΧΟ. `'manual'` = ο χρήστης τον επέλεξε ρητά σε αυτή την ενέργεια.
+   * Οτιδήποτε άλλο (η `softoneMatchedBy` της γραμμής: `code`, `memory`…) = ο στόχος ήρθε
+   * αυτόματα και ο χρήστης άγγιξε μόνο την αναλυτική. Υποχρεωτικό: κάθε καλών πρέπει να το πει.
+   */
+  targetSource: 'manual' | { auto: string | null };
 }): Promise<void> {
   const afm = String(input.afm ?? '').trim();
   const pattern = String(input.pattern ?? '').trim();
   if (!pattern) return;
   const { mtrl, expn, lin, isService } = input.match;
-  // Ο κανόνας ξαναχρησιμοποιήθηκε (ο χρήστης επιβεβαίωσε την ίδια αντιστοίχιση): +1 χρήση.
-  // Το `update` γράφει ΚΑΙ τα τρία πεδία στόχου, οπότε αλλαγή γνώμης (είδος → έξοδο) σβήνει
-  // τον παλιό στόχο αντί να αφήσει δύο.
-  await prisma.lineMatchRule.upsert({
-    where: { afm_pattern: { afm, pattern } },
-    update: { mtrl, expn, lin, isService, ...input.analytics, timesUsed: { increment: 1 } },
-    create: { afm, pattern, mtrl, expn, lin, isService, ...input.analytics, createdById: input.userId ?? null },
+  const where = { afm_pattern: { afm, pattern } };
+
+  if (input.targetSource === 'manual') {
+    // Ο κανόνας ξαναχρησιμοποιήθηκε (ο χρήστης επιβεβαίωσε την ίδια αντιστοίχιση): +1 χρήση.
+    // Το `update` γράφει ΚΑΙ τα τρία πεδία στόχου, οπότε αλλαγή γνώμης (είδος → έξοδο) σβήνει
+    // τον παλιό στόχο αντί να αφήσει δύο.
+    await prisma.lineMatchRule.upsert({
+      where,
+      update: { mtrl, expn, lin, isService, ...input.analytics, targetSource: 'manual', timesUsed: { increment: 1 } },
+      create: { afm, pattern, mtrl, expn, lin, isService, ...input.analytics, targetSource: 'manual', createdById: input.userId ?? null },
+    });
+    return;
+  }
+
+  // ΑΥΤΟΜΑΤΟΣ στόχος (ο χρήστης άλλαξε ΜΟΝΟ την αναλυτική). Δύο εγγυήσεις:
+  //  1. ΔΕΝ προάγεται ποτέ σε «ανθρώπινη» επιβεβαίωση: γράφεται `auto:<πηγή>`, που δεν μετρά.
+  //  2. ΔΕΝ πατά υπάρχοντα κανόνα: ο στόχος και η προέλευσή του μένουν όπως είναι (αν ο κανόνας
+  //     είναι ανθρώπινος, μένει ανθρώπινος· αν ο αυτόματος στόχος διαφέρει, ο ανθρώπινος κερδίζει).
+  //     Αλλάζει μόνο η αναλυτική, που είναι η πραγματική απόφαση του χρήστη εδώ.
+  const existing = await prisma.lineMatchRule.findUnique({ where, select: { id: true } });
+  if (existing) {
+    await prisma.lineMatchRule.update({ where: { id: existing.id }, data: { ...input.analytics } });
+    return;
+  }
+  await prisma.lineMatchRule.create({
+    data: {
+      afm, pattern, mtrl, expn, lin, isService, ...input.analytics,
+      targetSource: `auto:${input.targetSource.auto ?? 'unknown'}`,
+      createdById: input.userId ?? null,
+    },
   });
 }
 
@@ -1209,7 +1264,8 @@ export async function applyMatchToGroup(input: {
     data: lineMatchData(match, analytics),
   });
 
-  await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId });
+  // Ο χρήστης διάλεξε ΡΗΤΑ αυτόν τον στόχο στην ουρά.
+  await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId, targetSource: 'manual' });
 
   await refreshDocTallies(docIds);
   return { linesUpdated: lineIds.length, docIds, mtrl, expn, lin, code, name, analytics };
@@ -1267,7 +1323,8 @@ export async function applyMatchToLine(input: {
     data: lineMatchData(match, analytics),
   });
 
-  if (pattern) await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId });
+  // Ο χρήστης διάλεξε ΡΗΤΑ αυτόν τον στόχο στη σελίδα του παραστατικού.
+  if (pattern) await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId, targetSource: 'manual' });
 
   await refreshDocTallies([line.documentId]);
   return { ...match, lineId, docId: line.documentId, afm, pattern, remembered: !!pattern, analytics };
@@ -1294,7 +1351,7 @@ export async function applyAnalyticsToLine(input: {
     select: {
       id: true, documentId: true, name: true,
       softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true,
-      softoneCode: true, softoneName: true, softoneIsService: true,
+      softoneCode: true, softoneName: true, softoneIsService: true, softoneMatchedBy: true,
     },
   });
   if (!line) throw new QueueError('line_not_found', 'Η γραμμή δεν βρέθηκε.', 404);
@@ -1337,6 +1394,9 @@ export async function applyAnalyticsToLine(input: {
       },
       analytics,
       userId: input.userId,
+      // ΜΟΝΟ η αναλυτική άλλαξε εδώ. Ο στόχος είναι ανθρώπινος μόνο αν τον είχε ήδη διαλέξει
+      // άνθρωπος (`manual`)· ένας αυτόματος στόχος (`code`, `memory`…) ΔΕΝ προάγεται σε επιβεβαίωση.
+      targetSource: line.softoneMatchedBy === 'manual' ? 'manual' : { auto: line.softoneMatchedBy ?? null },
     });
   }
 

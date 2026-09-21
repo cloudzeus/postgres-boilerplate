@@ -2047,6 +2047,11 @@ model LineMatchRule {
   prjc        Int?                       // SoftoneProject.prjc
   prjcStage   Int?                       // SoftoneProjectStage.prjcStage
   isService   Boolean  @default(false)
+  // ΠΟΙΟΣ διάλεξε τον ΣΤΟΧΟ (mtrl/expn/lin): 'manual' = άνθρωπος τον επέλεξε ρητά· 'auto:<πηγή>' =
+  // ο στόχος ήρθε από αυτόματη αντιστοίχιση της γραμμής (π.χ. 'auto:code') και γράφτηκε μόνο επειδή
+  // ο χρήστης άλλαξε την αναλυτική· NULL = γραμμή πριν από τη στήλη, ΑΓΝΩΣΤΟ. Μόνο το 'manual'
+  // μετρά ως ανθρώπινη επιβεβαίωση (βλ. `rememberLineMatch`, `lib/ocr/chart-grounding.ts`).
+  targetSource String?
   timesUsed   Int      @default(0)
   createdById String?
   createdAt   DateTime @default(now())

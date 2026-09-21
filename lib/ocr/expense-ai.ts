@@ -10,12 +10,12 @@
 import 'server-only';
 import { prisma } from '@/lib/db';
 import { callTextLLM, callTextViaVision, resolveCfg } from './extract';
-import { suggestForGroup, type QueueSuggestion } from './queues';
+import { groupVatRates, suggestForGroup, type QueueSuggestion } from './queues';
 import { resolveOwnCompany, UNKNOWN_OWN_COMPANY, type OwnCompanyProfile } from './own-company';
 import { AI_CONFIDENT_SCORE, bestSuggestionScore } from './ai-apply';
 import type { MatchKind } from './line-match';
 import { TRADER_KIND_SODTYPE } from '@/lib/softone';
-import type { ChartAccount } from './account-check';
+import { accountVatRate, type ChartAccount } from './account-check';
 import {
   BRANCH_LEVEL, branchCodeOf, groundArticles, candidateLine, candidateSignaturePart, branchCatalogue,
   articlesInBranches, mergeWhitelist, issuerHistory, parseBranchAnswer,
@@ -57,7 +57,7 @@ export const MAX_EXPENSES = 40;
  * Μέτρηση στον ζωντανό tenant (2026-09-21, 136 τέτοιες χρεοπιστώσεις, παρτίδα 20 ομάδων,
  * `deepseek-chat`): `single` 18.977 in / 1.662 out = $0,00695 · `two-stage` 14.222 in / 2.219
  * out σε ΔΥΟ κλήσεις = $0,00628. Η στένωση ήταν ~10% φθηνότερη αλλά ΟΧΙ ίδιας ποιότητας: στις
- * 20 ομάδες έδωσε τις ίδιες 9 προτάσεις κωδικού και μία επιπλέον ΛΑΘΟΣ («Ειδ. Τέλος 5%» →
+ * 20 ομάδες έδωσε τις ίδιες 8 προτάσεις κωδικού και μία επιπλέον ΛΑΘΟΣ («Ειδ. Τέλος 5%» →
  * «ΦΠΑ μη εκπιπτόμενος»), γιατί ο στενός κλάδος δεν είχε σωστή επιλογή και το μοντέλο διάλεξε
  * ό,τι βρήκε. Γι' αυτό η προεπιλογή είναι η μία κλήση. Όσο ο λογιστής διορθώνει τις 307
  * χρεοπιστώσεις χωρίς έγκυρο λογαριασμό, το πλήθος μεγαλώνει· πάνω από το όριο η εφαρμογή
@@ -333,8 +333,8 @@ async function loadIssuerHistory(
   if (keys.length === 0) return out;
   const rules: HistoryRule[] = await prisma.lineMatchRule
     .findMany({
-      where: { afm: { in: keys }, lin: { not: null }, createdById: { not: null } },
-      select: { afm: true, lin: true, createdById: true },
+      where: { afm: { in: keys }, lin: { not: null }, createdById: { not: null }, targetSource: 'manual' },
+      select: { afm: true, lin: true, createdById: true, targetSource: true },
     })
     .catch(() => [] as HistoryRule[]);
   for (const afm of keys) {
@@ -657,9 +657,38 @@ async function callModel(
   }
 }
 
-/** Η περιγραφή μιας ομάδας στο prompt: δείγμα, εκδότης, σχέση, και ιστορικό ΜΟΝΟ αν υπάρχει. */
+/** «ΦΠΑ γραμμής: 6%» / «ΦΠΑ γραμμών: 6%, 13% (μικτοί)» / «άγνωστος». */
+export function vatLine(rates: readonly number[] | undefined): string {
+  const fmt = (r: number) => `${String(r).replace('.', ',')}%`;
+  if (!rates || rates.length === 0) return 'ΦΠΑ γραμμής: άγνωστος';
+  if (rates.length === 1) return `ΦΠΑ γραμμής: ${fmt(rates[0])}`;
+  return `ΦΠΑ γραμμών: ${rates.map(fmt).join(', ')} (μικτοί)`;
+}
+
+const groupKey = (g: Pick<AiGroupInput, 'afm' | 'pattern'>): string => `${String(g.afm ?? '').trim()}|${g.pattern}`;
+
+/**
+ * Σημείωση ΦΠΑ πάνω στην πρόταση: ο λογαριασμός της χρεοπίστωσης κωδικοποιεί συντελεστή (κατάληξη
+ * `00NN` ΚΑΙ όνομα που το λέει — {@link accountVatRate}) που ΔΕΝ είναι κανένας από τους ΦΠΑ της ομάδας.
+ *
+ * Γιατί στον κώδικα και όχι μόνο στο prompt: ζωντανά (2026-09-21, `deepseek-chat`) το μοντέλο πήρε
+ * «ΦΠΑ γραμμής: 6%» και ρητό κανόνα «προτίμησε τον λογαριασμό με τον ίδιο ΦΠΑ», και ΠΑΡΟΛΑ ΑΥΤΑ
+ * έδωσε `62.00.00.0024` (24%) με βεβαιότητα 0,85 χωρίς λέξη για τον ΦΠΑ. Η δομή του σχεδίου κερδίζει
+ * τη βεβαιότητα του μοντέλου — αλλά ως ΕΝΔΕΙΞΗ: η πρόταση ΔΕΝ πετιέται και η βεβαιότητα δεν
+ * αλλάζει· ο χρήστης απλώς διαβάζει τη διαφωνία πριν επιβεβαιώσει.
+ */
+export function vatNote(c: GroundedArticle | null, rates: readonly number[] | undefined): string | null {
+  if (!c || !c.link.sound || !rates || rates.length === 0) return null;
+  const acc = accountVatRate(c.link.account);
+  if (acc == null || rates.some((r) => Math.abs(r - acc) < 0.001)) return null;
+  const fmt = (r: number) => (r === 0 ? 'άνευ ΦΠΑ' : `ΦΠΑ ${String(r).replace('.', ',')}%`);
+  return `⚠ ο λογαριασμός ${c.link.account.code} είναι για ${fmt(acc)} αλλά η γραμμή έχει ${rates.map((r) => `${String(r).replace('.', ',')}%`).join(' / ')}`;
+}
+
+/** Η περιγραφή μιας ομάδας στο prompt: δείγμα, ΦΠΑ, εκδότης, σχέση, και ιστορικό ΜΟΝΟ αν υπάρχει. */
 function groupBlock(
   g: AiGroupInput, iss: IssuerInfo | undefined, history: { line: string } | undefined,
+  rates: readonly number[] | undefined,
 ): string {
   const who = [
     iss?.name ?? g.supplier ?? null,
@@ -670,6 +699,7 @@ function groupBlock(
     iss ? issuerRelationLine(iss.cards) : null,
   ].filter(Boolean).join(' · ');
   return `${g.key} :: ${(g.sample ?? g.pattern).slice(0, 160)}`
+    + `\n    ${vatLine(rates)}`
     + (who ? `\n    εκδότης: ${who}` : '')
     + (history ? `\n    ${history.line}` : '');
 }
@@ -718,7 +748,11 @@ export async function suggestExpensesWithAi(input: {
     .filter((a) => a.link.sound)
     .sort((a, b) => (a.link.sound && b.link.sound ? a.link.account.code.localeCompare(b.link.account.code, 'el', { numeric: true }) : 0));
   const strategy: ShortlistStrategy = input.strategy ?? (sound.length <= MAX_GROUNDED_SINGLE ? 'single' : 'two-stage');
-  const history = await loadIssuerHistory(unresolved.map((g) => g.afm), pool);
+  const [history, vatRates] = await Promise.all([
+    loadIssuerHistory(unresolved.map((g) => g.afm), pool),
+    // Ο ΦΠΑ από τις ίδιες τις εκκρεμείς γραμμές στη βάση — όχι από το σώμα του αιτήματος.
+    groupVatRates().catch(() => new Map<string, number[]>()),
+  ]);
 
   // Η υπογραφή μπαίνει στο κλειδί της μνήμης: αλλάζει το μητρώο, ο λογαριασμός μιας
   // χρεοπίστωσης ή το όνομα ενός κλάδου ⇒ νέα ερώτηση. Καλύπτει ΟΛΟ ό,τι θα μπορούσε να φτάσει
@@ -727,7 +761,10 @@ export async function suggestExpensesWithAi(input: {
     strategy,
     ...mergeWhitelist([text, sound], Number.MAX_SAFE_INTEGER).map(candidateSignaturePart),
   ]);
-  const keyOf = (g: AiGroupInput) => cacheKey(g, categoryId, `${signature}|${history.get(g.afm)?.line ?? ''}`);
+  // Ο ΦΠΑ της ομάδας μπαίνει κι αυτός στο κλειδί: άλλος ΦΠΑ ⇒ άλλη σωστή χρεοπίστωση.
+  const keyOf = (g: AiGroupInput) => cacheKey(
+    g, categoryId, `${signature}|${history.get(g.afm)?.line ?? ''}|${(vatRates.get(groupKey(g)) ?? []).join(',')}`,
+  );
 
   const now = Date.now();
   const fresh: AiGroupInput[] = [];
@@ -755,7 +792,7 @@ export async function suggestExpensesWithAi(input: {
   // Η ΚΡΙΣΙΜΗ έλλειψη, δηλωμένη αντί να περάσει απαρατήρητη: χωρίς δραστηριότητα δεν απαντιέται
   // το «για μεταπώληση ή για ανάλωση;» — και αυτό είναι όλο το ερώτημα «προϊόν ή έξοδο;».
   const ownCompanyUnknown = own.activity == null;
-  const lines = fresh.map((g) => groupBlock(g, issuers.get(g.afm), history.get(g.afm))).join('\n');
+  const lines = fresh.map((g) => groupBlock(g, issuers.get(g.afm), history.get(g.afm), vatRates.get(groupKey(g)))).join('\n');
 
   // 2. Οι χρεοπιστώσεις με αξιόπιστο λογαριασμό που θα δει το μοντέλο.
   let grounded: GroundedArticle[] = sound;
@@ -801,9 +838,13 @@ export async function suggestExpensesWithAi(input: {
           'Όπου μια χρεοπίστωση δείχνει «→ λογαριασμός … · κλάδος …», αυτός είναι ο λογαριασμός του',
           'ΛΟΓΙΣΤΙΚΟΥ ΣΧΕΔΙΟΥ της επιχείρησης όπου θα γραφτεί η γραμμή — τα λόγια του λογιστή («ίδιος',
           'κωδικός» = ο κωδικός της χρεοπίστωσης ΕΙΝΑΙ ο λογαριασμός). Όταν το',
-          'όνομα της χρεοπίστωσης και του λογαριασμού διαφωνούν, ισχύει ο λογαριασμός. Η τελευταία',
-          'βαθμίδα του λογαριασμού είναι συνήθως ο ΣΥΝΤΕΛΕΣΤΗΣ ΦΠΑ (…0000 άνευ, …0013, …0024): ο ΦΠΑ',
-          'της γραμμής δεν σου δίνεται, οπότε όταν ο κλάδος έχει παραλλαγές ΦΠΑ πες το στο "reason".',
+          'όνομα της χρεοπίστωσης και του λογαριασμού διαφωνούν, ισχύει ο λογαριασμός.',
+          'ΦΠΑ: σε αυτό το λογιστικό σχέδιο η 4η βαθμίδα του λογαριασμού κωδικοποιεί τον ΣΥΝΤΕΛΕΣΤΗ ΦΠΑ',
+          '(…0000 άνευ ΦΠΑ, …0006 6%, …0013 13%, …0024 24% — το όνομα του λογαριασμού το λέει). Κάθε γραμμή',
+          'δίνει τον ΦΠΑ της («ΦΠΑ γραμμής»). ΠΡΟΤΙΜΗΣΕ τη χρεοπίστωση της οποίας ο λογαριασμός ταιριάζει',
+          'με τον ΦΠΑ της γραμμής. Αν στον σωστό κλάδο καμία δεν ταιριάζει, μπορείς να δώσεις την πιο',
+          'κοντινή, αλλά ΓΡΑΨΕ στο "reason" ότι ο ΦΠΑ δεν ταιριάζει και βάλε χαμηλότερο confidence.',
+          'Με μικτούς ΦΠΑ, πες το στο "reason".',
           'Χρεοπιστώσεις χωρίς «→ λογαριασμός» δεν έχουν επαληθευμένο λογαριασμό: κρίνε μόνο από το όνομα.',
         ]
       : []),
@@ -841,6 +882,7 @@ export async function suggestExpensesWithAi(input: {
     // απάντηση πετιόταν εδώ και ο χρήστης δεν έβλεπε ποτέ τον λόγο που του γράφτηκε.
     if (!c && !kind && !standsAlone(a.reason)) continue;
     seen.add(key);
+    const note = vatNote(c, vatRates.get(groupKey(fresh.find((g) => g.key === key)!)));
     const suggestion: AiSuggestion = {
       key,
       kind,
@@ -848,7 +890,7 @@ export async function suggestExpensesWithAi(input: {
       code: c?.code ?? null,
       name: c?.name ?? null,
       confidence: a.confidence,
-      reason: a.reason || 'πρόταση μοντέλου',
+      reason: [a.reason || 'πρόταση μοντέλου', note].filter(Boolean).join(' · '),
       // Και ο χαρακτηρισμός περνά από λευκή λίστα: δεκτός μόνο αν τον στείλαμε εμείς.
       myDataType: a.mydata && myData.allowedTypes.has(a.mydata.trim()) ? a.mydata.trim() : null,
     };

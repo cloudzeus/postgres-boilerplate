@@ -177,12 +177,19 @@ export type HistoryRule = {
   lin: number | null;
   /** Ποιος τον έγραψε — κανόνας χωρίς άνθρωπο δεν μετράει. */
   createdById: string | null;
+  /**
+   * ΠΟΙΟΣ διάλεξε τον ΣΤΟΧΟ (`LineMatchRule.targetSource`). ΜΟΝΟ το `'manual'` μετράει: ένας
+   * αυτόματος στόχος που γράφτηκε όταν ο χρήστης άλλαξε μόνο την αναλυτική (`auto:…`) και οι
+   * παλιοί κανόνες χωρίς προέλευση (`null`) ΔΕΝ είναι ανθρώπινη επιβεβαίωση.
+   */
+  targetSource: string | null;
 };
 
 /**
  * Το ιστορικό ενός εκδότη ως ΕΝΔΕΙΞΗ: σε ποιους κλάδους πήγαν γραμμές του που επιβεβαίωσε
- * ΑΝΘΡΩΠΟΣ. Πηγή είναι ΜΟΝΟ η μνήμη `LineMatchRule` (γράφεται μόνο από χειροκίνητη αντιστοίχιση
- * — ποτέ αυτόματη, ποτέ από απάντηση μοντέλου). Κανόνες χωρίς χρεοπίστωση (είδη / έξοδα) δεν
+ * ΑΝΘΡΩΠΟΣ. Πηγή είναι ΜΟΝΟ κανόνες `LineMatchRule` με `targetSource = 'manual'` — ο στόχος
+ * διαλέχτηκε ρητά από χρήστη. Ποτέ αυτόματη αντιστοίχιση, ποτέ απάντηση μοντέλου, ποτέ κανόνας
+ * άγνωστης προέλευσης. Κανόνες χωρίς χρεοπίστωση (είδη / έξοδα) δεν
  * έχουν λογαριασμό σε αυτόν τον tenant και δεν μετρούν· χρεοπίστωση χωρίς αξιόπιστο σύνδεσμο
  * μετρά με τον ΚΩΔΙΚΟ της, ποτέ με κλάδο δανεισμένο από τα ψηφία της.
  *
@@ -197,7 +204,7 @@ export function issuerHistory(
   if (!key) return null;
   const counts = new Map<string, { label: string; n: number; branch: string | null }>();
   for (const r of rules) {
-    if (r.afm !== key || r.lin == null || !r.createdById) continue;
+    if (r.afm !== key || r.lin == null || !r.createdById || r.targetSource !== 'manual') continue;
     const a = articles.get(r.lin);
     if (!a) continue;
     const k = a.link.sound && a.link.branch ? `b:${a.link.branch.code}` : `a:${a.mtrl}`;

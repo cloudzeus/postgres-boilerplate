@@ -37,7 +37,7 @@ vi.mock('@/lib/softone', () => ({
 import { clearClassificationCache } from '../mydata-labels';
 import {
   loadTraderQueue, applyTraderToDocs, loadItemQueue, suggestForGroup,
-  applyMatchToGroup, skipGroup, countQueues, QueueError, TRADER_KIND_LABEL,
+  applyMatchToGroup, skipGroup, countQueues, QueueError, TRADER_KIND_LABEL, groupVatRates,
   loadTraderCodeSamples,
 } from '../queues';
 
@@ -373,6 +373,20 @@ const DOCS = [
   { id: 'doc2', fileName: 'b.pdf', issuerAfm: '094073495', extractedData: {}, softoneName: 'ΑΛΦΑ ΑΕ' },
 ];
 
+describe('groupVatRates — ο ΦΠΑ κάθε ομάδας από τις ίδιες τις γραμμές', () => {
+  it('όλοι οι διαφορετικοί συντελεστές της ομάδας, ταξινομημένοι· γραμμή χωρίς ΦΠΑ δεν μετρά', async () => {
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { ...LINES[0], vatRate: '13.00' },
+      { ...LINES[1], vatRate: 6 },
+      { ...LINES[2], vatRate: null },
+    ]);
+    db.ocrDocument.findMany.mockResolvedValue(DOCS);
+    const r = await groupVatRates();
+    // «ΥΓΡΟ ΑΖΩΤΟ 9.560 KG» και «Υγρό Άζωτο 12.080 kg» είναι ΜΙΑ ομάδα με μικτούς συντελεστές.
+    expect([...r.entries()]).toEqual([['094073495|υγρο αζωτο kg', [6, 13]]]);
+  });
+});
+
 describe('loadItemQueue', () => {
   it('ομαδοποιεί τις εκκρεμείς γραμμές ανά (ΑΦΜ, κείμενο) με προμηθευτή, δείγμα και κατηγορία', async () => {
     db.ocrInvoiceItem.findMany.mockResolvedValue(LINES);
@@ -519,8 +533,9 @@ describe('applyMatchToGroup', () => {
     expect(db.lineMatchRule.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { afm_pattern: { afm: '094073495', pattern: 'υγρο αζωτο kg' } },
       // Ο κανόνας ξαναχρησιμοποιήθηκε → +1 χρήση.
-      update: { mtrl: 77, expn: null, lin: null, isService: false, costCntr: null, prjc: null, prjcStage: null, timesUsed: { increment: 1 } },
-      create: { afm: '094073495', pattern: 'υγρο αζωτο kg', mtrl: 77, expn: null, lin: null, isService: false, costCntr: null, prjc: null, prjcStage: null, createdById: 'u1' },
+      // Ο στόχος διαλέχτηκε από άνθρωπο ⇒ `targetSource: 'manual'`.
+      update: { mtrl: 77, expn: null, lin: null, isService: false, costCntr: null, prjc: null, prjcStage: null, targetSource: 'manual', timesUsed: { increment: 1 } },
+      create: { afm: '094073495', pattern: 'υγρο αζωτο kg', mtrl: 77, expn: null, lin: null, isService: false, costCntr: null, prjc: null, prjcStage: null, targetSource: 'manual', createdById: 'u1' },
     }));
     // refreshDocTallies: ένα update ανά παραστατικό που άγγιξε η ομάδα.
     expect(db.ocrDocument.update).toHaveBeenCalledTimes(2);

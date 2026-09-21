@@ -38,6 +38,20 @@
 // εμπόδιο `account_not_postable`· άγνωστη σημαία (NULL) ⇒ «άγνωστο», ΠΟΤΕ «κινείται». Και οι δύο
 // λίστες προτάσεων (αδέλφια, υποψήφιοι μάσκας) περιέχουν ΜΟΝΟ κινούμενους λογαριασμούς.
 //
+// ── ΣΥΝΤΕΛΕΣΤΗΣ ΦΠΑ: ΠΑΡΑΤΗΡΗΣΗ, ΠΟΤΕ ΕΜΠΟΔΙΟ ───────────────────────────────────────────────────
+// Στο ΕΓΛΣ του πελάτη η 4η βαθμίδα των λογαριασμών εξόδων κωδικοποιεί ΣΥΧΝΑ τον ΦΠΑ: `62.00.00.0024`
+// «… με Φ.Π.Α. 24%», `…0013` «… 13%». ΣΥΧΝΑ, όχι πάντα — επαληθευμένο στα 3.024 φύλλα του σχεδίου:
+//  • `0219` «ΦΙΧ 19%», `0224` «ΦΙΧ 24%», `0199` «ΕΙΧ ΧΔΕ», `8700`, `7700`, `0100` — κατάληξη που ΔΕΝ
+//    είναι σκέτος συντελεστής. Εκεί δεν λέμε τίποτα.
+//  • Ακόμη και η «καθαρή» μορφή `00NN` ΔΕΝ είναι μονοσήμαντη: `54.00.99.0001…0012` είναι ΜΗΝΕΣ
+//    («Απόδοση εκκαθάριση Φ.Π.Α. Ιουνίου» = `0006`), `0053` σημαίνει 6%, `0065` 6,5%, `0087`/`0096`/
+//    `0099` δεν είναι συντελεστές, και μόνο 103 από τους 391 `0000` λένε «άνευ Φ.Π.Α.».
+// Γι' αυτό ο κανόνας θέλει ΔΥΟ συμφωνούσες ενδείξεις από το ΙΔΙΟ το σχέδιο: κατάληξη `00NN` ΚΑΙ
+// όνομα λογαριασμού που γράφει τον ίδιο συντελεστή («NN%», ή «άνευ Φ.Π.Α.» για το `0000`). Μόνο τότε,
+// και μόνο όταν ο ΦΠΑ της γραμμής είναι γνωστός και διαφέρει, βγαίνει παρατήρηση
+// `account_vat_mismatch`. Είναι ΣΥΜΠΕΡΑΣΜΑ από το σχήμα του σχεδίου, όχι κανόνας του SoftOne — γι'
+// αυτό προειδοποιεί και δεν αποφασίζει.
+//
 // ── ΤΙ ΔΕΝ ΚΑΝΕΙ, ΣΚΟΠΙΜΑ ──────────────────────────────────────────────────────────────────────
 // Δεν συγκρίνει την περιγραφή της χρεοπίστωσης με την περιγραφή του λογαριασμού. Ο πελάτης έχει δύο
 // λογιστικά σχέδια (ΕΓΛΣ στο ACNT, ΕΛΠ στις χρεοπιστώσεις): «61.02» είναι «Λοιπές προμήθειες τρίτων»
@@ -81,6 +95,8 @@ export type AccountCheckInput = {
    * κενό `acnmsk` σημαίνει «δεν ξέρω», όχι «λείπει».
    */
   acnmskKnown?: boolean;
+  /** Ο συντελεστής ΦΠΑ της γραμμής (π.χ. 24). `null`/απών = άγνωστος ⇒ κανένας έλεγχος ΦΠΑ. */
+  vatRate?: number | null;
 };
 
 export type AccountStatus =
@@ -124,6 +140,11 @@ export type AccountCheckLine = {
   article: string | null;
   /** Μία ελληνική πρόταση για τη γραμμή. */
   message: string;
+  /**
+   * `ok` λογαριασμός για ΑΛΛΟΝ συντελεστή ΦΠΑ από αυτόν της γραμμής (βλ. {@link accountVatRate}).
+   * ΠΑΡΑΤΗΡΗΣΗ, ποτέ εμπόδιο.
+   */
+  vatMismatch: { accountRate: number; lineRate: number; message: string } | null;
 };
 
 export type AccountCheck = {
@@ -176,6 +197,47 @@ export function chartNeeds(masks: readonly (string | null | undefined)[]): {
 
 const label = (a: ChartAccount): string => `${a.code} «${a.name}»`;
 
+/** Κεφαλαία, χωρίς τόνους, «Φ.Π.Α.» → «ΦΠΑ», κόμμα δεκαδικών → τελεία. */
+const vatText = (s: string): string => String(s ?? '').toUpperCase().normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '').replace(/Φ\s*\.\s*Π\s*\.\s*Α\s*\.?/g, 'ΦΠΑ');
+
+/**
+ * Ο συντελεστής ΦΠΑ που κωδικοποιεί ένας λογαριασμός — ΜΟΝΟ όταν το λένε ΚΑΙ η κατάληξη ΚΑΙ το
+ * όνομα (δες την κεφαλίδα: ούτε η καθαρή μορφή `00NN` είναι μονοσήμαντη σε αυτό το σχέδιο).
+ *
+ *  • `…0024` «… με Φ.Π.Α. 24%» → 24 · `…0000` «… άνευ Φ.Π.Α.» → 0
+ *  • `…0219` «ΦΙΧ 19%», `…0199` «ΕΙΧ ΧΔΕ», `…8700` → `null` (όχι σκέτος συντελεστής)
+ *  • `54.00.99.0006` «Απόδοση εκκαθάριση Φ.Π.Α. Ιουνίου» → `null` (μήνας — το όνομα δεν λέει 6%)
+ *  • `…0053` «… 6%» → `null` (το όνομα λέει 6, η κατάληξη 53: διαφωνούν)
+ */
+export function accountVatRate(a: Pick<ChartAccount, 'code' | 'name'>): number | null {
+  const parts = String(a.code ?? '').trim().split('.');
+  if (parts.length !== 4) return null;
+  const m = /^00(\d\d)$/.exec(parts[3]);
+  if (!m) return null;
+  const nn = Number(m[1]);
+  const name = vatText(a.name);
+  if (nn === 0) return /(ΑΝΕΥ|ΧΩΡΙΣ)\s+ΦΠΑ/.test(name) ? 0 : null;
+  // «24%» ως ΑΚΕΡΑΙΟΣ αριθμός: όχι «6,5%», όχι «124%».
+  return new RegExp(`(^|[^0-9.,])${nn}\\s*%`).test(name) ? nn : null;
+}
+
+const fmtRate = (r: number): string => (r === 0 ? 'άνευ ΦΠΑ' : `ΦΠΑ ${String(r).replace('.', ',')}%`);
+
+/** Παρατήρηση ΦΠΑ για λογαριασμό `ok` — `null` όταν δεν ξέρουμε ή όταν συμφωνούν. */
+export function vatMismatchOf(
+  account: Pick<ChartAccount, 'code' | 'name'>, lineRate: number | null | undefined, who: string,
+): AccountCheckLine['vatMismatch'] {
+  if (lineRate == null || !Number.isFinite(lineRate)) return null;
+  const accountRate = accountVatRate(account);
+  if (accountRate == null || Math.abs(accountRate - lineRate) < 0.001) return null;
+  return {
+    accountRate, lineRate,
+    message: `${who}: ο λογαριασμός ${account.code} είναι για ${fmtRate(accountRate)} αλλά η γραμμή έχει `
+      + `${lineRate === 0 ? 'ΦΠΑ 0%' : fmtRate(lineRate)} — έλεγξε τη χρεοπίστωση (παρατήρηση, δεν εμποδίζει)`,
+  };
+}
+
 function listed(accounts: ChartAccount[], total = accounts.length): string {
   const shown = accounts.slice(0, MAX_LISTED).map(label).join(', ');
   return total > MAX_LISTED ? `${shown} και άλλοι ${total - MAX_LISTED}` : shown;
@@ -207,7 +269,7 @@ export function checkAccounts(lines: readonly AccountCheckInput[], chart: Accoun
     const base: AccountCheckLine = {
       rowIndex: l.rowIndex, path: l.path, status: 'not_covered', account: null, accountName: null,
       inactive: false, unknownReason: null, parent: null, siblings: [], matches: [], matchCount: 0,
-      article, message: '',
+      article, message: '', vatMismatch: null,
     };
 
     if (l.path !== 'LINLINES') {
@@ -286,6 +348,7 @@ export function checkAccounts(lines: readonly AccountCheckInput[], chart: Accoun
       out.push({
         ...base, status: 'ok', account: mask, accountName: hit.name, inactive,
         message: `${who}: λογαριασμός ${label(hit)}${inactive ? ' (ανενεργός στο SoftOne)' : ''}`,
+        vatMismatch: vatMismatchOf(hit, l.vatRate, who),
       });
       continue;
     }
@@ -318,7 +381,7 @@ export function checkAccounts(lines: readonly AccountCheckInput[], chart: Accoun
 /** Οι κωδικοί εμποδίων που παράγει ο έλεγχος — ίδια ονόματα με το `BlockerCode`. */
 export type AccountBlockerCode = 'account_missing' | 'account_not_in_chart' | 'account_is_mask' | 'account_not_postable';
 /** Οι παρατηρήσεις του ελέγχου — ίδια ονόματα με το `WarningCode`. */
-export type AccountWarningCode = 'account_unknown' | 'account_not_covered';
+export type AccountWarningCode = 'account_unknown' | 'account_not_covered' | 'account_vat_mismatch';
 
 export function accountBlockers(check: AccountCheck | null | undefined): AccountBlockerCode[] {
   if (!check) return [];
@@ -335,10 +398,11 @@ export function accountWarnings(check: AccountCheck | null | undefined): Account
   const out: AccountWarningCode[] = [];
   if (check.lines.some((l) => l.status === 'unknown')) out.push('account_unknown');
   if (check.lines.some((l) => l.status === 'not_covered')) out.push('account_not_covered');
+  if (check.lines.some((l) => l.vatMismatch != null)) out.push('account_vat_mismatch');
   return out;
 }
 
-const STATUSES_FOR: Record<AccountBlockerCode | AccountWarningCode, AccountStatus[]> = {
+const STATUSES_FOR: Record<Exclude<AccountBlockerCode | AccountWarningCode, 'account_vat_mismatch'>, AccountStatus[]> = {
   account_missing: ['missing'],
   account_not_in_chart: ['not_in_chart'],
   account_is_mask: ['mask'],
@@ -350,6 +414,9 @@ const STATUSES_FOR: Record<AccountBlockerCode | AccountWarningCode, AccountStatu
 /** Οι ανά γραμμή προτάσεις πίσω από ένα εμπόδιο/παρατήρηση του ελέγχου. */
 export function accountDetails(code: AccountBlockerCode | AccountWarningCode, check: AccountCheck | null | undefined): string[] {
   if (!check) return [];
+  if (code === 'account_vat_mismatch') {
+    return check.lines.map((l) => l.vatMismatch?.message).filter((m): m is string => Boolean(m));
+  }
   const want = STATUSES_FOR[code];
   return check.lines.filter((l) => want.includes(l.status)).map((l) => l.message);
 }

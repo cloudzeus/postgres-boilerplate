@@ -134,7 +134,8 @@ describe('ενωμένη λευκή λίστα', () => {
 
 describe('ιστορικό εκδότη', () => {
   const AFM = '094073495';
-  const rule = (lin: number | null, createdById: string | null = 'u1', afm = AFM) => ({ afm, lin, createdById });
+  const rule = (lin: number | null, createdById: string | null = 'u1', afm = AFM, targetSource: string | null = 'manual') =>
+    ({ afm, lin, createdById, targetSource });
 
   it('κατανομή ανά κλάδο από τους κανόνες που έγραψε άνθρωπος', () => {
     const h = issuerHistory(AFM, [rule(1), rule(2), rule(3)], byMtrl);
@@ -145,6 +146,13 @@ describe('ιστορικό εκδότη', () => {
 
   it('κανόνας χωρίς δημιουργό, άλλου εκδότη, ή χωρίς χρεοπίστωση ΔΕΝ μετράει', () => {
     expect(issuerHistory(AFM, [rule(1, null), rule(1, 'u1', '999999999'), rule(null)], byMtrl)).toBeNull();
+  });
+
+  it('στόχος που ΔΕΝ διάλεξε άνθρωπος (auto:code) ή άγνωστης προέλευσης (null) ΔΕΝ μετράει', () => {
+    expect(issuerHistory(AFM, [rule(1, 'u1', AFM, 'auto:code'), rule(2, 'u1', AFM, null)], byMtrl)).toBeNull();
+    const h = issuerHistory(AFM, [rule(1), rule(3, 'u1', AFM, 'auto:memory')], byMtrl);
+    expect(h?.line).toContain('62.04 «Ενοίκια» ×1');
+    expect(h?.line).not.toContain('64.00');
   });
 
   it('χωρίς επιβεβαιωμένο ιστορικό ⇒ τίποτα (κανένα εφευρεμένο prior)', () => {
