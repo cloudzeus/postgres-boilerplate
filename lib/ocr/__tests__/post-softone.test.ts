@@ -14,6 +14,7 @@ const { db, softone, settings, documentMod } = vi.hoisted(() => ({
     softoneTrader: { findUnique: vi.fn() },
     softoneLineItem: { findMany: vi.fn() },
     softoneExpense: { findMany: vi.fn() },
+    softoneAccount: { count: vi.fn(), findMany: vi.fn() },
     templateRun: { findFirst: vi.fn(), update: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -62,6 +63,9 @@ beforeEach(() => {
   db.softoneItem.findMany.mockResolvedValue([{ mtrl: 555, myDataCode: '1' }]);
   db.softoneLineItem.findMany.mockResolvedValue([]);
   db.softoneExpense.findMany.mockResolvedValue([]);
+  // Προεπιλογή: το λογιστικό σχέδιο ΔΕΝ έχει συγχρονιστεί — ο έλεγχος λογαριασμού δεν κρίνει.
+  db.softoneAccount.count.mockResolvedValue(0);
+  db.softoneAccount.findMany.mockResolvedValue([]);
   documentMod.loadDocumentJson.mockResolvedValue(document());
   settings.getSetting.mockResolvedValue(false);
 });
@@ -230,6 +234,67 @@ describe('postingPreview (dry-run)', () => {
     expect(db.vatCategory.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ orderBy: [{ order: 'asc' }, { code: 'asc' }] }),
     );
+  });
+
+  describe('έλεγχος λογαριασμού γενικής (LINLINES)', () => {
+    const armLin = (acnmsk: string | null, syncedAt: Date | null = new Date()) => {
+      db.ocrDocument.findUnique.mockResolvedValue({ ...READY_DOC, softoneSeries: '1001', seriesSource: 1653 });
+      db.softoneDocSeries.findUnique.mockResolvedValue({ name: 'Τιμολόγιο Δαπανών (Λήψη)', section: '1001', postObject: null, postLines: null, enabled: true });
+      db.softoneTrader.findUnique.mockResolvedValue({ sodtype: 16 });
+      db.ocrInvoiceItem.findMany.mockResolvedValue([
+        { rowIndex: 0, softoneMtrl: null, softoneExpn: null, softoneLinMtrl: 777, softoneIsService: null },
+      ]);
+      db.softoneItem.findMany.mockResolvedValue([]);
+      db.softoneLineItem.findMany.mockResolvedValue([
+        { mtrl: 777, code: 'ΠΡΜ', name: 'Προμήθειες', mtrType: 1, classType: 5, classCategory: 2, myDataCode: '7', acnmsk, acnmskSyncedAt: syncedAt },
+      ]);
+    };
+
+    it('εκτός σχεδίου ⇒ εμπόδιο με τους λογαριασμούς του γονικού στο μήνυμα, και η προεπισκόπηση το δείχνει ανά γραμμή', async () => {
+      armLin('61.02.00.0001');
+      db.softoneAccount.count.mockResolvedValue(5203);
+      db.softoneAccount.findMany.mockResolvedValue([
+        { code: '61.02.00', name: 'Προμήθειες τρίτων', isActive: true },
+        { code: '61.02.00.0024', name: 'Προμήθειες τρίτων 24%', isActive: true },
+      ]);
+      const preview = await postingPreview('d1');
+      const b = preview.blockers.find((x) => x.code === 'account_not_in_chart');
+      expect(b?.message).toContain('61.02.00.0001');
+      expect(b?.message).toContain('61.02.00.0024 «Προμήθειες τρίτων 24%»');
+      expect(preview.accounts.lines[0]).toMatchObject({ status: 'not_in_chart', rowIndex: 0 });
+      expect(softone.softoneCall).not.toHaveBeenCalled();
+    });
+
+    it('ο λογαριασμός υπάρχει ⇒ κανένα εμπόδιο, το όνομα του σχεδίου στη γραμμή', async () => {
+      armLin('61.02.00.0024');
+      db.softoneAccount.count.mockResolvedValue(5203);
+      db.softoneAccount.findMany.mockResolvedValue([{ code: '61.02.00.0024', name: 'Προμήθειες τρίτων 24%', isActive: true }]);
+      const preview = await postingPreview('d1');
+      expect(preview.blockers).toEqual([]);
+      expect(preview.accounts.lines[0]).toMatchObject({ status: 'ok', accountName: 'Προμήθειες τρίτων 24%' });
+    });
+
+    it('ασυγχρόνιστο σχέδιο ⇒ ΜΙΑ παρατήρηση «δεν έχει συγχρονιστεί», κανένα εμπόδιο', async () => {
+      armLin('61.02.00.0001');
+      const preview = await postingPreview('d1');
+      expect(preview.blockers).toEqual([]);
+      const w = preview.warnings.filter((x) => x.code === 'account_unknown');
+      expect(w).toHaveLength(1);
+      expect(w[0].message).toMatch(/λογιστικό σχέδιο δεν έχει συγχρονιστεί/);
+      expect(db.softoneAccount.findMany).not.toHaveBeenCalled();
+    });
+
+    it('η πραγματική καταχώριση αρνείται με το ίδιο μήνυμα, πριν από ΚΑΘΕ κλήση SoftOne', async () => {
+      armLin(null);
+      db.softoneAccount.count.mockResolvedValue(5203);
+      settings.getSetting.mockResolvedValue(true);
+      const err = await postDocumentToSoftone('d1').catch((e) => e);
+      expect(err).toBeInstanceOf(PostError);
+      expect(err.code).toBe('account_missing');
+      expect(err.message).toMatch(/χωρίς λογαριασμό γενικής/);
+      expect(softone.softoneCall).not.toHaveBeenCalled();
+      expect(db.ocrDocument.update).not.toHaveBeenCalled();
+    });
   });
 
   it('άγνωστο έγγραφο → PostError not_found', async () => {

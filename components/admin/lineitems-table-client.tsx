@@ -9,6 +9,8 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
 import { syncErrorMessage } from '@/lib/softone-sync/sync-error';
+import type { AccountCheckLine } from '@/lib/ocr/account-check';
+import { AccountLine } from '@/components/admin/account-line';
 
 // Μητρώο ΧΡΕΟΠΙΣΤΩΣΕΩΝ SoftOne (object LINEITEM → MTRL με SODTYPE 53), καθρέφτης του
 // `SoftoneLineItem`. Είναι το μόνο πράγμα που δέχεται το `MTRL` μιας γραμμής «Ειδικών
@@ -22,6 +24,10 @@ export type LineItemRecord = {
   /** Ο χαρακτηρισμός myDATA του μητρώου, ήδη σε ελληνικά (null = κανένας). */
   myData: string | null;
   isActive: boolean;
+  /** Ο λογαριασμός γενικής (ACNMSK) όπως τον βλέπει ο έλεγχος πριν την καταχώριση. */
+  account: AccountCheckLine | null;
+  /** Κείμενο του λογαριασμού για αναζήτηση/ταξινόμηση («61.02.00.0024 Προμήθειες…»). */
+  accountText: string;
 };
 
 const DASH = <span className="text-muted-foreground/40">—</span>;
@@ -61,6 +67,12 @@ export function LineItemsTableClient({
     {
       accessorKey: 'name', header: 'Περιγραφή', size: 340,
       cell: ({ row }) => <span className="text-[12px] font-medium text-foreground">{row.original.name || '—'}</span>,
+    },
+    {
+      // Ο λογαριασμός ΜΕ το όνομά του στο λογιστικό σχέδιο: ο λογιστής βλέπει εδώ, για όλες τις
+      // χρεοπιστώσεις μαζί, ποια δείχνει σε λογαριασμό που δεν υπάρχει ή που σημαίνει κάτι άλλο.
+      accessorKey: 'accountText', header: 'Λογαριασμός γενικής', size: 320,
+      cell: ({ row }) => (row.original.account ? <AccountLine line={row.original.account} compact /> : DASH),
     },
     {
       accessorKey: 'category', header: 'Κατηγορία δαπάνης', size: 220,

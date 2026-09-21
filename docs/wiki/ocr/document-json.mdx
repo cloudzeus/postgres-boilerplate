@@ -4,13 +4,13 @@ module: ocr
 slug: document-json
 roles: [SUPER_ADMIN, ADMIN, EMPLOYEE]
 order: 62
-updatedAt: 2026-09-16
+updatedAt: 2026-09-21
 description: "Το ένα κανονικό JSON που περιγράφει κάθε παραστατικό: ενότητες, λήψη, πώς το γεμίζουν τα πρότυπα και πώς το διαβάζουν το Excel και η καταχώριση στο SoftOne."
 screenshots:
   - file: card.png
     route: /admin/ocr/cmtv73bzp0000std41ex2c627
     caption: "Η κάρτα «JSON εγγράφου» με την προεπισκόπηση καταχώρισης"
-related: [ocr-overview, template-runs, templates]
+related: [ocr-overview, template-runs, templates, account-check]
 helpAnchors: [document-json, canonical-document, posting-target, doc-reference]
 ---
 
@@ -209,6 +209,10 @@ object** που έγραψε και επαληθεύει αριθμό και σ�
 <Callout type="danger">
   Έγγραφα που σαρώθηκαν <strong>πριν</strong> από αυτή την αλλαγή έχουν συμπληρωμένο μόνο ό,τι κρατούσε η παλιά πλακέ μορφή (εκδότης, αριθμός, ημερομηνία, σύνολα, γραμμές). Όσα <strong>υπολογίζονται</strong> από τις γραμμές συμπληρώνονται μόνα τους (<code>vatBreakdown</code>, <code>totals.payable</code>) — τυπωμένο σύνολο δεν αλλάζει ποτέ. Όσα όμως πρέπει να <strong>διαβαστούν</strong> από το έντυπο — <code>references</code>, <code>handwritten</code>, <code>payment.terms</code>, <code>totals.withholding</code> — μένουν κενά. Για πλήρες JSON κάνε <strong>«Επανεκτέλεση OCR»</strong> στο έγγραφο.
 </Callout>
+
+## Λογαριασμοί γενικής λογιστικής
+
+Η προεπισκόπηση δείχνει, για κάθε γραμμή χρεοπίστωσης, **σε ποιον λογαριασμό γενικής** θα τη γράψει το SoftOne και **πώς λέγεται** αυτός στο λογιστικό σχέδιο. Κενός λογαριασμός ή λογαριασμός που δεν υπάρχει στο σχέδιο **σταματά** την καταχώριση. Λεπτομέρειες, και γιατί πρέπει να διαβάζεις το όνομα του λογαριασμού: <a href="/wiki/ocr/account-check">Έλεγχος λογαριασμού γενικής</a>.
 
 ## Χαρακτηρισμός myDATA — ανήκει στο μητρώο, όχι στη γραμμή
 

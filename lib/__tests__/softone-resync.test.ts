@@ -19,6 +19,7 @@ const { db, s1, errs, settings, audit, rbac } = vi.hoisted(() => {
     purchaseDocType: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
     softoneDocSeries: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
     softoneLineItem: { findMany: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
+    softoneAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
     softoneLineCategory: { findMany: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
     softoneMyDataClassType: { findMany: vi.fn(), upsert: vi.fn() },
     softoneMyDataClassCategory: { findMany: vi.fn(), upsert: vi.fn() },
@@ -41,6 +42,7 @@ const { db, s1, errs, settings, audit, rbac } = vi.hoisted(() => {
     softoneFetchPurchaseDocTypes: vi.fn(),
     softoneFetchDocSeries: vi.fn(),
     softoneFetchLineItems: vi.fn(),
+    softoneFetchAccounts: vi.fn(),
     softoneFetchLineCategories: vi.fn(),
     softoneFetchMyDataClassTypes: vi.fn(),
     softoneFetchMyDataClassCategories: vi.fn(),
@@ -80,7 +82,11 @@ function happyPath() {
   s1.softoneFetchTraders.mockResolvedValue([{ trdr: 1, sodtype: 13, kind: 'supplier', code: 'S1', name: 'Προμηθευτής', afm: '1', doy: null, profession: null, address: null, district: null, zip: null, city: null, phone: null, phone2: null, fax: null, email: null, webpage: null, isActive: true }]);
   s1.softoneFetchPurchaseDocTypes.mockResolvedValue([{ code: '101', abbrev: 'ΤΑ', name: 'Τιμολόγιο αγοράς', section: 'Αγορές' }]);
   s1.softoneFetchDocSeries.mockResolvedValue([{ sosource: 1653, family: 'Πιστωτές', code: '7001', abbrev: 'ΠΙ', name: 'Πιστωτής', section: 'Πιστωτές' }]);
-  s1.softoneFetchLineItems.mockResolvedValue([{ mtrl: 777, code: 'ΧΡ01', name: 'ΕΝΟΙΚΙΑ', vat: '1', mtrType: 0, mtrCategory: 5, classType: null, classCategory: null, myDataCode: null, myDataVprc: null, isActive: true }]);
+  s1.softoneFetchLineItems.mockResolvedValue([{ mtrl: 777, code: 'ΧΡ01', name: 'ΕΝΟΙΚΙΑ', vat: '1', mtrType: 0, mtrCategory: 5, classType: null, classCategory: null, myDataCode: null, myDataVprc: null, acnmsk: '62.04.00.0024', isActive: true }]);
+  s1.softoneFetchAccounts.mockResolvedValue([
+    { acnt: 1, code: '62', name: 'ΠΑΡΟΧΕΣ ΤΡΙΤΩΝ', grade: 1, sodtype: 89, isActive: true },
+    { acnt: 2, code: '62.04.00.0024', name: 'Ενοίκια 24%', grade: 4, sodtype: 89, isActive: true },
+  ]);
   s1.softoneFetchLineCategories.mockResolvedValue({ rows: [{ mtrCategory: 5, code: 'ΛΕΙΤ', name: 'ΛΕΙΤΟΥΡΓΙΚΑ', vat: null, acnmsk: null, isActive: true }], filtered: true });
   s1.softoneFetchMyDataClassTypes.mockResolvedValue([{ sotype: 1, code: 1, myDataCode: 'category2_1', sohCode: null, name: 'Αγορές', isVat: false }]);
   s1.softoneFetchMyDataClassCategories.mockResolvedValue([{ sotype: 1, code: 2, myDataCode: 'category2_2', sohCode: null, name: 'Δαπάνες' }]);
@@ -153,6 +159,7 @@ beforeEach(() => {
   db.softoneLookup.groupBy.mockResolvedValue([]);
   db.softoneItem.createMany.mockResolvedValue({ count: 1 });
   db.softoneTrader.createMany.mockResolvedValue({ count: 1 });
+  db.softoneAccount.createMany.mockImplementation(async ({ data }: { data: unknown[] }) => ({ count: data.length }));
   happyPath();
 });
 
@@ -164,7 +171,7 @@ describe('SYNC_STEPS — η σειρά εξάρτησης', () => {
   it('τρέχει ΦΠΑ και lookups πριν από έξοδα/είδη, και τις σειρές τελευταίες', () => {
     expect(SYNC_STEPS.map((s) => s.table)).toEqual(
       ['vat', 'lookups', 'expenses', 'items', 'traders', 'purdoc', 'docseries',
-        'linecategories', 'lineitems', 'mydataclasses', 'costcenters', 'projects', 'projectstages'],
+        'accounts', 'linecategories', 'lineitems', 'mydataclasses', 'costcenters', 'projects', 'projectstages'],
     );
   });
 
@@ -403,6 +410,12 @@ describe('άδεια απάντηση SoftOne — κανένα μητρώο δε
       arm: () => db.softoneDocSeries.findMany.mockResolvedValue([{ id: 'x', sosource: 1653, code: '7001' }]),
       fetcher: () => s1.softoneFetchDocSeries,
       destructive: () => [db.softoneDocSeries.deleteMany, db.softoneDocSeries.upsert],
+    },
+    {
+      table: 'accounts',
+      arm: () => {},
+      fetcher: () => s1.softoneFetchAccounts,
+      destructive: () => [db.softoneAccount.deleteMany, db.softoneAccount.createMany],
     },
     {
       table: 'linecategories',
@@ -694,5 +707,66 @@ describe('ελλιπείς ρυθμίσεις', () => {
     const res = await syncItemsRoute();
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: 'softone_not_configured', message: expect.stringContaining('Password') });
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Λογιστικό σχέδιο (ACNT) και λογαριασμός χρεοπίστωσης
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('λογιστικό σχέδιο — ο καθρέφτης δεν αδειάζει ποτέ σε κακή απάντηση', () => {
+  it('ΑΠΟΤΥΧΙΑ του GetTable ⇒ αποτυχία βήματος, καμία διαγραφή, καμία σφραγίδα', async () => {
+    s1.softoneFetchAccounts.mockRejectedValue(new errs.SoftoneError('GetTable ACNT απέτυχε: Ole exception'));
+    const report = await resyncAllSoftone(ACTOR, { only: ['accounts'] });
+    expect(report.results[0]).toMatchObject({ table: 'accounts', ok: false, errorSource: 'softone' });
+    expect(report.results[0].error).toMatch(/ACNT/);
+    expect(db.softoneAccount.deleteMany).not.toHaveBeenCalled();
+    expect(db.softoneAccount.createMany).not.toHaveBeenCalled();
+    expect(settings.setSetting).not.toHaveBeenCalled();
+  });
+
+  it('ΑΔΕΙΑ απάντηση ⇒ αποτυχία βήματος, ο υπάρχων καθρέφτης μένει ανέγγιχτος', async () => {
+    s1.softoneFetchAccounts.mockResolvedValue([]);
+    const report = await resyncAllSoftone(ACTOR, { only: ['accounts'] });
+    expect(report.results[0]).toMatchObject({ ok: false, errorSource: 'softone' });
+    expect(report.results[0].error).toMatch(/Δεν επιστράφηκαν λογαριασμοί/);
+    expect(db.softoneAccount.deleteMany).not.toHaveBeenCalled();
+    expect(settings.setSetting).not.toHaveBeenCalled();
+  });
+
+  it('κανονική απάντηση ⇒ ολική αντικατάσταση μέσα σε transaction, με γονικό κωδικό', async () => {
+    const report = await resyncAllSoftone(ACTOR, { only: ['accounts'] });
+    expect(report.results[0]).toMatchObject({ ok: true, created: 2 });
+    expect(db.$transaction).toHaveBeenCalled();
+    expect(db.softoneAccount.deleteMany).toHaveBeenCalledTimes(1);
+    const rows = db.softoneAccount.createMany.mock.calls[0][0].data;
+    expect(rows).toEqual([
+      expect.objectContaining({ code: '62', parentCode: null, grade: 1 }),
+      expect.objectContaining({ code: '62.04.00.0024', parentCode: '62.04.00', name: 'Ενοίκια 24%' }),
+    ]);
+    expect(settings.setSetting).toHaveBeenCalledWith('integrations.softoneAccountsLastSync', expect.any(String), ACTOR.id);
+  });
+
+  it('διπλός κωδικός ⇒ κρατιέται ο πρώτος, ο δεύτερος μετράει ως skipped', async () => {
+    s1.softoneFetchAccounts.mockResolvedValue([
+      { acnt: 1, code: '62', name: 'Α', grade: 1, sodtype: 89, isActive: true },
+      { acnt: 9, code: '62', name: 'Β', grade: 1, sodtype: 89, isActive: true },
+    ]);
+    const report = await resyncAllSoftone(ACTOR, { only: ['accounts'] });
+    expect(report.results[0]).toMatchObject({ ok: true, created: 1, skipped: 1 });
+  });
+});
+
+describe('χρεοπιστώσεις — ο λογαριασμός γενικής και η σφραγίδα ανάγνωσής του', () => {
+  it('γράφει ACNMSK και acnmskSyncedAt, ώστε «κενό» να ξεχωρίζει από «άγνωστο»', async () => {
+    s1.softoneFetchLineItems.mockResolvedValue([
+      { mtrl: 777, code: 'ΧΡ01', name: 'ΕΝΟΙΚΙΑ', vat: '1', mtrType: 0, mtrCategory: 5, classType: null, classCategory: null, myDataCode: null, myDataVprc: null, acnmsk: '62.04.00.0024', isActive: true },
+      { mtrl: 778, code: 'ΧΡ02', name: 'ΚΕΝΗ', vat: '1', mtrType: 0, mtrCategory: 5, classType: null, classCategory: null, myDataCode: null, myDataVprc: null, acnmsk: null, isActive: true },
+    ]);
+    await resyncAllSoftone(ACTOR, { only: ['lineitems'] });
+    const [a, b] = db.softoneLineItem.upsert.mock.calls.map((c) => c[0].update);
+    expect(a).toMatchObject({ acnmsk: '62.04.00.0024', acnmskSyncedAt: expect.any(Date) });
+    expect(b).toMatchObject({ acnmsk: null, acnmskSyncedAt: expect.any(Date) });
   });
 });

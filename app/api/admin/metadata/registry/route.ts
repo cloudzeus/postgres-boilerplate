@@ -115,6 +115,25 @@ export async function GET(req: Request) {
       };
       break;
     }
+    case 'accounts': {
+      const rows = await prisma.softoneAccount.findMany({ orderBy: { code: 'asc' } });
+      data = {
+        title: 'Λογιστικό σχέδιο (ACNT)',
+        columns: [
+          { key: 'code', label: 'Κωδικός' },
+          { key: 'name', label: 'Περιγραφή' },
+          { key: 'grade', label: 'Βαθμίδα' },
+          { key: 'isActive', label: 'Ενεργός' },
+        ],
+        rows: rows.map((r) => ({
+          code: r.code,
+          name: r.name,
+          grade: r.grade ?? '',
+          isActive: r.isActive ? 'Ναι' : 'Όχι',
+        })),
+      };
+      break;
+    }
     case 'vatCategories': {
       const rows = await prisma.vatCategory.findMany({ orderBy: [{ order: 'asc' }, { code: 'asc' }] });
       data = {

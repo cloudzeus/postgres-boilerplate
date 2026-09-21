@@ -11,6 +11,8 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useDocLinesChanged } from '@/components/admin/doc-lines-events';
 import type { DocumentEnvelope } from '@/lib/ocr/canonical';
+import type { AccountCheck } from '@/lib/ocr/account-check';
+import { AccountLine } from '@/components/admin/account-line';
 
 type PurdocHeader = Record<string, string | number>;
 type PurdocLine = Record<string, string | number>;
@@ -26,6 +28,8 @@ type Preview = {
   /** Πού πάει: SoftOne object + πίνακας γραμμών, με ελληνική περιγραφή και το «γιατί». */
   target: { object: string; lines: string; source: 'configured' | 'default'; supported: boolean; reason: string; label: string };
   payload: { OBJECT: string; KEY: string; DATA: PayloadData };
+  /** Ο έλεγχος λογαριασμού γενικής ανά γραμμή (παλιός server χωρίς αυτό → δεν δείχνεται). */
+  accounts?: AccountCheck;
   summary: {
     series: string | null; trader: string | null; trdr: number | null; date: string | null;
     lines: number;
@@ -330,6 +334,35 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* Ο λογαριασμός γενικής ΚΑΘΕ γραμμής, με το όνομά του στο λογιστικό σχέδιο. Εδώ φαίνεται
+              ένα «Ύδρευση → Έξοδα εκθέσεων» πριν γίνει λογιστική εγγραφή· την κρίση την κάνει ο άνθρωπος. */}
+          {preview.accounts && preview.accounts.lines.length > 0 && (
+            <div className="rounded-lg border border-border p-2.5" data-testid="account-check">
+              <p className="flex items-center gap-1 text-[12px] font-semibold">
+                Λογαριασμοί γενικής λογιστικής
+                <Link href="/wiki/ocr/account-check" target="_blank" aria-label="Βοήθεια: έλεγχος λογαριασμού γενικής" title="Βοήθεια: έλεγχος λογαριασμού γενικής"
+                  className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted hover:text-foreground">
+                  <FiHelpCircle className="size-3.5" />
+                </Link>
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Από την καρτέλα κάθε χρεοπίστωσης στο SoftOne. Έλεγξε ότι το όνομα του λογαριασμού ταιριάζει με τη δαπάνη —
+                η εφαρμογή ελέγχει μόνο ότι ο λογαριασμός υπάρχει, όχι ότι είναι ο σωστός.
+              </p>
+              <ul className="mt-1.5 space-y-1.5">
+                {preview.accounts.lines.map((l) => (
+                  <li key={l.rowIndex} className="text-[12px]">
+                    <span className="font-medium">Γραμμή {l.rowIndex + 1}</span>
+                    <span className="text-muted-foreground">
+                      {' · '}{d?.lines[l.rowIndex]?.name ?? '—'}{l.article ? ` → ${l.article}` : ''}
+                    </span>
+                    <AccountLine line={l} />
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 
