@@ -16,14 +16,13 @@ import { accountDetails, checkAccounts, type AccountCheck } from './account-chec
 import { loadAccountChart } from './account-chart';
 import { describeTargetShort, resolvePostingTarget, type PostingTarget } from './posting-target';
 
-/** Ο διακόπτης ασφαλείας. Κλειστός = καμία εγγραφή δεν φεύγει προς το SoftOne (μόνο dry-run). */
-
 /** Αριθμός ή `null` — ο ΦΠΑ μιας γραμμής όπως τον κρατά το κανονικό έγγραφο. */
 const vatRateOf = (v: unknown): number | null => {
   const n = v == null || v === '' ? NaN : Number(v);
   return Number.isFinite(n) ? n : null;
 };
 
+/** Ο διακόπτης ασφαλείας. Κλειστός = καμία εγγραφή δεν φεύγει προς το SoftOne (μόνο dry-run). */
 export const POSTING_ENABLED_KEY = 'softone.postingEnabled';
 
 export type PostErrorCode = 'not_found' | 'posting_disabled' | 'already_posted' | BlockerCode;

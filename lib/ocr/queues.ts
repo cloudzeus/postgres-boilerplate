@@ -1187,48 +1187,56 @@ export async function rememberLineMatch(input: {
   match: ResolvedMatch;
   analytics: LineAnalytics;
   userId?: string | null;
-  /**
-   * ΠΟΙΟΣ διάλεξε τον ΣΤΟΧΟ. `'manual'` = ο χρήστης τον επέλεξε ρητά σε αυτή την ενέργεια.
-   * Οτιδήποτε άλλο (η `softoneMatchedBy` της γραμμής: `code`, `memory`…) = ο στόχος ήρθε
-   * αυτόματα και ο χρήστης άγγιξε μόνο την αναλυτική. Υποχρεωτικό: κάθε καλών πρέπει να το πει.
-   */
-  targetSource: 'manual' | { auto: string | null };
 }): Promise<void> {
   const afm = String(input.afm ?? '').trim();
   const pattern = String(input.pattern ?? '').trim();
   if (!pattern) return;
   const { mtrl, expn, lin, isService } = input.match;
-  const where = { afm_pattern: { afm, pattern } };
-
-  if (input.targetSource === 'manual') {
-    // Ο κανόνας ξαναχρησιμοποιήθηκε (ο χρήστης επιβεβαίωσε την ίδια αντιστοίχιση): +1 χρήση.
-    // Το `update` γράφει ΚΑΙ τα τρία πεδία στόχου, οπότε αλλαγή γνώμης (είδος → έξοδο) σβήνει
-    // τον παλιό στόχο αντί να αφήσει δύο.
-    await prisma.lineMatchRule.upsert({
-      where,
-      update: { mtrl, expn, lin, isService, ...input.analytics, targetSource: 'manual', timesUsed: { increment: 1 } },
-      create: { afm, pattern, mtrl, expn, lin, isService, ...input.analytics, targetSource: 'manual', createdById: input.userId ?? null },
-    });
-    return;
-  }
-
-  // ΑΥΤΟΜΑΤΟΣ στόχος (ο χρήστης άλλαξε ΜΟΝΟ την αναλυτική). Δύο εγγυήσεις:
-  //  1. ΔΕΝ προάγεται ποτέ σε «ανθρώπινη» επιβεβαίωση: γράφεται `auto:<πηγή>`, που δεν μετρά.
-  //  2. ΔΕΝ πατά υπάρχοντα κανόνα: ο στόχος και η προέλευσή του μένουν όπως είναι (αν ο κανόνας
-  //     είναι ανθρώπινος, μένει ανθρώπινος· αν ο αυτόματος στόχος διαφέρει, ο ανθρώπινος κερδίζει).
-  //     Αλλάζει μόνο η αναλυτική, που είναι η πραγματική απόφαση του χρήστη εδώ.
-  const existing = await prisma.lineMatchRule.findUnique({ where, select: { id: true } });
-  if (existing) {
-    await prisma.lineMatchRule.update({ where: { id: existing.id }, data: { ...input.analytics } });
-    return;
-  }
-  await prisma.lineMatchRule.create({
-    data: {
-      afm, pattern, mtrl, expn, lin, isService, ...input.analytics,
-      targetSource: `auto:${input.targetSource.auto ?? 'unknown'}`,
-      createdById: input.userId ?? null,
-    },
+  // ΜΟΝΟ ρητή επιλογή στόχου από άνθρωπο φτάνει εδώ ⇒ `targetSource: 'manual'`.
+  // Ο κανόνας ξαναχρησιμοποιήθηκε (ο χρήστης επιβεβαίωσε την ίδια αντιστοίχιση): +1 χρήση.
+  // Το `update` γράφει ΚΑΙ τα τρία πεδία στόχου, οπότε αλλαγή γνώμης (είδος → έξοδο) σβήνει
+  // τον παλιό στόχο αντί να αφήσει δύο.
+  await prisma.lineMatchRule.upsert({
+    where: { afm_pattern: { afm, pattern } },
+    update: { mtrl, expn, lin, isService, ...input.analytics, targetSource: 'manual', timesUsed: { increment: 1 } },
+    create: { afm, pattern, mtrl, expn, lin, isService, ...input.analytics, targetSource: 'manual', createdById: input.userId ?? null },
   });
+}
+
+/**
+ * Η μνήμη μιας αλλαγής ΜΟΝΟ αναλυτικής. Τρεις απαγορεύσεις, ανεξάρτητα από το ποιος διάλεξε τον
+ * στόχο της γραμμής (άνθρωπος ή αυτόματη αντιστοίχιση):
+ *  1. ΠΟΤΕ δεν αλλάζει τον στόχο (`mtrl`/`expn`/`lin`) ενός κανόνα — η αναλυτική δεν είναι απόφαση
+ *     για το «σε τι ταιριάζει» η γραμμή. (Πριν: σε γραμμή `manual` ξαναέγραφε τον ΠΑΛΙΟ στόχο της
+ *     γραμμής πάνω σε νεότερο ανθρώπινο κανόνα και ανέβαζε το `timesUsed`.)
+ *  2. Ενημερώνει την αναλυτική ΜΟΝΟ αν ο κανόνας δείχνει στον ΙΔΙΟ στόχο με τη γραμμή. Αλλιώς ένα
+ *     έργο που ορίστηκε για τη χρεοπίστωση Χ θα κολλούσε σε κανόνα → έξοδο Ε και το πέρασμα μνήμης
+ *     θα το μετέφερε σε κάθε μελλοντική γραμμή Ε (όπου το EXPANAL το πετά σιωπηλά), ή το κέντρο
+ *     κόστους της Χ θα απλωνόταν σε κάθε μελλοντική γραμμή της Υ.
+ *  3. ΠΟΤΕ δεν δημιουργεί κανόνα: ένας νέος κανόνας θα κατέγραφε ως μνήμη έναν στόχο που κανείς δεν
+ *     επέλεξε σε αυτή την ενέργεια.
+ * Επιστρέφει `true` μόνο όταν ενημερώθηκε πράγματι κανόνας.
+ */
+export async function rememberAnalyticsOnly(input: {
+  afm: string;
+  pattern: string;
+  target: { mtrl: number | null; expn: number | null; lin: number | null };
+  analytics: LineAnalytics;
+}): Promise<boolean> {
+  const afm = String(input.afm ?? '').trim();
+  const pattern = String(input.pattern ?? '').trim();
+  if (!pattern) return false;
+  const rule = await prisma.lineMatchRule.findUnique({
+    where: { afm_pattern: { afm, pattern } },
+    select: { id: true, mtrl: true, expn: true, lin: true },
+  });
+  if (!rule) return false;
+  const t = input.target;
+  if ((rule.mtrl ?? null) !== (t.mtrl ?? null) || (rule.expn ?? null) !== (t.expn ?? null) || (rule.lin ?? null) !== (t.lin ?? null)) {
+    return false;
+  }
+  await prisma.lineMatchRule.update({ where: { id: rule.id }, data: { ...input.analytics } });
+  return true;
 }
 
 /**
@@ -1265,7 +1273,7 @@ export async function applyMatchToGroup(input: {
   });
 
   // Ο χρήστης διάλεξε ΡΗΤΑ αυτόν τον στόχο στην ουρά.
-  await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId, targetSource: 'manual' });
+  await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId });
 
   await refreshDocTallies(docIds);
   return { linesUpdated: lineIds.length, docIds, mtrl, expn, lin, code, name, analytics };
@@ -1324,7 +1332,7 @@ export async function applyMatchToLine(input: {
   });
 
   // Ο χρήστης διάλεξε ΡΗΤΑ αυτόν τον στόχο στη σελίδα του παραστατικού.
-  if (pattern) await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId, targetSource: 'manual' });
+  if (pattern) await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId });
 
   await refreshDocTallies([line.documentId]);
   return { ...match, lineId, docId: line.documentId, afm, pattern, remembered: !!pattern, analytics };
@@ -1351,7 +1359,7 @@ export async function applyAnalyticsToLine(input: {
     select: {
       id: true, documentId: true, name: true,
       softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true,
-      softoneCode: true, softoneName: true, softoneIsService: true, softoneMatchedBy: true,
+      softoneCode: true, softoneName: true, softoneIsService: true,
     },
   });
   if (!line) throw new QueueError('line_not_found', 'Η γραμμή δεν βρέθηκε.', 404);
@@ -1374,33 +1382,22 @@ export async function applyAnalyticsToLine(input: {
     },
   });
 
-  // Χωρίς στόχο δεν υπάρχει κανόνας να θυμηθεί: ένας κανόνας με κενό `mtrl/expn/lin` δεν
-  // αντιστοιχίζει τίποτα, απλώς λερώνει τη μνήμη.
+  // Χωρίς στόχο δεν υπάρχει κανόνας να θυμηθεί. Με στόχο: ΜΟΝΟ ενημέρωση αναλυτικής σε ΥΠΑΡΧΟΝΤΑ
+  // κανόνα με ΤΟΝ ΙΔΙΟ στόχο — ποτέ αλλαγή στόχου, ποτέ νέος κανόνας (`rememberAnalyticsOnly`).
   const hasTarget = line.softoneMtrl != null || line.softoneExpn != null || line.softoneLinMtrl != null;
-  const doc = hasTarget
-    ? await prisma.ocrDocument.findUnique({ where: { id: line.documentId }, select: { issuerAfm: true } })
-    : null;
   const pattern = hasTarget ? normalizeLineText(line.name) : '';
+  let remembered = false;
   if (hasTarget && pattern) {
-    await rememberLineMatch({
+    const doc = await prisma.ocrDocument.findUnique({ where: { id: line.documentId }, select: { issuerAfm: true } });
+    remembered = await rememberAnalyticsOnly({
       afm: doc?.issuerAfm ?? '',
       pattern,
-      match: {
-        mtrl: line.softoneMtrl, expn: line.softoneExpn, lin: line.softoneLinMtrl,
-        code: line.softoneCode, name: line.softoneName,
-        isService: !!line.softoneIsService,
-        kind: line.softoneLinMtrl != null ? 'lineitem' : line.softoneExpn != null ? 'expense'
-          : line.softoneIsService ? 'service' : 'product',
-      },
+      target: { mtrl: line.softoneMtrl, expn: line.softoneExpn, lin: line.softoneLinMtrl },
       analytics,
-      userId: input.userId,
-      // ΜΟΝΟ η αναλυτική άλλαξε εδώ. Ο στόχος είναι ανθρώπινος μόνο αν τον είχε ήδη διαλέξει
-      // άνθρωπος (`manual`)· ένας αυτόματος στόχος (`code`, `memory`…) ΔΕΝ προάγεται σε επιβεβαίωση.
-      targetSource: line.softoneMatchedBy === 'manual' ? 'manual' : { auto: line.softoneMatchedBy ?? null },
     });
   }
 
-  return { lineId, docId: line.documentId, analytics, remembered: hasTarget && !!pattern };
+  return { lineId, docId: line.documentId, analytics, remembered };
 }
 
 /**

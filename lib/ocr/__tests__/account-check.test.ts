@@ -351,10 +351,33 @@ describe('παρατήρηση ΦΠΑ (account_vat_mismatch) — προειδο�
     expect(accountWarnings(c)).not.toContain('account_vat_mismatch');
   });
 
+  it.each([
+    ['60.01.09.0009', 'Ποσοστά για πωλήσεις και αγορές 9%'],
+    ['54.09.14.0005', 'Φόρος προμηθευτών 5%'],
+    ['61.91.00.0005', 'Πνευματικά και καλλ/κά δικαιώματα τρίτων επί πωλήσεων φόρος 5%'],
+    ['61.98.00.0005', 'Χρήσεις δικαιωμάτων royalties φόρος 5%'],
+  ])('ποσοστό ΧΩΡΙΣ «ΦΠΑ» στο όνομα (%s %s) ⇒ δεν είναι ΦΠΑ, καμία παρατήρηση', (code, name) => {
+    expect(accountVatRate({ code, name })).toBeNull();
+    const c = checkAccounts(
+      [{ rowIndex: 0, path: 'LINLINES', acnmsk: code, acnmskKnown: true, vatRate: 24 }],
+      { synced: true, accounts: [{ code, name, postable: true, isActive: true }] },
+    );
+    expect(c.lines[0].status).toBe('ok');
+    expect(c.lines[0].vatMismatch).toBeNull();
+  });
+
+  it.each([
+    ['με Φ.Π.Α. 24%', 24], ['με Φ.Π.Α 24%', 24], ['ΦΠΑ 24%', 24], ['με φ.π.α. 24%', 24],
+    ['με Φ.Π.A. 24% (λατινικό A)', 24], ['Φ Π Α 24%', 24],
+  ])('γραφές του ΦΠΑ: «%s» ⇒ %d', (name, rate) => {
+    expect(accountVatRate({ code: '62.00.00.0024', name: String(name) })).toBe(rate);
+  });
+
   it('accountVatRate: 24% ως ακέραιος — όχι «124%» ούτε «6,5%»', () => {
-    expect(accountVatRate({ code: '62.00.00.0024', name: 'Κάτι 124%' })).toBeNull();
+    expect(accountVatRate({ code: '62.00.00.0024', name: 'Κάτι με ΦΠΑ 124%' })).toBeNull();
     expect(accountVatRate({ code: '62.00.00.0006', name: 'Κάτι με ΦΠΑ 6,5%' })).toBeNull();
     expect(accountVatRate({ code: '62.00.00.0006', name: 'ΔΕΗ με ΦΠΑ 6%' })).toBe(6);
+    expect(accountVatRate({ code: '62.00.00.0006', name: 'ΔΕΗ 6%' })).toBeNull();
   });
 
   it('ο ΦΠΑ της γραμμής περνά από το accountCheckInputs στην παρατήρηση της καταχώρισης', () => {
