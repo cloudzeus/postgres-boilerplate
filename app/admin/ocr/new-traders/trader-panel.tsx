@@ -17,7 +17,9 @@ import { VAT_COUNTRY_CODES, viesPrefix } from '@/lib/ocr/validate';
 import { applyVatPrefix, vatPrefixFor } from '@/lib/ocr/vat-prefix';
 import { validCoords, formatCoords } from '@/lib/coords';
 import { planRegistryFill, registryValue, type FieldSource } from '@/lib/ocr/registry-fill';
-import { resolveTaxOffice, type TaxOffice, type TaxOfficeMapping } from '@/lib/tax-office';
+import {
+  resolveTaxOffice, planDoyFill, missingDoyNote, type TaxOffice, type TaxOfficeMapping,
+} from '@/lib/tax-office';
 import type { TraderCodeSamples, TraderGroup } from '@/lib/ocr/queues';
 
 export type { TaxOffice } from '@/lib/tax-office';
@@ -268,6 +270,8 @@ export function TraderPanel({
   const [coords, setCoords] = React.useState<Coords>(null);
   /** Το ΑΥΤΟΥΣΙΟ μήνυμα του SoftOne όταν απαίτησε ή απέρριψε κωδικό — κολλάει στο πεδίο. */
   const [erpCodeError, setErpCodeError] = React.useState<string | null>(null);
+  /** Το μήνυμα του server όταν απέρριψε τη Δ.Ο.Υ. (`invalid_doy` / παλιά σελίδα) — κολλάει στο πεδίο. */
+  const [erpDoyError, setErpDoyError] = React.useState<string | null>(null);
   /** Κωδικός που προτείνει ο server ΜΕΤΑ από άρνηση — ο χρήστης τον δέχεται ρητά. */
   const [codeOffer, setCodeOffer] = React.useState<string | null>(null);
   /** Ο επόμενος ελεύθερος κωδικός για τον επιλεγμένο τύπο. */
@@ -305,13 +309,15 @@ export function TraderPanel({
     setDryOpen(false); setDryPayload(null); setDryError(null);
     setVies(null); setViesBusy(false);
     setGeo(null); setGeoBusy(false); setGeoMiss(false); setGeoDown(false);
-    setCoords(null); setErpCodeError(null); setCodeOffer(null);
+    setCoords(null); setErpCodeError(null); setCodeOffer(null); setErpDoyError(null);
     setUserOwned(new Set()); setFieldSource({});
     lastProposal.current = '';
   }, [group, taxOffices]);
 
   // Μόλις ο χρήστης αγγίξει τον κωδικό (ή αλλάξει τύπο), το μήνυμα του ERP παύει να ισχύει.
   React.useEffect(() => { setErpCodeError(null); setCodeOffer(null); }, [form.code, form.kind]);
+  // Νέα επιλογή Δ.Ο.Υ. ⇒ η άρνηση του server για την προηγούμενη δεν ισχύει πια.
+  React.useEffect(() => { setErpDoyError(null); }, [form.irsData]);
 
   /**
    * Ο **επόμενος ελεύθερος κωδικός** για τον επιλεγμένο τύπο, με φρέσκα δεδομένα από
@@ -371,7 +377,9 @@ export function TraderPanel({
   const errors = validate(form);
   // Το μήνυμα του ίδιου του SoftOne υπερισχύει: είναι η τελευταία λέξη για το πεδίο.
   const errorOf = (k: FieldKey) =>
-    (k === 'code' && erpCodeError) ? erpCodeError : ((touched[k] || submitted) ? errors[k] : undefined);
+    (k === 'code' && erpCodeError) ? erpCodeError
+      : (k === 'irsData' && erpDoyError) ? erpDoyError
+        : ((touched[k] || submitted) ? errors[k] : undefined);
   /**
    * Αλλαγή πεδίου **από τον χρήστη** (πληκτρολόγηση, «Χρήση», «Εφαρμογή», «Επαναφορά»): το πεδίο
    * γίνεται δικό του και το μητρώο δεν το ακουμπά ξανά.
@@ -411,13 +419,14 @@ export function TraderPanel({
    */
   React.useEffect(() => {
     if (aadeState !== 'ready' || !aade) return;
+    // Η Δ.Ο.Υ. γράφεται ως ΚΛΕΙΔΙ IRSDATA της γραμμής που έχει τον ΙΔΙΟ κωδικό με την ΑΑΔΕ
+    // (το έλυσε ο server). Καμία αντιστοίχιση ονομασίας εδώ.
+    const doy = planDoyFill(aade.softoneDoy, userOwned.has('irsData'));
     const plan = planRegistryFill<FieldKey>({
       userOwned,
       registry: {
         name: aade.name,
-        // Η Δ.Ο.Υ. γράφεται ως ΚΛΕΙΔΙ IRSDATA της γραμμής που έχει τον ΙΔΙΟ κωδικό με την ΑΑΔΕ
-        // (το έλυσε ο server). Καμία αντιστοίχιση ονομασίας εδώ.
-        irsData: aade.softoneDoy?.office?.key ?? null,
+        irsData: doy.value,
         profession: aade.profession,
         address: aade.address,
         zip: aade.zip,
@@ -425,7 +434,7 @@ export function TraderPanel({
       },
       // Η ΑΑΔΕ λέει Δ.Ο.Υ. που το SoftOne δεν έχει ⇒ ό,τι έφερε το OCR είναι γνωστά λάθος: το πεδίο
       // ΑΔΕΙΑΖΕΙ με ορατή σημείωση (όχι «ΑΓΝΩΣΤΗ ΔΟΥ»). Ό,τι επέλεξε ο χρήστης μένει.
-      clear: aade.softoneDoy?.status === 'missing' ? ['irsData'] : [],
+      clear: doy.clear ? ['irsData'] : [],
     });
     if (plan.applied.length === 0 && plan.cleared.length === 0) return;
     setForm((f) => ({ ...f, ...plan.values }));
@@ -549,6 +558,12 @@ export function TraderPanel({
         setCodeOffer(d.suggestion ? String(d.suggestion) : null);
         setFailure(null);
         codeRef.current?.focus();
+        return;
+      }
+      // Δ.Ο.Υ. που απέρριψε ο server (ανύπαρκτη/ανενεργή, ή παλιά σελίδα): σφάλμα ΠΕΔΙΟΥ, όπως ο κωδικός.
+      if ((res.status === 422 && d?.error === 'invalid_doy') || (res.status === 400 && d?.error === 'stale_client')) {
+        setErpDoyError(String(d.message || 'Η Δ.Ο.Υ. δεν έγινε δεκτή.'));
+        setFailure(null);
         return;
       }
       if (!res.ok || !d?.ok) {
@@ -716,10 +731,11 @@ export function TraderPanel({
    */
   const applyAll = () => {
     if (!aade) return;
+    const doy = planDoyFill(aade.softoneDoy, userOwned.has('irsData'));
     const plan = planRegistryFill<FieldKey>({
       registry: {
         name: aade.name,
-        irsData: aade.softoneDoy?.office?.key ?? null,
+        irsData: doy.value,
         profession: aade.profession,
         address: aade.address,
         zip: aade.zip,
@@ -727,7 +743,7 @@ export function TraderPanel({
       },
       // Ακόμη και εδώ, μια Δ.Ο.Υ. που διάλεξε ο ίδιος ο χρήστης ΔΕΝ σβήνεται επειδή το SoftOne δεν
       // έχει τη Δ.Ο.Υ. της ΑΑΔΕ — δεν υπάρχει τιμή ΑΑΔΕ να μπει στη θέση της.
-      clear: aade.softoneDoy?.status === 'missing' && !userOwned.has('irsData') ? ['irsData'] : [],
+      clear: doy.clear ? ['irsData'] : [],
     });
     if (plan.applied.length === 0 && plan.cleared.length === 0) {
       toast.info('Η ΑΑΔΕ δεν έδωσε καμία τιμή για αυτά τα πεδία.');
@@ -1183,7 +1199,7 @@ export function TraderPanel({
 
           {/* Δ.Ο.Υ. δεν υπάρχει εκτός Ελλάδας — το πεδίο κρύβεται τελείως. */}
           {!isForeign && (
-          <Field label="Δ.Ο.Υ." id="tp-doy" plainLabel={taxOffices.length > 0} className="sm:col-span-2">
+          <Field label="Δ.Ο.Υ." id="tp-doy" plainLabel={taxOffices.length > 0} error={errorOf('irsData')} className="sm:col-span-2">
             {taxOffices.length > 0 ? (
               <Combobox
                 value={form.irsData || null}
@@ -1192,11 +1208,20 @@ export function TraderPanel({
                 onSelect={(v) => set('irsData', v)}
               />
             ) : (
-              <Input
-                id="tp-doy" value={form.irsData} className="h-8 text-[13px]"
-                placeholder="Κωδικός Δ.Ο.Υ."
-                onChange={(e) => set('irsData', e.target.value)}
-              />
+              // Χωρίς μητρώο ΔΕΝ δίνουμε ελεύθερο κείμενο: η τιμή είναι ξένο κλειδί (IRSDATA), όχι ο
+              // κωδικός ΑΑΔΕ — ένας πληκτρολογημένος κωδικός θα μπορούσε να είναι ΑΛΛΗ Δ.Ο.Υ.
+              <>
+                <Input
+                  id="tp-doy" disabled className="h-8 text-[13px]" placeholder="Μη διαθέσιμο"
+                  // Μόνο ό,τι έλυσε ο server από την ΑΑΔΕ (επαληθευμένο κλειδί) — ποτέ ελεύθερη τιμή.
+                  value={form.irsData && aade?.softoneDoy?.office?.key === form.irsData
+                    ? `${aade.softoneDoy.office.name} (${aade.softoneDoy.office.code})` : ''}
+                />
+                <p role="status" className="flex items-start gap-1.5 text-[12px] text-muted-foreground">
+                  <FiInfo aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+                  <span>Δεν φορτώθηκε το μητρώο Δ.Ο.Υ. του SoftOne — δοκιμάστε ξανά (ανανέωση σελίδας). Η καρτέλα μπορεί να δημιουργηθεί και χωρίς Δ.Ο.Υ.</span>
+                </p>
+              </>
             )}
             <RegistryMark k="irsData" />
             {/* Η ΑΑΔΕ έδωσε Δ.Ο.Υ. που δεν αντιστοιχίζεται: το λέμε ρητά — δεν μαντεύουμε. */}
@@ -1207,7 +1232,10 @@ export function TraderPanel({
                 style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}
               >
                 <FiAlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-                <span>{aade.softoneDoy.note} Το πεδίο μένει κενό — επιλέξτε Δ.Ο.Υ. χειροκίνητα αν χρειάζεται.</span>
+                <span>
+                  {aade.softoneDoy.status === 'missing' ? missingDoyNote(aade.softoneDoy.note, group.doy) : aade.softoneDoy.note}
+                  {' '}Το πεδίο μένει κενό — επιλέξτε Δ.Ο.Υ. χειροκίνητα αν χρειάζεται.
+                </span>
               </p>
             )}
           </Field>

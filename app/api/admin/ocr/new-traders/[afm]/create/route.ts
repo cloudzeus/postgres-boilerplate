@@ -7,12 +7,13 @@ import { parseAfmParam, vatCountry } from '@/lib/ocr/validate';
 import { applyVatPrefix } from '@/lib/ocr/vat-prefix';
 import { applyTraderToDocs, TRADER_KIND_LABEL } from '@/lib/ocr/queues';
 import {
-  buildTraderPayload, softoneCreateTrader, softoneFetchCountries, softoneFetchTaxOffices, softoneNextTraderCode,
+  buildTraderPayload, softoneCreateTrader, softoneFetchCountries, softoneIrsDataError, softoneNextTraderCode,
   matchCountryId, isMissingCodeError, isDuplicateCodeError, clearTraderCodeCache,
   TRADER_KIND_SODTYPE, type SoftoneCountry,
 } from '@/lib/softone';
 import { traderCodeMaskKey } from '@/lib/trader-code';
 import { getSetting } from '@/lib/settings';
+import { staleDoyCodeError } from '@/lib/tax-office';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -48,7 +49,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
   const afm = parseAfmParam((await params).afm);
   if (!afm) return NextResponse.json({ error: 'invalid_afm', message: 'Μη έγκυρο ΑΦΜ.' }, { status: 400 });
 
-  const parsed = Body.safeParse(await req.json().catch(() => null));
+  const raw: unknown = await req.json().catch(() => null);
+  // ΠΡΟΣΩΡΙΝΟ (μία έκδοση, βλ. `staleDoyCodeError`): παλιά καρτέλα που στέλνει `doyCode`.
+  const stale = staleDoyCodeError(raw);
+  if (stale) return NextResponse.json({ error: 'stale_client', field: 'irsData', message: stale }, { status: 400 });
+  const parsed = Body.safeParse(raw);
   if (!parsed.success) {
     return NextResponse.json({ error: 'invalid_body', issues: parsed.error.issues }, { status: 400 });
   }
@@ -79,21 +84,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
   };
 
   // Η Δ.Ο.Υ. που στέλνει ο client πρέπει να είναι ΥΠΑΡΚΤΗ, ΕΝΕΡΓΗ γραμμή του IRSDATA: ποτέ μια τιμή
-  // που «μοιάζει» (π.χ. ο κωδικός ΑΑΔΕ μιας Δ.Ο.Υ. που το SoftOne δεν έχει). Αν το μητρώο δεν
-  // διαβαστεί, δεν μπλοκάρουμε — η τιμή προήλθε από λίστα που διαβάστηκε από το ίδιο το SoftOne.
-  if (input.irsData) {
-    const offices = await softoneFetchTaxOffices().catch(() => null);
-    if (offices) {
-      const hit = offices.find((o) => o.key === input.irsData);
-      if (!hit || !hit.isActive) {
-        return NextResponse.json({
-          error: 'invalid_doy', field: 'irsData',
-          message: hit
-            ? `Η Δ.Ο.Υ. ${hit.name} (κωδ. ${hit.code}) είναι ανενεργή στο μητρώο Δ.Ο.Υ. του SoftOne.`
-            : `Η Δ.Ο.Υ. με κλειδί ${input.irsData} δεν υπάρχει στο μητρώο Δ.Ο.Υ. του SoftOne.`,
-        }, { status: 422 });
-      }
-    }
+  // που «μοιάζει» (π.χ. ο κωδικός ΑΑΔΕ μιας Δ.Ο.Υ. που το SoftOne δεν έχει).
+  const doyError = await softoneIrsDataError(input.irsData);
+  if (doyError) {
+    return NextResponse.json({ error: 'invalid_doy', field: 'irsData', message: doyError }, { status: 422 });
   }
 
   // Το μητρώο χωρών φορτώνεται ΜΙΑ φορά ανά αίτημα (cached 24h μέσα στη διεργασία).

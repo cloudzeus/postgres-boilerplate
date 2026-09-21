@@ -231,3 +231,55 @@ export function toTaxOfficeMapping(r: TaxOfficeResolution): TaxOfficeMapping {
 export const UNAVAILABLE_TAX_OFFICE_MAPPING: TaxOfficeMapping = {
   status: 'unavailable', by: null, office: null, note: TAX_OFFICES_UNAVAILABLE_NOTE,
 };
+
+// ── Κανόνες που μοιράζονται routes και UI ──────────────────────────────────────────────────────
+
+/**
+ * Ελέγχει ότι το κλειδί IRSDATA που έστειλε ο client είναι ΥΠΑΡΚΤΗ, ΕΝΕΡΓΗ γραμμή του μητρώου.
+ * `null` = εντάξει· αλλιώς το ελληνικό μήνυμα για το πεδίο «Δ.Ο.Υ.».
+ */
+export function irsDataKeyError(key: string, offices: readonly TaxOffice[]): string | null {
+  const hit = offices.find((o) => o.key === key);
+  if (!hit) return `Η Δ.Ο.Υ. με κλειδί ${key} δεν υπάρχει στο μητρώο Δ.Ο.Υ. του SoftOne.`;
+  if (!hit.isActive) return `Η Δ.Ο.Υ. ${hit.name} (κωδ. ${hit.code}) είναι ανενεργή στο μητρώο Δ.Ο.Υ. του SoftOne.`;
+  return null;
+}
+
+/**
+ * ΠΑΛΙΟΣ client (καρτέλα φορτωμένη πριν το deploy) στέλνει `doyCode` αντί για `irsData`. Το zod
+ * πετά σιωπηλά άγνωστα κλειδιά, άρα η καρτέλα θα δημιουργούνταν ΧΩΡΙΣ Δ.Ο.Υ. και χωρίς σφάλμα.
+ * Επιστρέφει το μήνυμα για 400, ή `null`.
+ *
+ * ΠΡΟΣΩΡΙΝΟ — για μία έκδοση: να αφαιρεθεί στην πρώτη έκδοση μετά το fix/doy-by-code
+ * (2026-09-21), όταν δεν μπορεί πια να υπάρχει ανοιχτή καρτέλα με τον παλιό κώδικα.
+ */
+export function staleDoyCodeError(body: unknown): string | null {
+  if (body && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'doyCode')) {
+    return 'Η σελίδα είναι από παλαιότερη έκδοση της εφαρμογής — ανανεώστε τη σελίδα (F5) και δοκιμάστε ξανά.';
+  }
+  return null;
+}
+
+/**
+ * Τι κάνει η φόρμα στο πεδίο «Δ.Ο.Υ.» με την απάντηση του server:
+ * - `matched` ⇒ γράφεται το κλειδί (εκτός αν το πεδίο είναι του χρήστη — το κρίνει το `planRegistryFill`)
+ * - `missing` ⇒ αδειάζει, ΜΟΝΟ αν δεν το κατέχει ο χρήστης
+ * - `empty` / `unavailable` / χωρίς απάντηση ⇒ τίποτα (δεν ξέρουμε ⇒ δεν αγγίζουμε)
+ */
+export function planDoyFill(
+  m: TaxOfficeMapping | null | undefined,
+  userOwnsDoy: boolean,
+): { value: string | null; clear: boolean } {
+  if (!m) return { value: null, clear: false };
+  if (m.status === 'matched' && m.office) return { value: m.office.key, clear: false };
+  return { value: null, clear: m.status === 'missing' && !userOwnsDoy };
+}
+
+/**
+ * Η σημείωση «δεν υπάρχει» μαζί με ό,τι είχε τυπωμένο το παραστατικό — ώστε ο χρήστης να ξέρει τι
+ * αφαιρέθηκε (συνήθως η Δ.Ο.Υ. πριν τη συγχώνευση).
+ */
+export function missingDoyNote(note: string, printed: string | null | undefined): string {
+  const p = String(printed ?? '').replace(/\s+/g, ' ').trim();
+  return p ? `${note} Το παραστατικό έγραφε: ${p}.` : note;
+}

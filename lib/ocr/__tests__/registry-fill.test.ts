@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { planRegistryFill, registryValue } from '../registry-fill';
 
-type K = 'name' | 'doyCode' | 'profession' | 'address' | 'zip' | 'city';
+type K = 'name' | 'irsData' | 'profession' | 'address' | 'zip' | 'city';
 
 describe('registryValue — τι μετράει ως τιμή', () => {
   it('καθαρίζει κενά και πολλαπλά διαστήματα', () => {
@@ -74,34 +74,34 @@ describe('«δεν βρέθηκε» / «ανενεργό» / κρυφό πεδί
 
 describe('planRegistryFill — Δ.Ο.Υ. που η ΑΑΔΕ δίνει αλλά το SoftOne δεν έχει (`clear`)', () => {
   it('το πεδίο ΑΔΕΙΑΖΕΙ (η τιμή του OCR είναι γνωστά λάθος) — δεν μπαίνει μαντεψιά', () => {
-    const r = planRegistryFill<K>({ registry: { name: 'DGSOFT ΕΕ', doyCode: null }, clear: ['doyCode'] });
-    expect(r.values).toEqual({ name: 'DGSOFT ΕΕ', doyCode: '' });
-    expect(r.cleared).toEqual(['doyCode']);
+    const r = planRegistryFill<K>({ registry: { name: 'DGSOFT ΕΕ', irsData: null }, clear: ['irsData'] });
+    expect(r.values).toEqual({ name: 'DGSOFT ΕΕ', irsData: '' });
+    expect(r.cleared).toEqual(['irsData']);
     expect(r.applied).toEqual(['name']);
   });
 
   it('Δ.Ο.Υ. που διάλεξε ο ΧΡΗΣΤΗΣ δεν σβήνεται ποτέ', () => {
-    const r = planRegistryFill<K>({ registry: {}, clear: ['doyCode'], userOwned: ['doyCode'] });
+    const r = planRegistryFill<K>({ registry: {}, clear: ['irsData'], userOwned: ['irsData'] });
     expect(r.values).toEqual({});
     expect(r.cleared).toEqual([]);
-    expect(r.skipped).toEqual(['doyCode']);
+    expect(r.skipped).toEqual(['irsData']);
   });
 
   it('ούτε ξαναγράφεται από τιμή μητρώου', () => {
-    const r = planRegistryFill<K>({ registry: { doyCode: '1101' }, userOwned: ['doyCode'] });
+    const r = planRegistryFill<K>({ registry: { irsData: '1101' }, userOwned: ['irsData'] });
     expect(r.values).toEqual({});
-    expect(r.skipped).toEqual(['doyCode']);
+    expect(r.skipped).toEqual(['irsData']);
   });
 
   it('χωρίς `clear` (π.χ. η ΑΑΔΕ δεν έδωσε Δ.Ο.Υ. ή το SoftOne δεν απάντησε) τίποτα δεν σβήνεται', () => {
-    const r = planRegistryFill<K>({ registry: { doyCode: null } });
+    const r = planRegistryFill<K>({ registry: { irsData: null } });
     expect(r.values).toEqual({});
     expect(r.cleared).toEqual([]);
   });
 
   it('πραγματική τιμή μητρώου για το ίδιο πεδίο κερδίζει το `clear`', () => {
-    const r = planRegistryFill<K>({ registry: { doyCode: '1101' }, clear: ['doyCode'] });
-    expect(r.values).toEqual({ doyCode: '1101' });
+    const r = planRegistryFill<K>({ registry: { irsData: '1101' }, clear: ['irsData'] });
+    expect(r.values).toEqual({ irsData: '1101' });
     expect(r.cleared).toEqual([]);
   });
 });

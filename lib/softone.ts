@@ -5,7 +5,7 @@ import { getSetting, setSetting } from '@/lib/settings';
 import { validCoords } from '@/lib/coords';
 import { normalizeDocRef } from '@/lib/doc-reference';
 import {
-  parseTaxOfficesResponse, TAX_OFFICE_FIELDS,
+  parseTaxOfficesResponse, TAX_OFFICE_FIELDS, irsDataKeyError,
   type TaxOffice, type GetTableTaxOfficesResponse,
 } from '@/lib/tax-office';
 import { nextTraderCode, type NextCodeResult } from '@/lib/trader-code';
@@ -1053,6 +1053,17 @@ export async function softoneFetchTaxOffices(): Promise<TaxOffice[]> {
   } catch (e) {
     throw new SoftoneError((e as Error).message);
   }
+}
+
+/**
+ * Το κλειδί IRSDATA που θα γραφτεί στο `TRDR.IRSDATA` — υπάρχει και είναι ενεργό; `null` = εντάξει
+ * (ή δεν ζητήθηκε Δ.Ο.Υ.), αλλιώς το μήνυμα για 422 `invalid_doy`. Αν το μητρώο δεν διαβαστεί, ΔΕΝ
+ * μπλοκάρει: η τιμή προήλθε από λίστα που διάβασε το ίδιο το SoftOne.
+ */
+export async function softoneIrsDataError(key: string | null | undefined): Promise<string | null> {
+  if (!key) return null;
+  const offices = await softoneFetchTaxOffices().catch(() => null);
+  return offices ? irsDataKeyError(key, offices) : null;
 }
 
 /** Γραμμή του μητρώου χωρών του SoftOne (object/table COUNTRY). */

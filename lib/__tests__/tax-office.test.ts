@@ -3,7 +3,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizeTaxOfficeName, normalizeTaxOfficeCode, resolveTaxOffice, parseTaxOfficesResponse,
-  toTaxOfficeMapping, taxOfficeMissingNote, type TaxOffice,
+  toTaxOfficeMapping, taxOfficeMissingNote, irsDataKeyError, staleDoyCodeError, planDoyFill,
+  missingDoyNote, type TaxOffice, type TaxOfficeMapping,
 } from '../tax-office';
 
 const o = (key: string, name: string, code = key, isActive = true): TaxOffice => ({ key, code, name, isActive });
@@ -193,5 +194,51 @@ describe('parseTaxOfficesResponse — ανάγνωση του IRSDATA ΚΑΤΑ �
       data: [['1101', '1101', 'Α΄ ΑΘΗΝΩΝ'], ['', '9', 'Χ'], ['5', '5', '  ']],
     });
     expect(r).toEqual([{ key: '1101', code: '1101', name: 'Α΄ ΑΘΗΝΩΝ', isActive: true }]);
+  });
+});
+
+describe('irsDataKeyError — το κλειδί που φτάνει στο create', () => {
+  it('υπαρκτό, ενεργό ⇒ null· ανύπαρκτο / ανενεργό ⇒ μήνυμα', () => {
+    expect(irsDataKeyError('1101', LIVE)).toBeNull();
+    expect(irsDataKeyError('1190', LIVE)).toBe('Η Δ.Ο.Υ. με κλειδί 1190 δεν υπάρχει στο μητρώο Δ.Ο.Υ. του SoftOne.');
+    expect(irsDataKeyError('9', [o('9', 'Χ', '0009', false)])).toContain('Χ (κωδ. 0009) είναι ανενεργή');
+  });
+});
+
+describe('staleDoyCodeError — παλιός client', () => {
+  it('σώμα με `doyCode` (ακόμη και null) ⇒ μήνυμα ανανέωσης· χωρίς ⇒ null', () => {
+    expect(staleDoyCodeError({ doyCode: '1101' })).toMatch(/ανανεώστε τη σελίδα/);
+    expect(staleDoyCodeError({ doyCode: null })).not.toBeNull();
+    expect(staleDoyCodeError({ irsData: '1101' })).toBeNull();
+    expect(staleDoyCodeError(null)).toBeNull();
+  });
+});
+
+describe('planDoyFill — πότε η φόρμα γράφει / αδειάζει τη Δ.Ο.Υ.', () => {
+  const office = o('1101', 'Α΄ ΑΘΗΝΩΝ');
+  const matched: TaxOfficeMapping = { status: 'matched', by: 'code', office, note: null };
+  const missingM: TaxOfficeMapping = { status: 'missing', by: null, office: null, note: 'Χ' };
+  it('matched ⇒ τιμή = κλειδί, κανένα σβήσιμο', () => {
+    expect(planDoyFill(matched, false)).toEqual({ value: '1101', clear: false });
+  });
+  it('missing ⇒ αδειάζει — ΜΟΝΟ αν δεν το κατέχει ο χρήστης', () => {
+    expect(planDoyFill(missingM, false)).toEqual({ value: null, clear: true });
+    expect(planDoyFill(missingM, true)).toEqual({ value: null, clear: false });
+  });
+  it('empty / unavailable / καμία απάντηση ⇒ τίποτα (δεν ξέρουμε ⇒ δεν αγγίζουμε)', () => {
+    expect(planDoyFill({ status: 'empty', by: null, office: null, note: null }, false)).toEqual({ value: null, clear: false });
+    expect(planDoyFill({ status: 'unavailable', by: null, office: null, note: 'x' }, false)).toEqual({ value: null, clear: false });
+    expect(planDoyFill(undefined, false)).toEqual({ value: null, clear: false });
+  });
+});
+
+describe('missingDoyNote — λέει και τι έγραφε το παραστατικό', () => {
+  const note = 'Η Δ.Ο.Υ. ΚΕΦΟΔΕ ΑΤΤΙΚΗΣ (κωδ. 1190) δεν υπάρχει στο μητρώο Δ.Ο.Υ. του SoftOne.';
+  it('με τιμή OCR', () => {
+    expect(missingDoyNote(note, ' Ζ΄  ΑΘΗΝΩΝ ')).toBe(`${note} Το παραστατικό έγραφε: Ζ΄ ΑΘΗΝΩΝ.`);
+  });
+  it('χωρίς τιμή OCR ⇒ μόνο η σημείωση', () => {
+    expect(missingDoyNote(note, null)).toBe(note);
+    expect(missingDoyNote(note, '  ')).toBe(note);
   });
 });
