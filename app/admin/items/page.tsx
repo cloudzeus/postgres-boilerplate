@@ -5,6 +5,7 @@ import { getSetting } from '@/lib/settings';
 import { PageHeader } from '@/components/admin/page-header';
 import { classificationLabeller } from '@/lib/ocr/mydata-labels';
 import { ItemsTabs } from './items-tabs';
+import { checkAccounts } from '@/lib/ocr/account-check';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +36,16 @@ export default async function ItemsPage() {
     getSetting<string>('integrations.softoneProjectsLastSync'),
     getSetting<string>('integrations.softoneProjectStagesLastSync'),
   ]);
+  // Ο έλεγχος λογαριασμού για ΟΛΕΣ τις χρεοπιστώσεις — ο ίδιος που τρέχει πριν την καταχώριση.
+  // Εδώ φορτώνουμε ολόκληρο το σχέδιο (μερικές χιλιάδες σύντομες γραμμές, μία φορά ανά σελίδα).
+  const chartRows = await prisma.softoneAccount.findMany({ select: { code: true, name: true, isActive: true, postable: true } });
+  const accountCheck = checkAccounts(
+    lineItems.map((l, i) => ({
+      rowIndex: i, path: 'LINLINES' as const, article: `${l.code} — ${l.name}`,
+      acnmsk: l.acnmsk, acnmskKnown: l.acnmskSyncedAt != null,
+    })),
+    { synced: chartRows.length > 0, accounts: chartRows },
+  );
   const products = items.filter((i) => !i.isService);
   const services = items.filter((i) => i.isService);
 
@@ -60,8 +71,10 @@ export default async function ItemsPage() {
         products={products}
         services={services}
         expenses={expenses.map((e) => ({ expn: e.expn, code: e.code, name: e.name, vat: e.vat, isActive: e.isActive }))}
-        lineItems={lineItems.map((l) => ({
+        lineItems={lineItems.map((l, i) => ({
           mtrl: l.mtrl, code: l.code, name: l.name, vat: l.vat,
+          account: accountCheck.lines[i] ?? null,
+          accountText: [l.acnmsk, accountCheck.lines[i]?.accountName].filter(Boolean).join(' '),
           category: l.mtrCategory != null ? categoryName.get(l.mtrCategory) ?? null : null,
           myData: label({ classType: l.classType, classCategory: l.classCategory, myDataCode: l.myDataCode }).label,
           isActive: l.isActive,

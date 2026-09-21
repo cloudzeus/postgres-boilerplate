@@ -9,9 +9,11 @@ import { buildReviewFlags } from '@/lib/templates/run-logic';
 import type { DocumentJson } from './canonical';
 import { loadDocumentJson } from './document';
 import {
-  buildPurdocPayload, documentReference, postingBlockers, postingWarnings,
+  accountCheckInputs, buildPurdocPayload, documentReference, postingBlockers, postingWarnings,
   type BlockerCode, type DocReference, type PostingPayload, type PurdocContext, type PurdocLineCtx, type WarningCode,
 } from './purdoc-payload';
+import { accountDetails, checkAccounts, type AccountCheck } from './account-check';
+import { loadAccountChart } from './account-chart';
 import { describeTargetShort, resolvePostingTarget, type PostingTarget } from './posting-target';
 
 /** Ο διακόπτης ασφαλείας. Κλειστός = καμία εγγραφή δεν φεύγει προς το SoftOne (μόνο dry-run). */
@@ -51,6 +53,10 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   series_unknown: 'Η σειρά του παραστατικού δεν υπάρχει (ή δεν είναι σε χρήση) στο μητρώο σειρών — διάλεξε σειρά από τη λίστα ή συγχρόνισε τις σειρές',
   series_module_unsupported: 'Η ενότητα της σειράς δεν υποστηρίζεται για καταχώριση — επίλεξε σειρά αγορών (1251), προμηθευτών (1253), χρεωστών (1553) ή πιστωτών (1653)',
   trader_kind_mismatch: 'Ο συναλλασσόμενος δεν είναι του τύπου που δέχεται το παραστατικό — άλλαξέ τον από «Νέοι συναλλασσόμενοι» ή διάλεξε άλλη σειρά',
+  account_missing: 'Χρεοπίστωση χωρίς λογαριασμό γενικής λογιστικής — η λογιστική εγγραφή δεν θα είχε πού να πάει',
+  account_not_in_chart: 'Ο λογαριασμός γενικής της χρεοπίστωσης δεν υπάρχει στο λογιστικό σχέδιο του SoftOne',
+  account_not_postable: 'Ο λογαριασμός γενικής της χρεοπίστωσης είναι συγκεντρωτικός λογαριασμός — δεν δέχεται εγγραφές',
+  account_is_mask: 'Η χρεοπίστωση έχει μάσκα λογαριασμού (με *) αντί για συγκεκριμένο λογαριασμό γενικής — η εφαρμογή δεν μπορεί ακόμη να διαλέξει λογαριασμό μέσα στη μάσκα',
   posting_disabled: 'Η καταχώριση είναι απενεργοποιημένη (Ρυθμίσεις → Διασυνδέσεις)',
   already_posted: 'Έχει ήδη καταχωριστεί στο SoftOne',
 };
@@ -63,7 +69,35 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
 export const POST_WARNING_TEXT: Record<WarningCode, string> = {
   no_mydata_classification: 'Υπάρχει γραμμή της οποίας το μητρώο στο SoftOne δεν έχει χαρακτηρισμό myDATA — θα καταχωριστεί αχαρακτήριστη',
   mydata_from_master: 'Ο πίνακας γραμμών δεν έχει πεδίο χαρακτηρισμού: ο χαρακτηρισμός myDATA θα προκύψει από το μητρώο του κάθε κωδικού',
+  // Το ίδιο μήνυμα και για τις δύο αιτίες «δεν ξέρω» — το `accountWarningText` το εξειδικεύει.
+  account_unknown: 'Ο έλεγχος λογαριασμού γενικής δεν μπόρεσε να κρίνει — ούτε εγκρίνει ούτε εμποδίζει',
+  account_not_covered: 'Ο έλεγχος λογαριασμού γενικής δεν καλύπτει ακόμη γραμμές ειδών, υπηρεσιών και εξόδων — ο λογαριασμός τους συντίθεται στο SoftOne',
 };
+
+/** «Το λογιστικό σχέδιο δεν έχει συγχρονιστεί» — ΜΙΑ πρόταση, όχι μία ανά γραμμή. */
+export const ACCOUNT_CHART_NOT_SYNCED = 'Το λογιστικό σχέδιο δεν έχει συγχρονιστεί — ο έλεγχος λογαριασμού γενικής δεν έτρεξε (Μητρώα αναφοράς → «Συγχρονισμός όλων»)';
+
+/**
+ * Το κείμενο ενός εμποδίου, με τις ανά γραμμή λεπτομέρειες όταν είναι εμπόδιο του ελέγχου
+ * λογαριασμού: ο λογιστής πρέπει να δει ΠΟΙΑ χρεοπίστωση και ΠΟΙΟΝ λογαριασμό, όχι μια γενική φράση.
+ */
+export function blockerMessage(code: BlockerCode, accounts: AccountCheck | null): string {
+  if (code === 'account_missing' || code === 'account_not_in_chart' || code === 'account_is_mask' || code === 'account_not_postable') {
+    const details = accountDetails(code, accounts);
+    return details.length ? `${POST_ERROR_TEXT[code]}: ${details.join(' · ')}` : POST_ERROR_TEXT[code];
+  }
+  return blockerText(code);
+}
+
+export function warningMessage(code: WarningCode, accounts: AccountCheck | null): string {
+  if (code === 'account_unknown') {
+    // Ασυγχρόνιστο σχέδιο: μία πρόταση. ΔΕΝ απαριθμούμε κάθε γραμμή ως «λείπει».
+    if (accounts && !accounts.chartSynced) return ACCOUNT_CHART_NOT_SYNCED;
+    const details = accountDetails(code, accounts);
+    return details.length ? details.join(' · ') : POST_WARNING_TEXT[code];
+  }
+  return POST_WARNING_TEXT[code];
+}
 
 /** Το ίδιο μήνυμα, με τον αριθμό του παραστατικού που ΥΠΑΡΧΕΙ ήδη στο SoftOne. */
 const alreadyPostedText = (ref: string | null): string =>
@@ -113,6 +147,7 @@ type Gathered = {
   blockers: BlockerCode[];
   warnings: WarningCode[];
   payload: PostingPayload;
+  accounts: AccountCheck;
 };
 
 /**
@@ -196,7 +231,10 @@ async function gather(id: string): Promise<Gathered> {
     lins.length
       ? prisma.softoneLineItem.findMany({
           where: { mtrl: { in: lins } },
-          select: { mtrl: true, mtrType: true, classType: true, classCategory: true, myDataCode: true },
+          select: {
+            mtrl: true, code: true, name: true, mtrType: true, classType: true, classCategory: true, myDataCode: true,
+            acnmsk: true, acnmskSyncedAt: true,
+          },
         })
       : Promise.resolve([]),
     expns.length
@@ -238,6 +276,11 @@ async function gather(id: string): Promise<Gathered> {
       expn: i.softoneExpn,
       lin: i.softoneLinMtrl,
       linMtrType: lin?.mtrType ?? null,
+      linLabel: lin ? `${lin.code} — ${lin.name}` : null,
+      linAcnmsk: lin?.acnmsk ?? null,
+      // Χρεοπίστωση που δεν βρέθηκε στον καθρέφτη, ή που δεν έχει ξανασυγχρονιστεί από τότε που
+      // προστέθηκε το πεδίο: ο λογαριασμός της είναι ΑΓΝΩΣΤΟΣ, όχι κενός.
+      linAcnmskKnown: Boolean(lin?.acnmskSyncedAt),
       isService: i.softoneIsService,
       costCntr: i.softoneCostCntr,
       prjc: i.softonePrjc,
@@ -256,6 +299,13 @@ async function gather(id: string): Promise<Gathered> {
     comments: document.notes,
   };
 
+  // Ο έλεγχος λογαριασμού γενικής: μόνο όσο λογιστικό σχέδιο χρειάζεται για ΑΥΤΕΣ τις γραμμές.
+  const accountInputs = accountCheckInputs(ctx);
+  const chart = await loadAccountChart(
+    accountInputs.filter((l) => l.path === 'LINLINES').map((l) => l.acnmsk),
+  );
+  const accounts = checkAccounts(accountInputs, chart);
+
   const blockers = postingBlockers(document, {
     status: doc.status,
     category: doc.category,
@@ -265,12 +315,13 @@ async function gather(id: string): Promise<Gathered> {
     seriesKnown: seriesTarget.known,
     seriesEnabled: seriesTarget.enabled,
     traderSodtype: traderRow?.sodtype ?? null,
-  }, ctx);
+  }, ctx, accounts);
 
   return {
     doc, document, ctx, blockers,
-    warnings: postingWarnings(ctx),
+    warnings: postingWarnings(ctx, accounts),
     payload: buildPurdocPayload(document, ctx),
+    accounts,
   };
 }
 
@@ -284,6 +335,8 @@ export type PostingPreview = {
   target: PostingTarget & { label: string };
   /** Τι ΘΑ σταλεί — υπάρχει και όταν υπάρχουν εμπόδια, για να φαίνεται τι λείπει. */
   payload: PostingPayload;
+  /** Ο έλεγχος λογαριασμού γενικής ανά γραμμή: λογαριασμός, όνομα στο σχέδιο, κατάσταση. */
+  accounts: AccountCheck;
   /** Σύνοψη για την κάρτα: ό,τι δεν διαβάζεται εύκολα από το raw payload. */
   summary: {
     series: string | null; trader: string | null; trdr: number | null; date: string | null;
@@ -304,15 +357,16 @@ export type PostingPreview = {
  * Ό,τι επιστρέφει εδώ είναι ακριβώς ό,τι θα έστελνε το `postDocumentToSoftone`.
  */
 export async function postingPreview(id: string): Promise<PostingPreview> {
-  const { doc, document, ctx, blockers, warnings, payload } = await gather(id);
+  const { doc, document, ctx, blockers, warnings, payload, accounts } = await gather(id);
   const enabled = (await getSetting<boolean>(POSTING_ENABLED_KEY)) === true;
   const ref = documentReference(document.type);
   return {
     enabled,
-    blockers: blockers.map((code) => ({ code, message: blockerText(code) })),
-    warnings: warnings.map((code) => ({ code, message: POST_WARNING_TEXT[code] })),
+    blockers: blockers.map((code) => ({ code, message: blockerMessage(code, accounts) })),
+    warnings: warnings.map((code) => ({ code, message: warningMessage(code, accounts) })),
     target: { ...ctx.target, label: describeTargetShort(ctx.target) },
     payload,
+    accounts,
     summary: {
       series: doc.softoneSeries,
       trader: doc.softoneName,
@@ -377,7 +431,7 @@ export interface PostOptions {
 }
 
 export async function postDocumentToSoftone(id: string, opts: PostOptions = {}): Promise<{ ref: string }> {
-  const { doc, document, ctx, blockers, payload } = await gather(id);
+  const { doc, document, ctx, blockers, payload, accounts } = await gather(id);
   // ΙΔΕΜΠΟΤΗΤΑ, πρώτο απ' όλα: ένα δεύτερο κλικ (ή μια δεύτερη εκτέλεση προτύπου) δεν δημιουργεί
   // δεύτερο παραστατικό στο SoftOne. Πριν από κάθε έλεγχο εμποδίων — ένα ήδη καταχωρισμένο
   // παραστατικό δεν είναι «μπλοκαρισμένο», είναι τελειωμένο.
@@ -385,7 +439,7 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
     throw new PostError('already_posted', alreadyPostedText(doc.postedRef));
   }
   if (blockers.length) {
-    throw new PostError(blockers[0], blockers.map(blockerText).join(' · '));
+    throw new PostError(blockers[0], blockers.map((c) => blockerMessage(c, accounts)).join(' · '));
   }
   if ((await getSetting<boolean>(POSTING_ENABLED_KEY)) !== true) {
     // Σκόπιμα ΠΡΙΝ από οποιαδήποτε εγγραφή: ένα κλειστό σύστημα δεν αλλάζει καν `postStatus`.

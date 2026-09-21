@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { syncErrorMessage } from '@/lib/softone-sync/sync-error';
 
-type SyncKind = 'gemi' | 'vat' | 'purdoc' | 'docseries' | 'traders' | 'lookups' | 'expenses';
+type SyncKind = 'gemi' | 'vat' | 'purdoc' | 'docseries' | 'traders' | 'lookups' | 'expenses' | 'accounts';
 type Stat = {
   key: string;
   label: string;
@@ -29,7 +29,7 @@ type Stat = {
 // Registries that expose data through the generic /api/admin/metadata/registry feed
 // (i.e. those without a dedicated page → shown in a modal).
 // Customers/suppliers have dedicated pages (viewHref), so they are not modal keys.
-const MODAL_KEYS = new Set(['legalTypes', 'gemiOffices', 'companyStatuses', 'vatCategories', 'purchaseDocTypes', 'docSeries', 'expenses']);
+const MODAL_KEYS = new Set(['legalTypes', 'gemiOffices', 'companyStatuses', 'vatCategories', 'purchaseDocTypes', 'docSeries', 'expenses', 'accounts']);
 
 // Per-source badge colors (inline hex → guaranteed visible in light & dark themes).
 const SOURCE_STYLE: Record<string, { bg: string; fg: string; bd: string }> = {
@@ -167,6 +167,18 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
     }
   };
 
+  const syncAccounts = async () => {
+    const res = await fetch('/api/admin/metadata/sync-accounts-softone', { method: 'POST' });
+    if (res.ok) {
+      const d = await res.json();
+      toast.success(`Λογιστικό σχέδιο: ${d.total.toLocaleString('el-GR')} λογαριασμοί`);
+      router.refresh();
+    } else {
+      const e = await res.json().catch(() => ({}));
+      toast.error(syncErrorMessage(e, 'Αποτυχία συγχρονισμού λογιστικού σχεδίου'));
+    }
+  };
+
   const runSync = async (stat: Stat) => {
     if (!stat.syncKind) return;
     setSyncingKey(stat.key);
@@ -177,6 +189,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
       else if (stat.syncKind === 'lookups') await syncLookups();
       else if (stat.syncKind === 'traders') await syncTraders();
       else if (stat.syncKind === 'expenses') await syncExpenses();
+      else if (stat.syncKind === 'accounts') await syncAccounts();
       else await syncGemi();
     } finally {
       setSyncingKey(null);
@@ -190,8 +203,9 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
           <SoftoneResyncPanel
             title="Συγχρονισμός όλων των βοηθητικών πινάκων"
             description={
-              'Τρέχει με τη σειρά και τους επτά συγχρονισμούς SoftOne: κατηγορίες ΦΠΑ, βοηθητικοί πίνακες, '
-              + 'έξοδα, είδη & υπηρεσίες, συναλλασσόμενοι, τύποι παραστατικών αγορών, σειρές παραστατικών. '
+              'Τρέχει με τη σειρά όλους τους συγχρονισμούς SoftOne: κατηγορίες ΦΠΑ, βοηθητικοί πίνακες, '
+              + 'έξοδα, είδη & υπηρεσίες, συναλλασσόμενοι, τύποι παραστατικών αγορών, σειρές παραστατικών, '
+              + 'λογιστικό σχέδιο, κατηγορίες δαπανών, χρεοπιστώσεις, χαρακτηρισμοί myDATA και αναλυτική. '
               + 'Αν κάποιος αποτύχει, οι υπόλοιποι συνεχίζουν. Ασφαλές να ξανατρέξει.'
             }
           />

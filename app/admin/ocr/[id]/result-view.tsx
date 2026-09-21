@@ -5,6 +5,8 @@ import { LineMatchCell, type LineAnalyticsState } from './line-match-cell';
 import { matchKindOf, type LineCategoryOption, type LineMatch } from './line-match-kind';
 import { CustomFieldsBlock, LineCustomFields, hasLineCustomFields } from '@/components/admin/custom-fields';
 import type { MatchKind } from '@/lib/ocr/line-match';
+import type { AccountCheckLine } from '@/lib/ocr/account-check';
+import { AccountLine } from '@/components/admin/account-line';
 
 type DocWithItems = Prisma.OcrDocumentGetPayload<{ include: { items: true } }>;
 
@@ -25,6 +27,8 @@ export interface LineMatchOptions {
   };
   /** TRDR του εκδότη — τα έργα ΤΟΥ πρώτα στον picker, όπως και στην ουρά. */
   trdr: number | null;
+  /** Ο λογαριασμός γενικής κάθε αντιστοιχισμένης γραμμής, ανά `rowIndex` (βλ. `lineAccountsFor`). */
+  lineAccounts?: Record<number, AccountCheckLine>;
 }
 
 /**
@@ -133,6 +137,11 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
                       lineCategories={match.lineCategories}
                       trdr={match.trdr}
                     />
+                    {match.lineAccounts?.[it.rowIndex] && (
+                      <div className="mt-1">
+                        <AccountLine line={match.lineAccounts[it.rowIndex]} compact />
+                      </div>
+                    )}
                   </td>
                 </tr>
                 {hasLineCustomFields(lineCf) && (

@@ -1787,12 +1787,17 @@ export interface LineItemRow {
   classCategory: number | null;
   myDataCode: string | null;
   myDataVprc: number | null;
+  /**
+   * ACNMSK «Γενικής» (editor ACNTGL) — ο λογαριασμός γενικής λογιστικής της χρεοπίστωσης.
+   * `null` = κενό στο SoftOne. Συνήθως πλήρης κωδικός, αλλά ΜΠΟΡΕΙ να είναι μάσκα με `*`.
+   */
+  acnmsk: string | null;
   isActive: boolean;
 }
 
 const LINEITEM_FIELDS = [
   'MTRL', 'CODE', 'NAME', 'VAT', 'MTRTYPE', 'MTRCATEGORY', 'ISACTIVE',
-  'CLASSTYPE', 'CLASSCATEGORY', 'MYDATACODE', 'MYDATAVPRC',
+  'CLASSTYPE', 'CLASSCATEGORY', 'MYDATACODE', 'MYDATAVPRC', 'ACNMSK',
 ];
 
 function mapLineItem(o: Record<string, string>): LineItemRow {
@@ -1808,6 +1813,7 @@ function mapLineItem(o: Record<string, string>): LineItemRow {
     classCategory: intOrNull(o.CLASSCATEGORY),
     myDataCode: idOrNull(o.MYDATACODE),
     myDataVprc: intOrNull(o.MYDATAVPRC),
+    acnmsk: idOrNull(o.ACNMSK),
     isActive: o.ISACTIVE !== '0',
   };
 }
@@ -1816,6 +1822,86 @@ function mapLineItem(o: Record<string, string>): LineItemRow {
 export async function softoneFetchLineItems(): Promise<LineItemRow[]> {
   const rows = await softoneGetTable('MTRL', LINEITEM_FIELDS, `SODTYPE=${LINEITEM_SODTYPE} AND ISACTIVE=1`);
   return rows.map(mapLineItem).filter((r) => Number.isFinite(r.mtrl));
+}
+
+// ============================================================
+// Λογιστικό σχέδιο — πίνακας ACNT (Γενική λογιστική). Μόνο ΑΝΑΓΝΩΣΗ.
+// ============================================================
+
+export interface AccountRow {
+  acnt: number;
+  code: string;
+  name: string;
+  /** ACNGRADE — βαθμίδα (1..4 στο ΕΓΛΣ του πελάτη). */
+  grade: number | null;
+  /** SODTYPE — 89 γενική, 90 ομάδα 9. */
+  sodtype: number | null;
+  isActive: boolean;
+  /**
+   * ACNMOVING «Κινείται» — ο λογαριασμός ΔΕΧΕΤΑΙ εγγραφές (αναλυτικός). `false` = συγκεντρωτικός.
+   * `null` = η στήλη δεν ήρθε ή ήρθε κενή: ΑΓΝΩΣΤΟ, ποτέ «κινείται».
+   * ΣΗΜ.: στον πελάτη το σχέδιο είναι `ACNT` και η κινησιμότητα `ACNMOVING`. Τα `GLMASTER`,
+   * `ISFINAL`, `ACCNUM`, `GLTRNLINES` που αναφέρθηκαν ΔΕΝ υπάρχουν σε αυτή την εγκατάσταση.
+   * Ούτε η βαθμίδα ούτε το «δεν έχει παιδιά» το αντικαθιστούν: 913 λογαριασμοί χωρίς παιδιά ΔΕΝ
+   * κινούνται και 166 λογαριασμοί 2ης/3ης βαθμίδας κινούνται.
+   */
+  postable: boolean | null;
+}
+
+// Τα ονόματα επαληθεύτηκαν ζωντανά με GetTable / getTableFields (ο πίνακας ACNT δεν υπάρχει στο cached schema).
+const ACNT_FIELDS = ['ACNT', 'CODE', 'NAME', 'ACNGRADE', 'SODTYPE', 'ISACTIVE', 'ACNMOVING'];
+
+/**
+ * Διαβάζει ΟΛΟ το λογιστικό σχέδιο (ACNT). Χωρίς φίλτρο ISACTIVE: ένας ανενεργός λογαριασμός
+ * ΥΠΑΡΧΕΙ και πρέπει να φαίνεται ως τέτοιος, όχι ως «δεν υπάρχει».
+ *
+ * ΔΕΝ περνάει από το `softoneGetTable`: εκείνο αντιστοιχίζει τις στήλες ΜΕ ΤΗ ΣΕΙΡΑ που τις
+ * ζητήσαμε, ενώ το GetTable ΠΑΡΑΛΕΙΠΕΙ σιωπηλά όποιο πεδίο δεν ξέρει (το είδαμε ζωντανά με
+ * `FPRMS.GLTEMPLATES`) — και τότε κάθε στήλη μετά από αυτό διαβάζεται μετατοπισμένη. Εδώ
+ * διαβάζουμε από το `model` της απάντησης και ΑΠΑΙΤΟΥΜΕ να υπάρχουν κωδικός και περιγραφή.
+ */
+export async function softoneFetchAccounts(): Promise<AccountRow[]> {
+  return parseAccountsResponse(await softoneCall<GetTableResp & { model?: { name: string }[][] }>(
+    'GetTable', { TABLE: 'ACNT', FIELDS: ACNT_FIELDS.join(','), FILTER: '' },
+  ));
+}
+
+/**
+ * Η ανάγνωση της απάντησης GetTable ACNT, ΚΑΘΑΡΗ ώστε να δοκιμάζεται. Το GetTable ΠΡΟΣΘΕΤΕΙ στήλες
+ * που δεν ζητήσαμε (AFM, CODE1) και ΑΛΛΑΖΕΙ τη σειρά — γι' αυτό ΠΑΝΤΑ κατά όνομα από το `model`,
+ * ποτέ κατά θέση. Και αρνείται «κοντή» απάντηση: αν το `count` λέει 5.203 και ήρθαν 50 γραμμές, δεν
+ * είναι λογιστικό σχέδιο, είναι κομμάτι του.
+ */
+export function parseAccountsResponse(res: GetTableResp & { model?: { name: string }[][] }): AccountRow[] {
+  if (res.success === false) {
+    throw new SoftoneError(`GetTable ACNT απέτυχε: ${res.error ?? `code ${res.errorcode ?? '?'}`}`);
+  }
+  const cols = (res.model?.[0] ?? []).map((m) => String(m?.name ?? '').toUpperCase());
+  const at = (f: string) => cols.indexOf(f);
+  for (const f of ['ACNT', 'CODE', 'NAME']) {
+    if (at(f) < 0) throw new SoftoneError(`GetTable ACNT: λείπει η στήλη ${f} από την απάντηση`);
+  }
+  const cell = (r: unknown[], f: string): string => {
+    const i = at(f);
+    return i < 0 || r[i] == null ? '' : String(r[i]).trim();
+  };
+  const data = res.data ?? [];
+  if (typeof res.count === 'number' && res.count !== data.length) {
+    throw new SoftoneError(`GetTable ACNT: δηλώνει ${res.count} λογαριασμούς αλλά επέστρεψε ${data.length} — ελλιπής απάντηση`);
+  }
+  return data
+    .map((r) => ({
+      acnt: Number(cell(r, 'ACNT')),
+      code: cell(r, 'CODE'),
+      name: cell(r, 'NAME'),
+      grade: intOrNull(cell(r, 'ACNGRADE')),
+      sodtype: intOrNull(cell(r, 'SODTYPE')),
+      // Στήλη που δεν ήρθε = δεν ξέρουμε ⇒ ενεργός (όπως και τα υπόλοιπα μητρώα).
+      isActive: cell(r, 'ISACTIVE') !== '0',
+      // Αυστηρά: μόνο «1» / «0» κρίνουν. Οτιδήποτε άλλο (λείπει η στήλη, κενό) = άγνωστο.
+      postable: cell(r, 'ACNMOVING') === '1' ? true : cell(r, 'ACNMOVING') === '0' ? false : null,
+    }))
+    .filter((r) => Number.isFinite(r.acnt) && r.acnt > 0 && r.code !== '');
 }
 
 export interface LineCategoryRow {

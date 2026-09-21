@@ -18,6 +18,7 @@ import { logAudit } from '@/lib/audit';
 import {
   SoftoneConfigError,
   SoftoneError,
+  softoneFetchAccounts,
   softoneFetchDocSeries,
   softoneFetchExpenses,
   softoneFetchItems,
@@ -37,7 +38,7 @@ import {
 /** Ο βοηθητικός πίνακας, όπως τον ξέρει το UI και το αποτέλεσμα του «Συγχρονισμός όλων». */
 export type SyncTable =
   | 'vat' | 'lookups' | 'expenses' | 'items' | 'traders' | 'purdoc' | 'docseries'
-  | 'lineitems' | 'linecategories' | 'mydataclasses'
+  | 'accounts' | 'lineitems' | 'linecategories' | 'mydataclasses'
   | 'costcenters' | 'projects' | 'projectstages';
 
 export type SyncActor = { id: string; email: string };
@@ -451,6 +452,9 @@ export async function syncLineItems(actor: SyncActor): Promise<SyncPayload> {
       code: r.code, name: r.name || r.code, vat: r.vat, mtrType: r.mtrType, mtrCategory: r.mtrCategory,
       classType: r.classType, classCategory: r.classCategory, myDataCode: r.myDataCode,
       myDataVprc: r.myDataVprc, isActive: true, syncedAt: now,
+      // Ο λογαριασμός γενικής ΚΑΙ η σφραγίδα ότι τον διαβάσαμε: χωρίς τη σφραγίδα, ένα `null` δεν
+      // ξεχωρίζει το «κενό στο SoftOne» από το «δεν έχει συγχρονιστεί ακόμη».
+      acnmsk: r.acnmsk, acnmskSyncedAt: now,
     };
     await prisma.softoneLineItem.upsert({ where: { mtrl: r.mtrl }, update: data, create: { mtrl: r.mtrl, ...data } });
     if (existing.has(r.mtrl)) updated++; else created++;
@@ -471,6 +475,86 @@ export async function syncLineItems(actor: SyncActor): Promise<SyncPayload> {
   });
 
   return { created, updated, skipped: 0, total: created + updated, syncedAt, detail: { deactivated } };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Λογιστικό σχέδιο (ACNT → SoftoneAccount)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** «61.02.00.0024» → «61.02.00». Πρωτοβάθμιος (χωρίς τελεία) → null. */
+export const parentCodeOf = (code: string): string | null => {
+  const i = code.lastIndexOf('.');
+  return i > 0 ? code.slice(0, i) : null;
+};
+
+/**
+ * Ολική αντικατάσταση του καθρέφτη, μέσα σε transaction — όπως τα είδη και οι συναλλασσόμενοι.
+ * Ένας λογαριασμός που ΣΒΗΣΤΗΚΕ στο ERP πρέπει να φύγει κι από εδώ: αν έμενε «ανενεργός», ο
+ * έλεγχος θα έλεγε «υπάρχει» για λογαριασμό όπου το SoftOne δεν μπορεί πια να γράψει.
+ *
+ * ΔΥΟ δικλείδες πριν αγγίξουμε οτιδήποτε, γιατί ένας άδειος καθρέφτης ΔΕΝ είναι αθώος: ο έλεγχος
+ * τον διαβάζει ως «δεν έχει συγχρονιστεί» και σταματά να προστατεύει (βλ. `lib/ocr/account-check.ts`).
+ *  1. άδεια απάντηση ⇒ αποτυχία βήματος (`assertNonEmpty`), κανένα delete·
+ *  2. απάντηση όπου ΚΑΜΙΑ γραμμή δεν έχει κωδικό ⇒ το ίδιο.
+ * Αποτυχία του GetTable πετάει ήδη από το `softoneFetchAccounts`, πριν από το transaction.
+ */
+/** Κάτω από αυτό το κλάσμα του τρέχοντος καθρέφτη, η απάντηση θεωρείται ελλιπής. */
+export const ACCOUNTS_MIN_RATIO = 0.5;
+
+export async function syncAccounts(actor: SyncActor): Promise<SyncPayload> {
+  const rows = await softoneFetchAccounts();
+  assertNonEmpty(rows, 'λογαριασμοί λογιστικού σχεδίου');
+
+  // Ο κωδικός είναι μοναδικός στο ACNT του πελάτη (επαληθευμένο). Αν ποτέ δεν είναι, κρατάμε τον
+  // πρώτο και μετράμε τους υπόλοιπους ως `skipped` αντί να σκάσει ολόκληρο το βήμα.
+  const seen = new Set<string>();
+  const data = [] as {
+    acnt: number; code: string; name: string; grade: number | null; parentCode: string | null;
+    sodtype: number | null; postable: boolean | null; isActive: boolean; syncedAt: Date;
+  }[];
+  const now = new Date();
+  for (const r of rows) {
+    if (seen.has(r.code)) continue;
+    seen.add(r.code);
+    data.push({
+      acnt: r.acnt, code: r.code, name: r.name || r.code, grade: r.grade,
+      parentCode: parentCodeOf(r.code), sodtype: r.sodtype, postable: r.postable, isActive: r.isActive, syncedAt: now,
+    });
+  }
+  assertNonEmpty(data, 'λογαριασμοί με κωδικό');
+
+  // Τρίτη δικλείδα: «κοντή» απάντηση. Η ίδια η απάντηση ελέγχεται ήδη έναντι του `count` της
+  // (`parseAccountsResponse`)· εδώ συγκρίνουμε με το ΤΡΕΧΟΝ μέγεθος του καθρέφτη. Ένα λογιστικό
+  // σχέδιο δεν χάνει τους μισούς λογαριασμούς του από τη μια μέρα στην άλλη — αν συμβεί, το βλέπει
+  // άνθρωπος πριν αντικατασταθεί ο καθρέφτης, όχι μετά.
+  const current = await prisma.softoneAccount.count();
+  if (current > 0 && data.length < current * ACCOUNTS_MIN_RATIO) {
+    throw new SoftoneError(
+      `Το SoftOne επέστρεψε ${data.length} λογαριασμούς ενώ το αντίγραφο έχει ${current} — `
+      + 'πιθανώς ελλιπής απάντηση· το λογιστικό σχέδιο δεν αντικαταστάθηκε',
+    );
+  }
+
+  const total = await prisma.$transaction(async (tx) => {
+    await tx.softoneAccount.deleteMany({});
+    let n = 0;
+    for (let i = 0; i < data.length; i += 1000) {
+      n += (await tx.softoneAccount.createMany({ data: data.slice(i, i + 1000) })).count;
+    }
+    return n;
+  }, { timeout: 60000 });
+
+  const byGrade = data.reduce<Record<string, number>>((a, r) => {
+    const k = String(r.grade ?? '—'); a[k] = (a[k] ?? 0) + 1; return a;
+  }, {});
+  const syncedAt = now.toISOString();
+  await setSetting('integrations.softoneAccountsLastSync', syncedAt, actor.id);
+  await logAudit({
+    userId: actor.id, userEmail: actor.email,
+    action: 'metadata.accounts.sync_softone', resource: 'setting', metadata: { total, byGrade },
+  });
+
+  return { created: total, updated: 0, skipped: rows.length - total, total, syncedAt, detail: { byGrade } };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -683,10 +767,12 @@ export async function syncProjectStages(actor: SyncActor): Promise<SyncPayload> 
  *  5. `traders`  Συναλλασσόμενοι — ο βαρύτερος· τρέχει αφού έχουν κατέβει τα «φθηνά».
  *  6. `purdoc`   Τύποι παραστατικών αγορών.
  *  7. `docseries` Σειρές όλων των υπόλοιπων ενοτήτων.
- *  8. `linecategories` Κατηγορίες δαπανών — η ομαδοποίηση πάνω από τις χρεοπιστώσεις, άρα πριν από αυτές.
- *  9. `lineitems` Χρεοπιστώσεις (το `MTRL` των γραμμών «Ειδικών συναλλαγών»).
- * 10. `mydataclasses` Οι λίστες χαρακτηρισμού myDATA — καθαρή αναφορά.
- * 11-13. `costcenters` / `projects` / `projectstages` — η αναλυτική ανά γραμμή· ανεξάρτητες από
+ *  8. `accounts`  Λογιστικό σχέδιο (ACNT) — το λεξιλόγιο πάνω στο οποίο διαβάζεται ο λογαριασμός
+ *                κάθε χρεοπίστωσης, άρα πριν από αυτές.
+ *  9. `linecategories` Κατηγορίες δαπανών — η ομαδοποίηση πάνω από τις χρεοπιστώσεις, άρα πριν από αυτές.
+ * 10. `lineitems` Χρεοπιστώσεις (το `MTRL` των γραμμών «Ειδικών συναλλαγών»), με τον λογαριασμό τους.
+ * 11. `mydataclasses` Οι λίστες χαρακτηρισμού myDATA — καθαρή αναφορά.
+ * 12-14. `costcenters` / `projects` / `projectstages` — η αναλυτική ανά γραμμή· ανεξάρτητες από
  *        όλα τα υπόλοιπα, οπότε τελευταίες.
  *
  * Τρέχουν ΣΕΙΡΙΑΚΑ και ΠΟΤΕ παράλληλα: μοιράζονται ένα session SoftOne, και επτά ταυτόχρονα
@@ -700,6 +786,7 @@ export const SYNC_STEPS: { table: SyncTable; label: string; run: (actor: SyncAct
   { table: 'traders',   label: 'Συναλλασσόμενοι',             run: syncTraders },
   { table: 'purdoc',    label: 'Τύποι παραστατικών αγορών',   run: syncPurchaseDocTypes },
   { table: 'docseries', label: 'Σειρές παραστατικών',         run: syncDocSeries },
+  { table: 'accounts',       label: 'Λογιστικό σχέδιο',        run: syncAccounts },
   { table: 'linecategories', label: 'Κατηγορίες δαπανών',      run: syncLineCategories },
   { table: 'lineitems',      label: 'Χρεοπιστώσεις',           run: syncLineItems },
   { table: 'mydataclasses',  label: 'Χαρακτηρισμοί myDATA',    run: syncMyDataClasses },

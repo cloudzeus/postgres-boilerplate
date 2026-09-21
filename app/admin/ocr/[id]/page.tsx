@@ -15,6 +15,7 @@ import { RUN_INCLUDE, toRunDto } from '@/lib/templates/run-dto';
 import { findHelpAnchor } from '@/lib/wiki/loader';
 import { canAccessWikiPage } from '@/lib/wiki/access';
 import type { WikiRoleKey } from '@/lib/wiki/types';
+import { lineAccountsFor } from '@/lib/ocr/account-chart';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,7 +57,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
   const items = doc.items;
   const ids = (pick: (i: (typeof items)[number]) => number | null) =>
     Array.from(new Set(items.map(pick).filter((v): v is number => v != null)));
-  const [ccRows, pjRows, psRows] = await Promise.all([
+  const [ccRows, pjRows, psRows, lineAccounts] = await Promise.all([
     ids((i) => i.softoneCostCntr).length
       ? prisma.softoneCostCenter.findMany({
         where: { costcntr: { in: ids((i) => i.softoneCostCntr) } }, select: { costcntr: true, code: true, name: true },
@@ -72,6 +73,8 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
         where: { prjcStage: { in: ids((i) => i.softonePrjcStage) } }, select: { prjcStage: true, code: true, name: true },
       })
       : Promise.resolve([]),
+    // Σε ποιον λογαριασμό γενικής θα πήγαινε κάθε αντιστοιχισμένη γραμμή — με το όνομά του.
+    lineAccountsFor(items),
   ]);
   const byId = <T,>(rows: T[], key: (r: T) => number): Record<number, string> =>
     Object.fromEntries(rows.map((r) => [key(r), `${(r as { code: string }).code} — ${(r as { name: string }).name}`]));
@@ -199,6 +202,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
             prjcStage: byId(psRows, (r) => r.prjcStage),
           },
           trdr: doc.softoneTrdr ?? null,
+          lineAccounts,
         }}
       />
     </div>

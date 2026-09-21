@@ -10,6 +10,10 @@
 import { normalizeDocRef } from '@/lib/doc-reference';
 import type { DocumentJson } from './canonical';
 import {
+  accountBlockers, accountWarnings,
+  type AccountCheck, type AccountCheckInput, type AccountPath,
+} from './account-check';
+import {
   LINES_FOR_OBJECT, POST_LINES_LABEL, SODTYPE_FOR_OBJECT,
   type PostLineTable, type PostingTarget,
 } from './posting-target';
@@ -28,6 +32,12 @@ export type PurdocLineCtx = {
   lin?: number | null;
   /** MTRTYPE της χρεοπίστωσης· η γραμμή LINLINES το απαιτεί. */
   linMtrType?: number | null;
+  /** «κωδικός — περιγραφή» της χρεοπίστωσης, για τα μηνύματα του ελέγχου λογαριασμού. */
+  linLabel?: string | null;
+  /** `MTRL.ACNMSK` της χρεοπίστωσης — ο λογαριασμός γενικής όπου θα γραφτεί η γραμμή. */
+  linAcnmsk?: string | null;
+  /** `false` = ο λογαριασμός της χρεοπίστωσης δεν έχει διαβαστεί ακόμη από τον συγχρονισμό. */
+  linAcnmskKnown?: boolean;
   isService?: boolean | null;
   /**
    * MYDATACODE του ΜΗΤΡΩΟΥ στο οποίο ταίριαξε η γραμμή. Στέλνεται μόνο εκεί όπου ο πίνακας
@@ -158,10 +168,17 @@ export type BlockerCode =
   | 'lines_no_mtrtype'
   | 'series_unknown'
   | 'series_module_unsupported'
-  | 'trader_kind_mismatch';
+  | 'trader_kind_mismatch'
+  // Έλεγχος λογαριασμού γενικής (`lib/ocr/account-check.ts`) — μόνο για γραμμές LINLINES.
+  | 'account_missing'
+  | 'account_not_in_chart'
+  | 'account_is_mask'
+  | 'account_not_postable';
 
 /** Μη-αποτρεπτικές παρατηρήσεις: φαίνονται στην προεπισκόπηση, δεν κλειδώνουν το κουμπί. */
-export type WarningCode = 'no_mydata_classification' | 'mydata_from_master';
+export type WarningCode =
+  | 'no_mydata_classification' | 'mydata_from_master'
+  | 'account_unknown' | 'account_not_covered';
 
 const num = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 const text = (v: unknown): string | undefined => {
@@ -422,6 +439,27 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
   return { OBJECT: object, KEY: '', DATA };
 }
 
+/**
+ * Η είσοδος του ελέγχου λογαριασμού: για κάθε γραμμή, ΣΕ ΠΟΙΟΝ πίνακα θα πάει. Ίδιος κανόνας με το
+ * `buildPurdocPayload` (`lineFits` / `autoTableFor`) — μια γραμμή που δεν χωράει στον στόχο δεν
+ * ελέγχεται εδώ, γιατί δεν θα σταλεί καθόλου (το λέει ήδη άλλο εμπόδιο).
+ */
+export function accountCheckInputs(ctx: Pick<PurdocContext, 'lines' | 'target'>): AccountCheckInput[] {
+  const table = ctx.target.lines;
+  return ctx.lines.map((m) => {
+    const target = table === 'AUTO' ? autoTableFor(m) : table;
+    const path: AccountPath | null = target && lineFits(target, m) ? target : null;
+    return {
+      rowIndex: m.rowIndex,
+      path,
+      article: m.linLabel ?? null,
+      acnmsk: m.linAcnmsk ?? null,
+      // Άγνωστο ΔΕΝ διαβάζεται ποτέ ως γνωστό: ένας καλών που ξέχασε το πεδίο παίρνει «άγνωστο».
+      acnmskKnown: m.linAcnmskKnown ?? false,
+    };
+  });
+}
+
 /** Ανοχή αθροίσματος γραμμών έναντι της τυπωμένης καθαρής αξίας. */
 const NET_TOLERANCE = 0.05;
 
@@ -447,6 +485,11 @@ export function postingBlockers(
   document: DocumentJson,
   doc: PostingDoc,
   ctx: Pick<PurdocContext, 'lines' | 'vatIdByRate' | 'target'>,
+  /**
+   * Το αποτέλεσμα του `checkAccounts` για τις ίδιες γραμμές. Προαιρετικό μόνο για τους παλιούς
+   * καλούντες/tests· το `post-softone.ts` το περνάει ΠΑΝΤΑ, σε προεπισκόπηση και σε καταχώριση.
+   */
+  accounts?: AccountCheck | null,
 ): BlockerCode[] {
   const out: BlockerCode[] = [];
   if (doc.status !== 'COMPLETED') out.push('not_completed');
@@ -494,6 +537,9 @@ export function postingBlockers(
     const sum = document.lines.reduce((acc, l) => acc + (l.net ?? 0), 0);
     if (Math.abs(sum - document.totals.net) > NET_TOLERANCE) out.push('totals_mismatch');
   }
+  // Κενός λογαριασμός ή λογαριασμός εκτός σχεδίου σε γραμμή LINLINES. Ένα ΑΓΝΩΣΤΟ (ασυγχρόνιστο
+  // σχέδιο) δεν είναι εμπόδιο — είναι παρατήρηση, βλ. `postingWarnings`.
+  out.push(...accountBlockers(accounts));
   return out;
 }
 
@@ -501,7 +547,10 @@ export function postingBlockers(
  * Παρατηρήσεις που ΔΕΝ εμποδίζουν: ο χρήστης πρέπει να τις δει πριν πατήσει «Καταχώριση», αλλά
  * δεν είναι λάθος του παραστατικού — είναι κατάσταση του μητρώου στο SoftOne.
  */
-export function postingWarnings(ctx: Pick<PurdocContext, 'lines' | 'target'>): WarningCode[] {
+export function postingWarnings(
+  ctx: Pick<PurdocContext, 'lines' | 'target'>,
+  accounts?: AccountCheck | null,
+): WarningCode[] {
   const out: WarningCode[] = [];
   const hasLines = ctx.lines.length > 0;
   if (hasLines && ctx.lines.some((l) => l.noClassification)) out.push('no_mydata_classification');
@@ -509,6 +558,7 @@ export function postingWarnings(ctx: Pick<PurdocContext, 'lines' | 'target'>): W
   if (hasLines && (ctx.target.lines === 'LINLINES' || ctx.target.lines === 'EXPANAL')) {
     out.push('mydata_from_master');
   }
+  out.push(...accountWarnings(accounts));
   return out;
 }
 

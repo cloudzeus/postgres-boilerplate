@@ -1899,10 +1899,39 @@ model SoftoneLineItem {
   classCategory Int?                  // CLASSCATEGORY
   myDataCode    String?               // MYDATACODE («Στοιχεία εσόδων / εξόδων»)
   myDataVprc    Int?                  // MYDATAVPRC
+  // Λογαριασμός γενικής λογιστικής της χρεοπίστωσης — `MTRL.ACNMSK` («Γενικής», editor ACNTGL).
+  // ΠΡΟΣΟΧΗ, δύο διαφορετικά «κενά»: `acnmskSyncedAt = null` σημαίνει ότι ο συγχρονισμός δεν έχει
+  // διαβάσει ΑΚΟΜΗ το πεδίο (άγνωστο), ενώ `acnmsk = null` με `acnmskSyncedAt` γεμάτο σημαίνει ότι
+  // το SoftOne το έχει ΚΕΝΟ. Το «δεν ξέρω» δεν επιτρέπεται να διαβαστεί ως «λείπει».
+  // Μπορεί να είναι ΜΑΣΚΑ με `*` (π.χ. «32.*»), όχι μόνο πλήρης κωδικός — βλ. `lib/ocr/account-check.ts`.
+  acnmsk         String?
+  acnmskSyncedAt DateTime?
 
   @@index([name])
   @@index([code])
   @@index([mtrCategory])
+}
+
+// Λογιστικό σχέδιο SoftOne — πίνακας ACNT (Γενική λογιστική). Καθρέφτης ΜΟΝΟ ΓΙΑ ΑΝΑΓΝΩΣΗ: με αυτόν
+// ο έλεγχος πριν την καταχώριση λέει ΣΕ ΠΟΙΟΝ λογαριασμό θα πάει κάθε γραμμή και αν αυτός υπάρχει.
+// Ο πελάτης έχει ΕΓΛΣ: 4 βαθμίδες, με την 4η να είναι κατάληξη συντελεστή ΦΠΑ (…0024, …0013).
+model SoftoneAccount {
+  id         Int      @id @default(autoincrement())
+  acnt       Int      @unique            // ACNT (κλειδί)
+  code       String   @unique            // CODE, π.χ. «61.02.00.0024»
+  name       String                      // NAME
+  grade      Int?                        // ACNGRADE — βαθμίδα 1..4
+  // Ο κωδικός χωρίς το τελευταίο τμήμα («61.02.00.0024» → «61.02.00»). Υπολογίζεται εδώ, δεν
+  // έρχεται από το SoftOne· κενό για πρωτοβάθμιους.
+  parentCode String?
+  sodtype    Int?                        // SODTYPE (89 γενική · 90 ομάδα 9 αναλυτικής)
+  // ACNMOVING «Κινείται»: ο λογαριασμός δέχεται εγγραφές. `null` = δεν διαβάστηκε — ΑΓΝΩΣΤΟ, ποτέ
+  // «κινείται». (Στον πελάτη ΔΕΝ υπάρχουν GLMASTER / ISFINAL — το σχέδιο είναι ACNT, η σημαία ACNMOVING.)
+  postable   Boolean?
+  isActive   Boolean  @default(true)
+  syncedAt   DateTime @default(now())
+
+  @@index([parentCode])
 }
 
 // Κατηγορίες δαπανών SoftOne — object LINCATEGORY (EditMaster «Κατηγορίες δαπανών») → πίνακας
