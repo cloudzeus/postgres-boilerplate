@@ -23,9 +23,12 @@
 // ── Η ΛΕΞΗ «ΜΑΣΚΑ» ─────────────────────────────────────────────────────────────────────────────
 // Το SoftOne λέει το πεδίο ACNMSK — mask. Από τις 362 γεμάτες χρεοπιστώσεις του πελάτη, οι 355 είναι
 // πλήρεις κωδικοί και οι 7 ΜΟΤΙΒΑ: «32.*» (×5), «32*» (×1), «65.90*» (×1). Σύνταξη: το `*` ταιριάζει
-// με οποιαδήποτε ακολουθία χαρακτήρων (και τελείες), όλα τα άλλα κατά γράμμα. Μοτίβο που ταιριάζει
-// με τουλάχιστον έναν λογαριασμό του σχεδίου ΔΕΝ εμποδίζει — αλλά δεν είναι λογαριασμός: φαίνεται
-// ως παρατήρηση, με τους λογαριασμούς που καλύπτει.
+// με οποιαδήποτε ακολουθία χαρακτήρων (και τελείες), όλα τα άλλα κατά γράμμα.
+// Μια μάσκα ΕΜΠΟΔΙΖΕΙ (`account_is_mask`): η γέφυρα χρεώνει `[LMTL8]` αυτούσιο και εμείς δεν στέλνουμε
+// λογαριασμό στη γραμμή, άρα η γραμμή θα κουβαλούσε το κείμενο «32.*» στην ενημέρωση λογιστικής — που
+// δεν είναι λογαριασμός. Στο SoftOne μάσκα στο άρθρο σημαίνει «διάλεξε συγκεκριμένο λογαριασμό μέσα στο
+// μοτίβο σε κάθε γραμμή»· η εφαρμογή δεν κάνει ακόμη αυτή την επιλογή, οπότε αρνείται και δείχνει τους
+// υποψήφιους λογαριασμούς (προτάσεις, όχι επιλογή).
 //
 // ── ΤΙ ΔΕΝ ΚΑΝΕΙ, ΣΚΟΠΙΜΑ ──────────────────────────────────────────────────────────────────────
 // Δεν συγκρίνει την περιγραφή της χρεοπίστωσης με την περιγραφή του λογαριασμού. Ο πελάτης έχει δύο
@@ -66,8 +69,8 @@ export type AccountCheckInput = {
 export type AccountStatus =
   /** Ο λογαριασμός υπάρχει στο σχέδιο — φαίνεται με το όνομά του. */
   | 'ok'
-  /** Μοτίβο (με `*`) που καλύπτει τουλάχιστον έναν λογαριασμό. Δεν εμποδίζει. */
-  | 'pattern'
+  /** Μάσκα (με `*`) αντί για λογαριασμό — ΕΜΠΟΔΙΟ, με τους υποψήφιους λογαριασμούς. */
+  | 'mask'
   /** Κενός λογαριασμός — ΕΜΠΟΔΙΟ. */
   | 'missing'
   /** Λογαριασμός (ή μοτίβο) που δεν υπάρχει στο σχέδιο — ΕΜΠΟΔΙΟ. */
@@ -93,7 +96,7 @@ export type AccountCheckLine = {
   parent: ChartAccount | null;
   /** `not_in_chart` με γονικό: οι λογαριασμοί κάτω από αυτόν — ΠΡΟΤΑΣΕΙΣ, όχι επιλογή. */
   siblings: ChartAccount[];
-  /** `pattern`: οι λογαριασμοί που καλύπτει (το πολύ `MAX_LISTED`) και πόσοι είναι συνολικά. */
+  /** `mask`: οι λογαριασμοί που καλύπτει (το πολύ `MAX_LISTED`) και πόσοι είναι συνολικά. */
   matches: ChartAccount[];
   matchCount: number;
   article: string | null;
@@ -222,20 +225,16 @@ export function checkAccounts(lines: readonly AccountCheckInput[], chart: Accoun
     if (isPattern(mask)) {
       const re = patternRegex(mask);
       const matches = all.filter((a) => re.test(a.code)).sort(byCode);
-      if (matches.length === 0) {
-        out.push({
-          ...base, status: 'not_in_chart', account: mask,
-          message: `${who}: η μάσκα λογαριασμού ${mask} δεν ταιριάζει με κανέναν λογαριασμό του λογιστικού σχεδίου`,
-        });
-      } else {
-        out.push({
-          ...base, status: 'pattern', account: mask,
-          matches: matches.slice(0, MAX_LISTED), matchCount: matches.length,
-          message: `${who}: η χρεοπίστωση έχει ΜΑΣΚΑ λογαριασμού ${mask}, όχι λογαριασμό — καλύπτει `
-            + `${matches.length === 1 ? 'τον' : `${matches.length} λογαριασμούς:`} ${listed(matches)}. `
-            + 'Βεβαιώσου στο SoftOne σε ποιον θα καταλήξει η γραμμή',
-        });
-      }
+      out.push({
+        ...base, status: 'mask', account: mask,
+        matches: matches.slice(0, MAX_LISTED), matchCount: matches.length,
+        message: `${who}: η χρεοπίστωση έχει ΜΑΣΚΑ λογαριασμού ${mask}, όχι λογαριασμό — η γραμμή θα έφτανε `
+          + 'στη λογιστική με αυτό το κείμενο αντί για λογαριασμό. '
+          + (matches.length
+            ? `Υποψήφιοι λογαριασμοί (${matches.length}): ${listed(matches)}. `
+            : 'Η μάσκα δεν ταιριάζει με κανέναν λογαριασμό του σχεδίου. ')
+          + 'Ο λογιστής να ορίσει συγκεκριμένο λογαριασμό στην καρτέλα της χρεοπίστωσης στο SoftOne',
+      });
       continue;
     }
 
@@ -274,15 +273,16 @@ export function checkAccounts(lines: readonly AccountCheckInput[], chart: Accoun
 }
 
 /** Οι κωδικοί εμποδίων που παράγει ο έλεγχος — ίδια ονόματα με το `BlockerCode`. */
-export type AccountBlockerCode = 'account_missing' | 'account_not_in_chart';
+export type AccountBlockerCode = 'account_missing' | 'account_not_in_chart' | 'account_is_mask';
 /** Οι παρατηρήσεις του ελέγχου — ίδια ονόματα με το `WarningCode`. */
-export type AccountWarningCode = 'account_unknown' | 'account_pattern' | 'account_not_covered';
+export type AccountWarningCode = 'account_unknown' | 'account_not_covered';
 
 export function accountBlockers(check: AccountCheck | null | undefined): AccountBlockerCode[] {
   if (!check) return [];
   const out: AccountBlockerCode[] = [];
   if (check.lines.some((l) => l.status === 'missing')) out.push('account_missing');
   if (check.lines.some((l) => l.status === 'not_in_chart')) out.push('account_not_in_chart');
+  if (check.lines.some((l) => l.status === 'mask')) out.push('account_is_mask');
   return out;
 }
 
@@ -290,7 +290,6 @@ export function accountWarnings(check: AccountCheck | null | undefined): Account
   if (!check) return [];
   const out: AccountWarningCode[] = [];
   if (check.lines.some((l) => l.status === 'unknown')) out.push('account_unknown');
-  if (check.lines.some((l) => l.status === 'pattern')) out.push('account_pattern');
   if (check.lines.some((l) => l.status === 'not_covered')) out.push('account_not_covered');
   return out;
 }
@@ -298,8 +297,8 @@ export function accountWarnings(check: AccountCheck | null | undefined): Account
 const STATUSES_FOR: Record<AccountBlockerCode | AccountWarningCode, AccountStatus[]> = {
   account_missing: ['missing'],
   account_not_in_chart: ['not_in_chart'],
+  account_is_mask: ['mask'],
   account_unknown: ['unknown'],
-  account_pattern: ['pattern'],
   account_not_covered: ['not_covered'],
 };
 

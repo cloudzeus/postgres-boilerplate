@@ -171,12 +171,13 @@ export type BlockerCode =
   | 'trader_kind_mismatch'
   // Έλεγχος λογαριασμού γενικής (`lib/ocr/account-check.ts`) — μόνο για γραμμές LINLINES.
   | 'account_missing'
-  | 'account_not_in_chart';
+  | 'account_not_in_chart'
+  | 'account_is_mask';
 
 /** Μη-αποτρεπτικές παρατηρήσεις: φαίνονται στην προεπισκόπηση, δεν κλειδώνουν το κουμπί. */
 export type WarningCode =
   | 'no_mydata_classification' | 'mydata_from_master'
-  | 'account_unknown' | 'account_pattern' | 'account_not_covered';
+  | 'account_unknown' | 'account_not_covered';
 
 const num = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 const text = (v: unknown): string | undefined => {

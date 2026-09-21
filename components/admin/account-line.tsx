@@ -4,7 +4,7 @@
 //
 // Ο λογαριασμός που ΥΠΑΡΧΕΙ δείχνεται πάντα με το όνομά του στο σχέδιο: έτσι ένα «Ύδρευση →
 // Έξοδα εκθέσεων» γίνεται ορατό στον άνθρωπο — η εφαρμογή δεν μαντεύει αν το νόημα ταιριάζει.
-import { FiAlertTriangle, FiBookOpen, FiHelpCircle, FiXCircle } from 'react-icons/fi';
+import { FiBookOpen, FiHelpCircle, FiXCircle } from 'react-icons/fi';
 import type { AccountCheckLine } from '@/lib/ocr/account-check';
 
 const RED = '#B91C1C';
@@ -26,16 +26,20 @@ export function AccountLine({ line, compact = false }: { line: AccountCheckLine;
           </span>
         </p>
       );
-    case 'pattern':
+    case 'mask':
       return (
-        <p className={wrap} style={{ color: AMBER }}>
-          <FiAlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
-          <span>
-            Μάσκα λογ/σμού {code} — καλύπτει {line.matchCount === 1 ? 'τον' : `${line.matchCount} λογαριασμούς:`}{' '}
-            {line.matches.slice(0, compact ? 2 : line.matches.length).map((m) => `${m.code} «${m.name}»`).join(', ')}
-            {compact && line.matchCount > 2 ? ` και άλλοι ${line.matchCount - 2}` : ''}
-          </span>
-        </p>
+        <div className={wrap} style={{ color: RED }}>
+          <FiXCircle className="mt-0.5 size-3 shrink-0" aria-hidden />
+          <div>
+            <span>Μάσκα λογ/σμού {code} αντί για λογαριασμό — δεν καταχωρείται</span>
+            <span className="block text-muted-foreground">
+              {line.matchCount === 0
+                ? 'Δεν ταιριάζει με κανέναν λογαριασμό του σχεδίου'
+                : <>Υποψήφιοι ({line.matchCount}): {line.matches.slice(0, compact ? 3 : line.matches.length).map((m) => `${m.code} «${m.name}»`).join(', ')}
+                  {line.matchCount > (compact ? 3 : line.matches.length) ? ` και άλλοι ${line.matchCount - (compact ? 3 : line.matches.length)}` : ''}</>}
+            </span>
+          </div>
+        </div>
       );
     case 'missing':
       return (

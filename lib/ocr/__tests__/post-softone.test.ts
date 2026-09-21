@@ -274,6 +274,21 @@ describe('postingPreview (dry-run)', () => {
       expect(preview.accounts.lines[0]).toMatchObject({ status: 'ok', accountName: 'Προμήθειες τρίτων 24%' });
     });
 
+    it('μάσκα ⇒ εμπόδιο account_is_mask με τους υποψήφιους στο μήνυμα', async () => {
+      armLin('32.*');
+      db.softoneAccount.count.mockResolvedValue(5203);
+      db.softoneAccount.findMany.mockResolvedValue([
+        { code: '32.00', name: 'Παραγγελίες πάγιων στοιχείων', isActive: true },
+        { code: '32.01', name: 'Παραγγελίες κυκλοφορούντων στοιχείων', isActive: true },
+      ]);
+      const preview = await postingPreview('d1');
+      const b = preview.blockers.find((x) => x.code === 'account_is_mask');
+      expect(b?.message).toContain('Υποψήφιοι λογαριασμοί (2): 32.00 «Παραγγελίες πάγιων στοιχείων»');
+      expect(preview.warnings.map((w) => w.code)).not.toContain('account_is_mask');
+      // Το ερώτημα στενεύει με το πρόθεμα της μάσκας, δεν φορτώνει όλο το σχέδιο.
+      expect(db.softoneAccount.findMany.mock.calls[0][0].where.OR).toContainEqual({ code: { startsWith: '32.' } });
+    });
+
     it('ασυγχρόνιστο σχέδιο ⇒ ΜΙΑ παρατήρηση «δεν έχει συγχρονιστεί», κανένα εμπόδιο', async () => {
       armLin('61.02.00.0001');
       const preview = await postingPreview('d1');

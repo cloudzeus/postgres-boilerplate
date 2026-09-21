@@ -55,6 +55,7 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   trader_kind_mismatch: 'Ο συναλλασσόμενος δεν είναι του τύπου που δέχεται το παραστατικό — άλλαξέ τον από «Νέοι συναλλασσόμενοι» ή διάλεξε άλλη σειρά',
   account_missing: 'Χρεοπίστωση χωρίς λογαριασμό γενικής λογιστικής — η λογιστική εγγραφή δεν θα είχε πού να πάει',
   account_not_in_chart: 'Ο λογαριασμός γενικής της χρεοπίστωσης δεν υπάρχει στο λογιστικό σχέδιο του SoftOne',
+  account_is_mask: 'Η χρεοπίστωση έχει μάσκα λογαριασμού (με *) αντί για συγκεκριμένο λογαριασμό γενικής — η εφαρμογή δεν μπορεί ακόμη να διαλέξει λογαριασμό μέσα στη μάσκα',
   posting_disabled: 'Η καταχώριση είναι απενεργοποιημένη (Ρυθμίσεις → Διασυνδέσεις)',
   already_posted: 'Έχει ήδη καταχωριστεί στο SoftOne',
 };
@@ -69,7 +70,6 @@ export const POST_WARNING_TEXT: Record<WarningCode, string> = {
   mydata_from_master: 'Ο πίνακας γραμμών δεν έχει πεδίο χαρακτηρισμού: ο χαρακτηρισμός myDATA θα προκύψει από το μητρώο του κάθε κωδικού',
   // Το ίδιο μήνυμα και για τις δύο αιτίες «δεν ξέρω» — το `accountWarningText` το εξειδικεύει.
   account_unknown: 'Ο έλεγχος λογαριασμού γενικής δεν μπόρεσε να κρίνει — ούτε εγκρίνει ούτε εμποδίζει',
-  account_pattern: 'Χρεοπίστωση με ΜΑΣΚΑ λογαριασμού (με *) αντί για λογαριασμό — βεβαιώσου σε ποιον θα καταλήξει',
   account_not_covered: 'Ο έλεγχος λογαριασμού γενικής δεν καλύπτει ακόμη γραμμές ειδών, υπηρεσιών και εξόδων — ο λογαριασμός τους συντίθεται στο SoftOne',
 };
 
@@ -81,7 +81,7 @@ export const ACCOUNT_CHART_NOT_SYNCED = 'Το λογιστικό σχέδιο δ
  * λογαριασμού: ο λογιστής πρέπει να δει ΠΟΙΑ χρεοπίστωση και ΠΟΙΟΝ λογαριασμό, όχι μια γενική φράση.
  */
 export function blockerMessage(code: BlockerCode, accounts: AccountCheck | null): string {
-  if (code === 'account_missing' || code === 'account_not_in_chart') {
+  if (code === 'account_missing' || code === 'account_not_in_chart' || code === 'account_is_mask') {
     const details = accountDetails(code, accounts);
     return details.length ? `${POST_ERROR_TEXT[code]}: ${details.join(' · ')}` : POST_ERROR_TEXT[code];
   }
@@ -92,10 +92,6 @@ export function warningMessage(code: WarningCode, accounts: AccountCheck | null)
   if (code === 'account_unknown') {
     // Ασυγχρόνιστο σχέδιο: μία πρόταση. ΔΕΝ απαριθμούμε κάθε γραμμή ως «λείπει».
     if (accounts && !accounts.chartSynced) return ACCOUNT_CHART_NOT_SYNCED;
-    const details = accountDetails(code, accounts);
-    return details.length ? details.join(' · ') : POST_WARNING_TEXT[code];
-  }
-  if (code === 'account_pattern') {
     const details = accountDetails(code, accounts);
     return details.length ? details.join(' · ') : POST_WARNING_TEXT[code];
   }

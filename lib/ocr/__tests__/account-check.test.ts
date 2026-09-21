@@ -86,6 +86,7 @@ describe('checkAccounts — γραμμές LINLINES', () => {
       lin({ rowIndex: 1, acnmsk: '61.02.00.0001' }),
       lin({ rowIndex: 2, acnmsk: '32.*' }),
     ];
+    // Ακόμη και η μάσκα μένει «άγνωστο» εδώ: χωρίς σχέδιο δεν έχουμε υποψήφιους να δείξουμε.
     const r = checkAccounts(lines, { synced: false, accounts: [] });
     expect(r.chartSynced).toBe(false);
     expect(r.lines.map((l) => l.status)).toEqual(['unknown', 'unknown', 'unknown']);
@@ -109,12 +110,15 @@ describe('checkAccounts — γραμμές LINLINES', () => {
     expect(accountWarnings(r)).toEqual(['account_unknown']);
   });
 
-  it('μάσκα με `*` που ταιριάζει ⇒ pattern: παρατήρηση με τους λογαριασμούς, όχι εμπόδιο', () => {
-    const r = checkAccounts([lin({ acnmsk: '32.*' })], CHART);
-    expect(r.lines[0]).toMatchObject({ status: 'pattern', matchCount: 1 });
+  it('μάσκα με `*` ⇒ ΕΜΠΟΔΙΟ account_is_mask, με τους υποψήφιους λογαριασμούς ως προτάσεις', () => {
+    // Η γέφυρα χρεώνει τον λογαριασμό της γραμμής αυτούσιο: «32.*» θα έφτανε στη λογιστική ως κείμενο.
+    const r = checkAccounts([lin({ acnmsk: '32.*', article: '10000 — Εκτελωνιστικά' })], CHART);
+    expect(r.lines[0]).toMatchObject({ status: 'mask', account: '32.*', matchCount: 1, accountName: null });
     expect(r.lines[0].matches.map((m) => m.code)).toEqual(['32.00']);
-    expect(accountBlockers(r)).toEqual([]);
-    expect(accountWarnings(r)).toEqual(['account_pattern']);
+    expect(r.lines[0].message).toContain('Υποψήφιοι λογαριασμοί (1): 32.00 «Προκαταβολές σε προμηθευτές»');
+    expect(accountBlockers(r)).toEqual(['account_is_mask']);
+    expect(accountWarnings(r)).toEqual([]);
+    expect(accountDetails('account_is_mask', r)).toHaveLength(1);
   });
 
   it('μάσκα χωρίς τελεία («32*») πιάνει και τον ίδιο τον πρωτοβάθμιο', () => {
@@ -122,10 +126,11 @@ describe('checkAccounts — γραμμές LINLINES', () => {
     expect(r.lines[0].matches.map((m) => m.code)).toEqual(['32', '32.00']);
   });
 
-  it('μάσκα που δεν ταιριάζει με τίποτα ⇒ εμπόδιο', () => {
+  it('μάσκα που δεν ταιριάζει με τίποτα ⇒ επίσης account_is_mask, χωρίς υποψήφιους', () => {
     const r = checkAccounts([lin({ acnmsk: '65.90*' })], CHART);
-    expect(r.lines[0].status).toBe('not_in_chart');
-    expect(accountBlockers(r)).toEqual(['account_not_in_chart']);
+    expect(r.lines[0]).toMatchObject({ status: 'mask', matchCount: 0, matches: [] });
+    expect(r.lines[0].message).toMatch(/δεν ταιριάζει με κανέναν λογαριασμό/);
+    expect(accountBlockers(r)).toEqual(['account_is_mask']);
   });
 
   it('δεν συγκρίνει περιγραφές: «Μεταφορικά εμπορευμάτων» σε λογαριασμό άλλου νοήματος περνά — και φαίνεται', () => {
@@ -198,6 +203,13 @@ const linCtx = (over: Partial<PurdocLineCtx> = {}) => ({
 });
 
 describe('postingBlockers / postingWarnings με τον έλεγχο λογαριασμού', () => {
+  it('μάσκα ⇒ account_is_mask στα εμπόδια, όχι στις παρατηρήσεις', () => {
+    const c = linCtx({ linAcnmsk: '32.*' });
+    const acc = checkAccounts(accountCheckInputs(c), CHART);
+    expect(postingBlockers(doc(), postingDoc, c, acc)).toEqual(['account_is_mask']);
+    expect(postingWarnings(c, acc)).not.toContain('account_is_mask');
+  });
+
   it('ο λογαριασμός υπάρχει ⇒ κανένα εμπόδιο', () => {
     const c = linCtx();
     const acc = checkAccounts(accountCheckInputs(c), CHART);
