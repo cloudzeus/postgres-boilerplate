@@ -2,6 +2,7 @@ import { FiUsers } from 'react-icons/fi';
 import { requirePermission, hasPermission } from '@/lib/rbac';
 import { loadTraderQueue, loadTraderCodeSamples } from '@/lib/ocr/queues';
 import { softoneFetchTaxOffices } from '@/lib/softone';
+import type { TaxOffice } from '@/lib/tax-office';
 import { PageHeader } from '@/components/admin/page-header';
 import { NewTradersClient } from './queue-client';
 
@@ -19,7 +20,7 @@ export default async function NewTradersPage() {
     loadTraderQueue({ includeIgnored: true }),
     hasPermission('ocr.categorize'),
     // Best-effort: χωρίς SoftOne η σελίδα δουλεύει, απλώς το πεδίο Δ.Ο.Υ. μένει κενό.
-    softoneFetchTaxOffices().catch(() => [] as { code: string; name: string }[]),
+    softoneFetchTaxOffices().catch(() => [] as TaxOffice[]),
     // Υπάρχοντες κωδικοί ανά τύπο (τοπικός καθρέφτης) — δείχνονται ως ΠΑΡΑΔΕΙΓΜΑ
     // στο πεδίο «Κωδικός». Καμία πρόταση, κανένα prefill.
     loadTraderCodeSamples(),

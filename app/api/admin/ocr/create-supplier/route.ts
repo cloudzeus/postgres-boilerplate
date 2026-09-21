@@ -19,7 +19,8 @@ export async function POST(req: Request) {
   const supInput = {
     name, afm,
     code: b?.code || null,
-    doyCode: b?.doyCode || null,
+    // Το ΚΛΕΙΔΙ IRSDATA της Δ.Ο.Υ. (από το `softoneDoy.office.key` του preview) → TRDR.IRSDATA.
+    irsData: b?.irsData || null,
     profession: b?.profession || null,
     address: b?.address || null,
     zip: b?.zip || null,

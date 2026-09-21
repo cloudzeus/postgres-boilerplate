@@ -1,13 +1,17 @@
 import { NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/rbac';
-import { softoneFetchTaxOffices, matchTaxOffice } from '@/lib/softone';
+import { softoneFetchTaxOffices } from '@/lib/softone';
 import { parseAfm2Info } from '@/lib/aade-parse';
+import {
+  resolveTaxOffice, toTaxOfficeMapping, UNAVAILABLE_TAX_OFFICE_MAPPING, type TaxOfficeMapping,
+} from '@/lib/tax-office';
 
 export const runtime = 'nodejs';
 
 // Builds a SoftOne-ready supplier preview from a ΑΦΜ: pulls the authoritative
-// fields from AADE (afm2info) and resolves the Δ.Ο.Υ. description to a SoftOne
-// IRSDATA code. The UI shows this for confirmation before writing.
+// fields from AADE (afm2info) and resolves the AADE Δ.Ο.Υ. CODE (`doyCode`) to the
+// SoftOne IRSDATA row whose `CODE` is equal (`softoneDoy`). No match ⇒ `softoneDoy.office`
+// is null with a visible Greek `note` — never a guess. The UI shows this before writing.
 // POST { afm }
 export async function POST(req: Request) {
   await requirePermission('ocr.categorize');
@@ -33,12 +37,13 @@ export async function POST(req: Request) {
   const rec = parseAfm2Info(raw);
   if (!rec) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
-  // 2) Δ.Ο.Υ. description → SoftOne IRSDATA code (best-effort; null when no match)
-  let doyCode: string | null = null;
+  // 2) Κωδικός Δ.Ο.Υ. ΑΑΔΕ → γραμμή IRSDATA με ίδιο CODE (ακριβώς). Αν το μητρώο του SoftOne δεν
+  //    διαβαστεί, η απάντηση λέει «unavailable» — όχι «δεν υπάρχει».
+  let softoneDoy: TaxOfficeMapping = UNAVAILABLE_TAX_OFFICE_MAPPING;
   try {
     const offices = await softoneFetchTaxOffices();
-    doyCode = matchTaxOffice(rec.doyDescr, offices);
-  } catch { /* leave null — supplier is still created without Δ.Ο.Υ. */ }
+    softoneDoy = toTaxOfficeMapping(resolveTaxOffice({ code: rec.doyCode, descr: rec.doyDescr }, offices));
+  } catch { /* unavailable — ο συναλλασσόμενος δημιουργείται και χωρίς Δ.Ο.Υ. */ }
 
-  return NextResponse.json({ ...rec, doyCode });
+  return NextResponse.json({ ...rec, softoneDoy });
 }

@@ -7,7 +7,7 @@ import { parseAfmParam, vatCountry } from '@/lib/ocr/validate';
 import { applyVatPrefix } from '@/lib/ocr/vat-prefix';
 import { applyTraderToDocs, TRADER_KIND_LABEL } from '@/lib/ocr/queues';
 import {
-  buildTraderPayload, softoneCreateTrader, softoneFetchCountries, softoneNextTraderCode,
+  buildTraderPayload, softoneCreateTrader, softoneFetchCountries, softoneFetchTaxOffices, softoneNextTraderCode,
   matchCountryId, isMissingCodeError, isDuplicateCodeError, clearTraderCodeCache,
   TRADER_KIND_SODTYPE, type SoftoneCountry,
 } from '@/lib/softone';
@@ -21,7 +21,11 @@ const Body = z.object({
   kind: z.enum(['supplier', 'creditor', 'debtor']),
   name: z.string().trim().min(1, 'Η επωνυμία είναι υποχρεωτική').max(200),
   code: z.string().trim().max(30).nullable().optional(),
-  doyCode: z.string().trim().max(20).nullable().optional(),
+  /**
+   * Δ.Ο.Υ. → `TRDR.IRSDATA`: το ΚΛΕΙΔΙ `IRSDATA.IRSDATA` της γραμμής του μητρώου Δ.Ο.Υ. του SoftOne
+   * (όχι ο κωδικός ΑΑΔΕ, όχι ονομασία). Ελέγχεται παρακάτω ότι υπάρχει και είναι ενεργή.
+   */
+  irsData: z.string().trim().max(20).nullable().optional(),
   profession: z.string().trim().max(200).nullable().optional(),
   address: z.string().trim().max(200).nullable().optional(),
   zip: z.string().trim().max(20).nullable().optional(),
@@ -60,7 +64,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
     name: b.name,
     afm: vatId,
     code: b.code ?? null,
-    doyCode: b.doyCode ?? null,
+    irsData: b.irsData ?? null,
     profession: b.profession ?? null,
     address: b.address ?? null,
     zip: b.zip ?? null,
@@ -73,6 +77,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
     latitude: b.latitude ?? null,
     longitude: b.longitude ?? null,
   };
+
+  // Η Δ.Ο.Υ. που στέλνει ο client πρέπει να είναι ΥΠΑΡΚΤΗ, ΕΝΕΡΓΗ γραμμή του IRSDATA: ποτέ μια τιμή
+  // που «μοιάζει» (π.χ. ο κωδικός ΑΑΔΕ μιας Δ.Ο.Υ. που το SoftOne δεν έχει). Αν το μητρώο δεν
+  // διαβαστεί, δεν μπλοκάρουμε — η τιμή προήλθε από λίστα που διαβάστηκε από το ίδιο το SoftOne.
+  if (input.irsData) {
+    const offices = await softoneFetchTaxOffices().catch(() => null);
+    if (offices) {
+      const hit = offices.find((o) => o.key === input.irsData);
+      if (!hit || !hit.isActive) {
+        return NextResponse.json({
+          error: 'invalid_doy', field: 'irsData',
+          message: hit
+            ? `Η Δ.Ο.Υ. ${hit.name} (κωδ. ${hit.code}) είναι ανενεργή στο μητρώο Δ.Ο.Υ. του SoftOne.`
+            : `Η Δ.Ο.Υ. με κλειδί ${input.irsData} δεν υπάρχει στο μητρώο Δ.Ο.Υ. του SoftOne.`,
+        }, { status: 422 });
+      }
+    }
+  }
 
   // Το μητρώο χωρών φορτώνεται ΜΙΑ φορά ανά αίτημα (cached 24h μέσα στη διεργασία).
   // Χωρίς αυτό ο συναλλασσόμενος δημιουργείται κανονικά, απλώς χωρίς `COUNTRY`.
@@ -129,7 +151,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
   // Τηλέφωνο/email γράφονται και στο SoftOne (PHONE01/EMAIL) και εδώ.
   const mirror = {
     code, name: b.name, afm: vatId, sodtype, kind, isActive: true,
-    doy: b.doyCode ?? null, profession: b.profession ?? null,
+    doy: b.irsData ?? null, profession: b.profession ?? null,
     address: b.address ?? null, zip: b.zip ?? null, city: b.city ?? null,
     phone: b.phone ?? null, email: b.email ?? null,
   };
