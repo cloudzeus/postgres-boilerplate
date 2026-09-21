@@ -34,12 +34,19 @@ export function AccountLine({ line, compact = false }: { line: AccountCheckLine;
             <span>Μάσκα λογ/σμού {code} αντί για λογαριασμό — δεν καταχωρείται</span>
             <span className="block text-muted-foreground">
               {line.matchCount === 0
-                ? 'Δεν ταιριάζει με κανέναν λογαριασμό του σχεδίου'
+                ? 'Κανένας κινούμενος λογαριασμός δεν ταιριάζει στη μάσκα'
                 : <>Υποψήφιοι ({line.matchCount}): {line.matches.slice(0, compact ? 3 : line.matches.length).map((m) => `${m.code} «${m.name}»`).join(', ')}
                   {line.matchCount > (compact ? 3 : line.matches.length) ? ` και άλλοι ${line.matchCount - (compact ? 3 : line.matches.length)}` : ''}</>}
             </span>
           </div>
         </div>
+      );
+    case 'not_postable':
+      return (
+        <p className={wrap} style={{ color: RED }}>
+          <FiXCircle className="mt-0.5 size-3 shrink-0" aria-hidden />
+          <span>Λογ/σμός {code} — {line.accountName}: συγκεντρωτικός λογαριασμός, δεν δέχεται εγγραφές</span>
+        </p>
       );
     case 'missing':
       return (
@@ -72,9 +79,12 @@ export function AccountLine({ line, compact = false }: { line: AccountCheckLine;
           <FiHelpCircle className="mt-0.5 size-3 shrink-0" aria-hidden />
           <span>
             {line.account ? <>Λογ/σμός {code} · </> : null}
+            {line.accountName ? <>{line.accountName} · </> : null}
             {line.unknownReason === 'chart_not_synced'
               ? 'το λογιστικό σχέδιο δεν έχει συγχρονιστεί'
-              : 'ο λογαριασμός της χρεοπίστωσης δεν έχει διαβαστεί — συγχρόνισε τις χρεοπιστώσεις'}
+              : line.unknownReason === 'postability_unknown'
+                ? 'δεν ξέρουμε αν δέχεται εγγραφές — συγχρόνισε το λογιστικό σχέδιο'
+                : 'ο λογαριασμός της χρεοπίστωσης δεν έχει διαβαστεί — συγχρόνισε τις χρεοπιστώσεις'}
           </span>
         </p>
       );

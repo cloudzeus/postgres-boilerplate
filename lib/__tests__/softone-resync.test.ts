@@ -19,7 +19,7 @@ const { db, s1, errs, settings, audit, rbac } = vi.hoisted(() => {
     purchaseDocType: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
     softoneDocSeries: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
     softoneLineItem: { findMany: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
-    softoneAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
+    softoneAccount: { deleteMany: vi.fn(), createMany: vi.fn(), count: vi.fn() },
     softoneLineCategory: { findMany: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
     softoneMyDataClassType: { findMany: vi.fn(), upsert: vi.fn() },
     softoneMyDataClassCategory: { findMany: vi.fn(), upsert: vi.fn() },
@@ -84,8 +84,8 @@ function happyPath() {
   s1.softoneFetchDocSeries.mockResolvedValue([{ sosource: 1653, family: 'Πιστωτές', code: '7001', abbrev: 'ΠΙ', name: 'Πιστωτής', section: 'Πιστωτές' }]);
   s1.softoneFetchLineItems.mockResolvedValue([{ mtrl: 777, code: 'ΧΡ01', name: 'ΕΝΟΙΚΙΑ', vat: '1', mtrType: 0, mtrCategory: 5, classType: null, classCategory: null, myDataCode: null, myDataVprc: null, acnmsk: '62.04.00.0024', isActive: true }]);
   s1.softoneFetchAccounts.mockResolvedValue([
-    { acnt: 1, code: '62', name: 'ΠΑΡΟΧΕΣ ΤΡΙΤΩΝ', grade: 1, sodtype: 89, isActive: true },
-    { acnt: 2, code: '62.04.00.0024', name: 'Ενοίκια 24%', grade: 4, sodtype: 89, isActive: true },
+    { acnt: 1, code: '62', name: 'ΠΑΡΟΧΕΣ ΤΡΙΤΩΝ', grade: 1, sodtype: 89, isActive: true, postable: false },
+    { acnt: 2, code: '62.04.00.0024', name: 'Ενοίκια 24%', grade: 4, sodtype: 89, isActive: true, postable: true },
   ]);
   s1.softoneFetchLineCategories.mockResolvedValue({ rows: [{ mtrCategory: 5, code: 'ΛΕΙΤ', name: 'ΛΕΙΤΟΥΡΓΙΚΑ', vat: null, acnmsk: null, isActive: true }], filtered: true });
   s1.softoneFetchMyDataClassTypes.mockResolvedValue([{ sotype: 1, code: 1, myDataCode: 'category2_1', sohCode: null, name: 'Αγορές', isVat: false }]);
@@ -159,6 +159,7 @@ beforeEach(() => {
   db.softoneLookup.groupBy.mockResolvedValue([]);
   db.softoneItem.createMany.mockResolvedValue({ count: 1 });
   db.softoneTrader.createMany.mockResolvedValue({ count: 1 });
+  db.softoneAccount.count.mockResolvedValue(0);
   db.softoneAccount.createMany.mockImplementation(async ({ data }: { data: unknown[] }) => ({ count: data.length }));
   happyPath();
 });
@@ -742,10 +743,26 @@ describe('λογιστικό σχέδιο — ο καθρέφτης δεν αδ�
     expect(db.softoneAccount.deleteMany).toHaveBeenCalledTimes(1);
     const rows = db.softoneAccount.createMany.mock.calls[0][0].data;
     expect(rows).toEqual([
-      expect.objectContaining({ code: '62', parentCode: null, grade: 1 }),
-      expect.objectContaining({ code: '62.04.00.0024', parentCode: '62.04.00', name: 'Ενοίκια 24%' }),
+      expect.objectContaining({ code: '62', parentCode: null, grade: 1, postable: false }),
+      expect.objectContaining({ code: '62.04.00.0024', parentCode: '62.04.00', name: 'Ενοίκια 24%', postable: true }),
     ]);
     expect(settings.setSetting).toHaveBeenCalledWith('integrations.softoneAccountsLastSync', expect.any(String), ACTOR.id);
+  });
+
+  it('ΚΟΝΤΗ απάντηση (2 λογαριασμοί ενώ ο καθρέφτης έχει 5.203) ⇒ αποτυχία, ο καθρέφτης μένει', async () => {
+    db.softoneAccount.count.mockResolvedValue(5203);
+    const report = await resyncAllSoftone(ACTOR, { only: ['accounts'] });
+    expect(report.results[0]).toMatchObject({ ok: false, errorSource: 'softone' });
+    expect(report.results[0].error).toMatch(/2 λογαριασμούς ενώ το αντίγραφο έχει 5203/);
+    expect(db.softoneAccount.deleteMany).not.toHaveBeenCalled();
+    expect(db.softoneAccount.createMany).not.toHaveBeenCalled();
+    expect(settings.setSetting).not.toHaveBeenCalled();
+  });
+
+  it('κανονική διακύμανση (π.χ. 4 → 2 = ακριβώς το όριο 50%) περνάει', async () => {
+    db.softoneAccount.count.mockResolvedValue(4);
+    const report = await resyncAllSoftone(ACTOR, { only: ['accounts'] });
+    expect(report.results[0]).toMatchObject({ ok: true, created: 2 });
   });
 
   it('διπλός κωδικός ⇒ κρατιέται ο πρώτος, ο δεύτερος μετράει ως skipped', async () => {

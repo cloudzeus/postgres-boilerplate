@@ -172,7 +172,8 @@ export type BlockerCode =
   // Έλεγχος λογαριασμού γενικής (`lib/ocr/account-check.ts`) — μόνο για γραμμές LINLINES.
   | 'account_missing'
   | 'account_not_in_chart'
-  | 'account_is_mask';
+  | 'account_is_mask'
+  | 'account_not_postable';
 
 /** Μη-αποτρεπτικές παρατηρήσεις: φαίνονται στην προεπισκόπηση, δεν κλειδώνουν το κουμπί. */
 export type WarningCode =
@@ -453,7 +454,8 @@ export function accountCheckInputs(ctx: Pick<PurdocContext, 'lines' | 'target'>)
       path,
       article: m.linLabel ?? null,
       acnmsk: m.linAcnmsk ?? null,
-      acnmskKnown: m.linAcnmskKnown ?? true,
+      // Άγνωστο ΔΕΝ διαβάζεται ποτέ ως γνωστό: ένας καλών που ξέχασε το πεδίο παίρνει «άγνωστο».
+      acnmskKnown: m.linAcnmskKnown ?? false,
     };
   });
 }

@@ -55,6 +55,7 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   trader_kind_mismatch: 'Ο συναλλασσόμενος δεν είναι του τύπου που δέχεται το παραστατικό — άλλαξέ τον από «Νέοι συναλλασσόμενοι» ή διάλεξε άλλη σειρά',
   account_missing: 'Χρεοπίστωση χωρίς λογαριασμό γενικής λογιστικής — η λογιστική εγγραφή δεν θα είχε πού να πάει',
   account_not_in_chart: 'Ο λογαριασμός γενικής της χρεοπίστωσης δεν υπάρχει στο λογιστικό σχέδιο του SoftOne',
+  account_not_postable: 'Ο λογαριασμός γενικής της χρεοπίστωσης είναι συγκεντρωτικός λογαριασμός — δεν δέχεται εγγραφές',
   account_is_mask: 'Η χρεοπίστωση έχει μάσκα λογαριασμού (με *) αντί για συγκεκριμένο λογαριασμό γενικής — η εφαρμογή δεν μπορεί ακόμη να διαλέξει λογαριασμό μέσα στη μάσκα',
   posting_disabled: 'Η καταχώριση είναι απενεργοποιημένη (Ρυθμίσεις → Διασυνδέσεις)',
   already_posted: 'Έχει ήδη καταχωριστεί στο SoftOne',
@@ -81,7 +82,7 @@ export const ACCOUNT_CHART_NOT_SYNCED = 'Το λογιστικό σχέδιο δ
  * λογαριασμού: ο λογιστής πρέπει να δει ΠΟΙΑ χρεοπίστωση και ΠΟΙΟΝ λογαριασμό, όχι μια γενική φράση.
  */
 export function blockerMessage(code: BlockerCode, accounts: AccountCheck | null): string {
-  if (code === 'account_missing' || code === 'account_not_in_chart' || code === 'account_is_mask') {
+  if (code === 'account_missing' || code === 'account_not_in_chart' || code === 'account_is_mask' || code === 'account_not_postable') {
     const details = accountDetails(code, accounts);
     return details.length ? `${POST_ERROR_TEXT[code]}: ${details.join(' · ')}` : POST_ERROR_TEXT[code];
   }

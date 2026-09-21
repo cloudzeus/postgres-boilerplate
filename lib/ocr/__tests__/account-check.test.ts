@@ -10,19 +10,29 @@ import { accountCheckInputs, postingBlockers, postingWarnings, type PurdocLineCt
 import { resolvePostingTarget } from '../posting-target';
 import { emptyDocument, type DocumentJson } from '../canonical';
 
+// Η σημαία `postable` = ACNMOVING όπως είναι ΖΩΝΤΑΝΑ: οι ομάδες (32.00, 32.01, 61.02.00, 65.90, 60.00)
+// είναι συγκεντρωτικές, οι λογαριασμοί 4ης βαθμίδας κινούνται.
 const CHART: AccountChart = {
   synced: true,
   accounts: [
-    { code: '61', name: 'ΑΜΟΙΒΕΣ ΚΑΙ ΕΞΟΔΑ ΤΡΙΤΩΝ' },
-    { code: '61.02', name: 'Λοιπές προμήθειες τρίτων' },
-    { code: '61.02.00', name: 'Προμήθειες τρίτων' },
-    { code: '61.02.00.0024', name: 'Προμήθειες τρίτων 24%' },
-    { code: '61.02.00.0013', name: 'Προμήθειες τρίτων 13%' },
-    { code: '61.02.00.0000', name: 'Προμήθειες τρίτων χωρίς ΦΠΑ', isActive: false },
-    { code: '64.05.00', name: 'Έξοδα εκθέσεων εσωτερικού' },
-    { code: '64.05.00.0009', name: 'Έξοδα εκθέσεων εσωτερικού 9%' },
-    { code: '32', name: 'ΠΡΟΚΑΤΑΒΟΛΕΣ ΓΙΑ ΑΓΟΡΕΣ ΑΠΟΘΕΜΑΤΩΝ' },
-    { code: '32.00', name: 'Προκαταβολές σε προμηθευτές' },
+    { code: '61', name: 'ΑΜΟΙΒΕΣ ΚΑΙ ΕΞΟΔΑ ΤΡΙΤΩΝ', postable: false },
+    { code: '61.02', name: 'Λοιπές προμήθειες τρίτων', postable: false },
+    { code: '61.02.00', name: 'Προμήθειες τρίτων', postable: false },
+    { code: '61.02.00.0024', name: 'Προμήθειες τρίτων 24%', postable: true },
+    { code: '61.02.00.0013', name: 'Προμήθειες τρίτων 13%', postable: true },
+    { code: '61.02.00.0000', name: 'Προμήθειες τρίτων χωρίς ΦΠΑ', isActive: false, postable: true },
+    { code: '61.02.00.0099', name: 'Προμήθειες τρίτων — ομάδα', postable: false },
+    { code: '64.05.00', name: 'Έξοδα εκθέσεων εσωτερικού', postable: false },
+    { code: '64.05.00.0009', name: 'Έξοδα εκθέσεων εσωτερικού 9%', postable: true },
+    { code: '32', name: 'ΠΡΟΚΑΤΑΒΟΛΕΣ ΓΙΑ ΑΓΟΡΕΣ ΑΠΟΘΕΜΑΤΩΝ', postable: false },
+    { code: '32.00', name: 'Παραγγελίες πάγιων στοιχείων', postable: false },
+    { code: '32.01', name: 'Παραγγελίες κυκλοφορούντων στοιχείων', postable: false },
+    { code: '32.01.00.0019', name: 'Ειδικά έξοδα με Φ.Π.Α. 19%', postable: true },
+    { code: '60', name: 'ΑΜΟΙΒΕΣ ΚΑΙ ΕΞΟΔΑ ΠΡΟΣΩΠΙΚΟΥ', postable: false },
+    { code: '60.00', name: 'Αμοιβές έμμισθου προσωπικού', postable: false },
+    { code: '65.90', name: 'Λοιπά χρηματοοικονομικά έξοδα', postable: false },
+    // Σημαία που δεν διαβάστηκε ποτέ (παλιός καθρέφτης πριν το ACNMOVING).
+    { code: '62.98.02.0000', name: 'Ύδρευση άνευ Φ.Π.Α.', postable: null },
   ],
 };
 
@@ -57,7 +67,9 @@ describe('checkAccounts — γραμμές LINLINES', () => {
     const l = r.lines[0];
     expect(l.status).toBe('not_in_chart');
     expect(l.parent).toMatchObject({ code: '61.02.00' });
+    // ΜΟΝΟ κινούμενοι: ο συγκεντρωτικός 61.02.00.0099 δεν προτείνεται.
     expect(l.siblings.map((s) => s.code)).toEqual(['61.02.00.0000', '61.02.00.0013', '61.02.00.0024']);
+    expect(l.message).not.toContain('0099');
     expect(l.message).toContain('61.02.00.0001');
     expect(l.message).toContain('61.02.00.0024 «Προμήθειες τρίτων 24%»');
     expect(l.message).toContain('61.02.00.0013 «Προμήθειες τρίτων 13%»');
@@ -73,7 +85,7 @@ describe('checkAccounts — γραμμές LINLINES', () => {
     expect(accountBlockers(r)).toEqual(['account_not_in_chart']);
   });
 
-  it('ανενεργός λογαριασμός: υπάρχει ⇒ δεν εμποδίζει, αλλά το λέει', () => {
+  it('ανενεργός (αλλά κινούμενος) λογαριασμός: υπάρχει ⇒ δεν εμποδίζει, αλλά το λέει', () => {
     const r = checkAccounts([lin({ acnmsk: '61.02.00.0000' })], CHART);
     expect(r.lines[0]).toMatchObject({ status: 'ok', inactive: true });
     expect(r.lines[0].message).toContain('ανενεργός');
@@ -110,27 +122,62 @@ describe('checkAccounts — γραμμές LINLINES', () => {
     expect(accountWarnings(r)).toEqual(['account_unknown']);
   });
 
-  it('μάσκα με `*` ⇒ ΕΜΠΟΔΙΟ account_is_mask, με τους υποψήφιους λογαριασμούς ως προτάσεις', () => {
+  it('μάσκα με `*` ⇒ ΕΜΠΟΔΙΟ account_is_mask, με ΜΟΝΟ τους κινούμενους υποψήφιους ως προτάσεις', () => {
     // Η γέφυρα χρεώνει τον λογαριασμό της γραμμής αυτούσιο: «32.*» θα έφτανε στη λογιστική ως κείμενο.
     const r = checkAccounts([lin({ acnmsk: '32.*', article: '10000 — Εκτελωνιστικά' })], CHART);
     expect(r.lines[0]).toMatchObject({ status: 'mask', account: '32.*', matchCount: 1, accountName: null });
-    expect(r.lines[0].matches.map((m) => m.code)).toEqual(['32.00']);
-    expect(r.lines[0].message).toContain('Υποψήφιοι λογαριασμοί (1): 32.00 «Προκαταβολές σε προμηθευτές»');
+    // 32.00 και 32.01 ταιριάζουν στη μάσκα αλλά είναι συγκεντρωτικοί — δεν προτείνονται.
+    expect(r.lines[0].matches.map((m) => m.code)).toEqual(['32.01.00.0019']);
+    expect(r.lines[0].message).toContain('Υποψήφιοι κινούμενοι λογαριασμοί (1): 32.01.00.0019 «Ειδικά έξοδα με Φ.Π.Α. 19%»');
+    expect(r.lines[0].message).not.toContain('32.00 «');
     expect(accountBlockers(r)).toEqual(['account_is_mask']);
     expect(accountWarnings(r)).toEqual([]);
     expect(accountDetails('account_is_mask', r)).toHaveLength(1);
   });
 
-  it('μάσκα χωρίς τελεία («32*») πιάνει και τον ίδιο τον πρωτοβάθμιο', () => {
+  it('μάσκα χωρίς τελεία («32*») — το regex πιάνει και τον πρωτοβάθμιο, αλλά προτείνονται μόνο κινούμενοι', () => {
+    expect(patternRegex('32*').test('32')).toBe(true);
     const r = checkAccounts([lin({ acnmsk: '32*' })], CHART);
-    expect(r.lines[0].matches.map((m) => m.code)).toEqual(['32', '32.00']);
+    expect(r.lines[0].matches.map((m) => m.code)).toEqual(['32.01.00.0019']);
   });
 
-  it('μάσκα που δεν ταιριάζει με τίποτα ⇒ επίσης account_is_mask, χωρίς υποψήφιους', () => {
+  it('μάσκα που καλύπτει ΜΟΝΟ συγκεντρωτικούς (65.90*) ⇒ account_is_mask, λέει ρητά «κανέναν που δέχεται εγγραφές»', () => {
     const r = checkAccounts([lin({ acnmsk: '65.90*' })], CHART);
     expect(r.lines[0]).toMatchObject({ status: 'mask', matchCount: 0, matches: [] });
-    expect(r.lines[0].message).toMatch(/δεν ταιριάζει με κανέναν λογαριασμό/);
+    expect(r.lines[0].message).toMatch(/δεν καλύπτει ΚΑΝΕΝΑΝ λογαριασμό που δέχεται εγγραφές/);
+    expect(r.lines[0].message).not.toMatch(/Υποψήφιοι/);
     expect(accountBlockers(r)).toEqual(['account_is_mask']);
+  });
+
+  it('μάσκα που δεν ταιριάζει με τίποτα ⇒ account_is_mask, χωρίς υποψήφιους', () => {
+    const r = checkAccounts([lin({ acnmsk: '99.77*' })], CHART);
+    expect(r.lines[0]).toMatchObject({ status: 'mask', matchCount: 0 });
+    expect(r.lines[0].message).toMatch(/δεν ταιριάζει με κανέναν λογαριασμό του σχεδίου/);
+  });
+
+  it('συγκεντρωτικός λογαριασμός (ACNMOVING=0) ⇒ ΕΜΠΟΔΙΟ account_not_postable', () => {
+    // Το «κάποιος έβαλε 60.00 στην καρτέλα»: υπάρχει στο σχέδιο, αλλά δεν δέχεται εγγραφές.
+    const r = checkAccounts([lin({ acnmsk: '60.00' })], CHART);
+    expect(r.lines[0]).toMatchObject({ status: 'not_postable', account: '60.00', accountName: 'Αμοιβές έμμισθου προσωπικού' });
+    expect(r.lines[0].message).toContain('συγκεντρωτικός λογαριασμός — δεν δέχεται εγγραφές');
+    expect(accountBlockers(r)).toEqual(['account_not_postable']);
+  });
+
+  it('άγνωστη κινησιμότητα (ACNMOVING NULL) ⇒ «άγνωστο», ΠΟΤΕ ok — και ποτέ εμπόδιο', () => {
+    const r = checkAccounts([lin({ acnmsk: '62.98.02.0000' })], CHART);
+    expect(r.lines[0]).toMatchObject({ status: 'unknown', unknownReason: 'postability_unknown' });
+    expect(accountBlockers(r)).toEqual([]);
+    expect(accountWarnings(r)).toEqual(['account_unknown']);
+  });
+
+  it('άγνωστη κινησιμότητα ΔΕΝ μπαίνει στις προτάσεις', () => {
+    const chart: AccountChart = { synced: true, accounts: [
+      { code: '62.98.02', name: 'Ύδρευση', postable: false },
+      { code: '62.98.02.0024', name: 'Ύδρευση 24%', postable: null },
+    ] };
+    const r = checkAccounts([lin({ acnmsk: '62.98.02.0001' })], chart);
+    expect(r.lines[0]).toMatchObject({ status: 'not_in_chart', siblings: [] });
+    expect(r.lines[0].message).toContain('χωρίς κινούμενους λογαριασμούς κάτω του');
   });
 
   it('δεν συγκρίνει περιγραφές: «Μεταφορικά εμπορευμάτων» σε λογαριασμό άλλου νοήματος περνά — και φαίνεται', () => {
@@ -147,6 +194,12 @@ describe('checkAccounts — διαδρομές που δεν καλύπτοντ�
     expect(r.lines[0].message).toMatch(/δεν καλύπτει ακόμη/);
     expect(accountBlockers(r)).toEqual([]);
     expect(accountWarnings(r)).toEqual(['account_not_covered']);
+  });
+
+  it('accountCheckInputs: χωρίς ρητό linAcnmskKnown ο λογαριασμός είναι ΑΓΝΩΣΤΟΣ, όχι γνωστός', () => {
+    const inputs = accountCheckInputs({ target: resolvePostingTarget({ sosource: 1253 }), lines: [{ rowIndex: 0, lin: 1, linAcnmsk: null }] });
+    expect(inputs[0].acnmskKnown).toBe(false);
+    expect(checkAccounts(inputs, CHART).lines[0].status).toBe('unknown');
   });
 
   it('γραμμή που δεν θα σταλεί (path null) δεν ελέγχεται καθόλου', () => {

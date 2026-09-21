@@ -254,8 +254,8 @@ describe('postingPreview (dry-run)', () => {
       armLin('61.02.00.0001');
       db.softoneAccount.count.mockResolvedValue(5203);
       db.softoneAccount.findMany.mockResolvedValue([
-        { code: '61.02.00', name: 'Προμήθειες τρίτων', isActive: true },
-        { code: '61.02.00.0024', name: 'Προμήθειες τρίτων 24%', isActive: true },
+        { code: '61.02.00', name: 'Προμήθειες τρίτων', isActive: true, postable: false },
+        { code: '61.02.00.0024', name: 'Προμήθειες τρίτων 24%', isActive: true, postable: true },
       ]);
       const preview = await postingPreview('d1');
       const b = preview.blockers.find((x) => x.code === 'account_not_in_chart');
@@ -268,7 +268,7 @@ describe('postingPreview (dry-run)', () => {
     it('ο λογαριασμός υπάρχει ⇒ κανένα εμπόδιο, το όνομα του σχεδίου στη γραμμή', async () => {
       armLin('61.02.00.0024');
       db.softoneAccount.count.mockResolvedValue(5203);
-      db.softoneAccount.findMany.mockResolvedValue([{ code: '61.02.00.0024', name: 'Προμήθειες τρίτων 24%', isActive: true }]);
+      db.softoneAccount.findMany.mockResolvedValue([{ code: '61.02.00.0024', name: 'Προμήθειες τρίτων 24%', isActive: true, postable: true }]);
       const preview = await postingPreview('d1');
       expect(preview.blockers).toEqual([]);
       expect(preview.accounts.lines[0]).toMatchObject({ status: 'ok', accountName: 'Προμήθειες τρίτων 24%' });
@@ -278,15 +278,25 @@ describe('postingPreview (dry-run)', () => {
       armLin('32.*');
       db.softoneAccount.count.mockResolvedValue(5203);
       db.softoneAccount.findMany.mockResolvedValue([
-        { code: '32.00', name: 'Παραγγελίες πάγιων στοιχείων', isActive: true },
-        { code: '32.01', name: 'Παραγγελίες κυκλοφορούντων στοιχείων', isActive: true },
+        { code: '32.00', name: 'Παραγγελίες πάγιων στοιχείων', isActive: true, postable: false },
+        { code: '32.01.00.0019', name: 'Ειδικά έξοδα με Φ.Π.Α. 19%', isActive: true, postable: true },
       ]);
       const preview = await postingPreview('d1');
       const b = preview.blockers.find((x) => x.code === 'account_is_mask');
-      expect(b?.message).toContain('Υποψήφιοι λογαριασμοί (2): 32.00 «Παραγγελίες πάγιων στοιχείων»');
+      expect(b?.message).toContain('Υποψήφιοι κινούμενοι λογαριασμοί (1): 32.01.00.0019 «Ειδικά έξοδα με Φ.Π.Α. 19%»');
+      expect(b?.message).not.toContain('32.00 «');
       expect(preview.warnings.map((w) => w.code)).not.toContain('account_is_mask');
       // Το ερώτημα στενεύει με το πρόθεμα της μάσκας, δεν φορτώνει όλο το σχέδιο.
       expect(db.softoneAccount.findMany.mock.calls[0][0].where.OR).toContainEqual({ code: { startsWith: '32.' } });
+    });
+
+    it('συγκεντρωτικός λογαριασμός ⇒ εμπόδιο account_not_postable με τη φράση του λογιστή', async () => {
+      armLin('60.00');
+      db.softoneAccount.count.mockResolvedValue(5203);
+      db.softoneAccount.findMany.mockResolvedValue([{ code: '60.00', name: 'Αμοιβές έμμισθου προσωπικού', isActive: true, postable: false }]);
+      const preview = await postingPreview('d1');
+      const b = preview.blockers.find((x) => x.code === 'account_not_postable');
+      expect(b?.message).toContain('συγκεντρωτικός λογαριασμός — δεν δέχεται εγγραφές');
     });
 
     it('ασυγχρόνιστο σχέδιο ⇒ ΜΙΑ παρατήρηση «δεν έχει συγχρονιστεί», κανένα εμπόδιο', async () => {

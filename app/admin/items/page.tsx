@@ -38,7 +38,7 @@ export default async function ItemsPage() {
   ]);
   // Ο έλεγχος λογαριασμού για ΟΛΕΣ τις χρεοπιστώσεις — ο ίδιος που τρέχει πριν την καταχώριση.
   // Εδώ φορτώνουμε ολόκληρο το σχέδιο (μερικές χιλιάδες σύντομες γραμμές, μία φορά ανά σελίδα).
-  const chartRows = await prisma.softoneAccount.findMany({ select: { code: true, name: true, isActive: true } });
+  const chartRows = await prisma.softoneAccount.findMany({ select: { code: true, name: true, isActive: true, postable: true } });
   const accountCheck = checkAccounts(
     lineItems.map((l, i) => ({
       rowIndex: i, path: 'LINLINES' as const, article: `${l.code} — ${l.name}`,

@@ -26,7 +26,7 @@ export async function loadAccountChart(masks: readonly (string | null | undefine
 
   const rows = await prisma.softoneAccount.findMany({
     where: { OR: or },
-    select: { code: true, name: true, isActive: true },
+    select: { code: true, name: true, isActive: true, postable: true },
   });
   return { synced: true, accounts: rows };
 }

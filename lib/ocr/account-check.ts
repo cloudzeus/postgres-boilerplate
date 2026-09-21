@@ -30,6 +30,14 @@
 // μοτίβο σε κάθε γραμμή»· η εφαρμογή δεν κάνει ακόμη αυτή την επιλογή, οπότε αρνείται και δείχνει τους
 // υποψήφιους λογαριασμούς (προτάσεις, όχι επιλογή).
 //
+// ── ΚΙΝΟΥΜΕΝΟΣ Ή ΣΥΓΚΕΝΤΡΩΤΙΚΟΣ ─────────────────────────────────────────────────────────────
+// Εγγραφή δέχεται μόνο λογαριασμός με `ACNMOVING=1` («Κινείται»). Στον πελάτη το λογιστικό σχέδιο
+// είναι ο πίνακας `ACNT` και η σημαία είναι `ACNMOVING` — ΔΕΝ υπάρχουν `GLMASTER`, `ISFINAL`, `ACCNUM`,
+// `GLTRNLINES`. Δεν την αντικαθιστά ούτε η βαθμίδα ούτε το «δεν έχει παιδιά»: ζωντανά, 913 λογαριασμοί
+// χωρίς παιδιά ΔΕΝ κινούνται και 166 λογαριασμοί 2ης/3ης βαθμίδας κινούνται. Συγκεντρωτικός ⇒
+// εμπόδιο `account_not_postable`· άγνωστη σημαία (NULL) ⇒ «άγνωστο», ΠΟΤΕ «κινείται». Και οι δύο
+// λίστες προτάσεων (αδέλφια, υποψήφιοι μάσκας) περιέχουν ΜΟΝΟ κινούμενους λογαριασμούς.
+//
 // ── ΤΙ ΔΕΝ ΚΑΝΕΙ, ΣΚΟΠΙΜΑ ──────────────────────────────────────────────────────────────────────
 // Δεν συγκρίνει την περιγραφή της χρεοπίστωσης με την περιγραφή του λογαριασμού. Ο πελάτης έχει δύο
 // λογιστικά σχέδια (ΕΓΛΣ στο ACNT, ΕΛΠ στις χρεοπιστώσεις): «61.02» είναι «Λοιπές προμήθειες τρίτων»
@@ -38,7 +46,16 @@
 // πάντα το όνομα του λογαριασμού δίπλα στη χρεοπίστωση και αφήνει την κρίση στον άνθρωπο.
 
 /** Ένας λογαριασμός του λογιστικού σχεδίου (ACNT). */
-export type ChartAccount = { code: string; name: string; isActive?: boolean };
+export type ChartAccount = {
+  code: string;
+  name: string;
+  isActive?: boolean;
+  /** ACNMOVING: `true` δέχεται εγγραφές · `false` συγκεντρωτικός · `null`/απών = άγνωστο. */
+  postable?: boolean | null;
+};
+
+/** Μόνο ό,τι το SoftOne λέει ρητά ότι κινείται. Το άγνωστο ΔΕΝ είναι κινούμενο. */
+export const isPostable = (a: ChartAccount): boolean => a.postable === true;
 
 /**
  * Ο καθρέφτης του λογιστικού σχεδίου όπως τον βλέπει ο έλεγχος.
@@ -75,6 +92,8 @@ export type AccountStatus =
   | 'missing'
   /** Λογαριασμός (ή μοτίβο) που δεν υπάρχει στο σχέδιο — ΕΜΠΟΔΙΟ. */
   | 'not_in_chart'
+  /** Ο λογαριασμός υπάρχει αλλά είναι συγκεντρωτικός (ACNMOVING=0) — ΕΜΠΟΔΙΟ. */
+  | 'not_postable'
   /** Δεν ξέρουμε: ασυγχρόνιστο σχέδιο ή ασυγχρόνιστη χρεοπίστωση. Ούτε περνά ούτε εμποδίζει. */
   | 'unknown'
   /** Διαδρομή (είδη / υπηρεσίες / έξοδα) που ο έλεγχος δεν καλύπτει ακόμη. */
@@ -91,12 +110,15 @@ export type AccountCheckLine = {
   /** `true` όταν ο λογαριασμός υπάρχει αλλά είναι ανενεργός στο SoftOne. */
   inactive: boolean;
   /** `unknown`: γιατί δεν ξέρουμε. */
-  unknownReason: 'chart_not_synced' | 'line_item_not_synced' | null;
+  unknownReason: 'chart_not_synced' | 'line_item_not_synced' | 'postability_unknown' | null;
   /** `not_in_chart`: ο γονικός λογαριασμός, αν υπάρχει στο σχέδιο. */
   parent: ChartAccount | null;
   /** `not_in_chart` με γονικό: οι λογαριασμοί κάτω από αυτόν — ΠΡΟΤΑΣΕΙΣ, όχι επιλογή. */
   siblings: ChartAccount[];
-  /** `mask`: οι λογαριασμοί που καλύπτει (το πολύ `MAX_LISTED`) και πόσοι είναι συνολικά. */
+  /**
+   * `mask`: οι ΚΙΝΟΥΜΕΝΟΙ λογαριασμοί που καλύπτει (το πολύ `MAX_LISTED`) και πόσοι είναι συνολικά.
+   * Οι συγκεντρωτικοί δεν είναι υποψήφιοι — δεν δέχονται εγγραφές.
+   */
   matches: ChartAccount[];
   matchCount: number;
   article: string | null;
@@ -224,21 +246,41 @@ export function checkAccounts(lines: readonly AccountCheckInput[], chart: Accoun
 
     if (isPattern(mask)) {
       const re = patternRegex(mask);
-      const matches = all.filter((a) => re.test(a.code)).sort(byCode);
+      const covered = all.filter((a) => re.test(a.code));
+      const matches = covered.filter(isPostable).sort(byCode);
+      const summary = covered.length - matches.length;
       out.push({
         ...base, status: 'mask', account: mask,
         matches: matches.slice(0, MAX_LISTED), matchCount: matches.length,
         message: `${who}: η χρεοπίστωση έχει ΜΑΣΚΑ λογαριασμού ${mask}, όχι λογαριασμό — η γραμμή θα έφτανε `
           + 'στη λογιστική με αυτό το κείμενο αντί για λογαριασμό. '
           + (matches.length
-            ? `Υποψήφιοι λογαριασμοί (${matches.length}): ${listed(matches)}. `
-            : 'Η μάσκα δεν ταιριάζει με κανέναν λογαριασμό του σχεδίου. ')
+            ? `Υποψήφιοι κινούμενοι λογαριασμοί (${matches.length}): ${listed(matches)}. `
+            : covered.length
+              ? `Η μάσκα δεν καλύπτει ΚΑΝΕΝΑΝ λογαριασμό που δέχεται εγγραφές (ταιριάζει μόνο με ${summary} συγκεντρωτικ${summary === 1 ? 'ό' : 'ούς'}). `
+              : 'Η μάσκα δεν ταιριάζει με κανέναν λογαριασμό του σχεδίου. ')
           + 'Ο λογιστής να ορίσει συγκεκριμένο λογαριασμό στην καρτέλα της χρεοπίστωσης στο SoftOne',
       });
       continue;
     }
 
     const hit = index.get(mask);
+    if (hit && hit.postable === false) {
+      out.push({
+        ...base, status: 'not_postable', account: mask, accountName: hit.name,
+        message: `${who}: ο λογαριασμός ${label(hit)} είναι συγκεντρωτικός λογαριασμός — δεν δέχεται `
+          + 'εγγραφές· ο λογιστής να ορίσει κινούμενο (αναλυτικό) λογαριασμό στην καρτέλα της χρεοπίστωσης',
+      });
+      continue;
+    }
+    if (hit && hit.postable !== true) {
+      out.push({
+        ...base, status: 'unknown', unknownReason: 'postability_unknown', account: mask, accountName: hit.name,
+        message: `${who}: λογαριασμός ${label(hit)} — δεν ξέρουμε αν δέχεται εγγραφές (δεν έχει διαβαστεί η `
+          + 'σημαία «Κινείται»)· συγχρόνισε το λογιστικό σχέδιο',
+      });
+      continue;
+    }
     if (hit) {
       const inactive = hit.isActive === false;
       out.push({
@@ -251,14 +293,15 @@ export function checkAccounts(lines: readonly AccountCheckInput[], chart: Accoun
     const parentCode = parentOf(mask);
     const parent = parentCode ? index.get(parentCode) ?? null : null;
     if (parent) {
-      const siblings = all.filter((a) => parentOf(a.code) === parent.code).sort(byCode);
+      // Μόνο ΚΙΝΟΥΜΕΝΟΙ: ένας συγκεντρωτικός δεν είναι πρόταση, δεν δέχεται εγγραφές.
+      const siblings = all.filter((a) => parentOf(a.code) === parent.code && isPostable(a)).sort(byCode);
       out.push({
         ...base, status: 'not_in_chart', account: mask, parent, siblings: siblings.slice(0, MAX_LISTED),
         message: `${who}: ο λογαριασμός ${mask} δεν υπάρχει στο λογιστικό σχέδιο. Υπάρχει ο ${label(parent)}`
           + (siblings.length
             ? ` με τους λογαριασμούς ${listed(siblings)} — στο ΕΓΛΣ η τελευταία βαθμίδα είναι συνήθως ο `
               + 'συντελεστής ΦΠΑ· ο λογιστής να διορθώσει την καρτέλα της χρεοπίστωσης στο SoftOne'
-            : ', χωρίς λογαριασμούς κάτω του — ο λογιστής να διορθώσει την καρτέλα της χρεοπίστωσης στο SoftOne'),
+            : ', χωρίς κινούμενους λογαριασμούς κάτω του — ο λογιστής να διορθώσει την καρτέλα της χρεοπίστωσης στο SoftOne'),
       });
       continue;
     }
@@ -273,7 +316,7 @@ export function checkAccounts(lines: readonly AccountCheckInput[], chart: Accoun
 }
 
 /** Οι κωδικοί εμποδίων που παράγει ο έλεγχος — ίδια ονόματα με το `BlockerCode`. */
-export type AccountBlockerCode = 'account_missing' | 'account_not_in_chart' | 'account_is_mask';
+export type AccountBlockerCode = 'account_missing' | 'account_not_in_chart' | 'account_is_mask' | 'account_not_postable';
 /** Οι παρατηρήσεις του ελέγχου — ίδια ονόματα με το `WarningCode`. */
 export type AccountWarningCode = 'account_unknown' | 'account_not_covered';
 
@@ -283,6 +326,7 @@ export function accountBlockers(check: AccountCheck | null | undefined): Account
   if (check.lines.some((l) => l.status === 'missing')) out.push('account_missing');
   if (check.lines.some((l) => l.status === 'not_in_chart')) out.push('account_not_in_chart');
   if (check.lines.some((l) => l.status === 'mask')) out.push('account_is_mask');
+  if (check.lines.some((l) => l.status === 'not_postable')) out.push('account_not_postable');
   return out;
 }
 
@@ -298,6 +342,7 @@ const STATUSES_FOR: Record<AccountBlockerCode | AccountWarningCode, AccountStatu
   account_missing: ['missing'],
   account_not_in_chart: ['not_in_chart'],
   account_is_mask: ['mask'],
+  account_not_postable: ['not_postable'],
   account_unknown: ['unknown'],
   account_not_covered: ['not_covered'],
 };

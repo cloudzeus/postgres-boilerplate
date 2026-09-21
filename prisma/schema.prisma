@@ -1925,6 +1925,9 @@ model SoftoneAccount {
   // έρχεται από το SoftOne· κενό για πρωτοβάθμιους.
   parentCode String?
   sodtype    Int?                        // SODTYPE (89 γενική · 90 ομάδα 9 αναλυτικής)
+  // ACNMOVING «Κινείται»: ο λογαριασμός δέχεται εγγραφές. `null` = δεν διαβάστηκε — ΑΓΝΩΣΤΟ, ποτέ
+  // «κινείται». (Στον πελάτη ΔΕΝ υπάρχουν GLMASTER / ISFINAL — το σχέδιο είναι ACNT, η σημαία ACNMOVING.)
+  postable   Boolean?
   isActive   Boolean  @default(true)
   syncedAt   DateTime @default(now())
 

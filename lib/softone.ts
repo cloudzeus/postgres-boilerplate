@@ -1837,10 +1837,19 @@ export interface AccountRow {
   /** SODTYPE — 89 γενική, 90 ομάδα 9. */
   sodtype: number | null;
   isActive: boolean;
+  /**
+   * ACNMOVING «Κινείται» — ο λογαριασμός ΔΕΧΕΤΑΙ εγγραφές (αναλυτικός). `false` = συγκεντρωτικός.
+   * `null` = η στήλη δεν ήρθε ή ήρθε κενή: ΑΓΝΩΣΤΟ, ποτέ «κινείται».
+   * ΣΗΜ.: στον πελάτη το σχέδιο είναι `ACNT` και η κινησιμότητα `ACNMOVING`. Τα `GLMASTER`,
+   * `ISFINAL`, `ACCNUM`, `GLTRNLINES` που αναφέρθηκαν ΔΕΝ υπάρχουν σε αυτή την εγκατάσταση.
+   * Ούτε η βαθμίδα ούτε το «δεν έχει παιδιά» το αντικαθιστούν: 913 λογαριασμοί χωρίς παιδιά ΔΕΝ
+   * κινούνται και 166 λογαριασμοί 2ης/3ης βαθμίδας κινούνται.
+   */
+  postable: boolean | null;
 }
 
-// Τα ονόματα επαληθεύτηκαν ζωντανά με GetTable (ο πίνακας ACNT δεν υπάρχει στο cached schema).
-const ACNT_FIELDS = ['ACNT', 'CODE', 'NAME', 'ACNGRADE', 'SODTYPE', 'ISACTIVE'];
+// Τα ονόματα επαληθεύτηκαν ζωντανά με GetTable / getTableFields (ο πίνακας ACNT δεν υπάρχει στο cached schema).
+const ACNT_FIELDS = ['ACNT', 'CODE', 'NAME', 'ACNGRADE', 'SODTYPE', 'ISACTIVE', 'ACNMOVING'];
 
 /**
  * Διαβάζει ΟΛΟ το λογιστικό σχέδιο (ACNT). Χωρίς φίλτρο ISACTIVE: ένας ανενεργός λογαριασμός
@@ -1852,9 +1861,18 @@ const ACNT_FIELDS = ['ACNT', 'CODE', 'NAME', 'ACNGRADE', 'SODTYPE', 'ISACTIVE'];
  * διαβάζουμε από το `model` της απάντησης και ΑΠΑΙΤΟΥΜΕ να υπάρχουν κωδικός και περιγραφή.
  */
 export async function softoneFetchAccounts(): Promise<AccountRow[]> {
-  const res = await softoneCall<GetTableResp & { model?: { name: string }[][] }>(
+  return parseAccountsResponse(await softoneCall<GetTableResp & { model?: { name: string }[][] }>(
     'GetTable', { TABLE: 'ACNT', FIELDS: ACNT_FIELDS.join(','), FILTER: '' },
-  );
+  ));
+}
+
+/**
+ * Η ανάγνωση της απάντησης GetTable ACNT, ΚΑΘΑΡΗ ώστε να δοκιμάζεται. Το GetTable ΠΡΟΣΘΕΤΕΙ στήλες
+ * που δεν ζητήσαμε (AFM, CODE1) και ΑΛΛΑΖΕΙ τη σειρά — γι' αυτό ΠΑΝΤΑ κατά όνομα από το `model`,
+ * ποτέ κατά θέση. Και αρνείται «κοντή» απάντηση: αν το `count` λέει 5.203 και ήρθαν 50 γραμμές, δεν
+ * είναι λογιστικό σχέδιο, είναι κομμάτι του.
+ */
+export function parseAccountsResponse(res: GetTableResp & { model?: { name: string }[][] }): AccountRow[] {
   if (res.success === false) {
     throw new SoftoneError(`GetTable ACNT απέτυχε: ${res.error ?? `code ${res.errorcode ?? '?'}`}`);
   }
@@ -1867,7 +1885,11 @@ export async function softoneFetchAccounts(): Promise<AccountRow[]> {
     const i = at(f);
     return i < 0 || r[i] == null ? '' : String(r[i]).trim();
   };
-  return (res.data ?? [])
+  const data = res.data ?? [];
+  if (typeof res.count === 'number' && res.count !== data.length) {
+    throw new SoftoneError(`GetTable ACNT: δηλώνει ${res.count} λογαριασμούς αλλά επέστρεψε ${data.length} — ελλιπής απάντηση`);
+  }
+  return data
     .map((r) => ({
       acnt: Number(cell(r, 'ACNT')),
       code: cell(r, 'CODE'),
@@ -1876,6 +1898,8 @@ export async function softoneFetchAccounts(): Promise<AccountRow[]> {
       sodtype: intOrNull(cell(r, 'SODTYPE')),
       // Στήλη που δεν ήρθε = δεν ξέρουμε ⇒ ενεργός (όπως και τα υπόλοιπα μητρώα).
       isActive: cell(r, 'ISACTIVE') !== '0',
+      // Αυστηρά: μόνο «1» / «0» κρίνουν. Οτιδήποτε άλλο (λείπει η στήλη, κενό) = άγνωστο.
+      postable: cell(r, 'ACNMOVING') === '1' ? true : cell(r, 'ACNMOVING') === '0' ? false : null,
     }))
     .filter((r) => Number.isFinite(r.acnt) && r.acnt > 0 && r.code !== '');
 }

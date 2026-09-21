@@ -498,6 +498,9 @@ export const parentCodeOf = (code: string): string | null => {
  *  2. απάντηση όπου ΚΑΜΙΑ γραμμή δεν έχει κωδικό ⇒ το ίδιο.
  * Αποτυχία του GetTable πετάει ήδη από το `softoneFetchAccounts`, πριν από το transaction.
  */
+/** Κάτω από αυτό το κλάσμα του τρέχοντος καθρέφτη, η απάντηση θεωρείται ελλιπής. */
+export const ACCOUNTS_MIN_RATIO = 0.5;
+
 export async function syncAccounts(actor: SyncActor): Promise<SyncPayload> {
   const rows = await softoneFetchAccounts();
   assertNonEmpty(rows, 'λογαριασμοί λογιστικού σχεδίου');
@@ -507,7 +510,7 @@ export async function syncAccounts(actor: SyncActor): Promise<SyncPayload> {
   const seen = new Set<string>();
   const data = [] as {
     acnt: number; code: string; name: string; grade: number | null; parentCode: string | null;
-    sodtype: number | null; isActive: boolean; syncedAt: Date;
+    sodtype: number | null; postable: boolean | null; isActive: boolean; syncedAt: Date;
   }[];
   const now = new Date();
   for (const r of rows) {
@@ -515,10 +518,22 @@ export async function syncAccounts(actor: SyncActor): Promise<SyncPayload> {
     seen.add(r.code);
     data.push({
       acnt: r.acnt, code: r.code, name: r.name || r.code, grade: r.grade,
-      parentCode: parentCodeOf(r.code), sodtype: r.sodtype, isActive: r.isActive, syncedAt: now,
+      parentCode: parentCodeOf(r.code), sodtype: r.sodtype, postable: r.postable, isActive: r.isActive, syncedAt: now,
     });
   }
   assertNonEmpty(data, 'λογαριασμοί με κωδικό');
+
+  // Τρίτη δικλείδα: «κοντή» απάντηση. Η ίδια η απάντηση ελέγχεται ήδη έναντι του `count` της
+  // (`parseAccountsResponse`)· εδώ συγκρίνουμε με το ΤΡΕΧΟΝ μέγεθος του καθρέφτη. Ένα λογιστικό
+  // σχέδιο δεν χάνει τους μισούς λογαριασμούς του από τη μια μέρα στην άλλη — αν συμβεί, το βλέπει
+  // άνθρωπος πριν αντικατασταθεί ο καθρέφτης, όχι μετά.
+  const current = await prisma.softoneAccount.count();
+  if (current > 0 && data.length < current * ACCOUNTS_MIN_RATIO) {
+    throw new SoftoneError(
+      `Το SoftOne επέστρεψε ${data.length} λογαριασμούς ενώ το αντίγραφο έχει ${current} — `
+      + 'πιθανώς ελλιπής απάντηση· το λογιστικό σχέδιο δεν αντικαταστάθηκε',
+    );
+  }
 
   const total = await prisma.$transaction(async (tx) => {
     await tx.softoneAccount.deleteMany({});
