@@ -65,6 +65,8 @@ export async function POST(request: Request) {
       name: s(b.onomasia) ?? '',
       shortName: s(b.commer_title),
       doy: s(b.doy_descr),
+      // Ο επίσημος κωδικός Δ.Ο.Υ. (π.χ. «1190») — το κλειδί για οποιαδήποτε αντιστοίχιση με SoftOne.
+      doyCode: s(b.doy),
       legalForm: s(b.legal_status_descr),
       address: addressParts.join(' ') || null,
       zip: s(b.postal_zip_code),

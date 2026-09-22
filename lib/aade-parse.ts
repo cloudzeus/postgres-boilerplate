@@ -9,10 +9,16 @@
  * Καθαρές συναρτήσεις, χωρίς δίκτυο: το route κάνει μόνο το fetch.
  */
 
-/** Ό,τι δίνει το μητρώο ΑΑΔΕ για ένα ΑΦΜ (χωρίς τον κωδικό Δ.Ο.Υ. του SoftOne). */
+/** Ό,τι δίνει το μητρώο ΑΑΔΕ για ένα ΑΦΜ (χωρίς τη γραμμή Δ.Ο.Υ. του SoftOne). */
 export interface Afm2InfoRecord {
   afm: string;
   name: string;
+  /**
+   * Ο ΕΠΙΣΗΜΟΣ κωδικός Δ.Ο.Υ. της ΑΑΔΕ (`basic_rec.doy`, π.χ. «1190»). Αυτό είναι το κλειδί της
+   * αντιστοίχισης με το SoftOne (`IRSDATA.CODE`) — βλ. `lib/tax-office.ts`. Η ονομασία
+   * (`doyDescr`) είναι μόνο για εμφάνιση και για την εφεδρική ακριβή σύγκριση όταν λείπει ο κωδικός.
+   */
+  doyCode: string | null;
   doyDescr: string | null;
   profession: string | null;
   address: string | null;
@@ -87,6 +93,7 @@ export function parseAfm2Info(raw: unknown): Afm2InfoRecord | null {
   return {
     afm,
     name,
+    doyCode: textOf(rec.doy),
     doyDescr: textOf(rec.doy_descr),
     profession: textOf(primary?.firm_act_descr),
     address: address || null,

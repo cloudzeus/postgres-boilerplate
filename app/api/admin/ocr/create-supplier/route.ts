@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
-import { softoneCreateSupplier, buildSupplierPayload } from '@/lib/softone';
+import { softoneCreateSupplier, buildSupplierPayload, softoneIrsDataError } from '@/lib/softone';
+import { staleDoyCodeError } from '@/lib/tax-office';
 
 export const runtime = 'nodejs';
 
@@ -10,6 +11,9 @@ export const runtime = 'nodejs';
 export async function POST(req: Request) {
   const u = await requirePermission('ocr.categorize');
   const b = await req.json().catch(() => ({}));
+  // ΠΡΟΣΩΡΙΝΟ (μία έκδοση, βλ. `staleDoyCodeError`): παλιός διάλογος που στέλνει `doyCode`.
+  const stale = staleDoyCodeError(b);
+  if (stale) return NextResponse.json({ error: 'stale_client', field: 'irsData', message: stale }, { status: 400 });
   const name = String(b?.name ?? '').trim();
   const afm = String(b?.afm ?? '').trim();
   if (!name || !afm) {
@@ -19,12 +23,19 @@ export async function POST(req: Request) {
   const supInput = {
     name, afm,
     code: b?.code || null,
-    doyCode: b?.doyCode || null,
+    // Το ΚΛΕΙΔΙ IRSDATA της Δ.Ο.Υ. (από το `softoneDoy.office.key` του preview) → TRDR.IRSDATA.
+    irsData: b?.irsData || null,
     profession: b?.profession || null,
     address: b?.address || null,
     zip: b?.zip || null,
     city: b?.city || null,
   };
+
+  // Η Δ.Ο.Υ. πρέπει να είναι υπαρκτή, ενεργή γραμμή του IRSDATA — ίδιος κανόνας με το new-traders.
+  const doyError = await softoneIrsDataError(supInput.irsData);
+  if (doyError) {
+    return NextResponse.json({ error: 'invalid_doy', field: 'irsData', message: doyError }, { status: 422 });
+  }
 
   // Dry-run: return the exact setData object without writing to SoftOne.
   if (b?.dryRun) {

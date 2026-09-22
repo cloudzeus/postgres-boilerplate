@@ -10,6 +10,7 @@ const NORMAL = {
   basic_rec: {
     afm: '094073495',
     onomasia: 'ΠΑΡΑΔΕΙΓΜΑ Α.Ε.',
+    doy: '1159',
     doy_descr: 'Φ.Α.Ε. ΑΘΗΝΩΝ',
     postal_address: 'ΛΕΩΦ. ΚΗΦΙΣΙΑΣ',
     postal_address_no: '10',
@@ -69,6 +70,7 @@ describe('parseAfm2Info', () => {
     expect(parseAfm2Info(NORMAL)).toEqual({
       afm: '094073495',
       name: 'ΠΑΡΑΔΕΙΓΜΑ Α.Ε.',
+      doyCode: '1159',
       doyDescr: 'Φ.Α.Ε. ΑΘΗΝΩΝ',
       profession: 'ΧΟΝΔΡΙΚΟ ΕΜΠΟΡΙΟ ΛΟΓΙΣΜΙΚΟΥ',
       address: 'ΛΕΩΦ. ΚΗΦΙΣΙΑΣ 10',
@@ -77,6 +79,13 @@ describe('parseAfm2Info', () => {
       legalForm: 'ΑΕ',
       isActive: true,
     });
+  });
+
+  it('ο κωδικός Δ.Ο.Υ. (`basic_rec.doy`) κρατιέται — είναι το κλειδί της αντιστοίχισης', () => {
+    const r = parseAfm2Info({ basic_rec: { afm: '997939640', onomasia: 'DGSOFT ΕΕ', doy: '1190', doy_descr: 'ΚΕΦΟΔΕ ΑΤΤΙΚΗΣ' } });
+    expect(r).toMatchObject({ doyCode: '1190', doyDescr: 'ΚΕΦΟΔΕ ΑΤΤΙΚΗΣ' });
+    // Αριθμητικός κωδικός από τον proxy → η γραφή του.
+    expect(parseAfm2Info({ basic_rec: { afm: '1', onomasia: 'Χ', doy: 1101 } })?.doyCode).toBe('1101');
   });
 
   it('ΑΦΜ εκτός ΑΑΔΕ (όλα nil) → null, όχι εγγραφή με «[object Object]»', () => {
@@ -106,14 +115,14 @@ describe('parseAfm2Info', () => {
   it('nil πεδία μιας υπαρκτής εγγραφής γίνονται null', () => {
     const r = parseAfm2Info({
       basic_rec: {
-        afm: '094073495', onomasia: 'ΠΑΡΑΔΕΙΓΜΑ', doy_descr: NIL,
+        afm: '094073495', onomasia: 'ΠΑΡΑΔΕΙΓΜΑ', doy: {}, doy_descr: NIL,
         postal_address: {}, postal_address_no: NIL, postal_zip_code: NIL,
         postal_area_description: {}, legal_status_descr: NIL, deactivation_flag: '1',
       },
       firm_act_tab: { item: [{ firm_act_descr: NIL, firm_act_kind: '1' }] },
     });
     expect(r).toEqual({
-      afm: '094073495', name: 'ΠΑΡΑΔΕΙΓΜΑ', doyDescr: null, profession: null,
+      afm: '094073495', name: 'ΠΑΡΑΔΕΙΓΜΑ', doyCode: null, doyDescr: null, profession: null,
       address: null, zip: null, city: null, legalForm: null, isActive: true,
     });
   });

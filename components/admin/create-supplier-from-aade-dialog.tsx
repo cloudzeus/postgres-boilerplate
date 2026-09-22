@@ -8,10 +8,14 @@ import { Input } from '@/components/ui/input';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
+import type { TaxOfficeMapping } from '@/lib/tax-office';
 
 type Preview = {
   afm: string; name: string;
+  /** Κωδικός Δ.Ο.Υ. της ΑΑΔΕ (π.χ. «1190») και η ονομασία της. */
   doyDescr: string | null; doyCode: string | null;
+  /** Η γραμμή IRSDATA του SoftOne με τον ίδιο κωδικό — ή γιατί δεν υπάρχει. */
+  softoneDoy: TaxOfficeMapping;
   profession: string | null; address: string | null; zip: string | null; city: string | null;
   legalForm: string | null; isActive: boolean;
 };
@@ -86,7 +90,7 @@ export function CreateSupplierFromAadeDialog({
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           afm: cleanAfm, name: name.trim(),
-          code: code.trim() || null, doyCode: data?.doyCode ?? null,
+          code: code.trim() || null, irsData: data?.softoneDoy?.office?.key ?? null,
           profession: data?.profession ?? null, address: data?.address ?? null,
           zip: data?.zip ?? null, city: data?.city ?? null,
           docId: docId ?? null,
@@ -157,10 +161,12 @@ export function CreateSupplierFromAadeDialog({
                 <Field label="Νομική μορφή" value={data.legalForm} />
                 <Field
                   label="Δ.Ο.Υ."
-                  value={data.doyDescr}
-                  hint={data.doyCode
-                    ? <span className="text-emerald-700">→ κωδ. SoftOne {data.doyCode}</span>
-                    : <span className="text-amber-700">δεν αντιστοιχίστηκε — θα μείνει κενή</span>}
+                  value={data.doyDescr ? `${data.doyDescr}${data.doyCode ? ` (${data.doyCode})` : ''}` : null}
+                  hint={data.softoneDoy?.office
+                    ? <span className="text-emerald-700">→ SoftOne: {data.softoneDoy.office.name} ({data.softoneDoy.office.code})</span>
+                    : data.softoneDoy?.note
+                      ? <span className="text-amber-700">{data.softoneDoy.note} Θα μείνει κενή.</span>
+                      : null}
                 />
               </div>
               <Field label="Επάγγελμα (ΚΑΔ)" value={data.profession} />

@@ -4,6 +4,10 @@ import { gunzipSync } from 'node:zlib';
 import { getSetting, setSetting } from '@/lib/settings';
 import { validCoords } from '@/lib/coords';
 import { normalizeDocRef } from '@/lib/doc-reference';
+import {
+  parseTaxOfficesResponse, TAX_OFFICE_FIELDS, irsDataKeyError,
+  type TaxOffice, type GetTableTaxOfficesResponse,
+} from '@/lib/tax-office';
 import { nextTraderCode, type NextCodeResult } from '@/lib/trader-code';
 import { proposeItemCode, type ItemCodeKind, type ItemCodeProposal } from '@/lib/item-code';
 
@@ -1034,41 +1038,32 @@ export async function softoneItemDetail(mtrl: number): Promise<ItemClassificatio
   };
 }
 
-// Normalises a Δ.Ο.Υ. description for loose matching: uppercase, strip accents,
-// punctuation and the leading "Δ.Ο.Υ." token, collapse whitespace.
-function normDoy(s: string): string {
-  return String(s ?? '')
-    .toUpperCase()
-    .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip Greek/Latin accents
-    .replace(/Δ\.?Ο\.?Υ\.?/g, ' ')
-    .replace(/[^0-9A-ZΑ-Ω]+/gi, ' ')
-    .trim();
-}
-
-/** Reads the SoftOne tax-office master (object/table IRSDATA → TRDR.IRSDATA FK). */
-export async function softoneFetchTaxOffices(): Promise<{ code: string; name: string }[]> {
-  const rows = await softoneGetTable('IRSDATA', ['IRSDATA', 'NAME'], '');
-  return rows
-    .map((r) => ({ code: str(r.IRSDATA), name: cleanS1Label(r.NAME) }))
-    .filter((r) => r.code && r.name);
+/**
+ * Διαβάζει το μητρώο Δ.Ο.Υ. του SoftOne (πίνακας IRSDATA): κλειδί, **κωδικός ΑΑΔΕ** (`CODE`),
+ * ονομασία, ενεργή. Μόνο ΑΝΑΓΝΩΣΗ. Η ανάλυση γίνεται **κατά όνομα στήλης** από το `model`
+ * ({@link parseTaxOfficesResponse}) — ποτέ κατά θέση. Η αντιστοίχιση ΑΑΔΕ → IRSDATA γίνεται στο
+ * `lib/tax-office.ts` ({@link resolveTaxOffice}), με κωδικό.
+ */
+export async function softoneFetchTaxOffices(): Promise<TaxOffice[]> {
+  const res = await softoneCall<GetTableTaxOfficesResponse>(
+    'GetTable', { TABLE: 'IRSDATA', FIELDS: TAX_OFFICE_FIELDS.join(','), FILTER: '' },
+  );
+  try {
+    return parseTaxOfficesResponse(res);
+  } catch (e) {
+    throw new SoftoneError((e as Error).message);
+  }
 }
 
 /**
- * Matches an AADE Δ.Ο.Υ. description (e.g. "Ε΄ ΘΕΣΣΑΛΟΝΙΚΗΣ") to a SoftOne
- * IRSDATA code. Tries exact-normalised, then bidirectional contains. Returns the
- * code or null when no confident match.
+ * Το κλειδί IRSDATA που θα γραφτεί στο `TRDR.IRSDATA` — υπάρχει και είναι ενεργό; `null` = εντάξει
+ * (ή δεν ζητήθηκε Δ.Ο.Υ.), αλλιώς το μήνυμα για 422 `invalid_doy`. Αν το μητρώο δεν διαβαστεί, ΔΕΝ
+ * μπλοκάρει: η τιμή προήλθε από λίστα που διάβασε το ίδιο το SoftOne.
  */
-export function matchTaxOffice(
-  description: string | null | undefined,
-  offices: { code: string; name: string }[],
-): string | null {
-  const target = normDoy(description ?? '');
-  if (!target) return null;
-  const norm = offices.map((o) => ({ ...o, n: normDoy(o.name) }));
-  const exact = norm.find((o) => o.n === target);
-  if (exact) return exact.code;
-  const contains = norm.find((o) => o.n && (o.n.includes(target) || target.includes(o.n)));
-  return contains ? contains.code : null;
+export async function softoneIrsDataError(key: string | null | undefined): Promise<string | null> {
+  if (!key) return null;
+  const offices = await softoneFetchTaxOffices().catch(() => null);
+  return offices ? irsDataKeyError(key, offices) : null;
 }
 
 /** Γραμμή του μητρώου χωρών του SoftOne (object/table COUNTRY). */
@@ -1138,7 +1133,12 @@ export interface CreateSupplierInput {
   name: string;
   afm: string;
   code?: string | null;        // empty → SoftOne auto-numbering
-  doyCode?: string | null;     // IRSDATA code
+  /**
+   * Δ.Ο.Υ. → `TRDR.IRSDATA`: το **κλειδί** `IRSDATA.IRSDATA` της γραμμής του μητρώου (το πεδίο της
+   * καρτέλας είναι selector με editor `IRSDATA`), ΟΧΙ ο κωδικός ΑΑΔΕ (`IRSDATA.CODE`). Στον τρέχοντα
+   * πελάτη συμπίπτουν· σε άλλη εγκατάσταση μπορεί όχι. Βγαίνει από το `resolveTaxOffice`.
+   */
+  irsData?: string | null;
   profession?: string | null;  // JOBTYPETRD
   address?: string | null;
   zip?: string | null;
@@ -1345,7 +1345,7 @@ function traderRow(input: CreateTraderInput, countries: SoftoneCountry[] = []): 
   const countryId = matchCountryId(input.country, countries);
   if (countryId) row.COUNTRY = Number(countryId);
   if (input.code) row.CODE = input.code;
-  if (input.doyCode) row.IRSDATA = input.doyCode;
+  if (input.irsData) row.IRSDATA = input.irsData;
   if (input.profession) row.JOBTYPETRD = input.profession;
   if (input.address) row.ADDRESS = input.address;
   if (input.zip) row.ZIP = input.zip;

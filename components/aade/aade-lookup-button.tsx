@@ -24,6 +24,8 @@ export type AadeMapped = {
   name: string;
   shortName: string | null;
   doy: string | null;
+  /** Ο επίσημος κωδικός Δ.Ο.Υ. της ΑΑΔΕ. */
+  doyCode?: string | null;
   legalForm: string | null;
   address: string | null;
   zip: string | null;
@@ -149,7 +151,7 @@ export function AadeLookupButton({ initialAfm, onApply, size = 'sm', label = 'Ά
 
               <dl className="grid sm:grid-cols-2 gap-x-4 gap-y-1.5 text-[12px]">
                 <Row label="ΑΦΜ">{data.mapped.afm}</Row>
-                <Row label="ΔΟΥ">{data.mapped.doy ?? '—'}</Row>
+                <Row label="ΔΟΥ">{data.mapped.doy ? `${data.mapped.doy}${data.mapped.doyCode ? ` (${data.mapped.doyCode})` : ''}` : '—'}</Row>
                 <Row label="Νομική μορφή">{data.mapped.legalForm ?? '—'}</Row>
                 <Row label="Ίδρυση">{data.mapped.foundingDate ?? '—'}</Row>
                 <Row label="Διεύθυνση" wide>{[data.mapped.address, data.mapped.zip, data.mapped.city].filter(Boolean).join(', ') || '—'}</Row>

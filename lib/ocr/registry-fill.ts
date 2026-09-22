@@ -36,6 +36,13 @@ export interface RegistryFillInput<K extends string> {
   registry: Partial<Record<K, string | null | undefined>>;
   /** Πεδία που έχει ορίσει ΡΗΤΑ ο χρήστης σε αυτή τη συνεδρία — απαραβίαστα. */
   userOwned?: Iterable<K>;
+  /**
+   * Πεδία για τα οποία το μητρώο δίνει **θετική απάντηση που δεν μπορεί να γραφτεί** — π.χ. η ΑΑΔΕ
+   * λέει «Δ.Ο.Υ. 1190» και το SoftOne δεν έχει τέτοια Δ.Ο.Υ. Αυτό ΔΕΝ είναι «κενό μητρώο»: η τιμή του
+   * OCR (π.χ. μια παλιά Δ.Ο.Υ. πριν τη συγχώνευση) είναι γνωστά λάθος, άρα το πεδίο **αδειάζει** —
+   * εκτός αν το κατέχει ο χρήστης. Ποτέ δεν μπαίνει «μαντεμένη» τιμή στη θέση του.
+   */
+  clear?: Iterable<K>;
 }
 
 export interface RegistryFillResult<K extends string> {
@@ -45,6 +52,8 @@ export interface RegistryFillResult<K extends string> {
   applied: K[];
   /** Ποια πεδία είχαν τιμή μητρώου αλλά **δεν** γράφτηκαν επειδή τα κατέχει ο χρήστης. */
   skipped: K[];
+  /** Ποια πεδία αδειάζουν (τιμή `''` στο `values`) επειδή το μητρώο τα δηλώνει μη αντιστοιχίσιμα. */
+  cleared: K[];
 }
 
 /**
@@ -65,6 +74,7 @@ export function planRegistryFill<K extends string>(
   const values: Partial<Record<K, string>> = {};
   const applied: K[] = [];
   const skipped: K[] = [];
+  const cleared: K[] = [];
 
   for (const key of Object.keys(input.registry) as K[]) {
     const value = registryValue(input.registry[key]);
@@ -73,5 +83,12 @@ export function planRegistryFill<K extends string>(
     values[key] = value;
     applied.push(key);
   }
-  return { values, applied, skipped };
+  for (const key of new Set(input.clear ?? [])) {
+    // Μια πραγματική τιμή μητρώου για το ίδιο πεδίο κερδίζει (δεν γίνεται να ισχύουν και τα δύο).
+    if (key in values || skipped.includes(key)) continue;
+    if (owned.has(key)) { skipped.push(key); continue; }
+    values[key] = '';
+    cleared.push(key);
+  }
+  return { values, applied, skipped, cleared };
 }
