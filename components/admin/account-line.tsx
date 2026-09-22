@@ -23,6 +23,13 @@ export function AccountLine({ line, compact = false }: { line: AccountCheckLine;
             <span className="text-muted-foreground">Λογ/σμός </span>{code}
             <span className="text-foreground"> — {line.accountName}</span>
             {line.inactive && <span style={{ color: AMBER }}> (ανενεργός)</span>}
+            {line.vatMismatch && (
+              // ΠΑΡΑΤΗΡΗΣΗ, όχι εμπόδιο: συμπέρασμα από το σχήμα του σχεδίου (βλ. `accountVatRate`).
+              <span className="block" style={{ color: AMBER }}>
+                Ο λογαριασμός είναι για {line.vatMismatch.accountRate === 0 ? 'άνευ ΦΠΑ' : `ΦΠΑ ${line.vatMismatch.accountRate}%`}
+                {' '}αλλά η γραμμή έχει ΦΠΑ {line.vatMismatch.lineRate}% — έλεγξε τη χρεοπίστωση
+              </span>
+            )}
           </span>
         </p>
       );

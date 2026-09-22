@@ -18,6 +18,7 @@ type Rule = {
   mtrl: number | null; expn: number | null; lin: number | null;
   costCntr: number | null; prjc: number | null; prjcStage: number | null;
   isService: boolean; timesUsed: number; createdById: string | null;
+  targetSource?: string | null;
 };
 
 const { db, store } = vi.hoisted(() => {
@@ -43,7 +44,7 @@ const { db, store } = vi.hoisted(() => {
       softoneMyDataClassCategory: { findMany: vi.fn() },
       purchaseDocType: { findUnique: vi.fn() },
       softoneDocSeries: { findUnique: vi.fn() },
-      lineMatchRule: { findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn(), update: vi.fn() },
+      lineMatchRule: { findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn(), update: vi.fn(), create: vi.fn() },
       $transaction: vi.fn(),
     },
   };
@@ -147,10 +148,21 @@ beforeEach(() => {
   db.lineMatchRule.findMany.mockImplementation(async (
     { where }: { where: { pattern: { in: string[] }; afm: { in: string[] } } },
   ) => store.rules.filter((r) => where.pattern.in.includes(r.pattern) && where.afm.in.includes(r.afm)));
-  db.lineMatchRule.update.mockImplementation(async ({ where, data }: { where: { id: string }; data: { timesUsed: { increment: number } } }) => {
+  db.lineMatchRule.update.mockImplementation(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
     const r = store.rules.find((x) => x.id === where.id);
-    if (r) r.timesUsed += data.timesUsed.increment;
+    if (!r) return r;
+    const { timesUsed, ...rest } = data as { timesUsed?: { increment: number } };
+    if (timesUsed) r.timesUsed += timesUsed.increment;
+    Object.assign(r, rest);
     return r;
+  });
+  db.lineMatchRule.findUnique.mockImplementation(async (
+    { where }: { where: { afm_pattern: { afm: string; pattern: string } } },
+  ) => store.rules.find((r) => r.afm === where.afm_pattern.afm && r.pattern === where.afm_pattern.pattern) ?? null);
+  db.lineMatchRule.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+    const row = { id: `rule${store.rules.length + 1}`, timesUsed: 0, ...data } as Rule;
+    store.rules.push(row);
+    return row;
   });
 });
 
@@ -345,6 +357,92 @@ describe('ο βρόχος εκπαίδευσης — το ΕΠΟΜΕΝΟ παρ�
 
     expect(r).toEqual({ matched: 1, total: 1 });
     expect(db.ocrInvoiceItem.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('applyAnalyticsToLine — ΠΡΟΕΛΕΥΣΗ του στόχου (targetSource)', () => {
+  /** Γραμμή που την αντιστοίχισε ΑΥΤΟΜΑΤΑ ο κωδικός — κανένας άνθρωπος δεν διάλεξε τον στόχο. */
+  const seedAuto = (lineId: string, docId = 'doc1') => {
+    seedDoc(docId, lineId);
+    Object.assign(store.lines.get(lineId)!, {
+      softoneLinMtrl: LINEITEM.mtrl, softoneCode: LINEITEM.code, softoneName: LINEITEM.name,
+      softoneIsService: false, softoneMatchedBy: 'code',
+    });
+  };
+
+  it('στόχος που διάλεξε άνθρωπος ⇒ `manual`', async () => {
+    seedDoc('doc1', 'l1');
+    await applyMatchToLine({ lineId: 'l1', target: { lin: LINEITEM.mtrl }, userId: 'u1' });
+    expect(store.rules[0]).toMatchObject({ lin: LINEITEM.mtrl, targetSource: 'manual' });
+  });
+
+  it('αλλαγή ΜΟΝΟ αναλυτικής σε ΑΥΤΟΜΑΤΑ αντιστοιχισμένη γραμμή χωρίς κανόνα ⇒ ΚΑΝΕΝΑΣ νέος κανόνας', async () => {
+    seedAuto('l1');
+    const r = await applyAnalyticsToLine({ lineId: 'l1', analytics: { costCntr: 5 }, userId: 'u1' });
+    expect(store.rules).toHaveLength(0);
+    expect(r.remembered).toBe(false);
+    // Η ΓΡΑΜΜΗ όμως κρατά την αναλυτική της.
+    expect(store.lines.get('l1')).toMatchObject({ softoneCostCntr: 5 });
+  });
+
+  it('B1: κανόνας → ΕΞΟΔΟ Ε, γραμμή αυτόματα → χρεοπίστωση Χ: το έργο ΔΕΝ διαρρέει στον κανόνα του Ε', async () => {
+    seedDoc('doc0', 'l0');
+    await applyMatchToLine({ lineId: 'l0', target: { expn: EXPENSE.expn }, userId: 'u1' });
+    const before = { ...store.rules[0] };
+
+    seedAuto('l1');
+    const r = await applyAnalyticsToLine({ lineId: 'l1', analytics: { prjc: 7 }, userId: 'u2' });
+
+    expect(r.remembered).toBe(false);
+    expect(store.rules).toHaveLength(1);
+    expect(store.rules[0]).toEqual(before);
+    expect(store.rules[0].prjc ?? null).toBeNull();
+  });
+
+  it('B1: κανόνας → χρεοπίστωση Υ, γραμμή → Χ: το κέντρο κόστους της Χ ΔΕΝ απλώνεται στις γραμμές της Υ', async () => {
+    const OTHER = { mtrl: 53002, code: '53-0002', name: 'Άλλη χρεοπίστωση' };
+    db.softoneLineItem.findUnique.mockImplementation(async ({ where }: { where: { mtrl: number } }) =>
+      (where.mtrl === LINEITEM.mtrl ? LINEITEM : where.mtrl === OTHER.mtrl ? OTHER : null));
+    seedDoc('doc0', 'l0');
+    await applyMatchToLine({ lineId: 'l0', target: { lin: OTHER.mtrl }, userId: 'u1' });
+
+    seedAuto('l1');
+    await applyAnalyticsToLine({ lineId: 'l1', analytics: { costCntr: 5 }, userId: 'u2' });
+
+    expect(store.rules[0]).toMatchObject({ lin: OTHER.mtrl, targetSource: 'manual' });
+    expect(store.rules[0].costCntr ?? null).toBeNull();
+  });
+
+  it('γραμμή `manual` με ΠΑΛΙΟ στόχο Υ, κανόνας αργότερα → Χ: η αναλυτική ΔΕΝ ξαναγυρίζει τον κανόνα στο Υ ούτε ανεβάζει το timesUsed', async () => {
+    seedDoc('doc1', 'l1');
+    await applyMatchToLine({ lineId: 'l1', target: { expn: EXPENSE.expn }, userId: 'u1' });
+    // Άλλη γραμμή με ΙΔΙΑ περιγραφή του ίδιου εκδότη: ο άνθρωπος άλλαξε γνώμη → χρεοπίστωση.
+    seedDoc('doc2', 'l2');
+    await applyMatchToLine({ lineId: 'l2', target: { lin: LINEITEM.mtrl }, userId: 'u1' });
+    const used = store.rules[0].timesUsed;
+
+    const r = await applyAnalyticsToLine({ lineId: 'l1', analytics: { costCntr: null } });
+
+    expect(r.remembered).toBe(false);
+    expect(store.rules[0]).toMatchObject({ lin: LINEITEM.mtrl, expn: null, targetSource: 'manual', timesUsed: used });
+  });
+
+  it('ίδιος στόχος ⇒ ενημερώνεται ΜΟΝΟ η αναλυτική· στόχος, προέλευση και timesUsed μένουν', async () => {
+    seedDoc('doc1', 'l1');
+    await applyMatchToLine({ lineId: 'l1', target: { lin: LINEITEM.mtrl }, userId: 'u1' });
+    const used = store.rules[0].timesUsed;
+    const r = await applyAnalyticsToLine({ lineId: 'l1', analytics: { costCntr: 5 }, userId: 'u1' });
+    expect(r.remembered).toBe(true);
+    expect(store.rules[0]).toMatchObject({ lin: LINEITEM.mtrl, costCntr: 5, targetSource: 'manual', timesUsed: used });
+  });
+
+  it('…και σε ΑΥΤΟΜΑΤΑ αντιστοιχισμένη γραμμή με τον ΙΔΙΟ στόχο με τον κανόνα, η αναλυτική μαθαίνεται', async () => {
+    seedDoc('doc0', 'l0');
+    await applyMatchToLine({ lineId: 'l0', target: { lin: LINEITEM.mtrl }, userId: 'u1' });
+    seedAuto('l1');
+    const r = await applyAnalyticsToLine({ lineId: 'l1', analytics: { prjc: 7 } });
+    expect(r.remembered).toBe(true);
+    expect(store.rules[0]).toMatchObject({ lin: LINEITEM.mtrl, prjc: 7, targetSource: 'manual' });
   });
 });
 

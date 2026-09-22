@@ -38,6 +38,8 @@ export type PurdocLineCtx = {
   linAcnmsk?: string | null;
   /** `false` = ο λογαριασμός της χρεοπίστωσης δεν έχει διαβαστεί ακόμη από τον συγχρονισμό. */
   linAcnmskKnown?: boolean;
+  /** Ο συντελεστής ΦΠΑ της γραμμής (ίδια πηγή με το payload) — για την παρατήρηση ΦΠΑ του ελέγχου. */
+  vatRate?: number | null;
   isService?: boolean | null;
   /**
    * MYDATACODE του ΜΗΤΡΩΟΥ στο οποίο ταίριαξε η γραμμή. Στέλνεται μόνο εκεί όπου ο πίνακας
@@ -178,7 +180,7 @@ export type BlockerCode =
 /** Μη-αποτρεπτικές παρατηρήσεις: φαίνονται στην προεπισκόπηση, δεν κλειδώνουν το κουμπί. */
 export type WarningCode =
   | 'no_mydata_classification' | 'mydata_from_master'
-  | 'account_unknown' | 'account_not_covered';
+  | 'account_unknown' | 'account_not_covered' | 'account_vat_mismatch';
 
 const num = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 const text = (v: unknown): string | undefined => {
@@ -456,6 +458,7 @@ export function accountCheckInputs(ctx: Pick<PurdocContext, 'lines' | 'target'>)
       acnmsk: m.linAcnmsk ?? null,
       // Άγνωστο ΔΕΝ διαβάζεται ποτέ ως γνωστό: ένας καλών που ξέχασε το πεδίο παίρνει «άγνωστο».
       acnmskKnown: m.linAcnmskKnown ?? false,
+      vatRate: m.vatRate ?? null,
     };
   });
 }

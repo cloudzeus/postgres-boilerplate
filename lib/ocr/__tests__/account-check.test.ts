@@ -3,7 +3,7 @@
 // λογιστικό σχέδιο (ΕΓΛΣ) του πελάτη και από τις χρεοπιστώσεις του (ΕΛΠ) — read-only audit.
 import { describe, it, expect } from 'vitest';
 import {
-  accountBlockers, accountDetails, accountWarnings, chartNeeds, checkAccounts, parentOf, patternRegex,
+  accountBlockers, accountDetails, accountVatRate, accountWarnings, chartNeeds, checkAccounts, parentOf, patternRegex,
   type AccountChart, type AccountCheckInput,
 } from '../account-check';
 import { accountCheckInputs, postingBlockers, postingWarnings, type PurdocLineCtx } from '../purdoc-payload';
@@ -294,5 +294,98 @@ describe('postingBlockers / postingWarnings με τον έλεγχο λογαρ�
     const acc = checkAccounts(accountCheckInputs(c), CHART);
     expect(acc.lines).toEqual([]);
     expect(postingBlockers(doc(), { ...postingDoc, seriesSource: 1251 }, c, acc)).not.toContain('account_missing');
+  });
+});
+
+describe('παρατήρηση ΦΠΑ (account_vat_mismatch) — προειδοποιεί, ΠΟΤΕ δεν εμποδίζει', () => {
+  const acc = (code: string, name: string) => ({ code, name, postable: true, isActive: true });
+  const CHART = {
+    synced: true,
+    accounts: [
+      acc('62.00.00.0024', 'Ηλεκτρικό ρεύμα παραγωγής με Φ.Π.Α. 24%'),
+      acc('62.00.00.0000', 'Ηλεκτρικό ρεύμα παραγωγής άνευ Φ.Π.Α.'),
+      acc('64.00.00.0219', 'Έξοδα κινήσεως ΦΙΧ με Φ.Π.Α. 19%'),
+      acc('62.04.03.0199', 'Ενοίκια ΕΙΧ αυτοκινήτων ΧΔΕ Φ.Π.Α.'),
+      acc('30.87.00.8700', 'Προσαρμογές υπολοίπου πελατών ΕΛΠ - ΕΛΠ'),
+      acc('54.00.99.0006', 'Απόδοση εκκαθάριση Φ.Π.Α. Ιουνίου'),
+      acc('54.00.24.0053', 'Φ.Π.Α. ενδ.αποκτ.πρ&βυ-υλ.συσκ.εκπιπτ.άνευ.Ε.Φ.Κ. με Φ.Π.Α. 6%'),
+      acc('60.00.00.0000', 'Τακτικές αποδοχές'),
+    ],
+  };
+  const line = (acnmsk: string, vatRate: number | null) => checkAccounts(
+    [{ rowIndex: 0, path: 'LINLINES', article: 'ΧΡ — δοκιμή', acnmsk, acnmskKnown: true, vatRate }], CHART,
+  );
+
+  it('ρεύμα 6% σε λογαριασμό 24% ⇒ παρατήρηση με τα δύο ποσοστά, ΚΑΝΕΝΑ εμπόδιο', () => {
+    const c = line('62.00.00.0024', 6);
+    expect(c.lines[0].status).toBe('ok');
+    expect(c.lines[0].vatMismatch).toMatchObject({ accountRate: 24, lineRate: 6 });
+    expect(c.lines[0].vatMismatch?.message).toContain('ο λογαριασμός 62.00.00.0024 είναι για ΦΠΑ 24% αλλά η γραμμή έχει ΦΠΑ 6%');
+    expect(accountWarnings(c)).toContain('account_vat_mismatch');
+    expect(accountBlockers(c)).toEqual([]);
+    expect(accountDetails('account_vat_mismatch', c)).toHaveLength(1);
+  });
+
+  it('ίδιος συντελεστής ⇒ τίποτα', () => {
+    expect(line('62.00.00.0024', 24).lines[0].vatMismatch).toBeNull();
+  });
+
+  it('άγνωστος ΦΠΑ γραμμής ⇒ τίποτα', () => {
+    expect(line('62.00.00.0024', null).lines[0].vatMismatch).toBeNull();
+  });
+
+  it('«άνευ Φ.Π.Α.» (0000 με το όνομα να το λέει) με γραμμή 24% ⇒ παρατήρηση', () => {
+    expect(line('62.00.00.0000', 24).lines[0].vatMismatch).toMatchObject({ accountRate: 0, lineRate: 24 });
+  });
+
+  it.each([
+    ['0219 (ΦΙΧ 19%) — δεν είναι σκέτος συντελεστής', '64.00.00.0219'],
+    ['0199 (ΕΙΧ ΧΔΕ)', '62.04.03.0199'],
+    ['8700', '30.87.00.8700'],
+    ['0006 που είναι ΜΗΝΑΣ («Ιουνίου»), όχι 6%', '54.00.99.0006'],
+    ['0053 με όνομα «6%» — κατάληξη και όνομα διαφωνούν', '54.00.24.0053'],
+    ['0000 χωρίς «άνευ» στο όνομα (μισθοδοσία)', '60.00.00.0000'],
+  ])('%s ⇒ ΚΑΜΙΑ παρατήρηση', (_l, code) => {
+    const c = line(code, 13);
+    expect(c.lines[0].vatMismatch).toBeNull();
+    expect(accountWarnings(c)).not.toContain('account_vat_mismatch');
+  });
+
+  it.each([
+    ['60.01.09.0009', 'Ποσοστά για πωλήσεις και αγορές 9%'],
+    ['54.09.14.0005', 'Φόρος προμηθευτών 5%'],
+    ['61.91.00.0005', 'Πνευματικά και καλλ/κά δικαιώματα τρίτων επί πωλήσεων φόρος 5%'],
+    ['61.98.00.0005', 'Χρήσεις δικαιωμάτων royalties φόρος 5%'],
+  ])('ποσοστό ΧΩΡΙΣ «ΦΠΑ» στο όνομα (%s %s) ⇒ δεν είναι ΦΠΑ, καμία παρατήρηση', (code, name) => {
+    expect(accountVatRate({ code, name })).toBeNull();
+    const c = checkAccounts(
+      [{ rowIndex: 0, path: 'LINLINES', acnmsk: code, acnmskKnown: true, vatRate: 24 }],
+      { synced: true, accounts: [{ code, name, postable: true, isActive: true }] },
+    );
+    expect(c.lines[0].status).toBe('ok');
+    expect(c.lines[0].vatMismatch).toBeNull();
+  });
+
+  it.each([
+    ['με Φ.Π.Α. 24%', 24], ['με Φ.Π.Α 24%', 24], ['ΦΠΑ 24%', 24], ['με φ.π.α. 24%', 24],
+    ['με Φ.Π.A. 24% (λατινικό A)', 24], ['Φ Π Α 24%', 24],
+  ])('γραφές του ΦΠΑ: «%s» ⇒ %d', (name, rate) => {
+    expect(accountVatRate({ code: '62.00.00.0024', name: String(name) })).toBe(rate);
+  });
+
+  it('accountVatRate: 24% ως ακέραιος — όχι «124%» ούτε «6,5%»', () => {
+    expect(accountVatRate({ code: '62.00.00.0024', name: 'Κάτι με ΦΠΑ 124%' })).toBeNull();
+    expect(accountVatRate({ code: '62.00.00.0006', name: 'Κάτι με ΦΠΑ 6,5%' })).toBeNull();
+    expect(accountVatRate({ code: '62.00.00.0006', name: 'ΔΕΗ με ΦΠΑ 6%' })).toBe(6);
+    expect(accountVatRate({ code: '62.00.00.0006', name: 'ΔΕΗ 6%' })).toBeNull();
+  });
+
+  it('ο ΦΠΑ της γραμμής περνά από το accountCheckInputs στην παρατήρηση της καταχώρισης', () => {
+    const inputs = accountCheckInputs({
+      target: { lines: 'LINLINES' } as never,
+      lines: [{ rowIndex: 0, lin: 1, linMtrType: 1, linLabel: 'ΧΡ', linAcnmsk: '62.00.00.0024', linAcnmskKnown: true, vatRate: 6 }],
+    });
+    expect(inputs[0].vatRate).toBe(6);
+    expect(accountWarnings(checkAccounts(inputs, CHART))).toContain('account_vat_mismatch');
   });
 });

@@ -724,6 +724,7 @@ type UnmatchedLine = {
   price: unknown;
   total: unknown;
   softoneIsService: boolean | null;
+  vatRate?: unknown;
 };
 type QueueDocInfo = {
   fileName: string | null;
@@ -746,7 +747,7 @@ async function loadUnmatchedLines(): Promise<{
     where: UNMATCHED_LINE_WHERE,
     select: {
       id: true, documentId: true, code: true, name: true,
-      quantity: true, price: true, total: true, softoneIsService: true,
+      quantity: true, price: true, total: true, softoneIsService: true, vatRate: true,
     },
     orderBy: { id: 'asc' },
     take: MAX_QUEUE_LINES,
@@ -1032,6 +1033,31 @@ async function memorySuggestion(rule: {
   return null;
 }
 
+/**
+ * Οι συντελεστές ΦΠΑ των εκκρεμών γραμμών κάθε ομάδας, κλειδί `afm|pattern` — ΟΛΟΙ οι διαφορετικοί,
+ * ταξινομημένοι (μια ομάδα μπορεί να έχει μικτούς). Διαβάζονται από τις ίδιες τις γραμμές στη βάση,
+ * όχι από το σώμα του αιτήματος: το UI δεν είναι πηγή αλήθειας για τον ΦΠΑ. Γραμμή χωρίς ΦΠΑ δεν
+ * συνεισφέρει τίποτα· ομάδα χωρίς κανέναν γνωστό ΦΠΑ λείπει από τον χάρτη.
+ */
+export async function groupVatRates(): Promise<Map<string, number[]>> {
+  const { lines, docs } = await loadUnmatchedLines();
+  const rateById = new Map<string, number>();
+  for (const l of lines) {
+    const n = l.vatRate == null || l.vatRate === '' ? NaN : Number(l.vatRate);
+    if (Number.isFinite(n)) rateById.set(l.id, n);
+  }
+  const grouped = groupLines(lines.map((l) => ({
+    id: l.id, afm: docs.get(l.documentId)?.afm ?? '', docId: l.documentId, name: l.name, code: l.code,
+  })));
+  const out = new Map<string, number[]>();
+  for (const g of grouped) {
+    const rates = [...new Set(g.lineIds.map((id) => rateById.get(id)).filter((r): r is number => r != null))]
+      .sort((a, b) => a - b);
+    if (rates.length) out.set(`${g.afm}|${g.pattern}`, rates);
+  }
+  return out;
+}
+
 /** Οι εκκρεμείς γραμμές μιας ομάδας (ΑΦΜ + pattern), όπως τη βλέπει η σελίδα. */
 async function groupLineIds(afm: string, pattern: string): Promise<{ lineIds: string[]; docIds: string[] }> {
   const { lines, docs } = await loadUnmatchedLines();
@@ -1166,14 +1192,51 @@ export async function rememberLineMatch(input: {
   const pattern = String(input.pattern ?? '').trim();
   if (!pattern) return;
   const { mtrl, expn, lin, isService } = input.match;
+  // ΜΟΝΟ ρητή επιλογή στόχου από άνθρωπο φτάνει εδώ ⇒ `targetSource: 'manual'`.
   // Ο κανόνας ξαναχρησιμοποιήθηκε (ο χρήστης επιβεβαίωσε την ίδια αντιστοίχιση): +1 χρήση.
   // Το `update` γράφει ΚΑΙ τα τρία πεδία στόχου, οπότε αλλαγή γνώμης (είδος → έξοδο) σβήνει
   // τον παλιό στόχο αντί να αφήσει δύο.
   await prisma.lineMatchRule.upsert({
     where: { afm_pattern: { afm, pattern } },
-    update: { mtrl, expn, lin, isService, ...input.analytics, timesUsed: { increment: 1 } },
-    create: { afm, pattern, mtrl, expn, lin, isService, ...input.analytics, createdById: input.userId ?? null },
+    update: { mtrl, expn, lin, isService, ...input.analytics, targetSource: 'manual', timesUsed: { increment: 1 } },
+    create: { afm, pattern, mtrl, expn, lin, isService, ...input.analytics, targetSource: 'manual', createdById: input.userId ?? null },
   });
+}
+
+/**
+ * Η μνήμη μιας αλλαγής ΜΟΝΟ αναλυτικής. Τρεις απαγορεύσεις, ανεξάρτητα από το ποιος διάλεξε τον
+ * στόχο της γραμμής (άνθρωπος ή αυτόματη αντιστοίχιση):
+ *  1. ΠΟΤΕ δεν αλλάζει τον στόχο (`mtrl`/`expn`/`lin`) ενός κανόνα — η αναλυτική δεν είναι απόφαση
+ *     για το «σε τι ταιριάζει» η γραμμή. (Πριν: σε γραμμή `manual` ξαναέγραφε τον ΠΑΛΙΟ στόχο της
+ *     γραμμής πάνω σε νεότερο ανθρώπινο κανόνα και ανέβαζε το `timesUsed`.)
+ *  2. Ενημερώνει την αναλυτική ΜΟΝΟ αν ο κανόνας δείχνει στον ΙΔΙΟ στόχο με τη γραμμή. Αλλιώς ένα
+ *     έργο που ορίστηκε για τη χρεοπίστωση Χ θα κολλούσε σε κανόνα → έξοδο Ε και το πέρασμα μνήμης
+ *     θα το μετέφερε σε κάθε μελλοντική γραμμή Ε (όπου το EXPANAL το πετά σιωπηλά), ή το κέντρο
+ *     κόστους της Χ θα απλωνόταν σε κάθε μελλοντική γραμμή της Υ.
+ *  3. ΠΟΤΕ δεν δημιουργεί κανόνα: ένας νέος κανόνας θα κατέγραφε ως μνήμη έναν στόχο που κανείς δεν
+ *     επέλεξε σε αυτή την ενέργεια.
+ * Επιστρέφει `true` μόνο όταν ενημερώθηκε πράγματι κανόνας.
+ */
+export async function rememberAnalyticsOnly(input: {
+  afm: string;
+  pattern: string;
+  target: { mtrl: number | null; expn: number | null; lin: number | null };
+  analytics: LineAnalytics;
+}): Promise<boolean> {
+  const afm = String(input.afm ?? '').trim();
+  const pattern = String(input.pattern ?? '').trim();
+  if (!pattern) return false;
+  const rule = await prisma.lineMatchRule.findUnique({
+    where: { afm_pattern: { afm, pattern } },
+    select: { id: true, mtrl: true, expn: true, lin: true },
+  });
+  if (!rule) return false;
+  const t = input.target;
+  if ((rule.mtrl ?? null) !== (t.mtrl ?? null) || (rule.expn ?? null) !== (t.expn ?? null) || (rule.lin ?? null) !== (t.lin ?? null)) {
+    return false;
+  }
+  await prisma.lineMatchRule.update({ where: { id: rule.id }, data: { ...input.analytics } });
+  return true;
 }
 
 /**
@@ -1209,6 +1272,7 @@ export async function applyMatchToGroup(input: {
     data: lineMatchData(match, analytics),
   });
 
+  // Ο χρήστης διάλεξε ΡΗΤΑ αυτόν τον στόχο στην ουρά.
   await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId });
 
   await refreshDocTallies(docIds);
@@ -1267,6 +1331,7 @@ export async function applyMatchToLine(input: {
     data: lineMatchData(match, analytics),
   });
 
+  // Ο χρήστης διάλεξε ΡΗΤΑ αυτόν τον στόχο στη σελίδα του παραστατικού.
   if (pattern) await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId });
 
   await refreshDocTallies([line.documentId]);
@@ -1317,30 +1382,22 @@ export async function applyAnalyticsToLine(input: {
     },
   });
 
-  // Χωρίς στόχο δεν υπάρχει κανόνας να θυμηθεί: ένας κανόνας με κενό `mtrl/expn/lin` δεν
-  // αντιστοιχίζει τίποτα, απλώς λερώνει τη μνήμη.
+  // Χωρίς στόχο δεν υπάρχει κανόνας να θυμηθεί. Με στόχο: ΜΟΝΟ ενημέρωση αναλυτικής σε ΥΠΑΡΧΟΝΤΑ
+  // κανόνα με ΤΟΝ ΙΔΙΟ στόχο — ποτέ αλλαγή στόχου, ποτέ νέος κανόνας (`rememberAnalyticsOnly`).
   const hasTarget = line.softoneMtrl != null || line.softoneExpn != null || line.softoneLinMtrl != null;
-  const doc = hasTarget
-    ? await prisma.ocrDocument.findUnique({ where: { id: line.documentId }, select: { issuerAfm: true } })
-    : null;
   const pattern = hasTarget ? normalizeLineText(line.name) : '';
+  let remembered = false;
   if (hasTarget && pattern) {
-    await rememberLineMatch({
+    const doc = await prisma.ocrDocument.findUnique({ where: { id: line.documentId }, select: { issuerAfm: true } });
+    remembered = await rememberAnalyticsOnly({
       afm: doc?.issuerAfm ?? '',
       pattern,
-      match: {
-        mtrl: line.softoneMtrl, expn: line.softoneExpn, lin: line.softoneLinMtrl,
-        code: line.softoneCode, name: line.softoneName,
-        isService: !!line.softoneIsService,
-        kind: line.softoneLinMtrl != null ? 'lineitem' : line.softoneExpn != null ? 'expense'
-          : line.softoneIsService ? 'service' : 'product',
-      },
+      target: { mtrl: line.softoneMtrl, expn: line.softoneExpn, lin: line.softoneLinMtrl },
       analytics,
-      userId: input.userId,
     });
   }
 
-  return { lineId, docId: line.documentId, analytics, remembered: hasTarget && !!pattern };
+  return { lineId, docId: line.documentId, analytics, remembered };
 }
 
 /**

@@ -10,11 +10,17 @@
 import 'server-only';
 import { prisma } from '@/lib/db';
 import { callTextLLM, callTextViaVision, resolveCfg } from './extract';
-import { suggestForGroup, type QueueSuggestion } from './queues';
+import { groupVatRates, suggestForGroup, type QueueSuggestion } from './queues';
 import { resolveOwnCompany, UNKNOWN_OWN_COMPANY, type OwnCompanyProfile } from './own-company';
 import { AI_CONFIDENT_SCORE, bestSuggestionScore } from './ai-apply';
 import type { MatchKind } from './line-match';
 import { TRADER_KIND_SODTYPE } from '@/lib/softone';
+import { accountVatRate, type ChartAccount } from './account-check';
+import {
+  BRANCH_LEVEL, branchCodeOf, groundArticles, candidateLine, candidateSignaturePart, branchCatalogue,
+  articlesInBranches, mergeWhitelist, issuerHistory, parseBranchAnswer,
+  type GroundedArticle, type HistoryRule,
+} from './chart-grounding';
 
 /**
  * Πάνω από αυτό το σκορ ο φθηνός δρόμος θεωρείται αρκετός — καμία κλήση μοντέλου. Ένα κατώφλι,
@@ -43,6 +49,26 @@ export const MAX_CANDIDATES_CATEGORY = 120;
  * για εγκατάσταση με ασυνήθιστα μεγάλο μητρώο.
  */
 export const MAX_EXPENSES = 40;
+/**
+ * Πόσες χρεοπιστώσεις με ΑΞΙΟΠΙΣΤΟ λογαριασμό στέλνουμε σε ΜΙΑ κλήση (στρατηγική `single`).
+ * Πάνω από αυτό το πλήθος η λίστα στενεύει πρώτα κατά κλάδο (`two-stage`), ώστε το prompt να
+ * μένει φραγμένο.
+ *
+ * Μέτρηση στον ζωντανό tenant (2026-09-21, 136 τέτοιες χρεοπιστώσεις, παρτίδα 20 ομάδων,
+ * `deepseek-chat`): `single` 18.977 in / 1.662 out = $0,00695 · `two-stage` 14.222 in / 2.219
+ * out σε ΔΥΟ κλήσεις = $0,00628. Η στένωση ήταν ~10% φθηνότερη αλλά ΟΧΙ ίδιας ποιότητας: στις
+ * 20 ομάδες έδωσε τις ίδιες 8 προτάσεις κωδικού και μία επιπλέον ΛΑΘΟΣ («Ειδ. Τέλος 5%» →
+ * «ΦΠΑ μη εκπιπτόμενος»), γιατί ο στενός κλάδος δεν είχε σωστή επιλογή και το μοντέλο διάλεξε
+ * ό,τι βρήκε. Γι' αυτό η προεπιλογή είναι η μία κλήση. Όσο ο λογιστής διορθώνει τις 307
+ * χρεοπιστώσεις χωρίς έγκυρο λογαριασμό, το πλήθος μεγαλώνει· πάνω από το όριο η εφαρμογή
+ * περνά μόνη της στη στένωση κατά κλάδο αντί να κόψει αυθαίρετα τη λίστα.
+ */
+export const MAX_GROUNDED_SINGLE = 200;
+/** Πόσους κλάδους το πολύ κρατάμε ανά ομάδα από το 1ο στάδιο. */
+export const MAX_BRANCHES_PER_GROUP = 3;
+
+/** Πώς διαλέγονται οι χρεοπιστώσεις με αξιόπιστο λογαριασμό που βλέπει το μοντέλο. */
+export type ShortlistStrategy = 'single' | 'two-stage';
 
 export interface AiGroupInput {
   /** Κλειδί ομάδας όπως το ξέρει το UI (`afm|pattern`). */
@@ -226,27 +252,60 @@ export function resolveAnswerKey(raw: string, asked: Set<string>): string | null
 /** Η καλύτερη ντετερμινιστική πρόταση μιας ομάδας — αυτή κρίνει αν χρειάζεται μοντέλο. */
 const bestScore = (suggestions: QueueSuggestion[]): number => bestSuggestionScore(suggestions);
 
-type Candidate = { mtrl: number; code: string; name: string; category: string | null };
-
-/** Οι υποψήφιες χρεοπιστώσεις: της επιλεγμένης κατηγορίας, αλλιώς οι κορυφαίες κατά ομοιότητα. */
-async function loadCandidates(
-  groups: AiGroupInput[], categoryId: number | null, deterministic: Map<string, QueueSuggestion[]>,
-): Promise<Candidate[]> {
-  if (categoryId) {
-    const rows = await prisma.softoneLineItem.findMany({
-      where: { isActive: true, mtrCategory: categoryId },
-      orderBy: { name: 'asc' },
-      take: MAX_CANDIDATES_CATEGORY,
-      select: { mtrl: true, code: true, name: true, mtrCategory: true },
-    });
-    const cat = await prisma.softoneLineCategory.findUnique({
-      where: { mtrCategory: categoryId }, select: { name: true },
-    });
-    return rows.map((r) => ({ mtrl: r.mtrl, code: r.code, name: r.name, category: cat?.name ?? null }));
+/**
+ * ΟΛΕΣ οι ενεργές χρεοπιστώσεις, με τον λογαριασμό τους ΟΠΟΥ ο σύνδεσμος είναι αξιόπιστος
+ * (`lib/ocr/chart-grounding.ts`). Μία ανάγνωση ανά κλικ: ~450 χρεοπιστώσεις και μόνο οι
+ * λογαριασμοί που χρειάζονται (οι ίδιοι + ο κλάδος τους), όχι ολόκληρο το σχέδιο των 5.000+.
+ */
+async function loadGroundedPool(): Promise<Map<number, GroundedArticle & { mtrCategory: number | null }>> {
+  const rows = await prisma.softoneLineItem.findMany({
+    where: { isActive: true },
+    orderBy: { name: 'asc' },
+    select: { mtrl: true, code: true, name: true, mtrCategory: true, acnmsk: true, acnmskSyncedAt: true },
+  });
+  const catIds = Array.from(new Set(rows.map((r) => r.mtrCategory).filter((v): v is number => v != null)));
+  const codes = new Set<string>();
+  for (const r of rows) {
+    const m = (r.acnmsk ?? '').trim();
+    if (!m || m.includes('*')) continue;
+    codes.add(m);
+    const b = branchCodeOf(m, BRANCH_LEVEL);
+    if (b) codes.add(b);
   }
+  const [cats, accounts] = await Promise.all([
+    catIds.length
+      ? prisma.softoneLineCategory.findMany({ where: { mtrCategory: { in: catIds } }, select: { mtrCategory: true, name: true } })
+      : Promise.resolve([] as { mtrCategory: number; name: string }[]),
+    codes.size
+      ? prisma.softoneAccount
+        .findMany({ where: { code: { in: [...codes] } }, select: { code: true, name: true, postable: true, isActive: true } })
+        .catch(() => [] as ChartAccount[])
+      : Promise.resolve([] as ChartAccount[]),
+  ]);
+  const catName = new Map(cats.map((c) => [c.mtrCategory, c.name]));
+  const chart = new Map<string, ChartAccount>(accounts.map((a) => [a.code.trim(), a]));
+  const grounded = groundArticles(rows.map((r) => ({
+    mtrl: r.mtrl, code: r.code, name: r.name,
+    acnmsk: r.acnmsk, acnmskKnown: Boolean(r.acnmskSyncedAt),
+    category: r.mtrCategory != null ? catName.get(r.mtrCategory) ?? null : null,
+  })), chart);
+  return new Map(grounded.map((g, i) => [g.mtrl, { ...g, mtrCategory: rows[i].mtrCategory }]));
+}
 
+/**
+ * Οι υποψήφιες χρεοπιστώσεις από τον ΠΑΛΙΟ δρόμο: της επιλεγμένης κατηγορίας, αλλιώς οι
+ * κορυφαίες κατά ομοιότητα κειμένου. Είναι ο ΜΟΝΟΣ δρόμος για χρεοπιστώσεις χωρίς αξιόπιστο
+ * λογαριασμό — αυτές δεν έχουν κλάδο, άρα δεν τις βρίσκει η στένωση κατά κλάδο.
+ */
+function textCandidates(
+  pool: ReadonlyMap<number, GroundedArticle & { mtrCategory: number | null }>,
+  categoryId: number | null, deterministic: Map<string, QueueSuggestion[]>,
+): GroundedArticle[] {
+  if (categoryId) {
+    return [...pool.values()].filter((a) => a.mtrCategory === categoryId).slice(0, MAX_CANDIDATES_CATEGORY);
+  }
   // Χωρίς κατηγορία: οι χρεοπιστώσεις που ήδη βρήκε το string-matching για ΟΛΕΣ τις ομάδες,
-  // κατά φθίνον σκορ. Δεν στέλνουμε ποτέ ολόκληρο το μητρώο.
+  // κατά φθίνον σκορ. Δεν στέλνουμε ποτέ ολόκληρο το μητρώο από αυτόν τον δρόμο.
   const scored = new Map<number, number>();
   for (const list of deterministic.values()) {
     for (const s of list) {
@@ -254,24 +313,35 @@ async function loadCandidates(
       scored.set(s.lin, Math.max(scored.get(s.lin) ?? 0, s.score));
     }
   }
-  const top = Array.from(scored.entries())
+  return Array.from(scored.entries())
     .sort((a, b) => b[1] - a[1])
-    .slice(0, MAX_CANDIDATES_FREE)
-    .map(([mtrl]) => mtrl);
-  if (top.length === 0) return [];
-  const rows = await prisma.softoneLineItem.findMany({
-    where: { mtrl: { in: top }, isActive: true },
-    select: { mtrl: true, code: true, name: true, mtrCategory: true },
-  });
-  const catIds = Array.from(new Set(rows.map((r) => r.mtrCategory).filter((v): v is number => v != null)));
-  const cats = catIds.length
-    ? await prisma.softoneLineCategory.findMany({ where: { mtrCategory: { in: catIds } }, select: { mtrCategory: true, name: true } })
-    : [];
-  const catName = new Map(cats.map((c) => [c.mtrCategory, c.name]));
-  return rows.map((r) => ({
-    mtrl: r.mtrl, code: r.code, name: r.name,
-    category: r.mtrCategory != null ? catName.get(r.mtrCategory) ?? null : null,
-  }));
+    .map(([mtrl]) => pool.get(mtrl))
+    .filter((a): a is GroundedArticle & { mtrCategory: number | null } => a != null)
+    .slice(0, MAX_CANDIDATES_FREE);
+}
+
+/**
+ * Το ιστορικό κάθε εκδότη από την ΑΝΘΡΩΠΙΝΗ μνήμη (`LineMatchRule` — τη γράφουν μόνο οι
+ * χειροκίνητες αντιστοιχίσεις). Ποτέ αυτόματες αντιστοιχίσεις, ποτέ παλιές απαντήσεις του
+ * μοντέλου: αυτές δεν γράφουν κανόνα.
+ */
+async function loadIssuerHistory(
+  afms: readonly string[], pool: ReadonlyMap<number, GroundedArticle>,
+): Promise<Map<string, { branches: string[]; line: string }>> {
+  const keys = Array.from(new Set(afms.map((a) => String(a ?? '').trim()).filter(Boolean)));
+  const out = new Map<string, { branches: string[]; line: string }>();
+  if (keys.length === 0) return out;
+  const rules: HistoryRule[] = await prisma.lineMatchRule
+    .findMany({
+      where: { afm: { in: keys }, lin: { not: null }, createdById: { not: null }, targetSource: 'manual' },
+      select: { afm: true, lin: true, createdById: true, targetSource: true },
+    })
+    .catch(() => [] as HistoryRule[]);
+  for (const afm of keys) {
+    const h = issuerHistory(afm, rules, pool);
+    if (h) out.set(afm, h);
+  }
+  return out;
 }
 
 /** Οι τέσσερις τύποι μητρώου, όπως μπορεί να τους γράψει το μοντέλο (αγγλικά ή ελληνικά). */
@@ -552,13 +622,104 @@ function ownCompanyBlock(own: OwnCompanyProfile): string {
 }
 
 /**
+ * Το σύστημα του 1ου σταδίου (`two-stage`): μόνο ΚΛΑΔΟΙ, χωρίς μητρώα, χωρίς myDATA — μικρό και
+ * φθηνό. Η απάντηση δεν δείχνεται ποτέ στον χρήστη· μόνο στενεύει τη λίστα του 2ου σταδίου.
+ */
+const SYSTEM_BRANCHES = [
+  'Είσαι έμπειρος Έλληνας λογιστής. Η επιχείρηση καταχωρεί ΜΟΝΟ ΕΙΣΕΡΧΟΜΕΝΑ παραστατικά (αγορές,',
+  'έξοδα, πάγια — ποτέ πωλήσεις). Για κάθε γραμμή τιμολογίου διάλεξε έως 3 ΚΛΑΔΟΥΣ του λογιστικού',
+  'σχεδίου της επιχείρησης όπου θα μπορούσε να καταχωρηθεί, ΜΟΝΟ από τον κατάλογο που σου δίνεται.',
+  'Αν κανένας δεν ταιριάζει, δώσε κενή λίστα — μην μαντεύεις.',
+  'ΑΠΑΝΤΑΣ ΜΟΝΟ με JSON: {"branches":[{"key":"<key>","codes":["<κωδικός κλάδου>"]}]}',
+].join('\n');
+
+/**
+ * Μία κλήση μοντέλου: κείμενο πρώτα, vision ως εφεδρεία (ίδιο μοτίβο με το doc-type). Κάθε
+ * πετυχημένη κλήση γράφει ΕΝΑ `logAiUsage` μέσα στο `callTextLLM`/`callTextViaVision`.
+ * `null` όταν κανένας πάροχος δεν απάντησε.
+ */
+async function callModel(
+  system: string, user: string, usage: { operation: string; refType: string; refId?: string },
+): Promise<string | null> {
+  const cfg = await resolveCfg();
+  if (cfg.textKey) {
+    try {
+      return (await callTextLLM(cfg, system, user, usage)).content;
+    } catch (e) {
+      console.warn('[expense-ai] text model unavailable, trying vision', (e as Error).message);
+    }
+  }
+  try {
+    return (await callTextViaVision(cfg, system, user, usage)).content;
+  } catch (e) {
+    console.error('[expense-ai] no model available', (e as Error).message);
+    return null;
+  }
+}
+
+/** «ΦΠΑ γραμμής: 6%» / «ΦΠΑ γραμμών: 6%, 13% (μικτοί)» / «άγνωστος». */
+export function vatLine(rates: readonly number[] | undefined): string {
+  const fmt = (r: number) => `${String(r).replace('.', ',')}%`;
+  if (!rates || rates.length === 0) return 'ΦΠΑ γραμμής: άγνωστος';
+  if (rates.length === 1) return `ΦΠΑ γραμμής: ${fmt(rates[0])}`;
+  return `ΦΠΑ γραμμών: ${rates.map(fmt).join(', ')} (μικτοί)`;
+}
+
+const groupKey = (g: Pick<AiGroupInput, 'afm' | 'pattern'>): string => `${String(g.afm ?? '').trim()}|${g.pattern}`;
+
+/**
+ * Σημείωση ΦΠΑ πάνω στην πρόταση: ο λογαριασμός της χρεοπίστωσης κωδικοποιεί συντελεστή (κατάληξη
+ * `00NN` ΚΑΙ όνομα που το λέει — {@link accountVatRate}) που ΔΕΝ είναι κανένας από τους ΦΠΑ της ομάδας.
+ *
+ * Γιατί στον κώδικα και όχι μόνο στο prompt: ζωντανά (2026-09-21, `deepseek-chat`) το μοντέλο πήρε
+ * «ΦΠΑ γραμμής: 6%» και ρητό κανόνα «προτίμησε τον λογαριασμό με τον ίδιο ΦΠΑ», και ΠΑΡΟΛΑ ΑΥΤΑ
+ * έδωσε `62.00.00.0024` (24%) με βεβαιότητα 0,85 χωρίς λέξη για τον ΦΠΑ. Η δομή του σχεδίου κερδίζει
+ * τη βεβαιότητα του μοντέλου — αλλά ως ΕΝΔΕΙΞΗ: η πρόταση ΔΕΝ πετιέται και η βεβαιότητα δεν
+ * αλλάζει· ο χρήστης απλώς διαβάζει τη διαφωνία πριν επιβεβαιώσει.
+ */
+export function vatNote(c: GroundedArticle | null, rates: readonly number[] | undefined): string | null {
+  if (!c || !c.link.sound || !rates || rates.length === 0) return null;
+  const acc = accountVatRate(c.link.account);
+  if (acc == null || rates.some((r) => Math.abs(r - acc) < 0.001)) return null;
+  const fmt = (r: number) => (r === 0 ? 'άνευ ΦΠΑ' : `ΦΠΑ ${String(r).replace('.', ',')}%`);
+  return `⚠ ο λογαριασμός ${c.link.account.code} είναι για ${fmt(acc)} αλλά η γραμμή έχει ${rates.map((r) => `${String(r).replace('.', ',')}%`).join(' / ')}`;
+}
+
+/** Η περιγραφή μιας ομάδας στο prompt: δείγμα, ΦΠΑ, εκδότης, σχέση, και ιστορικό ΜΟΝΟ αν υπάρχει. */
+function groupBlock(
+  g: AiGroupInput, iss: IssuerInfo | undefined, history: { line: string } | undefined,
+  rates: readonly number[] | undefined,
+): string {
+  const who = [
+    iss?.name ?? g.supplier ?? null,
+    g.afm ? `ΑΦΜ ${g.afm}` : null,
+    iss?.profession ?? null,
+    // Η ΣΧΕΣΗ με τον εκδότη είναι από μόνη της ένδειξη, και τη γράφουμε με ό,τι ΣΥΝΕΠΑΓΕΤΑΙ
+    // υπό τα ΕΛΠ — όχι σκέτη ετικέτα που το μοντέλο πρέπει να μεταφράσει μόνο του.
+    iss ? issuerRelationLine(iss.cards) : null,
+  ].filter(Boolean).join(' · ');
+  return `${g.key} :: ${(g.sample ?? g.pattern).slice(0, 160)}`
+    + `\n    ${vatLine(rates)}`
+    + (who ? `\n    εκδότης: ${who}` : '')
+    + (history ? `\n    ${history.line}` : '');
+}
+
+/**
  * Ζητά από το μοντέλο μία δαπάνη ανά ΑΝΑΠΑΝΤΗΤΗ ομάδα. Δεν πετάει ποτέ: αν και οι δύο πάροχοι
  * (κείμενο → vision) αποτύχουν, γυρίζει `degraded: true` και καμία πρόταση.
+ *
+ * Η λευκή λίστα χωρίς επιλεγμένη κατηγορία έχει ΔΥΟ πηγές, ενωμένες χωρίς διπλότυπα:
+ *  1. ο παλιός δρόμος της ομοιότητας κειμένου (ο μόνος για χρεοπιστώσεις χωρίς έγκυρο λογαριασμό)·
+ *  2. οι χρεοπιστώσεις με ΑΞΙΟΠΙΣΤΟ λογαριασμό — όλες σε μία κλήση (`single`) ή, όταν είναι
+ *     πάνω από {@link MAX_GROUNDED_SINGLE}, όσες ανήκουν στους κλάδους που διάλεξε ένα φθηνό
+ *     1ο στάδιο (`two-stage`) μαζί με τους κλάδους του ιστορικού του εκδότη.
+ * Το `strategy` υπάρχει για τη μέτρηση και τα tests· η εφαρμογή το αφήνει στην αυτόματη επιλογή.
  */
 export async function suggestExpensesWithAi(input: {
   groups: AiGroupInput[];
   categoryId?: number | null;
   userId?: string | null;
+  strategy?: ShortlistStrategy;
 }): Promise<AiSuggestResult> {
   const categoryId = input.categoryId ?? null;
   const groups = input.groups.slice(0, MAX_GROUPS);
@@ -580,17 +741,37 @@ export async function suggestExpensesWithAi(input: {
 
   // ΚΕΝΗ λίστα υποψηφίων ΔΕΝ ακυρώνει πια την κλήση: το μοντέλο μπορεί να μην έχει κωδικό να
   // προτείνει και να έχει κάλλιστα άποψη για τον ΤΥΠΟ — που είναι το ερώτημα που πονάει.
-  const candidates = await loadCandidates(unresolved, categoryId, deterministic);
-  // Η υπογραφή των υποψηφίων μπαίνει στο κλειδί της μνήμης: αλλάζει το μητρώο ⇒ νέα ερώτηση.
-  // ΟΛΟΚΛΗΡΟ το σύνολο, όχι τα πρώτα λίγα: μια μετονομασία βαθιά στη λίστα πρέπει να την ακυρώνει.
-  const signature = candidateSignature(candidates.map((c) => `${c.mtrl}:${c.code}:${c.name}`));
+  const pool = await loadGroundedPool();
+  const text = textCandidates(pool, categoryId, deterministic);
+  // Με επιλεγμένη κατηγορία η λίστα είναι ήδη στενή: καμία στένωση κατά κλάδο.
+  const sound = categoryId ? [] : [...pool.values()]
+    .filter((a) => a.link.sound)
+    .sort((a, b) => (a.link.sound && b.link.sound ? a.link.account.code.localeCompare(b.link.account.code, 'el', { numeric: true }) : 0));
+  const strategy: ShortlistStrategy = input.strategy ?? (sound.length <= MAX_GROUNDED_SINGLE ? 'single' : 'two-stage');
+  const [history, vatRates] = await Promise.all([
+    loadIssuerHistory(unresolved.map((g) => g.afm), pool),
+    // Ο ΦΠΑ από τις ίδιες τις εκκρεμείς γραμμές στη βάση — όχι από το σώμα του αιτήματος.
+    groupVatRates().catch(() => new Map<string, number[]>()),
+  ]);
+
+  // Η υπογραφή μπαίνει στο κλειδί της μνήμης: αλλάζει το μητρώο, ο λογαριασμός μιας
+  // χρεοπίστωσης ή το όνομα ενός κλάδου ⇒ νέα ερώτηση. Καλύπτει ΟΛΟ ό,τι θα μπορούσε να φτάσει
+  // στο μοντέλο (και στις δύο στρατηγικές), ώστε να είναι γνωστή ΠΡΙΝ από κάθε κλήση.
+  const signature = candidateSignature([
+    strategy,
+    ...mergeWhitelist([text, sound], Number.MAX_SAFE_INTEGER).map(candidateSignaturePart),
+  ]);
+  // Ο ΦΠΑ της ομάδας μπαίνει κι αυτός στο κλειδί: άλλος ΦΠΑ ⇒ άλλη σωστή χρεοπίστωση.
+  const keyOf = (g: AiGroupInput) => cacheKey(
+    g, categoryId, `${signature}|${history.get(g.afm)?.line ?? ''}|${(vatRates.get(groupKey(g)) ?? []).join(',')}`,
+  );
 
   const now = Date.now();
   const fresh: AiGroupInput[] = [];
   const out: AiSuggestion[] = [];
   let cached = 0;
   for (const g of unresolved) {
-    const hit = cache.get(cacheKey(g, categoryId, signature));
+    const hit = cache.get(keyOf(g));
     if (hit && now - hit.at < CACHE_TTL_MS) {
       cached++;
       if (hit.value) out.push(hit.value);
@@ -599,9 +780,6 @@ export async function suggestExpensesWithAi(input: {
     fresh.push(g);
   }
   if (fresh.length === 0) return { suggestions: out, asked: 0, skipped, cached, degraded: false, ownCompanyUnknown: false };
-
-  const byCode = new Map(candidates.map((c) => [c.code.trim().toUpperCase(), c]));
-  const list = candidates.map((c) => `${c.code} — ${c.name}${c.category ? ` [${c.category}]` : ''}`).join('\n');
 
   // Ποιοι είμαστε, ποιος εκδίδει, και η ΠΡΑΓΜΑΤΙΚΗ ταξινομία της ΑΑΔΕ ως λευκή λίστα.
   const [own, issuers, myData, expenses] = await Promise.all([
@@ -614,19 +792,43 @@ export async function suggestExpensesWithAi(input: {
   // Η ΚΡΙΣΙΜΗ έλλειψη, δηλωμένη αντί να περάσει απαρατήρητη: χωρίς δραστηριότητα δεν απαντιέται
   // το «για μεταπώληση ή για ανάλωση;» — και αυτό είναι όλο το ερώτημα «προϊόν ή έξοδο;».
   const ownCompanyUnknown = own.activity == null;
+  const lines = fresh.map((g) => groupBlock(g, issuers.get(g.afm), history.get(g.afm), vatRates.get(groupKey(g)))).join('\n');
 
-  const lines = fresh.map((g) => {
-    const iss = issuers.get(g.afm);
-    const who = [
-      iss?.name ?? g.supplier ?? null,
-      g.afm ? `ΑΦΜ ${g.afm}` : null,
-      iss?.profession ?? null,
-      // Η ΣΧΕΣΗ με τον εκδότη είναι από μόνη της ένδειξη, και τη γράφουμε με ό,τι ΣΥΝΕΠΑΓΕΤΑΙ
-      // υπό τα ΕΛΠ — όχι σκέτη ετικέτα που το μοντέλο πρέπει να μεταφράσει μόνο του.
-      iss ? issuerRelationLine(iss.cards) : null,
-    ].filter(Boolean).join(' · ');
-    return `${g.key} :: ${(g.sample ?? g.pattern).slice(0, 160)}${who ? `\n    εκδότης: ${who}` : ''}`;
-  }).join('\n');
+  // 2. Οι χρεοπιστώσεις με αξιόπιστο λογαριασμό που θα δει το μοντέλο.
+  let grounded: GroundedArticle[] = sound;
+  if (strategy === 'two-stage' && sound.length) {
+    const catalogue = branchCatalogue(sound);
+    const allowed = new Set(catalogue.map((b) => b.code));
+    const raw1 = await callModel(SYSTEM_BRANCHES, [
+      `Γραμμές τιμολογίων (${fresh.length}):`,
+      lines,
+      '',
+      `Κατάλογος κλάδων του λογιστικού σχεδίου (${catalogue.length}) — κωδικός «όνομα»:`,
+      ...catalogue.map((b) => `${b.code} «${b.name}»`),
+      '',
+      'Το "key" είναι ΑΚΡΙΒΩΣ το κείμενο ΠΡΙΝ από το " :: " της γραμμής.',
+    ].join('\n'), { operation: 'ocr.suggest_expense.branches', refType: 'OcrInvoiceItem', refId: fresh[0]?.key });
+    const picked = raw1 ? parseBranchAnswer(raw1, allowed, MAX_BRANCHES_PER_GROUP) : new Map<string, string[]>();
+    const chosen = new Set<string>();
+    const asked = new Set(fresh.map((g) => g.key));
+    for (const [k, codes] of picked) {
+      if (!resolveAnswerKey(k, asked)) continue;
+      codes.forEach((c) => chosen.add(c));
+    }
+    // Το ιστορικό του εκδότη ΔΙΕΥΡΥΝΕΙ τη λίστα, δεν τη στενεύει: ένδειξη, όχι απόφαση. Μπαίνει
+    // ΠΡΩΤΟ, ώστε όταν το πλαφόν κόβει (ταξινόμηση κατά κωδικό λογαριασμού) να μην πέφτουν οι
+    // κλάδοι όπου άνθρωπος έχει ήδη στείλει γραμμές αυτού του εκδότη.
+    const fromHistory = new Set<string>();
+    for (const g of fresh) history.get(g.afm)?.branches.forEach((b) => allowed.has(b) && fromHistory.add(b));
+    grounded = mergeWhitelist(
+      [articlesInBranches(sound, fromHistory), articlesInBranches(sound, chosen)],
+      Number.MAX_SAFE_INTEGER,
+    );
+  }
+  const candidates = mergeWhitelist([text, grounded], MAX_CANDIDATES_FREE + MAX_GROUNDED_SINGLE);
+  const byCode = new Map(candidates.map((c) => [c.code.trim().toUpperCase(), c]));
+  const list = candidates.map(candidateLine).join('\n');
+  const hasGrounding = candidates.some((c) => c.link.sound);
 
   const user = [
     ownCompanyBlock(own),
@@ -636,38 +838,41 @@ export async function suggestExpensesWithAi(input: {
     '',
     'Υποψήφιες δαπάνες / χρεοπιστώσεις (κωδικός — περιγραφή):',
     list || '(καμία)',
+    ...(hasGrounding
+      ? [
+          '',
+          'Όπου μια χρεοπίστωση δείχνει «→ λογαριασμός … · κλάδος …», αυτός είναι ο λογαριασμός του',
+          'ΛΟΓΙΣΤΙΚΟΥ ΣΧΕΔΙΟΥ της επιχείρησης όπου θα γραφτεί η γραμμή («ίδιος κωδικός» = ο κωδικός της',
+          'χρεοπίστωσης ΕΙΝΑΙ ο λογαριασμός). Είναι ΠΛΗΡΟΦΟΡΙΑ, όχι εγγύηση: ο σύνδεσμος χρεοπίστωσης →',
+          'λογαριασμού μπορεί να είναι λάθος. Όταν το όνομα της χρεοπίστωσης και το όνομα του λογαριασμού',
+          'λένε ΔΙΑΦΟΡΕΤΙΚΑ πράγματα (π.χ. «Ύδρευση 9%» → «Έξοδα εκθέσεων εσωτερικού»), αυτό είναι ΑΒΕΒΑΙΟΤΗΤΑ:',
+          'μην τη διαλέξεις με σιγουριά, ΧΑΜΗΛΩΣΕ το confidence και ΓΡΑΨΕ τη διαφωνία στο "reason".',
+          'ΦΠΑ: σε αυτό το λογιστικό σχέδιο η 4η βαθμίδα του λογαριασμού κωδικοποιεί ΣΥΧΝΑ τον ΣΥΝΤΕΛΕΣΤΗ',
+          'ΦΠΑ — αλλά ΜΟΝΟ όταν το όνομα του λογαριασμού γράφει ρητά ΦΠΑ με συντελεστή («με Φ.Π.Α. 24%»,',
+          '«άνευ Φ.Π.Α.»). Ποσοστό ΧΩΡΙΣ τη λέξη ΦΠΑ (π.χ. «Ποσοστά για πωλήσεις και αγορές 9%», «Φόρος',
+          'προμηθευτών 5%») ΔΕΝ είναι ΦΠΑ — μην το ταιριάζεις με τον ΦΠΑ της γραμμής. Κάθε γραμμή',
+          'δίνει τον ΦΠΑ της («ΦΠΑ γραμμής»). ΠΡΟΤΙΜΗΣΕ τη χρεοπίστωση της οποίας ο λογαριασμός ταιριάζει',
+          'με τον ΦΠΑ της γραμμής. Αν στον σωστό κλάδο καμία δεν ταιριάζει, μπορείς να δώσεις την πιο',
+          'κοντινή, αλλά ΓΡΑΨΕ στο "reason" ότι ο ΦΠΑ δεν ταιριάζει και βάλε χαμηλότερο confidence.',
+          'Με μικτούς ΦΠΑ, πες το στο "reason".',
+          'Χρεοπιστώσεις χωρίς «→ λογαριασμός» δεν έχουν επαληθευμένο λογαριασμό: κρίνε μόνο από το όνομα.',
+        ]
+      : []),
     '',
     expenses.prompt,
     '',
     myData.prompt,
     '',
     'Επέστρεψε JSON με ΜΙΑ εγγραφή ανά γραμμή. Δώσε πάντα "kind" και "reason"·',
-    'το "code" μόνο όταν υπάρχει πραγματικό ταίριασμα στη λίστα υποψηφίων.',
+    'το "code" μόνο όταν υπάρχει πραγματικό ταίριασμα στη λίστα υποψηφίων (ΚΩΔΙΚΟΣ ΧΡΕΟΠΙΣΤΩΣΗΣ,',
+    'ποτέ λογαριασμός ή κλάδος).',
     'Το "key" είναι ΑΚΡΙΒΩΣ το κείμενο ΠΡΙΝ από το " :: " της γραμμής — αντέγραψέ το',
-    'αυτούσιο, χωρίς το δείγμα και χωρίς τη γραμμή «εκδότης».',
+    'αυτούσιο, χωρίς το δείγμα και χωρίς τις γραμμές «εκδότης» / ιστορικού.',
   ].join('\n');
 
-  const usage = { operation: 'ocr.suggest_expense', refType: 'OcrInvoiceItem', refId: fresh[0]?.key };
-  const cfg = await resolveCfg();
-  let raw: string | null = null;
-  // Το κλειδί κειμένου μπορεί να λείπει ή να απαντά 401 — το vision endpoint είναι επίσης
-  // OpenAI-compatible και σηκώνει την ίδια text-only κλήση (ίδιο μοτίβο με το doc-type).
-  if (cfg.textKey) {
-    try {
-      raw = (await callTextLLM(cfg, SYSTEM, user, usage)).content;
-    } catch (e) {
-      console.warn('[expense-ai] text model unavailable, trying vision', (e as Error).message);
-    }
-  }
-  if (raw == null) {
-    try {
-      raw = (await callTextViaVision(cfg, SYSTEM, user, usage)).content;
-    } catch (e) {
-      // Κανένας πάροχος: «καμία πρόταση», ΟΧΙ σφάλμα — η ουρά συνεχίζει να δουλεύει χειροκίνητα.
-      console.error('[expense-ai] no model available', (e as Error).message);
-      return { suggestions: out, asked: 0, skipped, cached, degraded: true, ownCompanyUnknown };
-    }
-  }
+  const raw = await callModel(SYSTEM, user, { operation: 'ocr.suggest_expense', refType: 'OcrInvoiceItem', refId: fresh[0]?.key });
+  // Κανένας πάροχος: «καμία πρόταση», ΟΧΙ σφάλμα — η ουρά συνεχίζει να δουλεύει χειροκίνητα.
+  if (raw == null) return { suggestions: out, asked: 0, skipped, cached, degraded: true, ownCompanyUnknown };
 
   const answers = parseAiAnswer(raw);
   const askedKeys = new Set(fresh.map((g) => g.key));
@@ -675,7 +880,8 @@ export async function suggestExpensesWithAi(input: {
   for (const a of answers) {
     const key = resolveAnswerKey(a.key, askedKeys);
     if (!key || seen.has(key)) continue;
-    // ΛΕΥΚΗ ΛΙΣΤΑ: δεκτός μόνο κωδικός που όντως στείλαμε. Ό,τι άλλο πετιέται σιωπηλά.
+    // ΛΕΥΚΗ ΛΙΣΤΑ: δεκτός μόνο κωδικός χρεοπίστωσης που όντως στείλαμε. Ένας λογαριασμός ή ένας
+    // κλάδος στη θέση του κωδικού δεν ταιριάζει με τίποτα εδώ και πετιέται σιωπηλά.
     const c = a.code ? byCode.get(a.code.trim().toUpperCase()) ?? null : null;
     // Ο ΤΥΠΟΣ δηλώνεται μόνο πάνω από το κατώφλι βεβαιότητας: χαμηλή βεβαιότητα ⇒ «χωρίς
     // κατηγορία», που είναι μια χρήσιμη απάντηση, όχι ένα λάθος chip.
@@ -686,6 +892,7 @@ export async function suggestExpensesWithAi(input: {
     // απάντηση πετιόταν εδώ και ο χρήστης δεν έβλεπε ποτέ τον λόγο που του γράφτηκε.
     if (!c && !kind && !standsAlone(a.reason)) continue;
     seen.add(key);
+    const note = vatNote(c, vatRates.get(groupKey(fresh.find((g) => g.key === key)!)));
     const suggestion: AiSuggestion = {
       key,
       kind,
@@ -693,16 +900,16 @@ export async function suggestExpensesWithAi(input: {
       code: c?.code ?? null,
       name: c?.name ?? null,
       confidence: a.confidence,
-      reason: a.reason || 'πρόταση μοντέλου',
+      reason: [a.reason || 'πρόταση μοντέλου', note].filter(Boolean).join(' · '),
       // Και ο χαρακτηρισμός περνά από λευκή λίστα: δεκτός μόνο αν τον στείλαμε εμείς.
       myDataType: a.mydata && myData.allowedTypes.has(a.mydata.trim()) ? a.mydata.trim() : null,
     };
     out.push(suggestion);
-    cache.set(cacheKey(fresh.find((g) => g.key === key)!, categoryId, signature), { at: now, value: suggestion });
+    cache.set(keyOf(fresh.find((g) => g.key === key)!), { at: now, value: suggestion });
   }
   // Ομάδες που το μοντέλο άφησε αναπάντητες: τις θυμόμαστε κι αυτές, για να μην ξαναπληρώσουμε.
   for (const g of fresh) {
-    if (!seen.has(g.key)) cache.set(cacheKey(g, categoryId, signature), { at: now, value: null });
+    if (!seen.has(g.key)) cache.set(keyOf(g), { at: now, value: null });
   }
 
   return { suggestions: out, asked: fresh.length, skipped, cached, degraded: false, ownCompanyUnknown };

@@ -16,6 +16,12 @@ import { accountDetails, checkAccounts, type AccountCheck } from './account-chec
 import { loadAccountChart } from './account-chart';
 import { describeTargetShort, resolvePostingTarget, type PostingTarget } from './posting-target';
 
+/** Αριθμός ή `null` — ο ΦΠΑ μιας γραμμής όπως τον κρατά το κανονικό έγγραφο. */
+const vatRateOf = (v: unknown): number | null => {
+  const n = v == null || v === '' ? NaN : Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
 /** Ο διακόπτης ασφαλείας. Κλειστός = καμία εγγραφή δεν φεύγει προς το SoftOne (μόνο dry-run). */
 export const POSTING_ENABLED_KEY = 'softone.postingEnabled';
 
@@ -72,6 +78,7 @@ export const POST_WARNING_TEXT: Record<WarningCode, string> = {
   // Το ίδιο μήνυμα και για τις δύο αιτίες «δεν ξέρω» — το `accountWarningText` το εξειδικεύει.
   account_unknown: 'Ο έλεγχος λογαριασμού γενικής δεν μπόρεσε να κρίνει — ούτε εγκρίνει ούτε εμποδίζει',
   account_not_covered: 'Ο έλεγχος λογαριασμού γενικής δεν καλύπτει ακόμη γραμμές ειδών, υπηρεσιών και εξόδων — ο λογαριασμός τους συντίθεται στο SoftOne',
+  account_vat_mismatch: 'Υπάρχει γραμμή που πάει σε λογαριασμό για άλλον συντελεστή ΦΠΑ από αυτόν της γραμμής — έλεγξε τη χρεοπίστωση',
 };
 
 /** «Το λογιστικό σχέδιο δεν έχει συγχρονιστεί» — ΜΙΑ πρόταση, όχι μία ανά γραμμή. */
@@ -93,6 +100,10 @@ export function warningMessage(code: WarningCode, accounts: AccountCheck | null)
   if (code === 'account_unknown') {
     // Ασυγχρόνιστο σχέδιο: μία πρόταση. ΔΕΝ απαριθμούμε κάθε γραμμή ως «λείπει».
     if (accounts && !accounts.chartSynced) return ACCOUNT_CHART_NOT_SYNCED;
+    const details = accountDetails(code, accounts);
+    return details.length ? details.join(' · ') : POST_WARNING_TEXT[code];
+  }
+  if (code === 'account_vat_mismatch') {
     const details = accountDetails(code, accounts);
     return details.length ? details.join(' · ') : POST_WARNING_TEXT[code];
   }
@@ -281,6 +292,8 @@ async function gather(id: string): Promise<Gathered> {
       // Χρεοπίστωση που δεν βρέθηκε στον καθρέφτη, ή που δεν έχει ξανασυγχρονιστεί από τότε που
       // προστέθηκε το πεδίο: ο λογαριασμός της είναι ΑΓΝΩΣΤΟΣ, όχι κενός.
       linAcnmskKnown: Boolean(lin?.acnmskSyncedAt),
+      // Ο ΦΠΑ από το ΙΔΙΟ σημείο που τον διαβάζει το payload (`document.lines[rowIndex]`).
+      vatRate: vatRateOf(document.lines[i.rowIndex]?.vatRate),
       isService: i.softoneIsService,
       costCntr: i.softoneCostCntr,
       prjc: i.softonePrjc,
