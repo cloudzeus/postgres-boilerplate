@@ -36,9 +36,6 @@ type Checks = {
   vat: { missing: (number | null)[]; overridden: number[]; ignored: { rate: number; code: string }[] };
 };
 
-/** Η wiki σελίδα της λωρίδας — σταθερή διαδρομή, όπως το `helpAnchors: [doc-resolve]` του MDX. */
-const HELP_HREF = '/wiki/ocr/doc-resolve';
-
 type Tone = 'ok' | 'warn' | 'danger' | 'idle';
 const TONE: Record<Tone, { bg: string; fg: string; bd: string }> = {
   ok: { bg: '#ECFDF5', fg: '#047857', bd: '#A7F3D0' },
@@ -64,7 +61,7 @@ const TONE: Record<Tone, { bg: string; fg: string; bd: string }> = {
  *  • Δεν ανέφερε καθόλου το `no_vat_category`. Τώρα υπάρχει τέταρτο τμήμα που δείχνει **ποιος
  *    συντελεστής** δεν έχει κωδικό και τον λύνει επί τόπου.
  */
-export function SoftoneChecksStrip({ docId }: { docId: string }) {
+export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; helpHref?: string | null }) {
   const [data, setData] = React.useState<Checks | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [open, setOpen] = React.useState(false);
@@ -123,11 +120,13 @@ export function SoftoneChecksStrip({ docId }: { docId: string }) {
         {/* Πού πάει — πρώτο, γιατί ΑΥΤΟ ορίζει τι ζητούν τα υπόλοιπα τμήματα. */}
         <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-muted/30 px-4 py-1.5 text-[11px]">
           <span className="font-semibold uppercase tracking-wider text-muted-foreground">Προορισμός</span>
-          <Link href={HELP_HREF} target="_blank" aria-label="Βοήθεια: ολοκλήρωση παραστατικού"
-            title="Βοήθεια: ολοκλήρωση παραστατικού"
-            className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted hover:text-foreground">
-            <FiHelpCircle aria-hidden className="size-3.5" />
-          </Link>
+          {helpHref && (
+            <Link href={helpHref} target="_blank" aria-label="Βοήθεια: ολοκλήρωση παραστατικού"
+              title="Βοήθεια: ολοκλήρωση παραστατικού"
+              className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted hover:text-foreground">
+              <FiHelpCircle aria-hidden className="size-3.5" />
+            </Link>
+          )}
           {data.target?.supported ? (
             <>
               <span className="font-medium text-foreground">{data.target.label}</span>
@@ -157,7 +156,7 @@ export function SoftoneChecksStrip({ docId }: { docId: string }) {
             icon={<FiUser />}
             title={req ? req.chip : 'ΣΥΝΑΛΛΑΣΣΟΜΕΝΟΣ'}
             value={traderValue}
-            action={supTone !== 'ok' && req
+            action={supTone !== 'ok'
               ? (
                 <Popover>
                   <PopoverTrigger asChild>
@@ -167,12 +166,35 @@ export function SoftoneChecksStrip({ docId }: { docId: string }) {
                     </button>
                   </PopoverTrigger>
                   <PopoverContent align="end" className="w-[24rem] space-y-2">
-                    <p className="text-caption text-muted-foreground">
-                      Η σειρά καταχωρείται σε <strong>{req.object}</strong>, που δέχεται καρτέλα{' '}
-                      <strong>{req.label}</strong> (SODTYPE {req.sodtype}). Στο SoftOne η ίδια εταιρεία
-                      έχει ξεχωριστή καρτέλα ανά τύπο — άλλος τύπος εδώ μπλοκάρει την καταχώριση.
-                    </p>
-                    {data.supplier.mismatch && (
+                    {req ? (
+                      <p className="text-caption text-muted-foreground">
+                        Η σειρά καταχωρείται σε <strong>{req.object}</strong>, που δέχεται καρτέλα{' '}
+                        <strong>{req.label}</strong> (SODTYPE {req.sodtype}). Στο SoftOne η ίδια εταιρεία
+                        έχει ξεχωριστή καρτέλα ανά τύπο — άλλος τύπος εδώ μπλοκάρει την καταχώριση.
+                      </p>
+                    ) : (
+                      /**
+                       * ΑΓΝΩΣΤΗ ΣΕΙΡΑ — και όμως η σύνδεση προσφέρεται.
+                       *
+                       * Πρώτη εκδοχή αυτής της λωρίδας κλείδωνε ΟΛΟΚΛΗΡΗ την ενέργεια πίσω από
+                       * γνωστή σειρά («Χρειάζεται σειρά»). Επειδή όμως η λωρίδα είναι ο ΜΟΝΟΣ
+                       * καλών του `match-supplier`, ένα παραστατικό με άγνωστη σειρά έχανε κάθε
+                       * τρόπο να συνδεθεί με συναλλασσόμενο από τη σελίδα του — δηλαδή ακριβώς το
+                       * αδιέξοδο που αυτή η δουλειά υπάρχει για να λύσει, ανάποδα.
+                       *
+                       * Αυτό που δεν ξέρουμε είναι ο **τύπος**, όχι η ταυτότητα του εκδότη: η
+                       * αναζήτηση δείχνει και τους τρεις τύπους, χωρίς να κρίνει. Η **δημιουργία**
+                       * μένει κλειδωμένη — μια λάθος καρτέλα μέσα στο ERP δεν ξεγίνεται, ενώ μια
+                       * λάθος σύνδεση εδώ αλλάζει με ένα κλικ.
+                       */
+                      <p className="text-caption" style={{ color: '#B45309' }}>
+                        Η σειρά του παραστατικού είναι άγνωστη ή μη υποστηριζόμενη, οπότε δεν ξέρουμε
+                        ποιον <strong>τύπο</strong> καρτέλας δέχεται η κεφαλίδα. Μπορείς να συνδέσεις
+                        καρτέλα — διάλεξέ την εσύ — αλλά η δημιουργία νέας μένει κλειδωμένη μέχρι να
+                        οριστεί σειρά, για να μη γεννηθεί καρτέλα λάθος τύπου μέσα στο SoftOne.
+                      </p>
+                    )}
+                    {data.supplier.mismatch && req && (
                       <p className="rounded-md border p-2 text-caption"
                         style={{ borderColor: '#FECACA', backgroundColor: '#FEF2F2', color: '#B91C1C' }}>
                         Η συνδεδεμένη καρτέλα «{data.supplier.name}» είναι{' '}
@@ -184,25 +206,29 @@ export function SoftoneChecksStrip({ docId }: { docId: string }) {
                         η λίστα αποτελεσμάτων της αναζήτησης είναι absolute και σκέπαζε ένα κουμπί
                         που βρισκόταν από κάτω — δηλαδή ακριβώς όταν δεν βρισκόταν καρτέλα και ο
                         χρήστης χρειαζόταν περισσότερο τη δημιουργία, το κουμπί γινόταν άκλικτο. */}
-                    <button type="button" onClick={() => setCreatingTrader(true)}
-                      className="inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-md border border-sisyphus-500/30 px-2 py-1.5 text-[12px] font-semibold text-sisyphus-600 hover:bg-sisyphus-50">
-                      <FiPlusCircle className="size-3.5" /> Δημιουργία {req.labelAcc}
-                      {data.supplier.afm ? ` (ΑΦΜ ${data.supplier.afm})` : ''}
-                    </button>
+                    {req && (
+                      <button type="button" onClick={() => setCreatingTrader(true)}
+                        className="inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-md border border-sisyphus-500/30 px-2 py-1.5 text-[12px] font-semibold text-sisyphus-600 hover:bg-sisyphus-50">
+                        <FiPlusCircle className="size-3.5" /> Δημιουργία {req.labelAcc}
+                        {data.supplier.afm ? ` (ΑΦΜ ${data.supplier.afm})` : ''}
+                      </button>
+                    )}
                     <TraderSearch
                       id={`trader-${docId}`}
-                      label={`…ή σύνδεση σε υπάρχουσα καρτέλα ${req.labelAcc}`}
-                      placeholder={`Αναζήτηση ${req.labelAcc} (επωνυμία, κωδικός ή ΑΦΜ)…`}
+                      label={req
+                        ? `…ή σύνδεση σε υπάρχουσα καρτέλα ${req.labelAcc}`
+                        : 'Σύνδεση σε υπάρχουσα καρτέλα (όλοι οι τύποι)'}
+                      placeholder={req
+                        ? `Αναζήτηση ${req.labelAcc} (επωνυμία, κωδικός ή ΑΦΜ)…`
+                        : 'Επωνυμία, κωδικός ή ΑΦΜ…'}
                       initialQuery={data.supplier.afm || ''}
-                      sodtype={req.sodtype}
+                      sodtype={req?.sodtype ?? null}
                       onPick={(h) => void linkTrader(h.id, h.name)}
                     />
                   </PopoverContent>
                 </Popover>
               )
-              : supTone !== 'ok' && !req
-                ? <span className="text-[11px] font-medium">Χρειάζεται σειρά</span>
-                : undefined}
+              : undefined}
           />
 
           {/* ── Γραμμές: ΜΟΝΟ παραπομπή, κανένας δεύτερος δημιουργός ───────────── */}

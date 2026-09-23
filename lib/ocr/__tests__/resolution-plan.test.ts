@@ -10,9 +10,11 @@ import {
   commonLineKind, lineKindsReason, KINDS_FOR_LINE_TABLE,
 } from '../resolution-plan';
 import {
-  SODTYPE_FOR_OBJECT, SODTYPE_FOR_TRADER_KIND, TRADER_KIND_FOR_OBJECT, POST_OBJECTS,
+  SODTYPE_FOR_OBJECT, SODTYPE_FOR_TRADER_KIND, TRADER_KIND_FOR_OBJECT, POST_OBJECTS, POST_LINE_TABLES,
   resolvePostingTarget, type PostingTarget, type PostObject, type PostLineTable,
 } from '../posting-target';
+import { lineFits, type PurdocLineCtx } from '../purdoc-payload';
+import type { MatchKind } from '@/lib/ocr/line-match';
 
 const target = (object: PostObject, lines: PostLineTable, supported = true): PostingTarget =>
   ({ object, lines, source: 'default', supported, reason: 'δοκιμή' });
@@ -153,6 +155,54 @@ describe('ο πίνακας επιτρεπτών καλύπτει κάθε στ�
   it('κάθε PostLineTable έχει εγγραφή', () => {
     for (const t of ['AUTO', 'ITELINES', 'SRVLINES', 'EXPANAL', 'LINLINES'] as PostLineTable[]) {
       expect(KINDS_FOR_LINE_TABLE[t].length).toBeGreaterThan(0);
+    }
+  });
+});
+
+/**
+ * ⚠️ Ο ΛΟΓΟΣ ΥΠΑΡΞΗΣ ΑΥΤΟΥ ΤΟΥ ΤΕΣΤ.
+ *
+ * Δύο συναρτήσεις απαντούν στην ΙΔΙΑ ερώτηση από αντίθετες μεριές: το `lineFits`
+ * (`purdoc-payload.ts`) κρίνει μια **ήδη γραμμένη** αντιστοίχιση τη στιγμή της καταχώρισης, και το
+ * `KINDS_FOR_LINE_TABLE` **προσφέρει** τις επιλογές στον χρήστη πριν γράψει. Αν αποκλίνουν, το UI
+ * αφήνει τον χρήστη να διαλέξει κάτι που η καταχώριση θα απορρίψει — δηλαδή ακριβώς το αδιέξοδο
+ * που αυτή η δουλειά έλυσε, ξαναγεννημένο σιωπηλά από μια μελλοντική αλλαγή.
+ *
+ * Η ισοδυναμία ζούσε μέχρι τώρα μόνο σε σχόλιο. Εδώ ελέγχεται στο ΠΛΗΡΕΣ καρτεσιανό γινόμενο.
+ */
+describe('η προσφορά ταυτίζεται με την κρίση (lineFits ↔ KINDS_FOR_LINE_TABLE)', () => {
+  /** Μια αντιστοίχιση όπως θα την έγραφε ο χρήστης για κάθε μητρώο. */
+  const ctxFor = (kind: MatchKind): PurdocLineCtx => ({
+    rowIndex: 0,
+    mtrl: kind === 'product' || kind === 'service' ? 1 : null,
+    expn: kind === 'expense' ? 1 : null,
+    lin: kind === 'lineitem' ? 1 : null,
+    isService: kind === 'service',
+  });
+
+  const KINDS: MatchKind[] = ['product', 'service', 'expense', 'lineitem'];
+
+  it('κάθε (πίνακας × μητρώο) συμφωνεί', () => {
+    for (const table of POST_LINE_TABLES) {
+      for (const kind of KINDS) {
+        expect(
+          { table, kind, fits: lineFits(table, ctxFor(kind)) },
+        ).toEqual(
+          { table, kind, fits: KINDS_FOR_LINE_TABLE[table].includes(kind) },
+        );
+      }
+    }
+  });
+
+  it('…και το ίδιο ισχύει μέσω του `lineKindFits`, που βλέπει το UI', () => {
+    for (const object of POST_OBJECTS) {
+      for (const table of POST_LINE_TABLES) {
+        for (const kind of KINDS) {
+          const t = target(object, table);
+          expect({ table, kind, fits: lineKindFits(t, kind) })
+            .toEqual({ table, kind, fits: lineFits(table, ctxFor(kind)) });
+        }
+      }
     }
   });
 });

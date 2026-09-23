@@ -7,12 +7,16 @@ import { applyMatchToLine, QueueError } from '@/lib/ocr/queues';
 import {
   buildItemPayload, softoneCreateItem,
   buildExpensePayload, softoneCreateExpense, softoneLoadExpenseTemplate,
-  buildLineItemPayload, softoneCreateLineItem, softoneLoadLineItemTemplate, lineItemMirrorFrom,
+  buildLineItemPayload, softoneCreateLineItem, softoneLoadLineItemTemplate,
   softoneNextItemCode, isDuplicateCodeError, clearItemCodeCache,
 } from '@/lib/softone';
 import { itemCodeMaskKey, ITEM_KIND_GENITIVE, type ItemCodeKind } from '@/lib/item-code';
 import { mirrorItemCodes } from '@/lib/item-code-mirror';
 import { getSetting } from '@/lib/settings';
+import { checkLineItemTemplate } from '@/lib/ocr/lineitem-create';
+import { requiredTraderKind } from '@/lib/ocr/required-trader-kind';
+import { loadAccountChart } from '@/lib/ocr/account-chart';
+import { checkAccounts, type AccountStatus } from '@/lib/ocr/account-check';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,8 +49,13 @@ const Body = z.object({
   brand: z.string().trim().max(20).nullable().optional(),
   /** Μόνο για `expense`: υπάρχον έξοδο από το οποίο αντιγράφονται τα required flags. */
   templateExpn: z.number().int().positive().nullable().optional(),
-  /** Μόνο για `lineitem`: **υποχρεωτική** υπάρχουσα χρεοπίστωση-πρότυπο (Τύπος + λογαριασμός). */
+  /** Μόνο για `lineitem`: **υποχρεωτική** υπάρχουσα χρεοπίστωση-πρότυπο (Τύπος + κατηγορία). */
   templateMtrl: z.number().int().positive().nullable().optional(),
+  /**
+   * Μόνο για `lineitem`: ο λογαριασμός **γενικής λογιστικής**, ΡΗΤΑ. Δεν κληρονομείται σιωπηλά
+   * από το πρότυπο — δες `lib/ocr/lineitem-create.ts`.
+   */
+  acnmsk: z.string().trim().max(40).nullable().optional(),
   /** Η γραμμή που θα αντιστοιχιστεί αμέσως μετά. */
   lineId: z.string().trim().min(1).nullable().optional(),
   /** Ο κωδικός που κουβαλά η γραμμή — για σωστή πρόταση μετά από 409. */
@@ -76,49 +85,78 @@ export async function POST(req: Request) {
     if (!b.templateMtrl) {
       return NextResponse.json({
         error: 'missing_template', field: 'templateMtrl',
-        message: 'Διάλεξε υπάρχουσα χρεοπίστωση ως πρότυπο — ο «Τύπος» και ο λογαριασμός γενικής αντιγράφονται από εκεί και δεν παράγονται από την περιγραφή.',
+        message: 'Διάλεξε υπάρχουσα χρεοπίστωση ως πρότυπο — ο «Τύπος» και η «Κατηγορία τιμολόγησης» αντιγράφονται από εκεί και δεν παράγονται από την περιγραφή.',
       }, { status: 400 });
     }
+
+    let template: Awaited<ReturnType<typeof softoneLoadLineItemTemplate>>;
+    try {
+      template = await softoneLoadLineItemTemplate(b.templateMtrl);
+    } catch (e) {
+      return NextResponse.json({ error: 'softone_error', message: (e as Error).message }, { status: 502 });
+    }
+
+    // Ο λογαριασμός: ό,τι έδωσε ο χρήστης, αλλιώς η ΠΡΟΤΑΣΗ του προτύπου. Ποτέ κενός.
+    const acnmsk = (b.acnmsk ?? '').trim() || (template.acnmsk ?? '').trim();
+    const accountVerdict = await judgeAccount(acnmsk, `${b.code} — ${b.name}`);
+
+    // Ο τύπος συναλλασσομένου που απαιτεί ΑΥΤΟ το παραστατικό — από τη σειρά του, όχι από εικασία.
+    const requiredSodtype = await requiredSodtypeForLine(b.lineId ?? null);
+    const issue = checkLineItemTemplate({
+      templateLabel: `${template.code} — ${template.name}`,
+      lisourceType: template.lisourceType,
+      requiredSodtype,
+      accountStatus: acnmsk ? accountVerdict.status : 'missing',
+      accountMessage: accountVerdict.message,
+      accountChosen: Boolean((b.acnmsk ?? '').trim()),
+    });
+    if (issue) {
+      return NextResponse.json({
+        error: issue.code,
+        field: issue.code === 'account_blocked' ? 'acnmsk' : 'templateMtrl',
+        message: issue.message,
+        template: templateDto(template, accountVerdict, requiredSodtype),
+      }, { status: 422 });
+    }
+
+    const payloadInput = {
+      code: b.code, name: b.name, templateMtrl: b.templateMtrl, acnmsk,
+      vat: b.vat ?? null, mtrCategory: b.category ?? null, unit: b.unit ?? null,
+    };
+
     if (b.dryRun) {
-      try {
-        const template = await softoneLoadLineItemTemplate(b.templateMtrl);
-        return NextResponse.json({
-          dryRun: true,
-          template: { mtrl: template.mtrl, code: template.code, name: template.name, flags: template.flags },
-          payload: {
-            service: 'setData',
-            ...buildLineItemPayload(
-              { code: b.code, name: b.name, templateMtrl: b.templateMtrl, vat: b.vat ?? null, mtrCategory: b.category ?? null, unit: b.unit ?? null },
-              template.flags,
-            ),
-          },
-        });
-      } catch (e) {
-        return NextResponse.json({ error: 'softone_error', message: (e as Error).message }, { status: 502 });
-      }
+      return NextResponse.json({
+        dryRun: true,
+        template: templateDto(template, accountVerdict, requiredSodtype),
+        payload: { service: 'setData', ...buildLineItemPayload(payloadInput, template.flags) },
+      });
     }
 
     let created: Awaited<ReturnType<typeof softoneCreateLineItem>>;
     try {
-      created = await softoneCreateLineItem({
-        code: b.code, name: b.name, templateMtrl: b.templateMtrl,
-        vat: b.vat ?? null, mtrCategory: b.category ?? null, unit: b.unit ?? null,
-      });
+      created = await softoneCreateLineItem(payloadInput);
     } catch (e) {
       const taken = await duplicateCode(e, 'lineitem', b);
       if (taken) return taken;
       return NextResponse.json({ error: 'softone_error', message: (e as Error).message }, { status: 502 });
     }
 
-    const copied = lineItemMirrorFrom(created.template.flags);
+    /**
+     * Ο καθρέφτης γράφεται από το **read-back**, όχι από ό,τι νομίζουμε ότι στείλαμε.
+     *
+     * Ο χαρακτηρισμός myDATA μένει **κενός** επίτηδες (`classType`/`classCategory`/`myDataCode`):
+     * δεν τον αντιγράφουμε από το πρότυπο, ώστε το `no_mydata_classification` να **χτυπήσει** και
+     * ο χρήστης να τον ορίσει — αντί να ταξιδέψει σιωπηλά λάθος χαρακτηρισμός προς το myDATA.
+     */
     const mirror = {
       code: created.code, name: created.name,
-      vat: b.vat ?? (created.template.flags.VAT != null ? String(created.template.flags.VAT) : null),
-      ...copied,
-      ...(b.category ? { mtrCategory: Number(b.category) } : {}),
-      // Ο λογαριασμός γενικής ΔΕΝ είναι «άγνωστος»: τον μόλις αντιγράψαμε από το πρότυπο και τον
-      // στείλαμε εμείς. Χωρίς σφραγίδα, ο έλεγχος λογαριασμού θα έλεγε «ασυγχρόνιστο» σε μια
-      // εγγραφή που γεννήθηκε πριν από ένα δευτερόλεπτο.
+      vat: b.vat ?? template.vat,
+      mtrType: numOrNull(created.template.flags.MTRTYPE),
+      mtrCategory: b.category ? Number(b.category) : (template.mtrCategory ? Number(template.mtrCategory) : null),
+      classType: null, classCategory: null, myDataCode: null, myDataVprc: null,
+      acnmsk: created.acnmsk,
+      // Ο λογαριασμός ΔΕΝ είναι «άγνωστος»: μόλις τον στείλαμε και τον ξαναδιαβάσαμε. Χωρίς
+      // σφραγίδα, ο έλεγχος θα έλεγε «ασυγχρόνιστο» για εγγραφή ενός δευτερολέπτου.
       acnmskSyncedAt: new Date(),
       isActive: true, syncedAt: new Date(),
     };
@@ -201,6 +239,62 @@ export async function POST(req: Request) {
   }).catch(() => null);
 
   return finish(b, u, { mtrl, code: b.code, name: b.name, kind, isService });
+}
+
+const numOrNull = (v: unknown): number | null => {
+  const t = String(v ?? '').trim();
+  return t !== '' && Number.isFinite(Number(t)) ? Number(t) : null;
+};
+
+/** Τι λέει ο ΔΙΚΟΣ μας έλεγχος για έναν λογαριασμό γενικής — ίδια κρίση με την καταχώριση. */
+async function judgeAccount(
+  acnmsk: string, article: string,
+): Promise<{ status: AccountStatus; message: string | null; accountName: string | null }> {
+  if (!acnmsk) {
+    return {
+      status: 'missing', accountName: null,
+      message: 'ο λογαριασμός είναι κενός — η γραμμή θα μπλόκαρε στην καταχώριση με «account_missing»',
+    };
+  }
+  try {
+    const chart = await loadAccountChart([acnmsk]);
+    const res = checkAccounts(
+      [{ rowIndex: 0, path: 'LINLINES', article, acnmsk, acnmskKnown: true }],
+      chart,
+    );
+    const line = res.lines[0];
+    return { status: line?.status ?? 'unknown', message: line?.message ?? null, accountName: line?.accountName ?? null };
+  } catch {
+    // Ο καθρέφτης δεν απάντησε: «άγνωστο» δεν είναι «λείπει» — δεν μπλοκάρουμε στα τυφλά.
+    return { status: 'unknown', message: null, accountName: null };
+  }
+}
+
+/** Το SODTYPE που απαιτεί η σειρά του παραστατικού ΤΗΣ γραμμής. `null` = άγνωστη σειρά. */
+async function requiredSodtypeForLine(lineId: string | null): Promise<number | null> {
+  if (!lineId) return null;
+  const line = await prisma.ocrInvoiceItem.findUnique({
+    where: { id: lineId },
+    select: { document: { select: { seriesSource: true, softoneSeries: true } } },
+  }).catch(() => null);
+  if (!line?.document) return null;
+  return (await requiredTraderKind(line.document))?.sodtype ?? null;
+}
+
+/** Ό,τι χρειάζεται το UI για να δείξει το πρότυπο και την κρίση μας πάνω του. */
+function templateDto(
+  t: Awaited<ReturnType<typeof softoneLoadLineItemTemplate>>,
+  account: { status: AccountStatus; message: string | null; accountName: string | null },
+  requiredSodtype: number | null,
+) {
+  return {
+    mtrl: t.mtrl, code: t.code, name: t.name,
+    flags: t.flags,
+    acnmsk: t.acnmsk, vat: t.vat, mtrCategory: t.mtrCategory,
+    lisourceType: t.lisourceType,
+    requiredSodtype,
+    account,
+  };
 }
 
 /**

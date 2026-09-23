@@ -122,6 +122,12 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
   const postingTarget = sKey ? (await postingTargetsForSeries([seriesRef])).get(sKey) ?? null : null;
 
   const issuerVat = ((doc.extractedData ?? {}) as { vatNumber?: unknown }).vatNumber;
+  // Η βοήθεια της λωρίδας περνά από τον ΙΔΙΟ δρόμο με κάθε άλλο «?» της εφαρμογής
+  // (`findHelpAnchor` + έλεγχος ρόλου), αντί για σταθερή διαδρομή: μια wiki σελίδα που
+  // μετακινήθηκε ή που ο ρόλος δεν βλέπει δεν πρέπει να αφήνει πίσω σπασμένο εικονίδιο.
+  const checksHelpHref = completed
+    ? helpHrefFor('doc-resolve', (user.role.key as WikiRoleKey | undefined) ?? null)
+    : null;
   const helpHref = completed ? helpHrefFor('template-runs', (user.role.key as WikiRoleKey | undefined) ?? null) : null;
 
   return (
@@ -183,7 +189,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
         )}
       </header>
 
-      {completed && <SoftoneChecksStrip docId={doc.id} />}
+      {completed && <SoftoneChecksStrip docId={doc.id} helpHref={checksHelpHref} />}
 
       {completed && (
         <RunResult

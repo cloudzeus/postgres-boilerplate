@@ -338,8 +338,14 @@ const autoTableFor = (m: PurdocLineCtx): 'ITELINES' | 'SRVLINES' | 'EXPANAL' | n
   return null; // χρεοπίστωση ή τίποτα — δεν χωράει σε PURDOC
 };
 
-/** Το «τι ταίριαξε» της γραμμής ταιριάζει με τον πίνακα που ζήτησε η σειρά; */
-function lineFits(table: PostLineTable, m: PurdocLineCtx): boolean {
+/**
+ * Το «τι ταίριαξε» της γραμμής ταιριάζει με τον πίνακα που ζήτησε η σειρά;
+ *
+ * **Εξάγεται** ώστε το `KINDS_FOR_LINE_TABLE` του `lib/ocr/resolution-plan.ts` — που προσφέρει
+ * στον χρήστη τα μητρώα *πριν* γραφτεί η αντιστοίχιση — να ελέγχεται ότι λέει ΑΚΡΙΒΩΣ το ίδιο με
+ * αυτόν εδώ, που κρίνει ό,τι γράφτηκε. Πριν, η ισοδυναμία ζούσε μόνο σε σχόλιο.
+ */
+export function lineFits(table: PostLineTable, m: PurdocLineCtx): boolean {
   switch (table) {
     case 'ITELINES': case 'SRVLINES': return m.mtrl != null;
     case 'EXPANAL': return m.expn != null;

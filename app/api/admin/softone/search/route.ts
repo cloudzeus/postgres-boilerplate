@@ -5,7 +5,7 @@ import { ISSUER_SODTYPES } from '@/lib/softone';
 import { classificationLabeller } from '@/lib/ocr/mydata-labels';
 
 // Searches the local SoftOne mirrors for manual matching (items / traders / χρεοπιστώσεις).
-// GET ?type=items|products|services|expenses|lineitems|suppliers|traders&q=...
+// GET ?type=items|products|services|expenses|lineitems|accounts|suppliers|traders&q=...
 // `suppliers`/`traders` δέχονται και `sodtype=12|16|15` για έναν ΜΟΝΟ τύπο καρτέλας.
 // `lineitems` (χρεοπιστώσεις) δέχεται και `category=<MTRCATEGORY>` για να στενέψει η λίστα σε μία
 // κατηγορία δαπάνης — διαφορετικά η επιλογή από εκατοντάδες κωδικούς είναι πρακτικά αδύνατη.
@@ -85,6 +85,26 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({
       results: rows.map((r) => ({ id: r.prjcStage, code: r.code, name: r.name, sub: 'κατηγορία δραστηριότητας' })),
+    });
+  }
+
+  if (type === 'accounts') {
+    // Λογιστικό σχέδιο (ACNT) — ΜΟΝΟ κινούμενοι λογαριασμοί. Ένας συγκεντρωτικός δεν δέχεται
+    // εγγραφές, οπότε δεν είναι υποψήφιος για την «Γενικής» μιας χρεοπίστωσης· το ίδιο κριτήριο
+    // χρησιμοποιεί και ο έλεγχος πριν την καταχώριση (`isPostable`).
+    const rows = await prisma.softoneAccount.findMany({
+      where: {
+        isActive: true, postable: true,
+        OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q } }],
+      },
+      take: 25, orderBy: { code: 'asc' },
+      select: { acnt: true, code: true, name: true, grade: true },
+    });
+    return NextResponse.json({
+      results: rows.map((r) => ({
+        id: r.acnt, code: r.code, name: r.name,
+        sub: ['λογαριασμός γενικής', r.grade != null ? `βαθμίδα ${r.grade}` : null].filter(Boolean).join(' · '),
+      })),
     });
   }
 
