@@ -43,9 +43,22 @@ describe('discountAmbiguous — το εμπόδιο', () => {
     expect(discountAmbiguous({ quantity: 1, unitPrice: 100, discount: 40, net: 75 })).toBe(true);
   });
 
-  it('χωρίς έκπτωση δεν μπλοκάρει ποτέ', () => {
+  it('χωρίς έκπτωση και σωστή αριθμητική δεν μπλοκάρει', () => {
     expect(discountAmbiguous({ quantity: 3, unitPrice: 10, net: 30 })).toBe(false);
     expect(discountAmbiguous({ quantity: 3, unitPrice: 10, discount: 0, net: 30 })).toBe(false);
+  });
+
+  // Η ΔΕΥΤΕΡΗ διαρροή, που ξέφυγε στην πρώτη διόρθωση. Το SoftOne δεν παίρνει σύνολο γραμμής —
+  // το υπολογίζει από ποσότητα × τιμή. Χωρίς καταγεγραμμένη έκπτωση, το «5 × 450 = 1.316,25»
+  // καταχωρήθηκε ως 2.250 (με ΦΠΑ 2.790), σωστά κατά το SoftOne και λάθος κατά το παραστατικό.
+  it('ΧΩΡΙΣ έκπτωση αλλά σύνολο ≠ ποσότητα × τιμή ⇒ μπλοκάρει', () => {
+    expect(discountAmbiguous({ quantity: 5, unitPrice: 450, net: 1316.25 })).toBe(true);
+    expect(discountAmbiguous({ quantity: 1, unitPrice: 750, net: 180 })).toBe(true);
+    expect(discountAmbiguous({ quantity: 2, unitPrice: 66, net: 31.68 })).toBe(true);
+  });
+
+  it('και δεν στέλνεται πεδίο έκπτωσης σε τέτοια γραμμή', () => {
+    expect(discountFields({ quantity: 5, unitPrice: 450, net: 1316.25 })).toEqual({});
   });
 });
 

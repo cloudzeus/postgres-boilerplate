@@ -219,13 +219,25 @@ export function discountFields(line: DiscountLine): { DISC1PRC?: number; DISC1VA
   return {};
 }
 
-/** Ασαφής ή ασυμβίβαστη έκπτωση — η γραμμή δεν επιτρέπεται να φύγει. */
+/**
+ * Η γραμμή **δεν βγαίνει αριθμητικά** — δεν επιτρέπεται να φύγει.
+ *
+ * Δύο περιπτώσεις, και η δεύτερη είναι αυτή που ξέφυγε την πρώτη φορά:
+ *  1. Υπάρχει έκπτωση αλλά καμία ερμηνεία (ποσοστό/ποσό) δεν βγάζει το σύνολο ⇒ ασαφής.
+ *  2. **ΔΕΝ υπάρχει έκπτωση** και το σύνολο δεν ισούται με ποσότητα × τιμή. Το SoftOne δεν
+ *     παίρνει σύνολο γραμμής: το ΥΠΟΛΟΓΙΖΕΙ. Έτσι μια γραμμή «5 × 450 = 1.316,25» χωρίς
+ *     καταγεγραμμένη έκπτωση καταχωρήθηκε ως 2.250 — σωστά κατά το SoftOne, λάθος κατά το
+ *     παραστατικό, και κανείς δεν το είδε.
+ *
+ * Το `analyzeLine` κρίνει ήδη και τις δύο μέσω του `consistent`· ο παλιός έλεγχος απλώς έβγαινε
+ * νωρίς όταν η έκπτωση ήταν μηδενική.
+ */
 export function discountAmbiguous(line: DiscountLine): boolean {
-  if (!num(line.discount, 0)) return false;
   const a = analyzeLine({
     quantity: line.quantity, price: line.unitPrice, discount: line.discount, total: line.net,
   });
-  return a.discountKind === 'unknown' || !a.consistent;
+  if (!a.consistent) return true;
+  return num(line.discount, 0) !== 0 && a.discountKind === 'unknown';
 }
 const text = (v: unknown): string | undefined => {
   const s = v == null ? '' : String(v).trim();
