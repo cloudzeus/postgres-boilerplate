@@ -15,6 +15,7 @@ import {
 import { accountDetails, checkAccounts, type AccountCheck } from './account-check';
 import { loadAccountChart } from './account-chart';
 import { describeTargetShort, resolvePostingTarget, type PostingTarget } from './posting-target';
+import { VAT_RATE_MAP_SETTING, buildVatRateMap, parseVatRateOverrides } from './vat-map';
 
 /** Αριθμός ή `null` — ο ΦΠΑ μιας γραμμής όπως τον κρατά το κανονικό έγγραφο. */
 const vatRateOf = (v: unknown): number | null => {
@@ -203,7 +204,7 @@ async function gather(id: string): Promise<Gathered> {
   });
   if (!doc) throw new PostError('not_found', POST_ERROR_TEXT.not_found);
 
-  const [document, items, vats, seriesTarget, traderRow] = await Promise.all([
+  const [document, items, vats, vatOverrides, seriesTarget, traderRow] = await Promise.all([
     loadDocumentJson(id),
     prisma.ocrInvoiceItem.findMany({
       where: { documentId: id },
@@ -219,8 +220,10 @@ async function gather(id: string): Promise<Gathered> {
     prisma.vatCategory.findMany({
       where: { isActive: true },
       orderBy: [{ order: 'asc' }, { code: 'asc' }],
-      select: { code: true, rate: true },
+      select: { code: true, rate: true, descr: true },
     }),
+    // Οι χειροκίνητες αντιστοιχίσεις συντελεστή → κωδικού ΦΠΑ (`lib/ocr/vat-map.ts`).
+    getSetting<unknown>(VAT_RATE_MAP_SETTING, {}).catch(() => ({})),
     loadTarget(doc.softoneSeries, doc.seriesSource),
     // Ο ΤΥΠΟΣ του συναλλασσομένου (12/16) από τον τοπικό καθρέφτη: τον κρίνει ο έλεγχος
     // `trader_kind_mismatch`. `null` = δεν τον ξέρουμε, οπότε δεν κρίνουμε.
@@ -259,14 +262,14 @@ async function gather(id: string): Promise<Gathered> {
   const linById = new Map(linRows.map((r) => [r.mtrl, r]));
   const expenseById = new Map(expenseRows.map((r) => [r.expn, r]));
 
-  const vatIdByRate: Record<number, number> = {};
-  for (const v of vats) {
-    const rate = v.rate == null ? null : Number(v.rate);
-    const code = Number(v.code);
-    // Πρώτος κερδίζει: το μητρώο έρχεται ταξινομημένο, και δύο εγγραφές με τον ίδιο συντελεστή
-    // (π.χ. κανονικό / κανονικό νησιών) δεν πρέπει να αλλάζουν σιωπηλά τον κωδικό που στέλνουμε.
-    if (rate != null && Number.isFinite(rate) && Number.isFinite(code) && vatIdByRate[rate] == null) vatIdByRate[rate] = code;
-  }
+  // Ο χάρτης «συντελεστής → κωδικός ΦΠΑ» χτίζεται από το μητρώο ΚΑΙ από τις χειροκίνητες
+  // αντιστοιχίσεις. Χρειάζονται και τα δύο: οι **μηδενικές** κατηγορίες του SoftOne έρχονται με
+  // κενό ποσοστό, οπότε χωρίς ρητή αντιστοίχιση κάθε γραμμή 0 % έπεφτε στο `no_vat_category` και
+  // δεν υπήρχε τρόπος να λυθεί από πουθενά μέσα στην εφαρμογή (βλ. `lib/ocr/vat-map.ts`).
+  const { byRate: vatIdByRate } = buildVatRateMap(
+    vats.map((v) => ({ code: v.code, rate: v.rate == null ? null : Number(v.rate), descr: v.descr, isActive: true })),
+    parseVatRateOverrides(vatOverrides),
+  );
 
   const series = Number(doc.softoneSeries);
   const seriesOk = Number.isFinite(series) && series > 0;

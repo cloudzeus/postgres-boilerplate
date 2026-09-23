@@ -5,6 +5,8 @@ import { LineMatchCell, type LineAnalyticsState } from './line-match-cell';
 import { matchKindOf, type LineCategoryOption, type LineMatch } from './line-match-kind';
 import { CustomFieldsBlock, LineCustomFields, hasLineCustomFields } from '@/components/admin/custom-fields';
 import type { MatchKind } from '@/lib/ocr/line-match';
+import { commonLineKind, defaultLineKind } from '@/lib/ocr/resolution-plan';
+import type { PostingTarget } from '@/lib/ocr/posting-target';
 import type { AccountCheckLine } from '@/lib/ocr/account-check';
 import { AccountLine } from '@/components/admin/account-line';
 
@@ -29,6 +31,11 @@ export interface LineMatchOptions {
   trdr: number | null;
   /** Ο λογαριασμός γενικής κάθε αντιστοιχισμένης γραμμής, ανά `rowIndex` (βλ. `lineAccountsFor`). */
   lineAccounts?: Record<number, AccountCheckLine>;
+  /**
+   * Πού καταχωρείται το παραστατικό. Ορίζει ΠΟΙΑ μητρώα χωράνε σε κάθε γραμμή — χωρίς αυτό ο
+   * picker πρότεινε «Είδος» και σε παραστατικά που δέχονται μόνο χρεοπιστώσεις.
+   */
+  target: PostingTarget | null;
 }
 
 /**
@@ -60,20 +67,19 @@ const lineMatchOf = (it: DocWithItems['items'][number]): LineMatch | null =>
     };
 
 /**
- * Η κατηγορία που ανοίγει ο picker για μια ΑΤΑΙΡΙΑΣΤΗ γραμμή: η πιο συχνή ανάμεσα στις
- * ήδη αντιστοιχισμένες γραμμές του ΙΔΙΟΥ παραστατικού — ένα τιμολόγιο εξόδων σπάνια
- * κρύβει προϊόντα. Χωρίς καμία αντιστοίχιση πέφτουμε στο «Είδος».
+ * Η κατηγορία που ανοίγει ο picker για μια ΑΤΑΙΡΙΑΣΤΗ γραμμή.
+ *
+ * Παλιά ήταν «η πιο συχνή ανάμεσα στις ήδη αντιστοιχισμένες, αλλιώς **Είδος**». Το «αλλιώς
+ * Είδος» ήταν ισχυρισμός, όχι προεπιλογή: σε ένα παραστατικό ρεύματος που καταχωρείται σε
+ * `LINLINES` — όπου καμία γραμμή δεν είναι αντιστοιχισμένη και **μόνο χρεοπίστωση χωράει** —
+ * ο picker άνοιγε στο «Είδος» και ό,τι κι αν διάλεγε ο χρήστης εκεί ήταν άχρηστο.
+ *
+ * Τώρα αποφασίζει πρώτα ο **προορισμός** και μόνο μετά το ιστορικό του παραστατικού
+ * ({@link defaultLineKind}). Όταν δεν φτάνουν ούτε τα δύο, η απάντηση είναι `null`.
  */
-function commonKind(items: DocWithItems['items']): MatchKind {
-  const tally = new Map<MatchKind, number>();
-  for (const it of items) {
-    const k = matchKindOf(lineMatchOf(it));
-    if (k) tally.set(k, (tally.get(k) ?? 0) + 1);
-  }
-  let best: MatchKind = 'product';
-  let bestN = 0;
-  for (const [k, n] of tally) if (n > bestN) { best = k; bestN = n; }
-  return best;
+function pickerKind(items: DocWithItems['items'], target: PostingTarget | null): MatchKind | null {
+  const seen = commonLineKind(items.map((it) => matchKindOf(lineMatchOf(it))));
+  return defaultLineKind(target, seen);
 }
 
 function fmtNum(n: any): string {
@@ -94,7 +100,7 @@ function fmtMoney(n: any): string {
  * μονάδα μέτρησης — που δεν είναι στήλη της βάσης αλλά ζει στο κανονικό JSON (`lines.unit`).
  */
 function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match: LineMatchOptions }) {
-  const defaultKind = commonKind(doc.items);
+  const defaultKind = pickerKind(doc.items, match.target);
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
       <table className="w-full text-sm">
@@ -136,6 +142,12 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
                       defaultKind={defaultKind}
                       lineCategories={match.lineCategories}
                       trdr={match.trdr}
+                      target={match.target}
+                      lineCode={it.code}
+                      lineName={it.name}
+                      lineVatRate={it.vatRate == null ? null : String(it.vatRate)}
+                      /* Η μονάδα ΔΕΝ είναι στήλη της βάσης — ζει στο κανονικό JSON (`lines.unit`). */
+                      lineUnit={(line.unit ?? null) as string | null}
                     />
                     {match.lineAccounts?.[it.rowIndex] && (
                       <div className="mt-1">

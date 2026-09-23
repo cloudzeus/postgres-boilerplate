@@ -16,6 +16,7 @@ import { findHelpAnchor } from '@/lib/wiki/loader';
 import { canAccessWikiPage } from '@/lib/wiki/access';
 import type { WikiRoleKey } from '@/lib/wiki/types';
 import { lineAccountsFor } from '@/lib/ocr/account-chart';
+import { postingTargetsForSeries, seriesKey } from '@/lib/ocr/required-trader-kind';
 
 export const dynamic = 'force-dynamic';
 
@@ -110,6 +111,16 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
   const manualSeries = doc.seriesBy === 'manual';
   const seriesTone = manualSeries || (doc.seriesConfidence ?? 0) >= 0.8 ? '#047857' : doc.seriesConfidence != null ? '#B45309' : '#94A3B8';
 
+  /**
+   * Πού καταχωρείται αυτό το παραστατικό. Το ίδιο ερώτημα που απαντά η κάρτα «Προορισμός» —
+   * αλλά η απάντηση χρειάζεται ΚΑΙ στον πίνακα γραμμών, για να ξέρει ο picker ποια μητρώα
+   * χωράνε. Χωρίς αυτό, η σελίδα έδειχνε τον προορισμό και ταυτόχρονα πρότεινε ενέργειες που
+   * τον αγνοούσαν.
+   */
+  const seriesRef = { seriesSource: doc.seriesSource, softoneSeries: doc.softoneSeries };
+  const sKey = seriesKey(seriesRef);
+  const postingTarget = sKey ? (await postingTargetsForSeries([seriesRef])).get(sKey) ?? null : null;
+
   const issuerVat = ((doc.extractedData ?? {}) as { vatNumber?: unknown }).vatNumber;
   const helpHref = completed ? helpHrefFor('template-runs', (user.role.key as WikiRoleKey | undefined) ?? null) : null;
 
@@ -203,6 +214,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
           },
           trdr: doc.softoneTrdr ?? null,
           lineAccounts,
+          target: postingTarget,
         }}
       />
     </div>

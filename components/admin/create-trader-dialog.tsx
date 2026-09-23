@@ -1,40 +1,57 @@
 'use client';
 
 import * as React from 'react';
-import { FiTruck, FiCheckCircle, FiAlertTriangle, FiDownloadCloud } from 'react-icons/fi';
+import { FiAlertTriangle, FiCheckCircle, FiDownloadCloud, FiUser } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
+import { TRADER_KIND_TEXT, type TraderKindName } from '@/lib/ocr/posting-target';
 import type { TaxOfficeMapping } from '@/lib/tax-office';
 
 type Preview = {
   afm: string; name: string;
-  /** Κωδικός Δ.Ο.Υ. της ΑΑΔΕ (π.χ. «1190») και η ονομασία της. */
   doyDescr: string | null; doyCode: string | null;
-  /** Η γραμμή IRSDATA του SoftOne με τον ίδιο κωδικό — ή γιατί δεν υπάρχει. */
   softoneDoy: TaxOfficeMapping;
   profession: string | null; address: string | null; zip: string | null; city: string | null;
   legalForm: string | null; isActive: boolean;
 };
 
+type CodeSuggestion = { code: string | null; source: 'pattern' | 'mask' | 'none'; taken: number; stale: boolean };
+
 /**
- * Creates a SoftOne supplier. For Greek ΑΦΜ it pulls authoritative data from AADE
- * (afm2info) + resolves the Δ.Ο.Υ. code; for foreign/invalid ΑΦΜ it falls back to
- * manual entry. Shows the data for confirmation, then writes to SoftOne.
+ * Δημιουργία **καρτέλας συναλλασσομένου του τύπου που ζητά το παραστατικό** — επί τόπου, από τη
+ * σελίδα του παραστατικού.
+ *
+ * Η προηγούμενη έκδοση αυτού του αρχείου έφτιαχνε **μόνο προμηθευτή** και δεν την καλούσε κανείς.
+ * Στο SoftOne όμως η ίδια εταιρεία υπάρχει πολλές φορές στον `TRDR`, μία γραμμή ανά τύπο
+ * (12 προμηθευτής · 16 πιστωτής · 15 χρεώστης), και **ποια** από αυτές δέχεται η κεφαλίδα το
+ * ορίζει η ΣΕΙΡΑ του παραστατικού, όχι ο εκδότης. Γι' αυτό ο τύπος εδώ είναι **δεδομένο**, όχι
+ * επιλογή: έρχεται από τον προορισμό καταχώρισης και εξηγείται δίπλα του.
+ *
+ * Γράφει μέσω του ΥΠΑΡΧΟΝΤΟΣ `POST /api/admin/ocr/new-traders/{afm}/create` — του ίδιου route που
+ * χρησιμοποιεί η ουρά «Νέοι συναλλασσόμενοι». Έτσι η καρτέλα συνδέεται αυτόματα σε **όλα** τα
+ * εκκρεμή παραστατικά του ίδιου ΑΦΜ, καθένα με τον τύπο που ζητά η δική του σειρά, αντί να λυθεί
+ * μόνο το ένα που κοιτά ο χρήστης.
+ *
+ * ⚠️ Το `setData` φεύγει **μόνο** όταν ο χρήστης ξετσεκάρει τη «Δοκιμή» και πατήσει «Δημιουργία».
  */
-export function CreateSupplierFromAadeDialog({
-  open, onOpenChange, afm, docId, fallbackName, onCreated,
+export function CreateTraderDialog({
+  open, onOpenChange, afm, kind, fallbackName, reason, onCreated,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   afm: string;
-  docId?: string;
-  fallbackName?: string;
-  onCreated?: (m: { trdr: number; code: string; name: string }) => void;
+  /** Ο τύπος που **επιβάλλει** η σειρά του παραστατικού. */
+  kind: TraderKindName;
+  fallbackName?: string | null;
+  /** Η ελληνική αιτιολογία του προορισμού — γιατί αυτός ο τύπος. */
+  reason?: string | null;
+  onCreated?: (m: { trdr: number; code: string; name: string; docsUpdated: number }) => void;
 }) {
+  const text = TRADER_KIND_TEXT[kind];
   const [afmInput, setAfmInput] = React.useState('');
   const [name, setName] = React.useState('');
   const [code, setCode] = React.useState('');
@@ -44,6 +61,10 @@ export function CreateSupplierFromAadeDialog({
   const [submitting, setSubmitting] = React.useState(false);
   const [dryRun, setDryRun] = React.useState(true);
   const [dryPayload, setDryPayload] = React.useState<unknown>(null);
+  const [suggestion, setSuggestion] = React.useState<CodeSuggestion | null>(null);
+  const [codeError, setCodeError] = React.useState<string | null>(null);
+  const [codeOffer, setCodeOffer] = React.useState<string | null>(null);
+  const proposed = React.useRef<string | null>(null);
 
   const cleanAfm = afmInput.replace(/\D/g, '');
   const isGreek = /^\d{9}$/.test(cleanAfm);
@@ -71,41 +92,74 @@ export function CreateSupplierFromAadeDialog({
     }
   }, []);
 
-  // Reset + auto-fetch when opened.
+  // Άνοιγμα: καθάρισε, άντλησε ΑΑΔΕ και ζήτα προτεινόμενο κωδικό ΑΥΤΟΥ του τύπου.
   React.useEffect(() => {
     if (!open) return;
     const initAfm = (afm || '').replace(/\D/g, '');
     setAfmInput(initAfm);
     setName(fallbackName || '');
     setCode(''); setData(null); setError(null); setDryPayload(null); setDryRun(true);
+    setCodeError(null); setCodeOffer(null); setSuggestion(null);
+    proposed.current = null;
     if (/^\d{9}$/.test(initAfm)) void runLookup(initAfm);
-    else setError('Το ΑΦΜ της γραμμής δεν είναι ελληνικό 9ψήφιο — διόρθωσέ το για άντληση ΑΑΔΕ ή συμπλήρωσε χειροκίνητα.');
+    else setError('Το ΑΦΜ του παραστατικού δεν είναι ελληνικό 9ψήφιο — διόρθωσέ το για άντληση ΑΑΔΕ ή συμπλήρωσε χειροκίνητα.');
   }, [open, afm, fallbackName, runLookup]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    let ignore = false;
+    fetch(`/api/admin/ocr/new-traders/next-code?kind=${kind}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: CodeSuggestion | null) => {
+        if (ignore || !d) return;
+        setSuggestion(d);
+        // Γράφουμε ΜΟΝΟ σε κενό πεδίο ή πάνω στη δική μας προηγούμενη πρόταση.
+        setCode((cur) => (cur === '' || cur === proposed.current ? (d.code ?? '') : cur));
+        proposed.current = d.code ?? null;
+      })
+      .catch(() => null);
+    return () => { ignore = true; };
+  }, [open, kind]);
 
   const submit = async () => {
     if (!name.trim() || !cleanAfm) { toast.error('Συμπλήρωσε Επωνυμία και ΑΦΜ.'); return; }
     setSubmitting(true);
+    setCodeError(null); setCodeOffer(null);
     try {
-      const res = await fetch('/api/admin/ocr/create-supplier', {
+      const res = await fetch(`/api/admin/ocr/new-traders/${cleanAfm}/create`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          afm: cleanAfm, name: name.trim(),
-          code: code.trim() || null, irsData: data?.softoneDoy?.office?.key ?? null,
-          profession: data?.profession ?? null, address: data?.address ?? null,
-          zip: data?.zip ?? null, city: data?.city ?? null,
-          docId: docId ?? null,
+          kind,
+          name: name.trim(),
+          code: code.trim() || null,
+          country: 'GR',
+          irsData: data?.softoneDoy?.office?.key ?? null,
+          profession: data?.profession ?? null,
+          address: data?.address ?? null,
+          zip: data?.zip ?? null,
+          city: data?.city ?? null,
           dryRun,
         }),
       });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { toast.error(d?.message ?? 'Αποτυχία δημιουργίας στο SoftOne'); return; }
-      if (d?.dryRun) {
-        setDryPayload(d.payload);
-        toast.success('Ετοιμάστηκε το object (δεν στάλθηκε στο SoftOne)');
+      if (!res.ok) {
+        // Άρνηση του ERP για τον κωδικό: δείχνουμε το ΔΙΚΟ του μήνυμα και την πρότασή του.
+        if (d?.field === 'code') {
+          setCodeError(d.message ?? 'Ο κωδικός δεν έγινε δεκτός.');
+          setCodeOffer(d.suggestion ?? null);
+        }
+        toast.error(d?.message ?? 'Αποτυχία δημιουργίας στο SoftOne');
         return;
       }
-      toast.success(`Δημιουργήθηκε προμηθευτής: ${d.name}${d.code ? ` (${d.code})` : ''}`);
-      onCreated?.({ trdr: d.trdr, code: d.code, name: d.name });
+      if (d?.dryRun) {
+        setDryPayload(d.payload);
+        toast.success('Ετοιμάστηκε το object — δεν στάλθηκε τίποτα στο SoftOne.');
+        return;
+      }
+      toast.success(`Δημιουργήθηκε ${text.nom}: ${d.name}${d.code ? ` (${d.code})` : ''}`, {
+        description: d.docsUpdated > 1 ? `Συνδέθηκε σε ${d.docsUpdated} παραστατικά του ίδιου ΑΦΜ.` : undefined,
+      });
+      onCreated?.({ trdr: d.trdr, code: d.code, name: d.name, docsUpdated: d.docsUpdated ?? 0 });
       onOpenChange(false);
     } catch {
       toast.error('Σφάλμα δικτύου');
@@ -119,16 +173,16 @@ export function CreateSupplierFromAadeDialog({
       <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-lg">
         <DialogHeader className="gap-1 border-b border-border px-5 pb-4 pt-5">
           <DialogTitle className="flex items-center gap-2.5 text-[15px]">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600"><FiTruck className="h-4 w-4" /></span>
-            Νέος προμηθευτής {isGreek ? 'από ΑΑΔΕ' : ''}
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600"><FiUser className="h-4 w-4" /></span>
+            Νέος {text.nom} {isGreek ? 'από ΑΑΔΕ' : ''}
           </DialogTitle>
           <DialogDescription className="text-[12px]">
-            Για ελληνικό ΑΦΜ τα στοιχεία αντλούνται από την ΑΑΔΕ· διαφορετικά συμπλήρωσέ τα χειροκίνητα. Καταχωρούνται στο SoftOne.
+            Ο τύπος καρτέλας δεν επιλέγεται: τον ορίζει η σειρά του παραστατικού.
+            {reason ? ` ${reason}.` : ''}
           </DialogDescription>
         </DialogHeader>
 
         <div className="max-h-[60vh] space-y-3 overflow-auto px-5 py-4">
-          {/* ΑΦΜ (editable) + lookup */}
           <div className="grid gap-1.5">
             <span className="text-[11px] font-medium text-muted-foreground">ΑΦΜ <span className="text-destructive">*</span></span>
             <div className="flex gap-2">
@@ -142,10 +196,9 @@ export function CreateSupplierFromAadeDialog({
             )}
           </div>
 
-          {/* Επωνυμία (editable) */}
           <label className="grid gap-1.5">
             <span className="text-[11px] font-medium text-muted-foreground">Επωνυμία <span className="text-destructive">*</span></span>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Επωνυμία προμηθευτή" className="h-9 text-[13px]" />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`Επωνυμία ${text.acc}`} className="h-9 text-[13px]" />
           </label>
 
           {loading && <div className="py-2 text-center text-[12px] text-muted-foreground">Άντληση από ΑΑΔΕ…</div>}
@@ -179,10 +232,35 @@ export function CreateSupplierFromAadeDialog({
             </div>
           )}
 
-          {/* Κωδικός (optional) */}
           <label className="grid gap-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">Κωδικός SoftOne (προαιρετικό — κενό = αυτόματος)</span>
-            <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="αυτόματος" className="h-9 font-mono text-[13px]" />
+            <span className="text-[11px] font-medium text-muted-foreground">
+              Κωδικός SoftOne <span className="text-destructive">*</span>
+            </span>
+            <Input
+              value={code}
+              onChange={(e) => { setCode(e.target.value); setCodeError(null); }}
+              placeholder={`κωδικός ${text.acc}`}
+              aria-invalid={codeError ? true : undefined}
+              className="h-9 font-mono text-[13px]"
+            />
+            {codeError ? (
+              <span className="text-[11px]" style={{ color: '#B91C1C' }}>
+                {codeError}
+                {codeOffer && (
+                  <button type="button" onClick={() => { setCode(codeOffer); setCodeError(null); }}
+                    className="ml-1.5 cursor-pointer font-semibold underline">
+                    Χρήση του {codeOffer}
+                  </button>
+                )}
+              </span>
+            ) : suggestion ? (
+              <span className="text-[11px] text-muted-foreground">
+                {suggestion.code
+                  ? `Προτεινόμενος από τη σειρά κωδικών ${text.acc} (${suggestion.taken} υπάρχοντες).`
+                  : 'Δεν υπάρχει αρκετό δείγμα για πρόταση — συμπλήρωσε κωδικό.'}
+                {suggestion.stale && ' Προσοχή: το SoftOne δεν απάντησε, η πρόταση βγήκε από τον τοπικό καθρέφτη και μπορεί να είναι πιασμένη.'}
+              </span>
+            ) : null}
           </label>
 
           {dryPayload != null && (
@@ -202,7 +280,7 @@ export function CreateSupplierFromAadeDialog({
             <Button variant="outline" onClick={() => onOpenChange(false)}>Άκυρο</Button>
             <Button onClick={submit} disabled={submitting || !name.trim() || !cleanAfm}>
               <FiCheckCircle className="mr-1.5 h-4 w-4" />
-              {submitting ? '…' : dryRun ? 'Προετοιμασία object' : 'Δημιουργία στο SoftOne'}
+              {submitting ? '…' : dryRun ? 'Προετοιμασία object' : `Δημιουργία ${text.acc} στο SoftOne`}
             </Button>
           </div>
         </DialogFooter>

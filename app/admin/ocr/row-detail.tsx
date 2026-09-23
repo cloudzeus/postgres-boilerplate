@@ -4,7 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { FiSend, FiSave, FiExternalLink, FiAlertCircle, FiPlus, FiTrash2, FiRotateCcw, FiCheck, FiPlusCircle } from 'react-icons/fi';
-import { CreateSoftoneItemModal } from '@/components/admin/create-softone-item-modal';
+import { CreateRegistryEntryModal } from '@/components/admin/create-registry-entry-modal';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { reconcileInvoice, analyzeLine } from '@/lib/ocr/invoice-math';
@@ -681,12 +681,15 @@ export function OcrRowDetail({
         </div>
       </div>
 
-      <CreateSoftoneItemModal
+      {/* Η λίστα δεν ξέρει τον προορισμό της σειράς (αυτό το ξέρει η σελίδα του παραστατικού),
+          οπότε εδώ μένει η παλιά συμπεριφορά: είδος ή υπηρεσία. Ο δημιουργός όμως είναι πλέον
+          ο ΙΔΙΟΣ και στα δύο σημεία — ένας κώδικας, ένας κανόνας. */}
+      <CreateRegistryEntryModal
         open={createLine != null}
-        onOpenChange={(o) => { if (!o) setCreateLine(null); }}
+        onOpenChange={(o: boolean) => { if (!o) setCreateLine(null); }}
+        kind={createLine?.service ? 'service' : 'product'}
         initialCode={createLine?.code}
         initialName={createLine?.name}
-        defaultService={createLine?.service}
         initialVatRate={createLine?.vat}
         onCreated={() => { setCreateLine(null); router.refresh(); }}
       />

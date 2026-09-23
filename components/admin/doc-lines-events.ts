@@ -33,3 +33,32 @@ export function useDocLinesChanged(docId: string, onChange: () => void): void {
     return () => window.removeEventListener(EVENT, handler);
   }, [docId]);
 }
+
+/**
+ * «Πήγαινε και άνοιξε ΑΥΤΗ τη γραμμή» — το σήμα που στέλνει η λωρίδα ελέγχων στον πίνακα γραμμών.
+ *
+ * Γιατί υπάρχει: η λωρίδα είχε **δικό της** δημιουργό εγγραφών, με άλλους κανόνες από τον picker
+ * του πίνακα — δύο δρόμοι για την ίδια δουλειά, και ο ένας από τους δύο έφτιαχνε κάτι που το
+ * παραστατικό δεν μπορούσε να χρησιμοποιήσει. Ο δρόμος της λωρίδας καταργήθηκε· το «Λύσε»
+ * **παραπέμπει** τώρα στη γραμμή, όπου ζει ο ΕΝΑΣ picker.
+ */
+const FOCUS = 'ocr:focus-line';
+
+export function emitFocusLine(lineId: string): void {
+  if (typeof window === 'undefined' || !lineId) return;
+  window.dispatchEvent(new CustomEvent(FOCUS, { detail: { lineId } }));
+}
+
+/** Άνοιξε τον picker αυτής της γραμμής όταν ζητηθεί από αλλού μέσα στη σελίδα. */
+export function useFocusLine(lineId: string, onFocus: () => void): void {
+  const ref = React.useRef(onFocus);
+  ref.current = onFocus;
+  React.useEffect(() => {
+    if (!lineId) return;
+    const handler = (e: Event) => {
+      if ((e as CustomEvent<{ lineId?: string }>).detail?.lineId === lineId) ref.current();
+    };
+    window.addEventListener(FOCUS, handler);
+    return () => window.removeEventListener(FOCUS, handler);
+  }, [lineId]);
+}

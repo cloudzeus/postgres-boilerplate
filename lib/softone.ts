@@ -8,6 +8,7 @@ import {
   parseTaxOfficesResponse, TAX_OFFICE_FIELDS, irsDataKeyError,
   type TaxOffice, type GetTableTaxOfficesResponse,
 } from '@/lib/tax-office';
+import { SODTYPE_FOR_TRADER_KIND, type TraderKindName } from '@/lib/ocr/posting-target';
 import { nextTraderCode, type NextCodeResult } from '@/lib/trader-code';
 import { proposeItemCode, type ItemCodeKind, type ItemCodeProposal } from '@/lib/item-code';
 
@@ -1323,7 +1324,7 @@ export async function softoneNextTraderCode(
  * Συναλλασσόμενος που εκδίδει παραστατικό προς εμάς: προμηθευτής (12), πιστωτής (16) ή
  * χρεώστης (15). Ένα object μητρώου ανά τύπο, όλα πάνω στον ΙΔΙΟ πίνακα TRDR.
  */
-export type TraderKind = 'supplier' | 'creditor' | 'debtor';
+export type TraderKind = TraderKindName;
 /** Ίδια πεδία για SUPPLIER, CREDITOR και DEBTOR — το SODTYPE το θέτει το ίδιο το object. */
 export type CreateTraderInput = CreateSupplierInput;
 
@@ -1331,8 +1332,15 @@ export type TraderObject = 'SUPPLIER' | 'CREDITOR' | 'DEBTOR';
 const TRADER_OBJECT: Record<TraderKind, TraderObject> = {
   supplier: 'SUPPLIER', creditor: 'CREDITOR', debtor: 'DEBTOR',
 };
-/** SODTYPE που δίνει το κάθε object (για έλεγχο μετά την εγγραφή). */
-export const TRADER_KIND_SODTYPE: Record<TraderKind, number> = { supplier: 12, creditor: 16, debtor: 15 };
+/**
+ * SODTYPE που δίνει το κάθε object (για έλεγχο μετά την εγγραφή).
+ *
+ * Δεν γράφεται εδώ: **επανεξάγεται** από το `lib/ocr/posting-target.ts`, που είναι ΚΑΘΑΡΟ και
+ * άρα ορατό και στα client components. Η λωρίδα ελέγχων της σελίδας ενός παραστατικού πρέπει να
+ * λέει ΠΟΙΟΝ τύπο καρτέλας ζητά η σειρά πριν ανοίξει οτιδήποτε· αν ο χάρτης ζούσε μόνο εδώ
+ * (`server-only`) θα υπήρχε αντίγραφο, και δύο αντίγραφα αποκλίνουν σιωπηλά.
+ */
+export const TRADER_KIND_SODTYPE: Record<TraderKind, number> = SODTYPE_FOR_TRADER_KIND;
 
 function traderRow(input: CreateTraderInput, countries: SoftoneCountry[] = []): Record<string, unknown> {
   const row: Record<string, unknown> = {
@@ -1822,6 +1830,152 @@ function mapLineItem(o: Record<string, string>): LineItemRow {
 export async function softoneFetchLineItems(): Promise<LineItemRow[]> {
   const rows = await softoneGetTable('MTRL', LINEITEM_FIELDS, `SODTYPE=${LINEITEM_SODTYPE} AND ISACTIVE=1`);
   return rows.map(mapLineItem).filter((r) => Number.isFinite(r.mtrl));
+}
+
+/**
+ * Δημιουργία **χρεοπίστωσης** (object `LINEITEM` → `MTRL` με `SODTYPE 53`).
+ *
+ * ⚠️ **ΓΙΑΤΙ ΤΟ ΠΡΟΤΥΠΟ ΕΙΝΑΙ ΥΠΟΧΡΕΩΤΙΚΟ ΕΔΩ, ΣΕ ΑΝΤΙΘΕΣΗ ΜΕ ΤΑ ΕΙΔΗ.** Μια χρεοπίστωση δεν
+ * είναι «όνομα + ΦΠΑ»: κουβαλά **`MTRTYPE`** (τον «Τύπο», editor `$LINTYPE` — χωρίς αυτόν κάθε
+ * γραμμή `LINLINES` μπλοκάρει με `lines_no_mtrtype`) και **`ACNMSK`**, τον λογαριασμό **γενικής
+ * λογιστικής**. Καμία από τις δύο τιμές δεν παράγεται από την περιγραφή της γραμμής, και μια
+ * λάθος τιμή δεν φαίνεται πουθενά — γίνεται λογιστική εγγραφή σε λάθος λογαριασμό. Γι' αυτό
+ * αντιγράφονται **από υπάρχουσα χρεοπίστωση που διαλέγει ο χρήστης**, διαβασμένη ζωντανά
+ * (read-before-write), και η φόρμα δείχνει ρητά τι αντιγράφτηκε.
+ *
+ * ⚠️ **ΑΥΤΟ ΤΟ `setData` ΔΕΝ ΕΧΕΙ ΕΚΤΕΛΕΣΤΕΙ ΠΟΤΕ ΣΕ ΖΩΝΤΑΝΗ ΕΓΚΑΤΑΣΤΑΣΗ.** Το `OBJECT`
+ * (`LINEITEM`) και τα πεδία προκύπτουν από το μητρώο που ήδη **διαβάζουμε** (`LINEITEM_FIELDS`).
+ * Γι' αυτό υπάρχει το read-back με έλεγχο `SODTYPE`: αν η υπόθεση είναι λάθος, θα φανεί **δυνατά**
+ * την πρώτη φορά αντί να γραφτεί σιωπηλά μια μισή καρτέλα.
+ */
+export interface LineItemTemplate {
+  /** Το `MTRL` της χρεοπίστωσης-προτύπου. */
+  mtrl: number;
+  code: string;
+  name: string;
+  /** Τα πεδία που αντιγράφονται αυτούσια — ό,τι διάβασε το `GetTable`, κατά όνομα. */
+  flags: Record<string, unknown>;
+}
+
+/**
+ * Τα πεδία που **αντιγράφονται** από το πρότυπο. ΟΧΙ `CODE`/`NAME`: αυτά τα δίνει ο χρήστης.
+ *
+ * Το `MTRUNIT1` δεν το διαβάζει ο συγχρονισμός του μητρώου (δεν το χρειάζεται η καταχώριση), αλλά
+ * η **δημιουργία** το χρειάζεται: η χρεοπίστωση είναι `MTRL` και κουβαλά μονάδα μέτρησης όπως
+ * κάθε άλλο `MTRL`. Χωρίς αυτό, μια νέα χρεοπίστωση θα γεννιόταν με τη σιωπηλή προεπιλογή του
+ * SoftOne και κανείς δεν θα το έβλεπε ποτέ.
+ */
+export const LINEITEM_TEMPLATE_FIELDS = [
+  'MTRTYPE', 'MTRCATEGORY', 'VAT', 'ACNMSK', 'CLASSTYPE', 'CLASSCATEGORY', 'MYDATACODE', 'MYDATAVPRC',
+  'MTRUNIT1',
+] as const;
+
+/**
+ * Διαβάζει ζωντανά τη χρεοπίστωση-πρότυπο. **Μόνο ΑΝΑΓΝΩΣΗ** (`GetTable MTRL`), και πετάει όταν
+ * δεν υπάρχει: δεν πέφτουμε ποτέ σε «προεπιλογές» για πεδία που καταλήγουν στη γενική λογιστική.
+ */
+export async function softoneLoadLineItemTemplate(templateMtrl: number): Promise<LineItemTemplate> {
+  const key = Number(templateMtrl);
+  if (!Number.isFinite(key) || key <= 0) {
+    throw new SoftoneError('Χρειάζεται υπάρχουσα χρεοπίστωση ως πρότυπο (Τύπος και λογαριασμός γενικής αντιγράφονται από εκεί).');
+  }
+  const rows = await softoneGetTable(
+    'MTRL', [...LINEITEM_FIELDS, 'MTRUNIT1'], `MTRL=${key} AND SODTYPE=${LINEITEM_SODTYPE}`,
+  );
+  const row = rows[0];
+  if (!row) throw new SoftoneError(`Η χρεοπίστωση-πρότυπο ${key} δεν βρέθηκε στο SoftOne.`);
+  const flags: Record<string, unknown> = {};
+  for (const f of LINEITEM_TEMPLATE_FIELDS) {
+    const v = row[f];
+    // Το `MTRTYPE 0` είναι ΕΓΚΥΡΟΣ τύπος: δεν φιλτράρεται ως «κενό» όπως τα FK.
+    if (v != null && String(v).trim() !== '') flags[f] = v;
+  }
+  return { mtrl: key, code: str(row.CODE), name: str(row.NAME), flags };
+}
+
+export interface CreateLineItemInput {
+  code: string;
+  name: string;
+  /** `MTRL` υπάρχουσας χρεοπίστωσης — υποχρεωτικό (δες πιο πάνω). */
+  templateMtrl: number;
+  /** Υπερβάσεις πάνω στο πρότυπο, όπως τις διάλεξε ο χρήστης. */
+  vat?: string | null;
+  mtrCategory?: string | number | null;
+  /** `MTRUNIT` — η μονάδα μέτρησης. Κενό = ό,τι είχε το πρότυπο. */
+  unit?: string | null;
+}
+
+/** Το ακριβές payload του `setData` — ίδια συνάρτηση με το dry-run, ώστε να μη διαφέρουν ποτέ. */
+export function buildLineItemPayload(
+  input: CreateLineItemInput,
+  flags: Record<string, unknown>,
+): { OBJECT: 'LINEITEM'; KEY: ''; DATA: { LINEITEM: Record<string, unknown>[] } } {
+  const row: Record<string, unknown> = {
+    CODE: input.code,
+    NAME: input.name,
+    SODTYPE: LINEITEM_SODTYPE,
+    ISACTIVE: 1,
+    ...flags,
+  };
+  if (input.vat) row.VAT = input.vat;
+  if (input.mtrCategory) row.MTRCATEGORY = input.mtrCategory;
+  // Ίδια τριάδα με το `ITEM`: αποθήκης / αγορών / πωλήσεων δείχνουν στην ίδια μονάδα. Όταν ο
+  // χρήστης δεν διάλεξε μονάδα, κρατάμε αυτήν του προτύπου — και τη γράφουμε ΚΑΙ στις τρεις, όχι
+  // μόνο στην πρώτη, αλλιώς η νέα καρτέλα γεννιέται ασύμφωνη με το πρότυπο που υποτίθεται αντιγράφει.
+  const unit = input.unit || (flags.MTRUNIT1 != null && String(flags.MTRUNIT1) !== '' ? String(flags.MTRUNIT1) : null);
+  if (unit) { row.MTRUNIT1 = unit; row.MTRUNIT3 = unit; row.MTRUNIT4 = unit; }
+  return { OBJECT: 'LINEITEM', KEY: '', DATA: { LINEITEM: [row] } };
+}
+
+/**
+ * Γράφει τη χρεοπίστωση και **την ξαναδιαβάζει**: το `success: true` δεν αποδεικνύει ότι έμεινε,
+ * και εδώ μας ενδιαφέρει επιπλέον ότι έμεινε **ως χρεοπίστωση** (`SODTYPE 53`) — αλλιώς η γραμμή
+ * `LINLINES` δεν θα τη δεχόταν ποτέ και ο χρήστης θα κυνηγούσε φάντασμα.
+ */
+export async function softoneCreateLineItem(
+  input: CreateLineItemInput,
+): Promise<{ mtrl: number; code: string; name: string; template: LineItemTemplate }> {
+  const template = await softoneLoadLineItemTemplate(input.templateMtrl);
+  const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>(
+    'setData', buildLineItemPayload(input, template.flags),
+  );
+  if (res.success === false || res.id == null) {
+    throw new SoftoneError(res.error ?? `setData LINEITEM απέτυχε (code ${res.errorcode ?? '?'})`);
+  }
+  const mtrl = Number(res.id);
+  // Ο κωδικός δεσμεύτηκε ήδη — καθαρίζουμε ΠΡΙΝ το read-back, όπως και στα έξοδα.
+  clearItemCodeCache('lineitem');
+  const back = await softoneGetTable('MTRL', [...LINEITEM_FIELDS, 'SODTYPE'], `MTRL=${mtrl}`);
+  const row = back[0];
+  if (!row || !Number.isFinite(Number(row.MTRL))) {
+    throw new SoftoneError(`Η χρεοπίστωση ${mtrl} δεν βρέθηκε μετά τη δημιουργία (setData LINEITEM).`);
+  }
+  if (Number(row.SODTYPE) !== LINEITEM_SODTYPE) {
+    throw new SoftoneError(
+      `Η εγγραφή ${mtrl} γράφτηκε με SODTYPE ${row.SODTYPE ?? '—'} αντί για ${LINEITEM_SODTYPE}: δεν είναι χρεοπίστωση και δεν μπορεί να μπει σε γραμμή LINLINES.`,
+    );
+  }
+  return { mtrl, code: str(row.CODE) || input.code, name: str(row.NAME) || input.name, template };
+}
+
+/** Η γραμμή-πρότυπο μετά τη δημιουργία, όπως τη θέλει ο τοπικός καθρέφτης. */
+export function lineItemMirrorFrom(flags: Record<string, unknown>): {
+  mtrType: number | null; mtrCategory: number | null; classType: number | null;
+  classCategory: number | null; myDataCode: string | null; myDataVprc: number | null; acnmsk: string | null;
+} {
+  const n = (v: unknown): number | null => {
+    const s = str(v);
+    return s !== '' && Number.isFinite(Number(s)) ? Number(s) : null;
+  };
+  return {
+    mtrType: n(flags.MTRTYPE),
+    mtrCategory: intOrNull(flags.MTRCATEGORY),
+    classType: intOrNull(flags.CLASSTYPE),
+    classCategory: intOrNull(flags.CLASSCATEGORY),
+    myDataCode: idOrNull(flags.MYDATACODE),
+    myDataVprc: intOrNull(flags.MYDATAVPRC),
+    acnmsk: idOrNull(flags.ACNMSK),
+  };
 }
 
 // ============================================================

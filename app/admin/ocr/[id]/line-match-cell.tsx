@@ -4,13 +4,16 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import {
   FiBriefcase, FiCrosshair, FiDollarSign, FiEdit2, FiLayers, FiLink, FiLoader, FiPackage,
-  FiTag, FiTool, FiX,
+  FiTag, FiTool, FiX, FiPlusCircle, FiAlertTriangle,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { RegistrySearch } from '@/components/admin/registry-search';
 import { AnalyticsPicker, type AnalyticsValue } from '@/components/admin/analytics-picker';
-import { emitDocLinesChanged } from '@/components/admin/doc-lines-events';
+import { emitDocLinesChanged, useFocusLine } from '@/components/admin/doc-lines-events';
+import { CreateRegistryEntryModal } from '@/components/admin/create-registry-entry-modal';
+import { lineKindFits, lineKindsReason } from '@/lib/ocr/resolution-plan';
+import type { PostingTarget } from '@/lib/ocr/posting-target';
 import { matchKindOf, type LineCategoryOption, type LineMatch } from './line-match-kind';
 import type { MatchKind } from '@/lib/ocr/line-match';
 import { cn } from '@/lib/utils';
@@ -67,6 +70,7 @@ const EMPTY: AnalyticsValue = { id: null, label: null, source: null };
  */
 export function LineMatchCell({
   lineId, docId, match: initial, analytics: initialAnalytics, canManage, defaultKind, lineCategories, trdr,
+  target, lineCode, lineName, lineVatRate, lineUnit,
 }: {
   lineId: string;
   docId: string;
@@ -74,27 +78,45 @@ export function LineMatchCell({
   analytics: LineAnalyticsState;
   /** `ocr.categorize` — χωρίς αυτό το κελί είναι μόνο για ανάγνωση. */
   canManage: boolean;
-  /** Η κατηγορία που ανοίγει ο picker όταν η γραμμή δεν είναι ακόμη αντιστοιχισμένη. */
-  defaultKind: MatchKind;
+  /**
+   * Η κατηγορία που ανοίγει ο picker όταν η γραμμή δεν είναι ακόμη αντιστοιχισμένη.
+   * **`null` = δεν ξέρουμε** και δεν μαντεύουμε: ο χρήστης διαλέγει πρώτος μητρώο.
+   */
+  defaultKind: MatchKind | null;
   lineCategories: LineCategoryOption[];
   /** TRDR του εκδότη — δείχνει ΠΡΩΤΑ τα έργα του, όπως και η ουρά. */
   trdr: number | null;
+  /** Πού καταχωρείται το παραστατικό — ορίζει ΠΟΙΑ μητρώα χωράνε. `null` = άγνωστη σειρά. */
+  target: PostingTarget | null;
+  /** Η γραμμή όπως τυπώθηκε — προσυμπληρώνει τη δημιουργία νέας εγγραφής. */
+  lineCode?: string | null;
+  lineName?: string | null;
+  lineVatRate?: string | number | null;
+  lineUnit?: string | null;
 }) {
   const router = useRouter();
+  const rootRef = React.useRef<HTMLDivElement>(null);
   const [match, setMatch] = React.useState<LineMatch | null>(initial);
   const [analytics, setAnalytics] = React.useState<LineAnalyticsState>(initialAnalytics);
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [projectScopeAll, setProjectScopeAll] = React.useState(false);
   const current = matchKindOf(match);
-  const [kind, setKind] = React.useState<MatchKind>(current ?? defaultKind);
+  const [kind, setKind] = React.useState<MatchKind | null>(current ?? defaultKind);
   const [lineCategory, setLineCategory] = React.useState<number | null>(null);
+  const [creating, setCreating] = React.useState(false);
 
   // Ο server ξαναέδωσε τη γραμμή (π.χ. μετά από `router.refresh()`): η στήλη είναι η αλήθεια.
   React.useEffect(() => { setMatch(initial); }, [initial]);
   React.useEffect(() => { setAnalytics(initialAnalytics); }, [initialAnalytics]);
   // Άνοιγμα: ξεκίνα από ό,τι είναι ήδη αντιστοιχισμένο, αλλιώς από την κατηγορία του εγγράφου.
   React.useEffect(() => { if (open) setKind(matchKindOf(match) ?? defaultKind); }, [open, match, defaultKind]);
+  // Η λωρίδα ελέγχων ζήτησε «λύσε ΑΥΤΗ τη γραμμή»: ανοίγουμε τον ΕΝΑΝ picker, εδώ.
+  useFocusLine(lineId, () => {
+    if (!canManage) return;
+    setOpen(true);
+    rootRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  });
 
   async function send(body: Record<string, unknown>, done: (d: Record<string, unknown>) => void) {
     setBusy(true);
@@ -176,6 +198,7 @@ export function LineMatchCell({
     if (!ok) setAnalytics(before);
   };
 
+  const kindsReason = React.useMemo(() => lineKindsReason(target), [target]);
   const meta = current ? KIND_META[current] : null;
   const label = match?.code || match?.name ? [match.code, match.name].filter(Boolean).join(' — ') : null;
   const analyticsSupported = current !== 'expense';
@@ -218,7 +241,7 @@ export function LineMatchCell({
   if (!canManage) return <div className="flex min-w-0 items-center">{display}</div>;
 
   return (
-    <div className="flex min-w-0 items-start gap-1.5">
+    <div ref={rootRef} className="flex min-w-0 items-start gap-1.5">
       <div className="min-w-0 flex-1">{display}</div>
       {match && (
         <button
@@ -246,26 +269,35 @@ export function LineMatchCell({
         </PopoverTrigger>
         <PopoverContent align="end" className="w-[22rem] max-h-[70vh] overflow-y-auto">
           <p className="text-caption font-semibold uppercase tracking-wider text-muted-foreground">
-            Είδος / έξοδο
+            Μητρώο SoftOne
           </p>
+          {/* Τα μητρώα που ΔΕΝ χωράνε στον πίνακα γραμμών της σειράς απενεργοποιούνται αντί να
+              κρυφτούν: ο χρήστης πρέπει να βλέπει ότι υπάρχουν ΚΑΙ γιατί δεν επιτρέπονται εδώ. */}
           <div role="group" aria-label="Κατηγορία μητρώου" className="flex rounded-lg border border-border p-0.5">
-            {SEGMENTS.map((k) => (
-              <button
-                key={k}
-                type="button"
-                aria-pressed={kind === k}
-                onClick={() => { setKind(k); if (k !== 'lineitem') setLineCategory(null); }}
-                className={cn(
-                  'flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md px-1 py-1 text-[11px] font-semibold outline-none',
-                  'cx-transition motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-sisyphus-500',
-                  kind === k ? 'text-foreground' : 'text-muted-foreground hover:bg-[var(--cx-hover)]',
-                )}
-                style={kind === k ? { backgroundColor: KIND_META[k].bg, color: KIND_META[k].fg } : undefined}
-              >
-                {KIND_META[k].icon} {KIND_META[k].label}
-              </button>
-            ))}
+            {SEGMENTS.map((k) => {
+              const fits = lineKindFits(target, k);
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={kind === k}
+                  disabled={!fits}
+                  title={fits ? undefined : `Ο προορισμός «${target?.lines}» δεν δέχεται ${KIND_META[k].label.toLowerCase()}.`}
+                  onClick={() => { setKind(k); if (k !== 'lineitem') setLineCategory(null); }}
+                  className={cn(
+                    'flex flex-1 items-center justify-center gap-1 rounded-md px-1 py-1 text-[11px] font-semibold outline-none',
+                    'cx-transition motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-sisyphus-500',
+                    fits ? 'cursor-pointer' : 'cursor-not-allowed opacity-40',
+                    kind === k ? 'text-foreground' : 'text-muted-foreground hover:bg-[var(--cx-hover)]',
+                  )}
+                  style={kind === k ? { backgroundColor: KIND_META[k].bg, color: KIND_META[k].fg } : undefined}
+                >
+                  {KIND_META[k].icon} {KIND_META[k].label}
+                </button>
+              );
+            })}
           </div>
+          <p className="mt-1 text-caption text-muted-foreground">{kindsReason}</p>
 
           {/* Η κατηγορία δαπάνης είναι ΤΟ κλειδί για να βρεθεί η σωστή χρεοπίστωση. */}
           {kind === 'lineitem' && (
@@ -291,14 +323,34 @@ export function LineMatchCell({
             </div>
           )}
 
-          <RegistrySearch
-            kind={kind}
-            disabled={busy}
-            id={`line-registry-${lineId}`}
-            category={lineCategory}
-            label={KIND_META[kind].label}
-            onPick={async (p) => { await pick(p.id, p.kind, p.code, p.name); }}
-          />
+          {kind == null ? (
+            <p className="flex items-start gap-1 rounded-lg border p-2 text-caption"
+              style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}>
+              <FiAlertTriangle aria-hidden className="mt-0.5 size-3 shrink-0" />
+              Διάλεξε πρώτα μητρώο. Δεν προτείνουμε «Είδος» στην τύχη — μια λάθος επιλογή εδώ
+              γράφει στο SoftOne εγγραφή που το παραστατικό δεν μπορεί να χρησιμοποιήσει.
+            </p>
+          ) : (
+            <>
+              <RegistrySearch
+                kind={kind}
+                disabled={busy}
+                id={`line-registry-${lineId}`}
+                category={lineCategory}
+                label={KIND_META[kind].label}
+                onPick={async (p) => { await pick(p.id, p.kind, p.code, p.name); }}
+              />
+              {/* Ο ΕΝΑΣ δημιουργός — στο μητρώο που μόλις διάλεξε ο χρήστης, όχι πάντα «είδος». */}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => { setOpen(false); setCreating(true); }}
+                className="mt-1.5 inline-flex cursor-pointer items-center gap-1 rounded-md border border-sisyphus-500/30 px-2 py-1 text-[11px] font-semibold text-sisyphus-600 outline-none hover:bg-sisyphus-50 focus-visible:ring-2 focus-visible:ring-sisyphus-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <FiPlusCircle aria-hidden className="size-3" /> Δημιουργία νέας εγγραφής «{KIND_META[kind].label}»
+              </button>
+            </>
+          )}
 
           <div className="border-t border-border pt-2">
             <p className="text-caption font-semibold uppercase tracking-wider text-muted-foreground">
@@ -334,6 +386,31 @@ export function LineMatchCell({
           </div>
         </PopoverContent>
       </Popover>
+
+      {/* Ο δημιουργός ζει ΕΞΩ από το popover: το popover κλείνει με το που ανοίγει ο διάλογος,
+          αλλιώς το outside-click του ενός έκλεινε το άλλο. */}
+      {kind && (
+        <CreateRegistryEntryModal
+          open={creating}
+          onOpenChange={setCreating}
+          kind={kind}
+          lineId={lineId}
+          initialCode={lineCode ?? null}
+          initialName={lineName ?? match?.name ?? null}
+          initialVatRate={lineVatRate ?? null}
+          initialUnit={lineUnit ?? null}
+          onCreated={(m) => {
+            setCreating(false);
+            setMatch({
+              mtrl: m.mtrl, expn: m.expn, lin: m.lin,
+              code: m.code, name: m.name,
+              isService: m.kind === 'service', matchedBy: 'manual',
+            });
+            router.refresh();
+            emitDocLinesChanged(docId);
+          }}
+        />
+      )}
     </div>
   );
 }
