@@ -136,10 +136,23 @@ async function seedRolePermissions() {
   console.log('✓ Linked role → permission defaults');
 }
 
+/**
+ * Ο πρώτος SUPER_ADMIN, από ΜΕΤΑΒΛΗΤΕΣ ΠΕΡΙΒΑΛΛΟΝΤΟΣ.
+ *
+ * Email και κωδικός ΔΕΝ γράφονται ποτέ εδώ: το αρχείο είναι στο git, οπότε ό,τι μπει μέσα
+ * γίνεται δημόσιο και μένει στο ιστορικό για πάντα. Χωρίς `SEED_ADMIN_PASSWORD` το βήμα
+ * ΣΤΑΜΑΤΑΕΙ — δεν υπάρχει «προεπιλεγμένος» κωδικός να μαντέψει κανείς.
+ */
 async function seedSuperAdmin() {
-  const email = 'gkozyris@i4ria.com';
-  const password = '1f1femsk';
-  const name = 'Giorgos Kozyris';
+  const email = process.env.SEED_ADMIN_EMAIL;
+  const password = process.env.SEED_ADMIN_PASSWORD;
+  const name = process.env.SEED_ADMIN_NAME || email;
+  if (!email || !password) {
+    throw new Error(
+      'Λείπουν SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD — όρισέ τα στο .env πριν τρέξεις το seed '
+      + '(ο κωδικός του διαχειριστή δεν ζει μέσα στον κώδικα).',
+    );
+  }
   const role = await prisma.role.findUnique({ where: { key: 'SUPER_ADMIN' } });
   if (!role) throw new Error('SUPER_ADMIN role missing');
 
