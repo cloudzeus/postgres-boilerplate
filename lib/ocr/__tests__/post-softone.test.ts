@@ -85,7 +85,7 @@ describe('postingPreview (dry-run)', () => {
     // Η κάρτα δείχνει ΑΝΑ ΠΕΔΙΟ πού γράφεται ο αριθμός του προμηθευτή.
     expect(preview.summary.reference).toEqual({ fincode: 'ΤΠΥ 17', taxSeries: 'ΤΠΥ', taxSeriesNum: '17' });
     expect(preview.payload?.DATA.ITELINES).toEqual([
-      { LINENUM: 9000001, MTRL: 555, QTY1: 2, PRICE: 50, DISC1PRC: 0, VAT: 1, COMMENTS: 'Είδος Α', MYDATACODE: '1' },
+      { LINENUM: 9000001, MTRL: 555, QTY1: 2, PRICE: 50, VAT: 1, COMMENTS: 'Είδος Α', MYDATACODE: '1' },
     ]);
     expect(preview.target).toMatchObject({ object: 'PURDOC', lines: 'AUTO', source: 'default' });
   });
@@ -111,7 +111,7 @@ describe('postingPreview (dry-run)', () => {
     expect(preview.payload.OBJECT).toBe('LINCREDOC');
     expect(preview.payload.DATA.LINCREDOC?.[0]).toMatchObject({ SERIES: 1001, TRDR: 12345 });
     expect(preview.payload.DATA.LINLINES).toEqual([
-      { LINENUM: 9000001, MTRL: 777, MTRTYPE: 1, QTY1: 2, PRICE: 50, DISC1PRC: 0, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Είδος Α' },
+      { LINENUM: 9000001, MTRL: 777, MTRTYPE: 1, QTY1: 2, PRICE: 50, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Είδος Α' },
     ]);
     // Το LINLINES δεν έχει πεδίο χαρακτηρισμού — δεν στέλνουμε MYDATACODE εκεί.
     expect(preview.payload.DATA.LINLINES?.[0]).not.toHaveProperty('MYDATACODE');
@@ -146,7 +146,7 @@ describe('postingPreview (dry-run)', () => {
     expect(preview.payload.DATA.LINDEBDOC?.[0]).toMatchObject({ SERIES: 6645, TRDR: 12345, FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17' });
     expect(preview.payload.DATA.LINDEBDOC?.[0]).not.toHaveProperty('SODTYPE');
     expect(preview.payload.DATA.LINLINES).toEqual([
-      { LINENUM: 9000001, MTRL: 777, MTRTYPE: 1, QTY1: 2, PRICE: 50, DISC1PRC: 0, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Είδος Α' },
+      { LINENUM: 9000001, MTRL: 777, MTRTYPE: 1, QTY1: 2, PRICE: 50, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Είδος Α' },
     ]);
     expect(preview.warnings.map((w) => w.code)).toContain('mydata_from_master');
   });
