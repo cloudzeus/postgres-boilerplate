@@ -52,9 +52,19 @@ export interface KpiProps {
   /** `true` όταν η άνοδος είναι κακό νέο (αποτυχίες, κόστος) — αλλάζει μόνο το χρώμα. */
   invert?: boolean;
   rangeLabel: string;
+  /**
+   * Το ΑΘΡΟΙΣΜΑ ΑΠΟ ΠΑΝΤΑ, όταν ο δείκτης έχει νόημα και εκτός παραθύρου.
+   *
+   * Η μεγάλη τιμή είναι πάντα της επιλεγμένης περιόδου. Για την «Καταχώριση στο SoftOne» αυτό
+   * από μόνο του παραπλανά: ένα παραστατικό καταχωρείται ΜΙΑ φορά και μένει καταχωρημένο, οπότε
+   * σε έναν μήνα ο δείκτης ξαναγίνεται 0 ενώ στον ERP υπάρχουν δεκάδες. Το σύνολο μπαίνει από
+   * κάτω, μικρό, ώστε να μη συγχέεται με τον δείκτη της περιόδου.
+   */
+  totalEver?: number;
+  totalEverLabel?: string;
 }
 
-export function KpiCard({ label, datum, icon, href, format = fmtInt, invert, rangeLabel }: KpiProps) {
+export function KpiCard({ label, datum, icon, href, format = fmtInt, invert, rangeLabel, totalEver, totalEverLabel }: KpiProps) {
   const { dir, pct } = datum.delta;
   const good = dir === 'flat' ? null : (dir === 'up') !== Boolean(invert);
   const tone = good === null
@@ -95,7 +105,13 @@ export function KpiCard({ label, datum, icon, href, format = fmtInt, invert, ran
         {format(datum.value)}
       </div>
       <div className="mt-1 text-body-sm text-muted-foreground">{label}</div>
-      <div className="mt-0.5 text-caption text-muted-foreground/80">{rangeLabel}</div>
+      <div className="mt-0.5 text-caption text-muted-foreground/80">
+        {rangeLabel}
+        {totalEver != null && (
+          <> · <span className="font-semibold tabular-nums text-foreground/70">{format(totalEver)}</span>{' '}
+            {totalEverLabel ?? 'συνολικά'}</>
+        )}
+      </div>
     </Link>
   );
 }
