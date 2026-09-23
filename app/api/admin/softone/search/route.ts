@@ -5,7 +5,8 @@ import { ISSUER_SODTYPES } from '@/lib/softone';
 import { classificationLabeller } from '@/lib/ocr/mydata-labels';
 
 // Searches the local SoftOne mirrors for manual matching (items / traders / χρεοπιστώσεις).
-// GET ?type=items|products|services|expenses|lineitems|suppliers|traders&q=...
+// GET ?type=items|products|services|expenses|lineitems|accounts|suppliers|traders&q=...
+// `suppliers`/`traders` δέχονται και `sodtype=12|16|15` για έναν ΜΟΝΟ τύπο καρτέλας.
 // `lineitems` (χρεοπιστώσεις) δέχεται και `category=<MTRCATEGORY>` για να στενέψει η λίστα σε μία
 // κατηγορία δαπάνης — διαφορετικά η επιλογή από εκατοντάδες κωδικούς είναι πρακτικά αδύνατη.
 // `suppliers` and `traders` are the same query (SODTYPE 12 προμηθευτές + 16 πιστωτές + 15
@@ -19,18 +20,23 @@ export async function GET(req: Request) {
   if (q.length < 2) return NextResponse.json({ results: [] });
 
   if (type === 'suppliers' || type === 'traders') {
+    // `sodtype=16` στενεύει σε ΕΝΑΝ τύπο καρτέλας. Το χρειάζεται η σελίδα ενός παραστατικού: η
+    // σειρά του ορίζει τι δέχεται η κεφαλίδα (πιστωτή, προμηθευτή ή χρεώστη), και μια λίστα που
+    // δείχνει και τους τρεις καλεί τον χρήστη να διαλέξει αυτόν που θα απορριφθεί αργότερα.
+    const only = Number(sp.get('sodtype'));
+    const sodtypes = (ISSUER_SODTYPES as readonly number[]).includes(only) ? [only] : [...ISSUER_SODTYPES];
     const rows = await prisma.softoneTrader.findMany({
       where: {
-        sodtype: { in: [...ISSUER_SODTYPES] },
+        sodtype: { in: sodtypes },
         OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q } }, { afm: { contains: q } }],
       },
       take: 25, orderBy: { name: 'asc' },
-      select: { trdr: true, code: true, name: true, afm: true, kind: true, city: true },
+      select: { trdr: true, code: true, name: true, afm: true, kind: true, city: true, sodtype: true },
     });
     return NextResponse.json({
       // `afm` on its own as well as inside `sub`: the caller that links a supplier needs the
       // bare VAT number, and digging it back out of the display string is guesswork.
-      results: rows.map((r) => ({ id: r.trdr, code: r.code, name: r.name, afm: r.afm ?? null, sub: [r.kind, r.afm && `ΑΦΜ ${r.afm}`, r.city].filter(Boolean).join(' · ') })),
+      results: rows.map((r) => ({ id: r.trdr, code: r.code, name: r.name, afm: r.afm ?? null, sodtype: r.sodtype, kind: r.kind ?? null, sub: [r.kind, r.afm && `ΑΦΜ ${r.afm}`, r.city].filter(Boolean).join(' · ') })),
     });
   }
 
@@ -79,6 +85,26 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({
       results: rows.map((r) => ({ id: r.prjcStage, code: r.code, name: r.name, sub: 'κατηγορία δραστηριότητας' })),
+    });
+  }
+
+  if (type === 'accounts') {
+    // Λογιστικό σχέδιο (ACNT) — ΜΟΝΟ κινούμενοι λογαριασμοί. Ένας συγκεντρωτικός δεν δέχεται
+    // εγγραφές, οπότε δεν είναι υποψήφιος για την «Γενικής» μιας χρεοπίστωσης· το ίδιο κριτήριο
+    // χρησιμοποιεί και ο έλεγχος πριν την καταχώριση (`isPostable`).
+    const rows = await prisma.softoneAccount.findMany({
+      where: {
+        isActive: true, postable: true,
+        OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q } }],
+      },
+      take: 25, orderBy: { code: 'asc' },
+      select: { acnt: true, code: true, name: true, grade: true },
+    });
+    return NextResponse.json({
+      results: rows.map((r) => ({
+        id: r.acnt, code: r.code, name: r.name,
+        sub: ['λογαριασμός γενικής', r.grade != null ? `βαθμίδα ${r.grade}` : null].filter(Boolean).join(' · '),
+      })),
     });
   }
 

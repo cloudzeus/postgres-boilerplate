@@ -339,7 +339,11 @@ describe('postDocumentToSoftone', () => {
   it('εμπόδιο → PostError πριν καν κοιτάξει τον διακόπτη', async () => {
     db.ocrDocument.findUnique.mockResolvedValue({ ...READY_DOC, category: null });
     await expect(postDocumentToSoftone('d1')).rejects.toMatchObject({ code: 'no_category' });
-    expect(settings.getSetting).not.toHaveBeenCalled();
+    // Ρητά ο ΔΙΑΚΟΠΤΗΣ, όχι «καμία ρύθμιση»: η προεπισκόπηση διαβάζει και τις χειροκίνητες
+    // αντιστοιχίσεις ΦΠΑ (`softone.vatRateMap`) για να χτίσει το payload — αυτό δεν είναι
+    // «κοίταγμα του διακόπτη» και δεν στέλνει τίποτα πουθενά.
+    expect(settings.getSetting).not.toHaveBeenCalledWith('softone.postingEnabled', expect.anything());
+    expect(settings.getSetting).not.toHaveBeenCalledWith('softone.postingEnabled');
     expect(softone.softoneCall).not.toHaveBeenCalled();
   });
 

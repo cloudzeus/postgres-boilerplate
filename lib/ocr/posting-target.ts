@@ -108,6 +108,38 @@ export const SODTYPE_LABEL_FOR_OBJECT: Record<PostObject, string> = {
   LINDEBDOC: 'χρεώστης',
 };
 
+/**
+ * Ο τύπος καρτέλας με τα ονόματα που χρησιμοποιεί η **δημιουργία** συναλλασσομένου
+ * (`TraderKind` του `lib/softone.ts`: objects SUPPLIER / CREDITOR / DEBTOR).
+ *
+ * Ζει ΕΔΩ και όχι στο `lib/softone.ts` επειδή το `lib/softone.ts` είναι `server-only`: η λωρίδα
+ * ελέγχων της σελίδας ενός παραστατικού είναι client component και πρέπει να λέει στον χρήστη
+ * ΠΟΙΟΝ τύπο καρτέλας ζητά το παραστατικό ΠΡΙΝ ανοίξει οτιδήποτε. Η συνέπεια των δύο χαρτών
+ * (`TRADER_KIND_SODTYPE` εκεί, `SODTYPE_FOR_OBJECT` εδώ) κλειδώνεται με τεστ.
+ */
+export type TraderKindName = 'supplier' | 'creditor' | 'debtor';
+
+export const TRADER_KIND_FOR_OBJECT: Record<PostObject, TraderKindName> = {
+  PURDOC: 'supplier',
+  LINSUPDOC: 'supplier',
+  LINCREDOC: 'creditor',
+  LINDEBDOC: 'debtor',
+};
+
+/** SODTYPE ανά τύπο καρτέλας — ίδιες τιμές με το `TRADER_KIND_SODTYPE` του `lib/softone.ts`. */
+export const SODTYPE_FOR_TRADER_KIND: Record<TraderKindName, number> = {
+  supplier: 12,
+  creditor: 16,
+  debtor: 15,
+};
+
+/** Ονομαστική («ο πιστωτής»), αιτιατική («τον πιστωτή») και κεφαλαίο chip («ΠΙΣΤΩΤΗΣ»). */
+export const TRADER_KIND_TEXT: Record<TraderKindName, { nom: string; acc: string; chip: string }> = {
+  supplier: { nom: 'προμηθευτής', acc: 'προμηθευτή', chip: 'ΠΡΟΜΗΘΕΥΤΗΣ' },
+  creditor: { nom: 'πιστωτής', acc: 'πιστωτή', chip: 'ΠΙΣΤΩΤΗΣ' },
+  debtor: { nom: 'χρεώστης', acc: 'χρεώστη', chip: 'ΧΡΕΩΣΤΗΣ' },
+};
+
 export const isPostObject = (v: unknown): v is PostObject =>
   typeof v === 'string' && (POST_OBJECTS as readonly string[]).includes(v);
 export const isPostLineTable = (v: unknown): v is PostLineTable =>

@@ -22,6 +22,14 @@ export interface TraderSearchProps {
   placeholder?: string;
   /** Αρχικό κείμενο αναζήτησης (π.χ. η επωνυμία του εκδότη από το OCR). */
   initialQuery?: string;
+  /**
+   * Περιόρισε σε ΕΝΑΝ τύπο καρτέλας (`TRDR.SODTYPE`: 12 προμηθευτής · 16 πιστωτής · 15 χρεώστης).
+   *
+   * Το χρειάζεται η σελίδα ενός παραστατικού: η σειρά του ορίζει ποιον τύπο δέχεται η κεφαλίδα,
+   * και μια λίστα που δείχνει και τους τρεις προσκαλεί τον χρήστη να διαλέξει αυτόν που θα
+   * απορριφθεί αργότερα. Χωρίς την τιμή, η συμπεριφορά μένει ίδια (και οι τρεις).
+   */
+  sodtype?: number | null;
   autoFocus?: boolean;
   disabled?: boolean;
   className?: string;
@@ -41,6 +49,7 @@ export function TraderSearch({
   label = 'Αναζήτηση σε προμηθευτές & πιστωτές',
   placeholder = 'Επωνυμία, κωδικός ή ΑΦΜ…',
   initialQuery = '',
+  sodtype = null,
   autoFocus,
   disabled,
   className,
@@ -69,7 +78,7 @@ export function TraderSearch({
     let ignore = false;
     setLoading(true);
     const h = setTimeout(() => {
-      fetch(`/api/admin/softone/search?type=traders&q=${encodeURIComponent(term)}`)
+      fetch(`/api/admin/softone/search?type=traders&q=${encodeURIComponent(term)}${sodtype ? `&sodtype=${sodtype}` : ''}`)
         .then(async (r) => {
           // 4xx/5xx δεν σημαίνει «κανένα αποτέλεσμα» — το δείχνουμε ως σφάλμα.
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -89,7 +98,7 @@ export function TraderSearch({
         .finally(() => { if (!ignore) setLoading(false); });
     }, DEBOUNCE_MS);
     return () => { ignore = true; clearTimeout(h); };
-  }, [q, reload]);
+  }, [q, reload, sodtype]);
 
   // Κλικ εκτός: κλείνει η λίστα, το κείμενο μένει.
   React.useEffect(() => {

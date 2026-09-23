@@ -8,6 +8,8 @@ import {
   parseTaxOfficesResponse, TAX_OFFICE_FIELDS, irsDataKeyError,
   type TaxOffice, type GetTableTaxOfficesResponse,
 } from '@/lib/tax-office';
+import { SODTYPE_FOR_TRADER_KIND, type TraderKindName } from '@/lib/ocr/posting-target';
+import { LINEITEM_COPY_FIELDS, LINEITEM_TEMPLATE_READ_FIELDS, parseLisourceType } from '@/lib/ocr/lineitem-create';
 import { nextTraderCode, type NextCodeResult } from '@/lib/trader-code';
 import { proposeItemCode, type ItemCodeKind, type ItemCodeProposal } from '@/lib/item-code';
 
@@ -36,6 +38,20 @@ export class SoftoneError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = 'SoftoneError';
+  }
+}
+
+/**
+ * Το SoftOne **δημιούργησε** την εγγραφή, αλλά το read-back βρήκε κάτι λάθος πάνω της.
+ *
+ * Χωριστή κλάση επειδή η αντιμετώπιση είναι άλλη: δεν είναι «η κλήση απέτυχε, ξαναπροσπάθησε» —
+ * υπάρχει ήδη **ορφανή** εγγραφή στον ERP που κανείς δεν κρατά. Το `mtrl` ταξιδεύει δομημένα
+ * ώστε ο καλών να το γράψει στο ιστορικό αντί να ζει μόνο μέσα σε ένα μήνυμα toast.
+ */
+export class SoftoneOrphanError extends SoftoneError {
+  constructor(message: string, readonly mtrl: number) {
+    super(message);
+    this.name = 'SoftoneOrphanError';
   }
 }
 
@@ -1323,7 +1339,7 @@ export async function softoneNextTraderCode(
  * Συναλλασσόμενος που εκδίδει παραστατικό προς εμάς: προμηθευτής (12), πιστωτής (16) ή
  * χρεώστης (15). Ένα object μητρώου ανά τύπο, όλα πάνω στον ΙΔΙΟ πίνακα TRDR.
  */
-export type TraderKind = 'supplier' | 'creditor' | 'debtor';
+export type TraderKind = TraderKindName;
 /** Ίδια πεδία για SUPPLIER, CREDITOR και DEBTOR — το SODTYPE το θέτει το ίδιο το object. */
 export type CreateTraderInput = CreateSupplierInput;
 
@@ -1331,8 +1347,15 @@ export type TraderObject = 'SUPPLIER' | 'CREDITOR' | 'DEBTOR';
 const TRADER_OBJECT: Record<TraderKind, TraderObject> = {
   supplier: 'SUPPLIER', creditor: 'CREDITOR', debtor: 'DEBTOR',
 };
-/** SODTYPE που δίνει το κάθε object (για έλεγχο μετά την εγγραφή). */
-export const TRADER_KIND_SODTYPE: Record<TraderKind, number> = { supplier: 12, creditor: 16, debtor: 15 };
+/**
+ * SODTYPE που δίνει το κάθε object (για έλεγχο μετά την εγγραφή).
+ *
+ * Δεν γράφεται εδώ: **επανεξάγεται** από το `lib/ocr/posting-target.ts`, που είναι ΚΑΘΑΡΟ και
+ * άρα ορατό και στα client components. Η λωρίδα ελέγχων της σελίδας ενός παραστατικού πρέπει να
+ * λέει ΠΟΙΟΝ τύπο καρτέλας ζητά η σειρά πριν ανοίξει οτιδήποτε· αν ο χάρτης ζούσε μόνο εδώ
+ * (`server-only`) θα υπήρχε αντίγραφο, και δύο αντίγραφα αποκλίνουν σιωπηλά.
+ */
+export const TRADER_KIND_SODTYPE: Record<TraderKind, number> = SODTYPE_FOR_TRADER_KIND;
 
 function traderRow(input: CreateTraderInput, countries: SoftoneCountry[] = []): Record<string, unknown> {
   const row: Record<string, unknown> = {
@@ -1822,6 +1845,173 @@ function mapLineItem(o: Record<string, string>): LineItemRow {
 export async function softoneFetchLineItems(): Promise<LineItemRow[]> {
   const rows = await softoneGetTable('MTRL', LINEITEM_FIELDS, `SODTYPE=${LINEITEM_SODTYPE} AND ISACTIVE=1`);
   return rows.map(mapLineItem).filter((r) => Number.isFinite(r.mtrl));
+}
+
+/**
+ * Δημιουργία **χρεοπίστωσης** (object `LINEITEM` → `MTRL` με `SODTYPE 53`).
+ *
+ * Οι κανόνες — τι αντιγράφεται, τι ΔΕΝ αντιγράφεται και γιατί, και πότε ένα πρότυπο είναι
+ * ακατάλληλο — ζουν στο ΚΑΘΑΡΟ `lib/ocr/lineitem-create.ts` και δοκιμάζονται εκεί. Εδώ μένει
+ * μόνο η εκτέλεση.
+ *
+ * ⚠️ **ΑΥΤΟ ΤΟ `setData` ΔΕΝ ΕΧΕΙ ΕΚΤΕΛΕΣΤΕΙ ΠΟΤΕ ΣΕ ΖΩΝΤΑΝΗ ΕΓΚΑΤΑΣΤΑΣΗ.** Το `OBJECT`
+ * (`LINEITEM`) και τα πεδία προκύπτουν από το μητρώο που ήδη **διαβάζουμε**. Γι' αυτό υπάρχει το
+ * read-back με έλεγχο `SODTYPE`: αν η υπόθεση είναι λάθος, θα φανεί **δυνατά** την πρώτη φορά
+ * αντί να γραφτεί σιωπηλά μια μισή καρτέλα.
+ */
+export interface LineItemTemplate {
+  /** Το `MTRL` της χρεοπίστωσης-προτύπου. */
+  mtrl: number;
+  code: string;
+  name: string;
+  /** Τα πεδία που αντιγράφονται αυτούσια ({@link LINEITEM_COPY_FIELDS}). */
+  flags: Record<string, unknown>;
+  /** Ο λογαριασμός γενικής του προτύπου — **προτείνεται**, δεν κληρονομείται σιωπηλά. */
+  acnmsk: string | null;
+  /** Η «Κατηγορία τιμολόγησης» του προτύπου, ως έχει — την κρίνει ο καλών. */
+  lisourceType: string | null;
+  vat: string | null;
+  mtrCategory: string | null;
+}
+
+/**
+ * Διαβάζει ζωντανά τη χρεοπίστωση-πρότυπο. **Μόνο ΑΝΑΓΝΩΣΗ** (`GetTable MTRL`), και πετάει όταν
+ * δεν υπάρχει: δεν πέφτουμε ποτέ σε «προεπιλογές» για πεδία που καταλήγουν στη γενική λογιστική.
+ */
+export async function softoneLoadLineItemTemplate(templateMtrl: number): Promise<LineItemTemplate> {
+  const key = Number(templateMtrl);
+  if (!Number.isFinite(key) || key <= 0) {
+    throw new SoftoneError('Χρειάζεται υπάρχουσα χρεοπίστωση ως πρότυπο (Τύπος και κατηγορία τιμολόγησης αντιγράφονται από εκεί).');
+  }
+  const rows = await softoneGetTable(
+    'MTRL',
+    ['MTRL', 'CODE', 'NAME', ...LINEITEM_TEMPLATE_READ_FIELDS],
+    `MTRL=${key} AND SODTYPE=${LINEITEM_SODTYPE}`,
+  );
+  const row = rows[0];
+  if (!row) throw new SoftoneError(`Η χρεοπίστωση-πρότυπο ${key} δεν βρέθηκε στο SoftOne.`);
+  const flags: Record<string, unknown> = {};
+  for (const f of LINEITEM_COPY_FIELDS) {
+    const v = row[f];
+    // Το `MTRTYPE 0` / `KEPYO 0` είναι ΕΓΚΥΡΕΣ τιμές: δεν φιλτράρονται ως «κενό» όπως τα FK.
+    if (v != null && String(v).trim() !== '') flags[f] = v;
+  }
+  return {
+    mtrl: key,
+    code: str(row.CODE),
+    name: str(row.NAME),
+    flags,
+    acnmsk: idOrNull(row.ACNMSK),
+    lisourceType: idOrNull(row.LISOURCETYPE),
+    vat: idOrNull(row.VAT),
+    mtrCategory: idOrNull(row.MTRCATEGORY),
+  };
+}
+
+export interface CreateLineItemInput {
+  code: string;
+  name: string;
+  /** `MTRL` υπάρχουσας χρεοπίστωσης — υποχρεωτικό (δες `lib/ocr/lineitem-create.ts`). */
+  templateMtrl: number;
+  /**
+   * Ο λογαριασμός γενικής, **ρητά**. Δεν είναι προαιρετικός στην πράξη: χωρίς αυτόν η γραμμή
+   * μπλοκάρει στο `account_missing`, και τότε η καρτέλα διορθώνεται μόνο μέσα στο SoftOne.
+   */
+  acnmsk: string;
+  /** Υπερβάσεις πάνω στο πρότυπο, όπως τις διάλεξε ο χρήστης. */
+  vat?: string | null;
+  mtrCategory?: string | number | null;
+  /** `MTRUNIT` — η μονάδα μέτρησης. Κενό = ό,τι είχε το πρότυπο. */
+  unit?: string | null;
+}
+
+/** Το ακριβές payload του `setData` — ίδια συνάρτηση με το dry-run, ώστε να μη διαφέρουν ποτέ. */
+export function buildLineItemPayload(
+  input: CreateLineItemInput,
+  flags: Record<string, unknown>,
+): { OBJECT: 'LINEITEM'; KEY: ''; DATA: { LINEITEM: Record<string, unknown>[] } } {
+  const row: Record<string, unknown> = {
+    CODE: input.code,
+    NAME: input.name,
+    SODTYPE: LINEITEM_SODTYPE,
+    ISACTIVE: 1,
+    ...flags,
+    // Ο λογαριασμός μπαίνει ΜΕΤΑ τα flags: είναι επιλογή ανθρώπου και υπερισχύει του προτύπου.
+    ACNMSK: input.acnmsk,
+  };
+  if (input.vat) row.VAT = input.vat;
+  if (input.mtrCategory) row.MTRCATEGORY = input.mtrCategory;
+  // Ίδια τριάδα με το `ITEM`: αποθήκης / αγορών / πωλήσεων δείχνουν στην ίδια μονάδα. Όταν ο
+  // χρήστης δεν διάλεξε μονάδα, κρατάμε αυτήν του προτύπου — και τη γράφουμε ΚΑΙ στις τρεις.
+  const unit = input.unit || (flags.MTRUNIT1 != null && String(flags.MTRUNIT1) !== '' ? String(flags.MTRUNIT1) : null);
+  if (unit) { row.MTRUNIT1 = unit; row.MTRUNIT3 = unit; row.MTRUNIT4 = unit; }
+  return { OBJECT: 'LINEITEM', KEY: '', DATA: { LINEITEM: [row] } };
+}
+
+/**
+ * Γράφει τη χρεοπίστωση και **την ξαναδιαβάζει**: το `success: true` δεν αποδεικνύει ότι έμεινε,
+ * και εδώ μας ενδιαφέρει επιπλέον ότι έμεινε **ως χρεοπίστωση** (`SODTYPE 53`) — αλλιώς η γραμμή
+ * `LINLINES` δεν θα τη δεχόταν ποτέ και ο χρήστης θα κυνηγούσε φάντασμα. Ελέγχεται και ότι ο
+ * **λογαριασμός** και η **κατηγορία τιμολόγησης** έμειναν όπως τους στείλαμε.
+ */
+export async function softoneCreateLineItem(
+  input: CreateLineItemInput,
+): Promise<{ mtrl: number; code: string; name: string; acnmsk: string | null; lisourceType: string | null; template: LineItemTemplate }> {
+  const template = await softoneLoadLineItemTemplate(input.templateMtrl);
+  const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>(
+    'setData', buildLineItemPayload(input, template.flags),
+  );
+  if (res.success === false || res.id == null) {
+    throw new SoftoneError(res.error ?? `setData LINEITEM απέτυχε (code ${res.errorcode ?? '?'})`);
+  }
+  const mtrl = Number(res.id);
+  // Ο κωδικός δεσμεύτηκε ήδη — καθαρίζουμε ΠΡΙΝ το read-back, όπως και στα έξοδα.
+  clearItemCodeCache('lineitem');
+  const back = await softoneGetTable(
+    'MTRL', ['MTRL', 'CODE', 'NAME', 'SODTYPE', ...LINEITEM_TEMPLATE_READ_FIELDS], `MTRL=${mtrl}`,
+  );
+  const row = back[0];
+  if (!row || !Number.isFinite(Number(row.MTRL))) {
+    throw new SoftoneOrphanError(`Η χρεοπίστωση ${mtrl} δεν βρέθηκε μετά τη δημιουργία (setData LINEITEM).`, mtrl);
+  }
+  if (Number(row.SODTYPE) !== LINEITEM_SODTYPE) {
+    throw new SoftoneOrphanError(
+      `Η εγγραφή ${mtrl} γράφτηκε με SODTYPE ${row.SODTYPE ?? '—'} αντί για ${LINEITEM_SODTYPE}: δεν είναι χρεοπίστωση και δεν μπορεί να μπει σε γραμμή LINLINES.`,
+      mtrl,
+    );
+  }
+  const backAcn = idOrNull(row.ACNMSK);
+  if (backAcn !== input.acnmsk) {
+    throw new SoftoneOrphanError(
+      `Η χρεοπίστωση ${mtrl} γράφτηκε με λογαριασμό γενικής «${backAcn ?? '—'}» αντί για «${input.acnmsk}». `
+      + 'Διόρθωσέ την στο SoftOne πριν τη χρησιμοποιήσεις — αλλιώς η δαπάνη θα πάει σε λάθος λογαριασμό.',
+      mtrl,
+    );
+  }
+  // Η «Κατηγορία τιμολόγησης» είναι ο ΛΟΓΟΣ ΥΠΑΡΞΗΣ της αντιγραφής: αν το SoftOne έκοψε έναν
+  // τύπο, η χρεοπίστωση δεν θα δεχόταν ποτέ τη γραμμή για την οποία τη φτιάξαμε — και θα το
+  // μαθαίναμε την ώρα της καταχώρισης. Συγκρίνουμε ΣΥΝΟΛΑ αριθμών, όχι κείμενο: η σειρά και τα
+  // κενά του SoftOne δεν είναι διαφορά. Επιπλέον τύποι είναι ανεκτοί (πιο επιτρεπτικό), τύπος
+  // που ΛΕΙΠΕΙ όχι.
+  const sentLisource = parseLisourceType(template.flags.LISOURCETYPE);
+  const backLisource = parseLisourceType(row.LISOURCETYPE);
+  const lostLisource = sentLisource.filter((t) => !backLisource.includes(t));
+  if (lostLisource.length) {
+    throw new SoftoneOrphanError(
+      `Η χρεοπίστωση ${mtrl} γράφτηκε με κατηγορία τιμολόγησης «${idOrNull(row.LISOURCETYPE) ?? '—'}» αντί για `
+      + `«${String(template.flags.LISOURCETYPE)}» — λείπει ${lostLisource.join(', ')}. `
+      + 'Διόρθωσέ την στο SoftOne πριν τη χρησιμοποιήσεις — αλλιώς δεν θα δεχτεί τη γραμμή του παραστατικού.',
+      mtrl,
+    );
+  }
+  return {
+    mtrl,
+    code: str(row.CODE) || input.code,
+    name: str(row.NAME) || input.name,
+    acnmsk: backAcn,
+    lisourceType: idOrNull(row.LISOURCETYPE),
+    template,
+  };
 }
 
 // ============================================================
