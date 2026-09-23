@@ -17,8 +17,9 @@ import { VAT_COUNTRY_CODES, viesPrefix } from '@/lib/ocr/validate';
 import { applyVatPrefix, vatPrefixFor } from '@/lib/ocr/vat-prefix';
 import { validCoords, formatCoords } from '@/lib/coords';
 import { planRegistryFill, registryValue, type FieldSource } from '@/lib/ocr/registry-fill';
+import { applyCodeProposal } from '@/lib/trader-code';
 import {
-  TRADER_KINDS, addableTraderKinds, type TraderKind as TraderKindName,
+  TRADER_KINDS, addableTraderKinds, unknownSeriesLinkNotice, type TraderKind as TraderKindName,
 } from '@/lib/ocr/trader-kind-actions';
 import {
   resolveTaxOffice, planDoyFill, missingDoyNote, type TaxOffice, type TaxOfficeMapping,
@@ -359,13 +360,16 @@ export function TraderPanel({
          * για «33-00002») — έτοιμο να φύγει έτσι προς το SoftOne.
          *
          * Το `formRef` δίνει την ΤΡΕΧΟΥΣΑ τιμή του πεδίου σε αυτό το async callback χωρίς να
-         * ξαναδέσει το effect σε κάθε πληκτρολόγηση, και ο updater μένει καθαρός.
+         * ξαναδέσει το effect σε κάθε πληκτρολόγηση, και ο updater μένει καθαρός. Ο ίδιος ο
+         * κανόνας ζει στο `applyCodeProposal` (`lib/trader-code.ts`), με tests.
          */
-        const cur = formRef.current.code.trim();
-        // Ό,τι πληκτρολόγησε ή δέχτηκε ρητά ο χρήστης δεν το ακουμπάμε.
-        if (cur !== '' && cur !== lastProposal.current) return;
-        lastProposal.current = proposal;
-        setForm((f) => ({ ...f, code: proposal }));
+        const next = applyCodeProposal({
+          current: formRef.current.code, lastProposal: lastProposal.current, proposal,
+        });
+        // `null` = ό,τι πληκτρολόγησε ή δέχτηκε ρητά ο χρήστης· δεν το ακουμπάμε.
+        if (next === null) return;
+        lastProposal.current = next;
+        setForm((f) => ({ ...f, code: next }));
       })
       .catch(() => { if (!ignore) setCodeSuggestion(null); })
       .finally(() => { if (!ignore) setCodeBusy(false); });
@@ -451,6 +455,9 @@ export function TraderPanel({
     () => addableTraderKinds({ cards: group.cards, missing: group.missing }),
     [group.cards, group.missing],
   );
+
+  /** Τι θα πάθουν τα παραστατικά άγνωστης σειράς με αυτή τη δημιουργία — `null` όταν δεν υπάρχουν. */
+  const unknownSeriesNotice = unknownSeriesLinkNotice(group.unknownSeriesDocs);
 
   /**
    * **Αυτόματη εφαρμογή του μητρώου.** Μόλις απαντήσει η ΑΑΔΕ (ή το VIES για ξένο εκδότη), τα
@@ -1504,6 +1511,19 @@ export function TraderPanel({
             style={{ borderColor: '#F5C2C7', backgroundColor: '#FDF2F2', color: '#A4262C' }}
           >
             <FiAlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0" /> {failure}
+          </p>
+        )}
+
+        {/*
+          Η συνέπεια που ΔΕΝ προκύπτει από τη φόρμα: τα παραστατικά χωρίς αναγνωρισμένη σειρά
+          δεν ζητούν τύπο, οπότε παίρνουν ΑΥΤΗ την καρτέλα — όποιου τύπου κι αν είναι. Γράφεται
+          δίπλα στην ενέργεια, πριν το κλικ, γιατί ο χρήστης πλέον προσθέτει τύπους και με δική
+          του πρωτοβουλία («Προσθήκη πιστωτή/χρεώστη»), όχι μόνο όταν κάποιο έγγραφο τον ζητά.
+        */}
+        {unknownSeriesNotice && (
+          <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+            <FiInfo aria-hidden className="mt-0.5 size-3 shrink-0" />
+            <span>{unknownSeriesNotice}</span>
           </p>
         )}
 

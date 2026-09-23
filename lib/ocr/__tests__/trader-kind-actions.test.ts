@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  TRADER_KINDS, addableTraderKinds, hasTraderCard,
+  TRADER_KINDS, addableTraderKinds, hasTraderCard, unknownSeriesLinkNotice,
   type TraderKind, type TraderKindCardRef,
 } from '@/lib/ocr/trader-kind-actions';
 
@@ -84,5 +84,24 @@ describe('hasTraderCard', () => {
 
   it('κενή λίστα καρτελών σημαίνει «κανένας τύπος»', () => {
     for (const k of TRADER_KINDS) expect(hasTraderCard([], k)).toBe(false);
+  });
+});
+
+describe('unknownSeriesLinkNotice', () => {
+  it('σιωπά όταν δεν υπάρχει παραστατικό άγνωστης σειράς', () => {
+    expect(unknownSeriesLinkNotice(0)).toBeNull();
+  });
+
+  it('λέει τη συνέπεια στον ενικό για ένα παραστατικό', () => {
+    expect(unknownSeriesLinkNotice(1)).toBe('Θα συνδεθεί και 1 παραστατικό άγνωστης σειράς σε αυτή την καρτέλα.');
+  });
+
+  it('λέει τη συνέπεια στον πληθυντικό, με τον αριθμό μέσα', () => {
+    expect(unknownSeriesLinkNotice(3)).toBe('Θα συνδεθούν και 3 παραστατικά άγνωστης σειράς σε αυτή την καρτέλα.');
+  });
+
+  it('τιμή χωρίς νόημα δεν παράγει πρόταση — καλύτερα σιωπή παρά «Θα συνδεθούν και NaN»', () => {
+    expect(unknownSeriesLinkNotice(-2)).toBeNull();
+    expect(unknownSeriesLinkNotice(Number.NaN)).toBeNull();
   });
 });
