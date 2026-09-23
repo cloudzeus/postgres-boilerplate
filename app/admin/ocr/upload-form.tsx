@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { FiUploadCloud, FiLoader, FiZap } from 'react-icons/fi';
+import { FiUploadCloud, FiLoader, FiZap, FiChevronDown, FiChevronUp } from 'react-icons/fi';
 import { cn } from '@/lib/utils';
 import {
   SUPPORTED_LANGUAGES, UPLOAD_DOC_TYPES, UPLOAD_DOC_TYPE_LABELS, AUTO_DOC_TYPE_HINT,
@@ -12,6 +12,9 @@ import {
 import { MAX_OCR_MB, MAX_SPLIT_MB } from '@/lib/ocr/limits';
 import { OcrResultModal } from './result-modal';
 import { OcrSplitPreview, type SplitPreviewData } from './split-preview';
+
+/** Η προτίμηση «ανοιχτή/κλειστή» ζει ανά περιηγητή: είναι συνήθεια του χρήστη, όχι ρύθμιση. */
+const PANEL_KEY = 'ocr.upload.panelOpen';
 
 export function OcrUploadForm() {
   const router = useRouter();
@@ -27,6 +30,21 @@ export function OcrUploadForm() {
   // Πολυ-παραστατικό PDF: ο σαρωτής βγάζει ΕΝΑ αρχείο με όλη τη στοίβα της ημέρας.
   const [multiDoc, setMultiDoc] = useState(false);
   const [split, setSplit] = useState<SplitPreviewData | null>(null);
+  /**
+   * Συμπτυγμένη ΑΠΟ ΠΡΟΕΠΙΛΟΓΗ: η φόρμα ανεβάσματος είναι η ενέργεια της ημέρας, όχι της ώρας —
+   * ο πίνακας των παραστατικών είναι. Ανοιχτή έτρωγε ~450px πριν φανεί η πρώτη γραμμή.
+   *
+   * Το αρχικό render είναι ΠΑΝΤΑ συμπτυγμένο και η προτίμηση διαβάζεται σε `useEffect`: το
+   * `localStorage` δεν υπάρχει στον server, και μια αρχική τιμή από εκεί θα έσπαγε το hydration.
+   */
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    try { if (localStorage.getItem(PANEL_KEY) === '1') setOpen(true); } catch { /* ιδιωτική περιήγηση */ }
+  }, []);
+  function toggle(next: boolean) {
+    setOpen(next);
+    try { localStorage.setItem(PANEL_KEY, next ? '1' : '0'); } catch { /* ιδιωτική περιήγηση */ }
+  }
 
   async function handleSplitFile(file: File) {
     setBusy(true);
@@ -84,6 +102,15 @@ export function OcrUploadForm() {
     if (f) void handleFile(f);
   }
 
+  // Η περίληψη που αντικαθιστά τις ρυθμίσεις όταν η φόρμα είναι κλειστή. Το «πολλά παραστατικά»
+  // μπαίνει ΜΟΝΟ όταν είναι αναμμένο: αλλάζει τι συμβαίνει στο drop, και κρυμμένο θα ξάφνιαζε.
+  const settingsSummary = [
+    UPLOAD_DOC_TYPE_LABELS[docType],
+    SUPPORTED_LANGUAGES[language].label,
+    pdfSource === 'auto' ? 'PDF αυτόματα' : pdfSource === 'digital' ? 'PDF ψηφιακό' : 'PDF σάρωση',
+    multiDoc ? 'πολλά παραστατικά' : null,
+  ].filter(Boolean).join(' · ');
+
   // Όσο ο χρήστης ορίζει κοψίματα, η φόρμα παραχωρεί τη θέση της: δύο «πρωτεύουσες» ενέργειες
   // στην ίδια οθόνη (ανέβασμα και διαχωρισμός) θα ήταν μόνο σύγχυση.
   if (split) {
@@ -93,25 +120,41 @@ export function OcrUploadForm() {
   return (
     <>
       <section className="overflow-hidden rounded-xl border border-border bg-card shadow-fluent-2">
-        {/* Header band */}
-        <header className="flex items-center justify-between border-b border-border bg-gradient-to-r from-sisyphus-50 via-card to-card px-5 py-3">
-          <div className="flex items-center gap-2.5">
-            <span className="inline-flex size-8 items-center justify-center rounded-md bg-sisyphus-500 text-white shadow-fluent-2">
-              <FiZap className="size-4" />
+        {/* Header band — και ο διακόπτης σύμπτυξης */}
+        <header className="border-b border-border bg-gradient-to-r from-sisyphus-50 via-card to-card">
+          <button
+            type="button"
+            onClick={() => toggle(!open)}
+            aria-expanded={open}
+            aria-controls="ocr-upload-options"
+            className="flex w-full items-center justify-between gap-3 px-5 py-3 text-left transition hover:bg-sisyphus-500/5"
+          >
+            <span className="flex min-w-0 items-center gap-2.5">
+              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-sisyphus-500 text-white shadow-fluent-2">
+                <FiZap className="size-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[14px] font-semibold tracking-tight text-foreground">Νέα ανάλυση εγγράφου</span>
+                <span className="block truncate text-[11px] text-muted-foreground">
+                  {/* Κλειστή: ο χρήστης πρέπει να βλέπει ΜΕ ΤΙ θα τρέξει, χωρίς να την ανοίξει. */}
+                  {open
+                    ? 'DeepSeek για ψηφιακά PDF · Gemini Vision για εικόνες και σαρωμένα'
+                    : settingsSummary}
+                </span>
+              </span>
             </span>
-            <div>
-              <h3 className="text-[14px] font-semibold tracking-tight text-foreground">Νέα ανάλυση εγγράφου</h3>
-              <p className="text-[11px] text-muted-foreground">
-                DeepSeek για ψηφιακά PDF · Gemini Vision για εικόνες και σαρωμένα
-              </p>
-            </div>
-          </div>
-          <span className="hidden text-[10px] font-bold uppercase tracking-wider text-muted-foreground sm:inline">
-            Πειραγωγή · v1
-          </span>
+            <span className="flex shrink-0 items-center gap-2.5">
+              <span className="hidden text-[10px] font-bold uppercase tracking-wider text-muted-foreground sm:inline">
+                {open ? 'Σύμπτυξη' : 'Ρυθμίσεις'}
+              </span>
+              {open ? <FiChevronUp className="size-4 text-muted-foreground" /> : <FiChevronDown className="size-4 text-muted-foreground" />}
+            </span>
+          </button>
         </header>
 
-        <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-[1fr_1fr_auto]">
+        {open && (
+        <>
+        <div id="ocr-upload-options" className="grid grid-cols-1 gap-4 p-5 md:grid-cols-[1fr_1fr_auto]">
           {/* Doc type */}
           <Field label="Τύπος εγγράφου" hint={docType === 'auto' ? AUTO_DOC_TYPE_HINT : undefined}>
             <select
@@ -181,16 +224,19 @@ export function OcrUploadForm() {
             </span>
           </label>
         </div>
+        </>
+        )}
 
-        {/* Drop zone */}
-        <div className="px-5 pb-5">
+        {/* Drop zone — ΠΑΝΤΑ ορατή, και κλειστή: το drop είναι ο λόγος ύπαρξης της κάρτας. */}
+        <div className={cn('px-5', open ? 'pb-5' : 'pb-4 pt-4')}>
           <label
             onDragEnter={() => setDragOver(true)}
             onDragLeave={() => setDragOver(false)}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDrop={onDrop}
             className={cn(
-              'relative flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed py-12 px-4 text-center transition-all duration-fluent-150 ease-standard',
+              'relative flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 text-center transition-all duration-fluent-150 ease-standard',
+              open ? 'py-12' : 'py-5',
               busy && 'cursor-not-allowed border-sisyphus-500 bg-sisyphus-500/5',
               !busy && dragOver && 'border-sisyphus-500 bg-sisyphus-500/10 scale-[1.005]',
               !busy && !dragOver && 'border-input bg-neutral-6/40 hover:border-sisyphus-500/50 hover:bg-sisyphus-500/5',
@@ -212,23 +258,30 @@ export function OcrUploadForm() {
                 <p className="text-sm font-semibold text-sisyphus-600">
                   {multiDoc ? 'Προετοιμασία σελίδων…' : 'Ανάλυση μέσω AI…'}
                 </p>
-                <p className="text-[11px] text-muted-foreground">
-                  Εξαγωγή πεδίων, line items, και σχηματισμός JSON. Διαρκεί 5-25 δευτερόλεπτα.
-                </p>
+                {open && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Εξαγωγή πεδίων, line items, και σχηματισμός JSON. Διαρκεί 5-25 δευτερόλεπτα.
+                  </p>
+                )}
               </>
             ) : (
               <>
-                <span className="inline-flex size-12 items-center justify-center rounded-full bg-sisyphus-500/10 text-sisyphus-600">
-                  <FiUploadCloud className="size-5" />
+                <span className={cn(
+                  'inline-flex items-center justify-center rounded-full bg-sisyphus-500/10 text-sisyphus-600',
+                  open ? 'size-12' : 'size-8',
+                )}>
+                  <FiUploadCloud className={open ? 'size-5' : 'size-4'} />
                 </span>
                 <p className="text-sm font-semibold text-foreground">
                   {multiDoc ? 'Σύρε το PDF εδώ — συνέχεια στον διαχωρισμό' : 'Σύρε αρχείο εδώ ή κάνε κλικ για επιλογή'}
                 </p>
-                <p className="text-[11px] text-muted-foreground">
-                  {multiDoc
-                    ? `PDF · έως ${MAX_SPLIT_MB} MB`
-                    : `PDF, PNG, JPG, WebP, GIF, TIFF, BMP · έως ${MAX_OCR_MB} MB`}
-                </p>
+                {open && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {multiDoc
+                      ? `PDF · έως ${MAX_SPLIT_MB} MB`
+                      : `PDF, PNG, JPG, WebP, GIF, TIFF, BMP · έως ${MAX_OCR_MB} MB`}
+                  </p>
+                )}
               </>
             )}
           </label>

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { FiSend, FiSave, FiExternalLink, FiAlertCircle, FiPlus, FiTrash2, FiRotateCcw, FiCheck, FiPlusCircle } from 'react-icons/fi';
+import { FiSend, FiSave, FiExternalLink, FiAlertCircle, FiPlus, FiTrash2, FiRotateCcw, FiCheck, FiPlusCircle, FiMaximize2 } from 'react-icons/fi';
 import { CreateRegistryEntryModal } from '@/components/admin/create-registry-entry-modal';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -174,8 +174,18 @@ function CheckRow({ ok, label, got, exp }: { ok: boolean | null | undefined; lab
 /* ------------------------------------------------------------------ */
 
 export function OcrRowDetail({
-  row, canCategorize, canPost, seriesOptions = [],
-}: { row: OcrRow; canCategorize: boolean; canPost: boolean; seriesOptions?: SeriesOption[] }) {
+  row, canCategorize, canPost, seriesOptions = [], fullscreen = false, onOpenFull,
+}: {
+  row: OcrRow; canCategorize: boolean; canPost: boolean; seriesOptions?: SeriesOption[];
+  /**
+   * Η ίδια καρτέλα μέσα σε modal: το ύψος δεν είναι πια το σταθερό των 480px της γραμμής αλλά
+   * ό,τι δίνει το παράθυρο. ΜΟΝΟ ύψη αλλάζουν — το περιεχόμενο και η λογική μένουν ίδια, ώστε
+   * να μην υπάρχουν δύο εκδοχές του επεξεργαστή που ξεφεύγουν η μία από την άλλη.
+   */
+  fullscreen?: boolean;
+  /** Όταν δίνεται, εμφανίζεται το «Πλήρης προβολή» δίπλα στις καρτέλες. */
+  onOpenFull?: () => void;
+}) {
   const router = useRouter();
   const data = (row.extractedData ?? {}) as Record<string, any>;
   const ro = !canCategorize;
@@ -398,6 +408,20 @@ export function OcrRowDetail({
 
   return (
     <div className="bg-muted/30 p-3">
+      {onOpenFull && (
+        <div className="mb-3">
+          <button
+            type="button"
+            onClick={onOpenFull}
+            className="inline-flex items-center gap-1.5 rounded-md border border-sisyphus-500/40 bg-sisyphus-500/10 px-3 py-1.5 text-[12px] font-semibold text-sisyphus-700 transition hover:bg-sisyphus-500/20 dark:text-sisyphus-300"
+          >
+            <FiMaximize2 className="size-3.5" />
+            Πλήρης προβολή
+            <span className="font-normal opacity-70">— όλο το παράθυρο, χωρίς πλάγιο σκρολ</span>
+          </button>
+        </div>
+      )}
+
       {row.status === 'FAILED' && row.errorMessage && (
         <div className="mb-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px]">
           <p className="mb-0.5 font-semibold text-destructive">Σφάλμα εκτέλεσης OCR</p>
@@ -428,14 +452,14 @@ export function OcrRowDetail({
             <iframe
               src={fileUrl}
               title={row.fileName}
-              className="min-h-[440px] w-full flex-1 border-0 bg-white"
+              className={cn('w-full flex-1 border-0 bg-white', fullscreen ? 'min-h-[60vh]' : 'min-h-[440px]')}
             />
           ) : (
             <ZoomablePreview
               src={fileUrl}
               alt={row.fileName}
               fallbackHref={fileUrl}
-              className="min-h-[440px] flex-1 bg-muted"
+              className={cn('flex-1 bg-muted', fullscreen ? 'min-h-[60vh]' : 'min-h-[440px]')}
             />
           )}
         </aside>
@@ -459,7 +483,7 @@ export function OcrRowDetail({
             </div>
 
             {/* ---------- Πεδία: invoice-styled ---------- */}
-            <TabsContent value="fields" className="max-h-[480px] overflow-auto p-3">
+            <TabsContent value="fields" className={cn('overflow-auto p-3', fullscreen ? 'max-h-[calc(92vh-230px)]' : 'max-h-[480px]')}>
               {isInvoice ? (
                 <div className="space-y-3">
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -501,7 +525,7 @@ export function OcrRowDetail({
 
             {/* ---------- Γραμμές ---------- */}
             {showLines && (
-              <TabsContent value="items" className="max-h-[480px] overflow-auto p-3">
+              <TabsContent value="items" className={cn('overflow-auto p-3', fullscreen ? 'max-h-[calc(92vh-230px)]' : 'max-h-[480px]')}>
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-[11px] font-bold uppercase tracking-wide text-foreground">Γραμμές <span className="text-foreground">({items.length})</span></span>
                   {!ro && (
@@ -620,7 +644,7 @@ export function OcrRowDetail({
 
             {/* ---------- JSON ---------- */}
             <TabsContent value="json" className="p-3">
-              <pre className="max-h-[440px] overflow-auto rounded-lg border border-border bg-muted p-3 text-[11px] font-mono leading-relaxed text-foreground">
+              <pre className={cn('overflow-auto rounded-lg border border-border bg-muted p-3 text-[11px] font-mono leading-relaxed text-foreground', fullscreen ? 'max-h-[calc(92vh-250px)]' : 'max-h-[440px]')}>
 {JSON.stringify(buildExtractedData(), null, 2)}
               </pre>
             </TabsContent>

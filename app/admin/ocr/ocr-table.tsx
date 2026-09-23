@@ -9,6 +9,7 @@ import { FiMoreVertical, FiFile, FiExternalLink, FiSend, FiTrash2, FiEye, FiUser
 import { SoftoneAfmDialog } from '@/components/admin/softone-afm-dialog';
 import { OcrDayProblemsModal } from '@/components/admin/ocr-day-problems-modal';
 import { DataTable } from '@/components/ui/data-table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
@@ -216,6 +217,12 @@ export function OcrTable({
   const [lookupAfm, setLookupAfm] = React.useState<string | null>(null);
   const [lookupCtx, setLookupCtx] = React.useState<string | undefined>(undefined);
   const [problemsDay, setProblemsDay] = React.useState<{ label: string; rows: OcrRow[] } | null>(null);
+  /**
+   * Το παραστατικό που δείχνεται σε ΠΛΗΡΗ ΠΡΟΒΟΛΗ. Η ανοιγμένη γραμμή του πίνακα είναι στενή:
+   * ένα τιμολόγιο με δεκάδες γραμμές τις κυλάει μέσα σε 480px, με το πρωτότυπο δίπλα να έχει
+   * χαθεί. Το modal δίνει το ύψος του παραθύρου στο ΙΔΙΟ component — καμία δεύτερη εκδοχή.
+   */
+  const [fullRow, setFullRow] = React.useState<OcrRow | null>(null);
 
   async function handlePost(row: OcrRow) {
     if (!row.category) { toast.error('Όρισε πρώτα κατηγορία (κάνε expand τη γραμμή).'); return; }
@@ -860,9 +867,47 @@ export function OcrTable({
           },
         }}
         expandable={(row) => (
-          <OcrRowDetail row={row} canCategorize={canCategorize} canPost={canPost} seriesOptions={seriesOptions} />
+          <OcrRowDetail
+            row={row}
+            canCategorize={canCategorize}
+            canPost={canPost}
+            seriesOptions={seriesOptions}
+            onOpenFull={() => setFullRow(row)}
+          />
         )}
       />
+      <Dialog open={fullRow !== null} onOpenChange={(v) => { if (!v) setFullRow(null); }}>
+        <DialogContent
+          className="flex h-[92vh] w-[97vw] max-w-[1600px] flex-col gap-0 overflow-hidden p-0 sm:max-w-[1600px]"
+          // Ο επεξεργαστής έχει δικά του πεδία· το αυτόματο focus της Radix στο πρώτο input θα
+          // κυλούσε αμέσως τη σελίδα στα «Πεδία» αντί να δείξει το πρωτότυπο.
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
+          <DialogHeader className="shrink-0 border-b border-border px-5 py-3 text-left">
+            <DialogTitle className="truncate text-[14px]">{fullRow?.fileName ?? ''}</DialogTitle>
+            <DialogDescription className="text-[11px]">
+              {fullRow
+                ? `${fullRow.issuer ?? 'Άγνωστος εκδότης'}${fullRow.docNumber ? ` · ${fullRow.docNumber}` : ''}`
+                  + `${fullRow.itemsTotal ? ` · ${fullRow.itemsTotal} γραμμές` : ''}`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-auto">
+            {fullRow && (
+              // `key` ανά παραστατικό: ο επεξεργαστής κρατά ΔΙΚΗ του κατάσταση φόρμας — χωρίς
+              // αυτό, ανοίγοντας δεύτερο παραστατικό θα έδειχνε τα πεδία του πρώτου.
+              <OcrRowDetail
+                key={fullRow.id}
+                row={fullRow}
+                canCategorize={canCategorize}
+                canPost={canPost}
+                seriesOptions={seriesOptions}
+                fullscreen
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
       <SoftoneAfmDialog afm={lookupAfm} contextLabel={lookupCtx} onClose={() => setLookupAfm(null)} />
       <OcrDayProblemsModal
         open={problemsDay !== null}
