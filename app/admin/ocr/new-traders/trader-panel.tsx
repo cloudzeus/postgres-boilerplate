@@ -285,12 +285,6 @@ export function TraderPanel({
   const [codeBusy, setCodeBusy] = React.useState(false);
   /** Η τελευταία πρόταση που γράψαμε εμείς — για να ξέρουμε τι επιτρέπεται να αλλάξουμε. */
   const lastProposal = React.useRef<string>('');
-  /**
-   * Η ΤΡΕΧΟΥΣΑ φόρμα, διαθέσιμη σε async callbacks (π.χ. όταν απαντήσει η πρόταση κωδικού)
-   * χωρίς να τα δένει σε deps — και χωρίς να διαβάζουμε state μέσα από updater.
-   */
-  const formRef = React.useRef(form);
-  React.useEffect(() => { formRef.current = form; });
   const kindRefs = React.useRef<Partial<Record<TraderKind, HTMLButtonElement | null>>>({});
   const codeRef = React.useRef<HTMLInputElement | null>(null);
   /** Ποια διεύθυνση έχει ήδη ζητηθεί αυτόματα — καμία επανάληψη σε re-render. */
@@ -349,27 +343,31 @@ export function TraderPanel({
         setCodeSuggestion(d);
         const proposal = d?.code ? String(d.code) : '';
         /*
-         * Η απόφαση «επιτρέπεται να γράψουμε τον κωδικό;» παίρνεται ΕΔΩ, έξω από τον updater.
+         * Η τιμή του πεδίου διαβάζεται ΜΟΝΟ μέσα από τον updater (`f.code`) και το ref ΜΟΝΟ έξω
+         * από αυτόν. Δύο διαφορετικά λάθη αποκλείονται ταυτόχρονα:
          *
-         * Πριν, ο updater του `setForm` διάβαζε ΚΑΙ έγραφε το `lastProposal` — δηλαδή δεν ήταν
-         * καθαρός. Ο React δεν εκτελεί τον updater τη στιγμή της κλήσης (τον εκτελεί στο επόμενο
-         * render, και σε StrictMode δύο φορές), οπότε το ref προλάβαινε να αλλάξει και ο έλεγχος
-         * `cur !== lastProposal.current` έβγαινε αληθής: ο updater επέστρεφε το ΠΑΛΙΟ state και
-         * **ο κωδικός δεν άλλαζε με τον τύπο**. Αποτέλεσμα ορατό στην ουρά: πατούσες «Προσθήκη
-         * χρεώστη» και η φόρμα κρατούσε τον κωδικό της αρίθμησης ΠΡΟΜΗΘΕΥΤΩΝ (π.χ. «0004» αντί
-         * για «33-00002») — έτοιμο να φύγει έτσι προς το SoftOne.
+         *  • **Updater που γράφει ref** (το αρχικό bug): ο React εκτελεί τον updater αργότερα και
+         *    σε StrictMode δύο φορές από την ΙΔΙΑ βάση, κρατώντας το αποτέλεσμα της δεύτερης. Η
+         *    πρώτη εκτέλεση άλλαζε το `lastProposal`, η δεύτερη έβλεπε πια διαφορά και επέστρεφε
+         *    το ΠΑΛΙΟ state: ο κωδικός δεν ακολουθούσε τον τύπο (χρεώστης με «0004» αντί για
+         *    «33-00002»). Γι' αυτό το `last` διαβάζεται ΠΡΙΝ — και οι δύο εκτελέσεις κρίνουν με
+         *    τα ίδια δεδομένα — και η ανάθεση γίνεται μετά.
+         *  • **Ανάγνωση της φόρμας από ref**: ένα ref που συγχρονίζεται σε passive effect
+         *    προλαβαίνει να είναι παλιό (πληκτρολόγηση που έκανε commit ενώ το microtask του
+         *    fetch τρέχει πριν το flush του effect) και θα έσβηνε το πλήκτρο του χρήστη. Το
+         *    `f.code` του updater είναι πάντα η τελευταία τιμή που ξέρει ο React, μαζί με ό,τι
+         *    έχει ήδη μπει στην ουρά — δεν υπάρχει παράθυρο.
          *
-         * Το `formRef` δίνει την ΤΡΕΧΟΥΣΑ τιμή του πεδίου σε αυτό το async callback χωρίς να
-         * ξαναδέσει το effect σε κάθε πληκτρολόγηση, και ο updater μένει καθαρός. Ο ίδιος ο
-         * κανόνας ζει στο `applyCodeProposal` (`lib/trader-code.ts`), με tests.
+         * Ο ίδιος ο κανόνας («γράφουμε μόνο σε άδειο πεδίο ή πάνω στη δική μας πρόταση») ζει
+         * στο `applyCodeProposal` (`lib/trader-code.ts`), με tests.
          */
-        const next = applyCodeProposal({
-          current: formRef.current.code, lastProposal: lastProposal.current, proposal,
+        const last = lastProposal.current;
+        setForm((f) => {
+          const next = applyCodeProposal({ current: f.code, lastProposal: last, proposal });
+          // `null` = ό,τι πληκτρολόγησε ή δέχτηκε ρητά ο χρήστης· δεν το ακουμπάμε.
+          return next === null ? f : { ...f, code: next };
         });
-        // `null` = ό,τι πληκτρολόγησε ή δέχτηκε ρητά ο χρήστης· δεν το ακουμπάμε.
-        if (next === null) return;
-        lastProposal.current = next;
-        setForm((f) => ({ ...f, code: next }));
+        lastProposal.current = proposal;
       })
       .catch(() => { if (!ignore) setCodeSuggestion(null); })
       .finally(() => { if (!ignore) setCodeBusy(false); });
@@ -1514,44 +1512,53 @@ export function TraderPanel({
           </p>
         )}
 
-        {/*
-          Η συνέπεια που ΔΕΝ προκύπτει από τη φόρμα: τα παραστατικά χωρίς αναγνωρισμένη σειρά
-          δεν ζητούν τύπο, οπότε παίρνουν ΑΥΤΗ την καρτέλα — όποιου τύπου κι αν είναι. Γράφεται
-          δίπλα στην ενέργεια, πριν το κλικ, γιατί ο χρήστης πλέον προσθέτει τύπους και με δική
-          του πρωτοβουλία («Προσθήκη πιστωτή/χρεώστη»), όχι μόνο όταν κάποιο έγγραφο τον ζητά.
-        */}
-        {unknownSeriesNotice && (
-          <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
-            <FiInfo aria-hidden className="mt-0.5 size-3 shrink-0" />
-            <span>{unknownSeriesNotice}</span>
-          </p>
-        )}
+        <div className="flex flex-wrap items-end gap-2">
+          {/*
+            Οι ΔΥΟ ενέργειες που συνδέουν παραστατικά με καρτέλα — και μόνο πάνω από αυτές
+            μπαίνει η πρόταση για τα άγνωστης σειράς. Η «Αγνόηση» δεν συνδέει τίποτα: πάνω της
+            η ίδια πρόταση θα ήταν απλώς ψέμα, γι' αυτό μένει έξω από αυτή την ομάδα.
+          */}
+          <div className="flex flex-col gap-1.5">
+            {/*
+              Η συνέπεια που ΔΕΝ προκύπτει από τη φόρμα: τα παραστατικά χωρίς αναγνωρισμένη
+              σειρά δεν ζητούν τύπο, οπότε παίρνουν ΑΥΤΗ την καρτέλα — όποιου τύπου κι αν είναι.
+              Γράφεται πριν το κλικ, γιατί ο χρήστης πλέον προσθέτει τύπους και με δική του
+              πρωτοβουλία («Προσθήκη πιστωτή/χρεώστη»), όχι μόνο όταν κάποιο έγγραφο τον ζητά.
+            */}
+            {unknownSeriesNotice && (
+              <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                <FiInfo aria-hidden className="mt-0.5 size-3 shrink-0" />
+                <span>{unknownSeriesNotice}</span>
+              </p>
+            )}
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            className="cursor-pointer"
-            disabled={!canManage || busy !== null}
-            onClick={() => void create()}
-          >
-            {busy === 'create'
-              ? <FiLoader aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
-              : <FiUploadCloud aria-hidden className="size-4" />}
-            {busy === 'create' ? 'Δημιουργία…' : 'Δημιουργία στο SoftOne'}
-          </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                className="cursor-pointer"
+                disabled={!canManage || busy !== null}
+                onClick={() => void create()}
+              >
+                {busy === 'create'
+                  ? <FiLoader aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
+                  : <FiUploadCloud aria-hidden className="size-4" />}
+                {busy === 'create' ? 'Δημιουργία…' : 'Δημιουργία στο SoftOne'}
+              </Button>
 
-          <Button
-            type="button" variant="outline"
-            className="cursor-pointer"
-            disabled={!canManage || busy !== null}
-            aria-expanded={showSearch}
-            onClick={() => { setShowSearch((s) => !s); setIgnoring(false); }}
-          >
-            {busy === 'link'
-              ? <FiLoader aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
-              : <FiLink2 aria-hidden className="size-4" />}
-            Είναι υπάρχων…
-          </Button>
+              <Button
+                type="button" variant="outline"
+                className="cursor-pointer"
+                disabled={!canManage || busy !== null}
+                aria-expanded={showSearch}
+                onClick={() => { setShowSearch((s) => !s); setIgnoring(false); }}
+              >
+                {busy === 'link'
+                  ? <FiLoader aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
+                  : <FiLink2 aria-hidden className="size-4" />}
+                Είναι υπάρχων…
+              </Button>
+            </div>
+          </div>
 
           <Button
             type="button" variant="ghost"
