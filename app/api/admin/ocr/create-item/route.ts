@@ -8,7 +8,7 @@ import {
   buildItemPayload, softoneCreateItem,
   buildExpensePayload, softoneCreateExpense, softoneLoadExpenseTemplate,
   buildLineItemPayload, softoneCreateLineItem, softoneLoadLineItemTemplate,
-  softoneNextItemCode, isDuplicateCodeError, clearItemCodeCache,
+  softoneNextItemCode, isDuplicateCodeError, clearItemCodeCache, SoftoneOrphanError,
 } from '@/lib/softone';
 import { itemCodeMaskKey, ITEM_KIND_GENITIVE, type ItemCodeKind } from '@/lib/item-code';
 import { mirrorItemCodes } from '@/lib/item-code-mirror';
@@ -138,6 +138,18 @@ export async function POST(req: Request) {
     } catch (e) {
       const taken = await duplicateCode(e, 'lineitem', b);
       if (taken) return taken;
+      // Το read-back χτύπησε ΑΦΟΥ το SoftOne έγραψε: υπάρχει ορφανή χρεοπίστωση που δεν μπαίνει
+      // στον καθρέφτη ούτε στη γραμμή. Το MTRL δεν επιτρέπεται να ζει μόνο σε ένα toast — χωρίς
+      // αυτό κανείς δεν ξέρει αύριο τι να διορθώσει στον ERP.
+      if (e instanceof SoftoneOrphanError) {
+        console.error('[create-item] ορφανή χρεοπίστωση MTRL', e.mtrl, e.message);
+        await logAudit({
+          userId: u.id, userEmail: u.email,
+          action: 'ocr.item.create_softone_orphan',
+          resource: 'softone_lineitem', resourceId: String(e.mtrl),
+          metadata: { code: b.code, name: b.name, lineId: b.lineId ?? null, reason: e.message },
+        }).catch(() => null);
+      }
       return NextResponse.json({ error: 'softone_error', message: (e as Error).message }, { status: 502 });
     }
 

@@ -9,7 +9,7 @@ import {
   type TaxOffice, type GetTableTaxOfficesResponse,
 } from '@/lib/tax-office';
 import { SODTYPE_FOR_TRADER_KIND, type TraderKindName } from '@/lib/ocr/posting-target';
-import { LINEITEM_COPY_FIELDS, LINEITEM_TEMPLATE_READ_FIELDS } from '@/lib/ocr/lineitem-create';
+import { LINEITEM_COPY_FIELDS, LINEITEM_TEMPLATE_READ_FIELDS, parseLisourceType } from '@/lib/ocr/lineitem-create';
 import { nextTraderCode, type NextCodeResult } from '@/lib/trader-code';
 import { proposeItemCode, type ItemCodeKind, type ItemCodeProposal } from '@/lib/item-code';
 
@@ -38,6 +38,20 @@ export class SoftoneError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = 'SoftoneError';
+  }
+}
+
+/**
+ * Το SoftOne **δημιούργησε** την εγγραφή, αλλά το read-back βρήκε κάτι λάθος πάνω της.
+ *
+ * Χωριστή κλάση επειδή η αντιμετώπιση είναι άλλη: δεν είναι «η κλήση απέτυχε, ξαναπροσπάθησε» —
+ * υπάρχει ήδη **ορφανή** εγγραφή στον ERP που κανείς δεν κρατά. Το `mtrl` ταξιδεύει δομημένα
+ * ώστε ο καλών να το γράψει στο ιστορικό αντί να ζει μόνο μέσα σε ένα μήνυμα toast.
+ */
+export class SoftoneOrphanError extends SoftoneError {
+  constructor(message: string, readonly mtrl: number) {
+    super(message);
+    this.name = 'SoftoneOrphanError';
   }
 }
 
@@ -1958,18 +1972,36 @@ export async function softoneCreateLineItem(
   );
   const row = back[0];
   if (!row || !Number.isFinite(Number(row.MTRL))) {
-    throw new SoftoneError(`Η χρεοπίστωση ${mtrl} δεν βρέθηκε μετά τη δημιουργία (setData LINEITEM).`);
+    throw new SoftoneOrphanError(`Η χρεοπίστωση ${mtrl} δεν βρέθηκε μετά τη δημιουργία (setData LINEITEM).`, mtrl);
   }
   if (Number(row.SODTYPE) !== LINEITEM_SODTYPE) {
-    throw new SoftoneError(
+    throw new SoftoneOrphanError(
       `Η εγγραφή ${mtrl} γράφτηκε με SODTYPE ${row.SODTYPE ?? '—'} αντί για ${LINEITEM_SODTYPE}: δεν είναι χρεοπίστωση και δεν μπορεί να μπει σε γραμμή LINLINES.`,
+      mtrl,
     );
   }
   const backAcn = idOrNull(row.ACNMSK);
   if (backAcn !== input.acnmsk) {
-    throw new SoftoneError(
+    throw new SoftoneOrphanError(
       `Η χρεοπίστωση ${mtrl} γράφτηκε με λογαριασμό γενικής «${backAcn ?? '—'}» αντί για «${input.acnmsk}». `
       + 'Διόρθωσέ την στο SoftOne πριν τη χρησιμοποιήσεις — αλλιώς η δαπάνη θα πάει σε λάθος λογαριασμό.',
+      mtrl,
+    );
+  }
+  // Η «Κατηγορία τιμολόγησης» είναι ο ΛΟΓΟΣ ΥΠΑΡΞΗΣ της αντιγραφής: αν το SoftOne έκοψε έναν
+  // τύπο, η χρεοπίστωση δεν θα δεχόταν ποτέ τη γραμμή για την οποία τη φτιάξαμε — και θα το
+  // μαθαίναμε την ώρα της καταχώρισης. Συγκρίνουμε ΣΥΝΟΛΑ αριθμών, όχι κείμενο: η σειρά και τα
+  // κενά του SoftOne δεν είναι διαφορά. Επιπλέον τύποι είναι ανεκτοί (πιο επιτρεπτικό), τύπος
+  // που ΛΕΙΠΕΙ όχι.
+  const sentLisource = parseLisourceType(template.flags.LISOURCETYPE);
+  const backLisource = parseLisourceType(row.LISOURCETYPE);
+  const lostLisource = sentLisource.filter((t) => !backLisource.includes(t));
+  if (lostLisource.length) {
+    throw new SoftoneOrphanError(
+      `Η χρεοπίστωση ${mtrl} γράφτηκε με κατηγορία τιμολόγησης «${idOrNull(row.LISOURCETYPE) ?? '—'}» αντί για `
+      + `«${String(template.flags.LISOURCETYPE)}» — λείπει ${lostLisource.join(', ')}. `
+      + 'Διόρθωσέ την στο SoftOne πριν τη χρησιμοποιήσεις — αλλιώς δεν θα δεχτεί τη γραμμή του παραστατικού.',
+      mtrl,
     );
   }
   return {
