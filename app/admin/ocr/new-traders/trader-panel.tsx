@@ -17,6 +17,10 @@ import { VAT_COUNTRY_CODES, viesPrefix } from '@/lib/ocr/validate';
 import { applyVatPrefix, vatPrefixFor } from '@/lib/ocr/vat-prefix';
 import { validCoords, formatCoords } from '@/lib/coords';
 import { planRegistryFill, registryValue, type FieldSource } from '@/lib/ocr/registry-fill';
+import { applyCodeProposal } from '@/lib/trader-code';
+import {
+  TRADER_KINDS, addableTraderKinds, unknownSeriesLinkNotice, type TraderKind as TraderKindName,
+} from '@/lib/ocr/trader-kind-actions';
 import {
   resolveTaxOffice, planDoyFill, missingDoyNote, type TaxOffice, type TaxOfficeMapping,
 } from '@/lib/tax-office';
@@ -73,7 +77,9 @@ interface GeoParts {
 /** Οι συντεταγμένες που θα γραφούν στο SoftOne — δεν ζουν στο `FormState`: δεν πληκτρολογούνται. */
 type Coords = { lat: number; lng: number } | null;
 
-type TraderKind = 'supplier' | 'creditor' | 'debtor';
+// Ο τύπος και η σειρά του ζουν στο `lib/ocr/trader-kind-actions.ts`, μαζί με τη λογική «ποιοι
+// τύποι προσφέρονται»: το panel δεν κρατά δικό του αντίγραφο.
+type TraderKind = TraderKindName;
 
 /** Επιλογές χώρας της φόρμας: όσες αναγνωρίζει το VAT normalization + «Άλλη». */
 const COUNTRY_ITEMS = [
@@ -88,7 +94,7 @@ const COUNTRY_ITEMS = [
 const KIND_LABEL: Record<TraderKind, string> = {
   supplier: 'Προμηθευτής', creditor: 'Πιστωτής', debtor: 'Χρεώστης',
 };
-const KINDS: readonly TraderKind[] = ['supplier', 'creditor', 'debtor'];
+const KINDS = TRADER_KINDS;
 
 /**
  * Τύποι για τους οποίους αυτή η εγκατάσταση ΑΠΑΙΤΕΙ κωδικό — δηλαδή όλοι.
@@ -336,12 +342,32 @@ export function TraderPanel({
         if (ignore) return;
         setCodeSuggestion(d);
         const proposal = d?.code ? String(d.code) : '';
+        /*
+         * Η τιμή του πεδίου διαβάζεται ΜΟΝΟ μέσα από τον updater (`f.code`) και το ref ΜΟΝΟ έξω
+         * από αυτόν. Δύο διαφορετικά λάθη αποκλείονται ταυτόχρονα:
+         *
+         *  • **Updater που γράφει ref** (το αρχικό bug): ο React εκτελεί τον updater αργότερα και
+         *    σε StrictMode δύο φορές από την ΙΔΙΑ βάση, κρατώντας το αποτέλεσμα της δεύτερης. Η
+         *    πρώτη εκτέλεση άλλαζε το `lastProposal`, η δεύτερη έβλεπε πια διαφορά και επέστρεφε
+         *    το ΠΑΛΙΟ state: ο κωδικός δεν ακολουθούσε τον τύπο (χρεώστης με «0004» αντί για
+         *    «33-00002»). Γι' αυτό το `last` διαβάζεται ΠΡΙΝ — και οι δύο εκτελέσεις κρίνουν με
+         *    τα ίδια δεδομένα — και η ανάθεση γίνεται μετά.
+         *  • **Ανάγνωση της φόρμας από ref**: ένα ref που συγχρονίζεται σε passive effect
+         *    προλαβαίνει να είναι παλιό (πληκτρολόγηση που έκανε commit ενώ το microtask του
+         *    fetch τρέχει πριν το flush του effect) και θα έσβηνε το πλήκτρο του χρήστη. Το
+         *    `f.code` του updater είναι πάντα η τελευταία τιμή που ξέρει ο React, μαζί με ό,τι
+         *    έχει ήδη μπει στην ουρά — δεν υπάρχει παράθυρο.
+         *
+         * Ο ίδιος ο κανόνας («γράφουμε μόνο σε άδειο πεδίο ή πάνω στη δική μας πρόταση») ζει
+         * στο `applyCodeProposal` (`lib/trader-code.ts`), με tests.
+         */
+        const last = lastProposal.current;
         setForm((f) => {
-          const cur = f.code.trim();
-          if (cur !== '' && cur !== lastProposal.current) return f;
-          lastProposal.current = proposal;
-          return { ...f, code: proposal };
+          const next = applyCodeProposal({ current: f.code, lastProposal: last, proposal });
+          // `null` = ό,τι πληκτρολόγησε ή δέχτηκε ρητά ο χρήστης· δεν το ακουμπάμε.
+          return next === null ? f : { ...f, code: next };
         });
+        lastProposal.current = proposal;
       })
       .catch(() => { if (!ignore) setCodeSuggestion(null); })
       .finally(() => { if (!ignore) setCodeBusy(false); });
@@ -404,6 +430,32 @@ export function TraderPanel({
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => set(k, e.target.value),
     onBlur: () => blur(k),
   });
+
+  /**
+   * **Προεπιλογή τύπου στη φόρμα** — η μοναδική υλοποίηση, κοινή για κάθε σημείο που διαλέγει
+   * τύπο εκ μέρους του χρήστη: την κίτρινη γραμμή του τύπου που ΑΠΑΙΤΕΙΤΑΙ, τις ενέργειες
+   * «Προσθήκη …» και τα βελάκια του radiogroup.
+   *
+   * Η εστίαση στο radio δεν είναι καλλωπισμός: το κλικ γίνεται μακριά από τη φόρμα, οπότε χωρίς
+   * αυτήν ο χρήστης δεν βλέπει ΠΟΥ πήγε η επιλογή του και το πληκτρολόγιο μένει πίσω. Η αλλαγή
+   * τύπου σέρνει μαζί της και νέα πρόταση κωδικού (βλ. το effect του `form.kind`).
+   */
+  const selectKind = React.useCallback((kind: TraderKind) => {
+    setForm((f) => (f.kind === kind ? f : { ...f, kind }));
+    kindRefs.current[kind]?.focus();
+  }, []);
+
+  /**
+   * Οι τύποι που **μπορούν** να προστεθούν: ούτε έχουν ήδη καρτέλα (φαίνονται από πάνω), ούτε
+   * τους ζητά εκκρεμές παραστατικό (έχουν τη δική τους κίτρινη γραμμή με τον λόγο).
+   */
+  const addableKinds = React.useMemo(
+    () => addableTraderKinds({ cards: group.cards, missing: group.missing }),
+    [group.cards, group.missing],
+  );
+
+  /** Τι θα πάθουν τα παραστατικά άγνωστης σειράς με αυτή τη δημιουργία — `null` όταν δεν υπάρχουν. */
+  const unknownSeriesNotice = unknownSeriesLinkNotice(group.unknownSeriesDocs);
 
   /**
    * **Αυτόματη εφαρμογή του μητρώου.** Μόλις απαντήσει η ΑΑΔΕ (ή το VIES για ξένο εκδότη), τα
@@ -1061,16 +1113,40 @@ export function TraderPanel({
                   type="button" variant="outline" size="xs"
                   className="shrink-0 cursor-pointer"
                   disabled={!canManage}
-                  onClick={() => {
-                    setForm((f) => ({ ...f, kind: m.kind }));
-                    kindRefs.current[m.kind]?.focus();
-                  }}
+                  onClick={() => selectKind(m.kind)}
                 >
                   <FiPlusCircle aria-hidden className="size-3" /> Δημιουργία {KIND_ACCUSATIVE[m.kind]}
                 </Button>
               </li>
             ))}
           </ul>
+        )}
+
+        {/*
+          Οι τύποι που ΔΕΝ έχουν καρτέλα και δεν τους ζητά (ακόμη) κανένα παραστατικό: απλές
+          δευτερεύουσες ενέργειες, χωρίς κίτρινο και χωρίς λόγο — ο λογιστής ξέρει συχνά από πριν
+          ότι ο ίδιος εκδότης θα εμφανιστεί και ως πιστωτής ή χρεώστης, και δεν έχει νόημα να
+          περιμένει το παραστατικό που θα το επιβάλει. Το βάρος μένει ρητά μικρότερο από την
+          προειδοποίηση από πάνω: ίδια ενέργεια, άλλος βαθμός επείγοντος.
+        */}
+        {addableKinds.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-muted-foreground">
+              Διαθέσιμοι τύποι για αυτό το ΑΦΜ:
+            </span>
+            {addableKinds.map((k) => (
+              <Button
+                key={k}
+                type="button" variant="outline" size="xs"
+                className="cursor-pointer"
+                disabled={!canManage}
+                title={`Προετοιμάζει τη φόρμα για νέα καρτέλα ${KIND_ACCUSATIVE[k]} — ξεχωριστό TRDR και δικό του κωδικό.`}
+                onClick={() => selectKind(k)}
+              >
+                <FiPlusCircle aria-hidden className="size-3" /> Προσθήκη {KIND_ACCUSATIVE[k]}
+              </Button>
+            ))}
+          </div>
         )}
 
         {/* Τα έγγραφα που δεν ξέρουμε πού καταχωρούνται δεν ζητούν συγκεκριμένο τύπο. */}
@@ -1081,6 +1157,17 @@ export function TraderPanel({
             {' '}αναγνωρισμένη σειρά: δεν προκύπτει από αυτά ποιος τύπος καρτέλας χρειάζεται.
           </p>
         )}
+
+        {/* Ο πελάτης (SODTYPE 13) δεν είναι παράλειψη — είναι εκτός εμβέλειας, και το λέμε. */}
+        <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+          <FiInfo aria-hidden className="mt-0.5 size-3 shrink-0" />
+          {/* Ένα `span`, όχι γυμνά text nodes: το `flex` του `p` θα έκανε κάθε κομμάτι
+              ξεχωριστό flex item και η πρόταση θα έσπαγε με κενά στη μέση. */}
+          <span>
+            Καρτέλα <strong className="font-medium">πελάτη</strong> δεν δημιουργείται από εδώ:
+            η εφαρμογή καταχωρεί μόνο εισερχόμενα παραστατικά, ποτέ πωλήσεις.
+          </span>
+        </p>
       </section>
 
       {/* 3 — Φόρμα */}
@@ -1098,9 +1185,7 @@ export function TraderPanel({
               e.preventDefault();
               e.stopPropagation();
               const at = KINDS.indexOf(form.kind);
-              const next = KINDS[(at + (e.key === 'ArrowRight' ? 1 : -1) + KINDS.length) % KINDS.length];
-              setForm((f) => ({ ...f, kind: next }));
-              kindRefs.current[next]?.focus();
+              selectKind(KINDS[(at + (e.key === 'ArrowRight' ? 1 : -1) + KINDS.length) % KINDS.length]);
             }}
           >
             {KINDS.map((k) => {
@@ -1427,31 +1512,53 @@ export function TraderPanel({
           </p>
         )}
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            className="cursor-pointer"
-            disabled={!canManage || busy !== null}
-            onClick={() => void create()}
-          >
-            {busy === 'create'
-              ? <FiLoader aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
-              : <FiUploadCloud aria-hidden className="size-4" />}
-            {busy === 'create' ? 'Δημιουργία…' : 'Δημιουργία στο SoftOne'}
-          </Button>
+        <div className="flex flex-wrap items-end gap-2">
+          {/*
+            Οι ΔΥΟ ενέργειες που συνδέουν παραστατικά με καρτέλα — και μόνο πάνω από αυτές
+            μπαίνει η πρόταση για τα άγνωστης σειράς. Η «Αγνόηση» δεν συνδέει τίποτα: πάνω της
+            η ίδια πρόταση θα ήταν απλώς ψέμα, γι' αυτό μένει έξω από αυτή την ομάδα.
+          */}
+          <div className="flex flex-col gap-1.5">
+            {/*
+              Η συνέπεια που ΔΕΝ προκύπτει από τη φόρμα: τα παραστατικά χωρίς αναγνωρισμένη
+              σειρά δεν ζητούν τύπο, οπότε παίρνουν ΑΥΤΗ την καρτέλα — όποιου τύπου κι αν είναι.
+              Γράφεται πριν το κλικ, γιατί ο χρήστης πλέον προσθέτει τύπους και με δική του
+              πρωτοβουλία («Προσθήκη πιστωτή/χρεώστη»), όχι μόνο όταν κάποιο έγγραφο τον ζητά.
+            */}
+            {unknownSeriesNotice && (
+              <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                <FiInfo aria-hidden className="mt-0.5 size-3 shrink-0" />
+                <span>{unknownSeriesNotice}</span>
+              </p>
+            )}
 
-          <Button
-            type="button" variant="outline"
-            className="cursor-pointer"
-            disabled={!canManage || busy !== null}
-            aria-expanded={showSearch}
-            onClick={() => { setShowSearch((s) => !s); setIgnoring(false); }}
-          >
-            {busy === 'link'
-              ? <FiLoader aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
-              : <FiLink2 aria-hidden className="size-4" />}
-            Είναι υπάρχων…
-          </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                className="cursor-pointer"
+                disabled={!canManage || busy !== null}
+                onClick={() => void create()}
+              >
+                {busy === 'create'
+                  ? <FiLoader aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
+                  : <FiUploadCloud aria-hidden className="size-4" />}
+                {busy === 'create' ? 'Δημιουργία…' : 'Δημιουργία στο SoftOne'}
+              </Button>
+
+              <Button
+                type="button" variant="outline"
+                className="cursor-pointer"
+                disabled={!canManage || busy !== null}
+                aria-expanded={showSearch}
+                onClick={() => { setShowSearch((s) => !s); setIgnoring(false); }}
+              >
+                {busy === 'link'
+                  ? <FiLoader aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
+                  : <FiLink2 aria-hidden className="size-4" />}
+                Είναι υπάρχων…
+              </Button>
+            </div>
+          </div>
 
           <Button
             type="button" variant="ghost"

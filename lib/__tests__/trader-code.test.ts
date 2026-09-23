@@ -1,7 +1,7 @@
 // lib/__tests__/trader-code.test.ts
 // Ο μηχανισμός «επόμενος ελεύθερος κωδικός». Καθαρή λογική — κανένα I/O, κανένα mock.
 import { describe, it, expect } from 'vitest';
-import { nextTraderCode, parseCodeShape } from '../trader-code';
+import { applyCodeProposal, nextTraderCode, parseCodeShape } from '../trader-code';
 
 describe('parseCodeShape', () => {
   it.each([
@@ -114,5 +114,67 @@ describe('nextTraderCode — καμία απόδειξη', () => {
 
   it('μάσκα χωρίς ψηφία δίνεται ως έχει (δεν είναι σειρά)', () => {
     expect(nextTraderCode([], { mask: 'ΠΙΣΤ' })).toMatchObject({ code: 'ΠΙΣΤ', source: 'mask', width: 0 });
+  });
+});
+
+describe('applyCodeProposal — ο κωδικός ακολουθεί τον τύπο', () => {
+  it('γράφει την πρόταση σε άδειο πεδίο', () => {
+    expect(applyCodeProposal({ current: '', lastProposal: '', proposal: '0004' })).toBe('0004');
+  });
+
+  it('ΑΛΛΑΓΗ ΤΥΠΟΥ: το πεδίο που κρατά τη δική μας πρόταση παίρνει την αρίθμηση του νέου τύπου', () => {
+    // Ακριβώς το σενάριο που είχε σπάσει: «Προσθήκη χρεώστη» ενώ το πεδίο έχει τον
+    // προτεινόμενο κωδικό ΠΡΟΜΗΘΕΥΤΗ. Ο χρεώστης δεν παίρνει ΠΟΤΕ κωδικό προμηθευτή.
+    expect(applyCodeProposal({ current: '0004', lastProposal: '0004', proposal: '33-00002' })).toBe('33-00002');
+  });
+
+  it('ΧΕΙΡΟΚΙΝΗΤΟΣ ΚΩΔΙΚΟΣ: επιβιώνει της αλλαγής τύπου', () => {
+    expect(applyCodeProposal({ current: 'ΔΙΚΟΣ-ΜΟΥ', lastProposal: '0004', proposal: '33-00002' })).toBeNull();
+  });
+
+  it('ο χειροκίνητος κωδικός επιβιώνει και δεύτερης, τρίτης αλλαγής τύπου', () => {
+    const mine = { current: 'ΔΙΚΟΣ-ΜΟΥ', lastProposal: '0004' };
+    expect(applyCodeProposal({ ...mine, proposal: '33-00002' })).toBeNull();
+    expect(applyCodeProposal({ ...mine, proposal: '53-00002' })).toBeNull();
+  });
+
+  it('αλυσίδα προμηθευτής → χρεώστης → πιστωτής → προμηθευτής χωρίς παρέμβαση χρήστη', () => {
+    // Η ακολουθία που επαληθεύτηκε και ζωντανά στην ουρά.
+    let current = '';
+    let lastProposal = '';
+    for (const proposal of ['0004', '33-00002', '53-00002', '0004']) {
+      const next = applyCodeProposal({ current, lastProposal, proposal });
+      expect(next).toBe(proposal);
+      current = next as string;
+      lastProposal = next as string;
+    }
+    expect(current).toBe('0004');
+  });
+
+  it('ο χρήστης γράφει στη μέση της αλυσίδας και από εκεί και πέρα το πεδίο είναι δικό του', () => {
+    let current = applyCodeProposal({ current: '', lastProposal: '', proposal: '0004' }) as string;
+    const lastProposal = current;
+    current = 'ΧΕΙΡΟΚΙΝΗΤΟΣ';
+    expect(applyCodeProposal({ current, lastProposal, proposal: '33-00002' })).toBeNull();
+    expect(applyCodeProposal({ current, lastProposal, proposal: '53-00002' })).toBeNull();
+  });
+
+  it('πεδίο με μόνο κενά μετρά ως άδειο', () => {
+    expect(applyCodeProposal({ current: '   ', lastProposal: '', proposal: '53-00002' })).toBe('53-00002');
+  });
+
+  it('κενή πρόταση (ο server δεν πρότεινε) καθαρίζει το πεδίο μας, όχι του χρήστη', () => {
+    expect(applyCodeProposal({ current: '0004', lastProposal: '0004', proposal: '' })).toBe('');
+    expect(applyCodeProposal({ current: 'ΔΙΚΟΣ-ΜΟΥ', lastProposal: '0004', proposal: '' })).toBeNull();
+  });
+
+  it('είναι καθαρή: ίδια είσοδος, ίδια έξοδος, καμία παρενέργεια σε επανάληψη', () => {
+    // Ο React εκτελεί updaters δύο φορές σε StrictMode· η απόφαση δεν επιτρέπεται να
+    // αλλάζει στη δεύτερη εκτέλεση — εκεί ακριβώς είχε σπάσει η παλιά υλοποίηση.
+    const input = { current: '0004', lastProposal: '0004', proposal: '33-00002' };
+    const snapshot = { ...input };
+    expect(applyCodeProposal(input)).toBe('33-00002');
+    expect(applyCodeProposal(input)).toBe('33-00002');
+    expect(input).toEqual(snapshot);
   });
 });
