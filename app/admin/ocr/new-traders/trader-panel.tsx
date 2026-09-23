@@ -18,6 +18,9 @@ import { applyVatPrefix, vatPrefixFor } from '@/lib/ocr/vat-prefix';
 import { validCoords, formatCoords } from '@/lib/coords';
 import { planRegistryFill, registryValue, type FieldSource } from '@/lib/ocr/registry-fill';
 import {
+  TRADER_KINDS, addableTraderKinds, type TraderKind as TraderKindName,
+} from '@/lib/ocr/trader-kind-actions';
+import {
   resolveTaxOffice, planDoyFill, missingDoyNote, type TaxOffice, type TaxOfficeMapping,
 } from '@/lib/tax-office';
 import type { TraderCodeSamples, TraderGroup } from '@/lib/ocr/queues';
@@ -73,7 +76,9 @@ interface GeoParts {
 /** Οι συντεταγμένες που θα γραφούν στο SoftOne — δεν ζουν στο `FormState`: δεν πληκτρολογούνται. */
 type Coords = { lat: number; lng: number } | null;
 
-type TraderKind = 'supplier' | 'creditor' | 'debtor';
+// Ο τύπος και η σειρά του ζουν στο `lib/ocr/trader-kind-actions.ts`, μαζί με τη λογική «ποιοι
+// τύποι προσφέρονται»: το panel δεν κρατά δικό του αντίγραφο.
+type TraderKind = TraderKindName;
 
 /** Επιλογές χώρας της φόρμας: όσες αναγνωρίζει το VAT normalization + «Άλλη». */
 const COUNTRY_ITEMS = [
@@ -88,7 +93,7 @@ const COUNTRY_ITEMS = [
 const KIND_LABEL: Record<TraderKind, string> = {
   supplier: 'Προμηθευτής', creditor: 'Πιστωτής', debtor: 'Χρεώστης',
 };
-const KINDS: readonly TraderKind[] = ['supplier', 'creditor', 'debtor'];
+const KINDS = TRADER_KINDS;
 
 /**
  * Τύποι για τους οποίους αυτή η εγκατάσταση ΑΠΑΙΤΕΙ κωδικό — δηλαδή όλοι.
@@ -279,6 +284,12 @@ export function TraderPanel({
   const [codeBusy, setCodeBusy] = React.useState(false);
   /** Η τελευταία πρόταση που γράψαμε εμείς — για να ξέρουμε τι επιτρέπεται να αλλάξουμε. */
   const lastProposal = React.useRef<string>('');
+  /**
+   * Η ΤΡΕΧΟΥΣΑ φόρμα, διαθέσιμη σε async callbacks (π.χ. όταν απαντήσει η πρόταση κωδικού)
+   * χωρίς να τα δένει σε deps — και χωρίς να διαβάζουμε state μέσα από updater.
+   */
+  const formRef = React.useRef(form);
+  React.useEffect(() => { formRef.current = form; });
   const kindRefs = React.useRef<Partial<Record<TraderKind, HTMLButtonElement | null>>>({});
   const codeRef = React.useRef<HTMLInputElement | null>(null);
   /** Ποια διεύθυνση έχει ήδη ζητηθεί αυτόματα — καμία επανάληψη σε re-render. */
@@ -336,12 +347,25 @@ export function TraderPanel({
         if (ignore) return;
         setCodeSuggestion(d);
         const proposal = d?.code ? String(d.code) : '';
-        setForm((f) => {
-          const cur = f.code.trim();
-          if (cur !== '' && cur !== lastProposal.current) return f;
-          lastProposal.current = proposal;
-          return { ...f, code: proposal };
-        });
+        /*
+         * Η απόφαση «επιτρέπεται να γράψουμε τον κωδικό;» παίρνεται ΕΔΩ, έξω από τον updater.
+         *
+         * Πριν, ο updater του `setForm` διάβαζε ΚΑΙ έγραφε το `lastProposal` — δηλαδή δεν ήταν
+         * καθαρός. Ο React δεν εκτελεί τον updater τη στιγμή της κλήσης (τον εκτελεί στο επόμενο
+         * render, και σε StrictMode δύο φορές), οπότε το ref προλάβαινε να αλλάξει και ο έλεγχος
+         * `cur !== lastProposal.current` έβγαινε αληθής: ο updater επέστρεφε το ΠΑΛΙΟ state και
+         * **ο κωδικός δεν άλλαζε με τον τύπο**. Αποτέλεσμα ορατό στην ουρά: πατούσες «Προσθήκη
+         * χρεώστη» και η φόρμα κρατούσε τον κωδικό της αρίθμησης ΠΡΟΜΗΘΕΥΤΩΝ (π.χ. «0004» αντί
+         * για «33-00002») — έτοιμο να φύγει έτσι προς το SoftOne.
+         *
+         * Το `formRef` δίνει την ΤΡΕΧΟΥΣΑ τιμή του πεδίου σε αυτό το async callback χωρίς να
+         * ξαναδέσει το effect σε κάθε πληκτρολόγηση, και ο updater μένει καθαρός.
+         */
+        const cur = formRef.current.code.trim();
+        // Ό,τι πληκτρολόγησε ή δέχτηκε ρητά ο χρήστης δεν το ακουμπάμε.
+        if (cur !== '' && cur !== lastProposal.current) return;
+        lastProposal.current = proposal;
+        setForm((f) => ({ ...f, code: proposal }));
       })
       .catch(() => { if (!ignore) setCodeSuggestion(null); })
       .finally(() => { if (!ignore) setCodeBusy(false); });
@@ -404,6 +428,29 @@ export function TraderPanel({
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => set(k, e.target.value),
     onBlur: () => blur(k),
   });
+
+  /**
+   * **Προεπιλογή τύπου στη φόρμα** — η μοναδική υλοποίηση, κοινή για κάθε σημείο που διαλέγει
+   * τύπο εκ μέρους του χρήστη: την κίτρινη γραμμή του τύπου που ΑΠΑΙΤΕΙΤΑΙ, τις ενέργειες
+   * «Προσθήκη …» και τα βελάκια του radiogroup.
+   *
+   * Η εστίαση στο radio δεν είναι καλλωπισμός: το κλικ γίνεται μακριά από τη φόρμα, οπότε χωρίς
+   * αυτήν ο χρήστης δεν βλέπει ΠΟΥ πήγε η επιλογή του και το πληκτρολόγιο μένει πίσω. Η αλλαγή
+   * τύπου σέρνει μαζί της και νέα πρόταση κωδικού (βλ. το effect του `form.kind`).
+   */
+  const selectKind = React.useCallback((kind: TraderKind) => {
+    setForm((f) => (f.kind === kind ? f : { ...f, kind }));
+    kindRefs.current[kind]?.focus();
+  }, []);
+
+  /**
+   * Οι τύποι που **μπορούν** να προστεθούν: ούτε έχουν ήδη καρτέλα (φαίνονται από πάνω), ούτε
+   * τους ζητά εκκρεμές παραστατικό (έχουν τη δική τους κίτρινη γραμμή με τον λόγο).
+   */
+  const addableKinds = React.useMemo(
+    () => addableTraderKinds({ cards: group.cards, missing: group.missing }),
+    [group.cards, group.missing],
+  );
 
   /**
    * **Αυτόματη εφαρμογή του μητρώου.** Μόλις απαντήσει η ΑΑΔΕ (ή το VIES για ξένο εκδότη), τα
@@ -1061,16 +1108,40 @@ export function TraderPanel({
                   type="button" variant="outline" size="xs"
                   className="shrink-0 cursor-pointer"
                   disabled={!canManage}
-                  onClick={() => {
-                    setForm((f) => ({ ...f, kind: m.kind }));
-                    kindRefs.current[m.kind]?.focus();
-                  }}
+                  onClick={() => selectKind(m.kind)}
                 >
                   <FiPlusCircle aria-hidden className="size-3" /> Δημιουργία {KIND_ACCUSATIVE[m.kind]}
                 </Button>
               </li>
             ))}
           </ul>
+        )}
+
+        {/*
+          Οι τύποι που ΔΕΝ έχουν καρτέλα και δεν τους ζητά (ακόμη) κανένα παραστατικό: απλές
+          δευτερεύουσες ενέργειες, χωρίς κίτρινο και χωρίς λόγο — ο λογιστής ξέρει συχνά από πριν
+          ότι ο ίδιος εκδότης θα εμφανιστεί και ως πιστωτής ή χρεώστης, και δεν έχει νόημα να
+          περιμένει το παραστατικό που θα το επιβάλει. Το βάρος μένει ρητά μικρότερο από την
+          προειδοποίηση από πάνω: ίδια ενέργεια, άλλος βαθμός επείγοντος.
+        */}
+        {addableKinds.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-muted-foreground">
+              Διαθέσιμοι τύποι για αυτό το ΑΦΜ:
+            </span>
+            {addableKinds.map((k) => (
+              <Button
+                key={k}
+                type="button" variant="outline" size="xs"
+                className="cursor-pointer"
+                disabled={!canManage}
+                title={`Προετοιμάζει τη φόρμα για νέα καρτέλα ${KIND_ACCUSATIVE[k]} — ξεχωριστό TRDR και δικό του κωδικό.`}
+                onClick={() => selectKind(k)}
+              >
+                <FiPlusCircle aria-hidden className="size-3" /> Προσθήκη {KIND_ACCUSATIVE[k]}
+              </Button>
+            ))}
+          </div>
         )}
 
         {/* Τα έγγραφα που δεν ξέρουμε πού καταχωρούνται δεν ζητούν συγκεκριμένο τύπο. */}
@@ -1081,6 +1152,17 @@ export function TraderPanel({
             {' '}αναγνωρισμένη σειρά: δεν προκύπτει από αυτά ποιος τύπος καρτέλας χρειάζεται.
           </p>
         )}
+
+        {/* Ο πελάτης (SODTYPE 13) δεν είναι παράλειψη — είναι εκτός εμβέλειας, και το λέμε. */}
+        <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+          <FiInfo aria-hidden className="mt-0.5 size-3 shrink-0" />
+          {/* Ένα `span`, όχι γυμνά text nodes: το `flex` του `p` θα έκανε κάθε κομμάτι
+              ξεχωριστό flex item και η πρόταση θα έσπαγε με κενά στη μέση. */}
+          <span>
+            Καρτέλα <strong className="font-medium">πελάτη</strong> δεν δημιουργείται από εδώ:
+            η εφαρμογή καταχωρεί μόνο εισερχόμενα παραστατικά, ποτέ πωλήσεις.
+          </span>
+        </p>
       </section>
 
       {/* 3 — Φόρμα */}
@@ -1098,9 +1180,7 @@ export function TraderPanel({
               e.preventDefault();
               e.stopPropagation();
               const at = KINDS.indexOf(form.kind);
-              const next = KINDS[(at + (e.key === 'ArrowRight' ? 1 : -1) + KINDS.length) % KINDS.length];
-              setForm((f) => ({ ...f, kind: next }));
-              kindRefs.current[next]?.focus();
+              selectKind(KINDS[(at + (e.key === 'ArrowRight' ? 1 : -1) + KINDS.length) % KINDS.length]);
             }}
           >
             {KINDS.map((k) => {
