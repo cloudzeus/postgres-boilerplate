@@ -179,7 +179,15 @@ export function DataTable<TData, TValue>({
         cell: ({ row }) => (
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); row.toggleExpanded(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              const opening = !row.getIsExpanded();
+              const tr = (e.currentTarget as HTMLElement).closest('tr');
+              row.toggleExpanded();
+              // Το άνοιγμα πρέπει να ΦΑΙΝΕΤΑΙ: μια γραμμή χαμηλά στη λίστα ανοίγει εκτός
+              // βλέμματος και μοιάζει σαν να μην έγινε τίποτα.
+              if (opening) requestAnimationFrame(() => tr?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+            }}
             className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted dark:hover:bg-muted transition-colors"
             aria-label={row.getIsExpanded() ? 'Σύμπτυξη' : 'Επέκταση'}
           >
@@ -271,7 +279,20 @@ export function DataTable<TData, TValue>({
       const pad = (node: Element | null) => (node ? parseFloat(getComputedStyle(node).paddingBottom) || 0 : 0);
       const bottomGap = pad(main) + pad(main?.parentElement ?? null);
       const h = Math.floor(window.innerHeight - top - bottomGap);
-      setMinHeight(h > 320 ? h : 320);
+      /**
+       * ΠΑΡΑΠΑΝΩ ΑΠΟ 320px, ΑΛΛΙΩΣ ΚΑΘΟΛΟΥ ΟΡΙΟ.
+       *
+       * Το παλιό «πάτωμα» στα 320 έδινε ΓΡΑΜΜΑΤΟΚΙΒΩΤΙΟ όταν πάνω από τον πίνακα υπάρχει πολλή
+       * κεφαλίδα: σε laptop 1280×800 η κάρτα ξεκινά στο y=476, ο τύπος βγάζει 244 και το πάτωμα
+       * το ανέβαζε στα 320 — 269px ορατά πάνω σε 4540px περιεχομένου. Το άνοιγμα μιας γραμμής
+       * αποδιδόταν κανονικά αλλά **2794px πάνω από το ορατό**: ο χρήστης πατούσε και «δεν
+       * γινόταν τίποτα».
+       *
+       * Όταν δεν υπάρχει αρκετό ύψος, το σωστό ΔΕΝ είναι μικρότερο παράθυρο — είναι ΚΑΝΕΝΑ
+       * παράθυρο: η κάρτα μεγαλώνει όσο χρειάζεται και κυλάει η ΣΕΛΙΔΑ. Ένας scroller αντί για
+       * δύο φωλιασμένους, που ήταν και η μεγαλύτερη πηγή σύγχυσης.
+       */
+      setMinHeight(h > 320 ? h : undefined);
     };
     measure();
     window.addEventListener('resize', measure);
