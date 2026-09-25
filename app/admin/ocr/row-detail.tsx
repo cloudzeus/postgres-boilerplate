@@ -11,6 +11,8 @@ import { reconcileInvoice, analyzeLine } from '@/lib/ocr/invoice-math';
 import { toLineItems, EMPTY_LINE, type LineItem } from '@/lib/ocr/line-items';
 import { docTypeOf } from '@/lib/ocr/canonical';
 import { objectsForSosource } from '@/lib/ocr/posting-target';
+import { registryKindForSeries, LINE_KIND_LABEL } from '@/lib/ocr/resolution-plan';
+import type { MatchKind } from '@/lib/ocr/line-match';
 import { SoftoneChecksStrip } from '@/components/admin/softone-checks-strip';
 import { ZoomablePreview } from '@/components/admin/zoomable-preview';
 import { CustomFieldsBlock, LineCustomFields, hasLineCustomFields } from '@/components/admin/custom-fields';
@@ -251,7 +253,17 @@ export function OcrRowDetail({
   }
   function addLine() { setItems((arr) => [...arr, { ...EMPTY_LINE }]); }
   function removeLine(idx: number) { setItems((arr) => arr.filter((_, i) => i !== idx)); }
-  const [createLine, setCreateLine] = React.useState<{ code: string; name: string; service: boolean; vat: string } | null>(null);
+  const [createLine, setCreateLine] = React.useState<{ code: string; name: string; kind: MatchKind; vat: string } | null>(null);
+
+  /**
+   * ΤΙ ΜΗΤΡΩΟ ΘΕΛΕΙ **ΑΥΤΟ** ΤΟ ΠΑΡΑΣΤΑΤΙΚΟ. Το κουμπί ήταν ένα γυμνό «+» που δημιουργούσε
+   * ΠΑΝΤΑ είδος — και σε σειρά πιστωτών (1653), που δέχεται μόνο ΧΡΕΟΠΙΣΤΩΣΗ, έφτιαχνε κάτι που
+   * η καταχώριση θα απέρριπτε. Ο προορισμός είναι γνωστός από τη σειρά· ας τον ακολουθεί.
+   */
+  const lineKind: MatchKind | null = React.useMemo(() => {
+    const sep = seriesKey.indexOf(':');
+    return sep < 0 ? null : registryKindForSeries(Number(seriesKey.slice(0, sep)));
+  }, [seriesKey]);
   function reset() { setForm(initialForm); setItems(initialItems); setCategory(row.category ?? ''); setSeriesKey(initialSeriesKey); setDocType(row.docType); }
 
   function buildExtractedData() {
@@ -564,10 +576,18 @@ export function OcrRowDetail({
                           {!ro && (
                             <td className="px-2 py-1">
                               <div className="flex items-center justify-center gap-0.5">
-                                <button type="button" onClick={() => setCreateLine({ code: it.code, name: it.name, service: false, vat: it.vatRate })}
-                                  title="Δημιουργία είδους/υπηρεσίας στο SoftOne"
-                                  className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-sisyphus-500/10 hover:text-sisyphus-600">
+                                {/* ΟΧΙ γυμνό «+»: το εικονίδιο μόνο του δεν λέει ούτε τι δημιουργεί
+                                    ούτε πού. Τώρα κουβαλά το όνομα του μητρώου που ζητά η σειρά. */}
+                                <button type="button" disabled={lineKind == null}
+                                  onClick={() => lineKind && setCreateLine({ code: it.code, name: it.name, kind: lineKind, vat: it.vatRate })}
+                                  title={lineKind == null
+                                    ? 'Διάλεξε πρώτα σειρά παραστατικού — αυτή ορίζει σε ποιο μητρώο πρέπει να δείχνει η γραμμή'
+                                    : `Δημιουργία νέας εγγραφής «${LINE_KIND_LABEL[lineKind]}» στο SoftOne από αυτή τη γραμμή`}
+                                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[length:var(--fs-11)] font-medium text-muted-foreground transition hover:bg-sisyphus-500/10 hover:text-sisyphus-600 disabled:opacity-40">
                                   <FiPlusCircle className="size-3.5" />
+                                  {/* ΠΑΝΤΑ ορατό: κρυμμένο κάτω από `xl` ξανάγινε γυμνό «+», που
+                                      είναι ακριβώς το πρόβλημα που λύνουμε. */}
+                                  <span>{lineKind ? LINE_KIND_LABEL[lineKind] : 'Μητρώο'}</span>
                                 </button>
                                 <button type="button" onClick={() => removeLine(i)} title="Διαγραφή γραμμής"
                                   className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-dg-red-500/10 hover:text-dg-red-500">
@@ -697,13 +717,13 @@ export function OcrRowDetail({
         </div>
       </div>
 
-      {/* Η λίστα δεν ξέρει τον προορισμό της σειράς (αυτό το ξέρει η σελίδα του παραστατικού),
-          οπότε εδώ μένει η παλιά συμπεριφορά: είδος ή υπηρεσία. Ο δημιουργός όμως είναι πλέον
-          ο ΙΔΙΟΣ και στα δύο σημεία — ένας κώδικας, ένας κανόνας. */}
+      {/* Ο ΠΡΟΟΡΙΣΜΟΣ ΕΙΝΑΙ ΓΝΩΣΤΟΣ ΚΑΙ ΕΔΩ: η σειρά είναι πάνω στη φόρμα (`seriesKey`), άρα η
+          λίστα δεν χρειάζεται να μαντεύει «είδος». Ο δημιουργός είναι ο ΙΔΙΟΣ και στα δύο σημεία
+          — ένας κώδικας, ένας κανόνας. */}
       <CreateRegistryEntryModal
         open={createLine != null}
         onOpenChange={(o: boolean) => { if (!o) setCreateLine(null); }}
-        kind={createLine?.service ? 'service' : 'product'}
+        kind={createLine?.kind ?? 'product'}
         initialCode={createLine?.code}
         initialName={createLine?.name}
         initialVatRate={createLine?.vat}

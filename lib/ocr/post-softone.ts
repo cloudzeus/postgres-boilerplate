@@ -85,6 +85,7 @@ export const POST_WARNING_TEXT: Record<WarningCode, string> = {
   account_unknown: 'Ο έλεγχος λογαριασμού γενικής δεν μπόρεσε να κρίνει — ούτε εγκρίνει ούτε εμποδίζει',
   account_not_covered: 'Ο έλεγχος λογαριασμού γενικής δεν καλύπτει ακόμη γραμμές ειδών, υπηρεσιών και εξόδων — ο λογαριασμός τους συντίθεται στο SoftOne',
   account_vat_mismatch: 'Υπάρχει γραμμή που πάει σε λογαριασμό για άλλον συντελεστή ΦΠΑ από αυτόν της γραμμής — έλεγξε τη χρεοπίστωση',
+  shared_code_many_products: 'Γραμμές με ΔΙΑΦΟΡΕΤΙΚΕΣ περιγραφές μοιράζονται τον ίδιο κωδικό και ταίριαξαν όλες στο ίδιο είδος — συχνά ο κωδικός είναι δασμολογικός (CN), όχι κωδικός προϊόντος· έλεγξε τις γραμμές πριν την καταχώριση',
 };
 
 /** «Το λογιστικό σχέδιο δεν έχει συγχρονιστεί» — ΜΙΑ πρόταση, όχι μία ανά γραμμή. */
@@ -363,7 +364,7 @@ async function gather(id: string): Promise<Gathered> {
 
   return {
     doc, document, ctx, blockers,
-    warnings: postingWarnings(ctx, accounts),
+    warnings: postingWarnings(ctx, accounts, document),
     payload: buildPurdocPayload(document, ctx),
     accounts,
   };

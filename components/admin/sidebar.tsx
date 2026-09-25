@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   FiGrid, FiUsers, FiShield, FiKey, FiImage, FiChevronDown, FiList,
-  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiLayers, FiCpu, FiBookOpen, FiUserCheck, FiBox, FiTool, FiFolder, FiAlertCircle, FiUserPlus, FiPackage, FiPlayCircle,
+  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiLayers, FiCpu, FiBookOpen, FiUserCheck, FiBox, FiTool, FiFolder, FiAlertCircle, FiUserPlus, FiPackage, FiPlayCircle, FiUploadCloud,
 } from 'react-icons/fi';
 
 type IconType = React.ComponentType<{ className?: string }>;
@@ -59,6 +59,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/ocr/new-traders', label: 'Νέοι συναλλασσόμενοι', icon: FiUserPlus, permissions: ['ocr.read'], badgeKey: 'newTraders' },
       { href: '/admin/ocr/new-items', label: 'Είδη & έξοδα', icon: FiPackage, permissions: ['ocr.read'], badgeKey: 'newItems' },
       { href: '/admin/ocr/pending', label: 'Εκκρεμότητες OCR', icon: FiAlertCircle, permissions: ['ocr.read'] },
+      { href: '/admin/ocr/posted', label: 'Αναρτημένα SoftOne', icon: FiUploadCloud, permissions: ['ocr.read'] },
       { href: '/admin/ocr/templates', label: 'Πρότυπα εξαγωγής', icon: FiLayers, permissions: ['ocr.read'], exact: true },
       { href: '/admin/ocr/templates/jobs', label: 'Εργασίες σάρωσης', icon: FiPlayCircle, permissions: ['ocr.read'], badgeKey: 'activeJobs' },
     ],

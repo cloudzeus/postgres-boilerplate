@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   requiredTraderForTarget, allowedLineKinds, defaultLineKind, lineKindFits,
-  commonLineKind, lineKindsReason, KINDS_FOR_LINE_TABLE,
+  commonLineKind, lineKindsReason, KINDS_FOR_LINE_TABLE, registryKindForSeries, LINE_KIND_LABEL,
 } from '../resolution-plan';
 import {
   SODTYPE_FOR_OBJECT, SODTYPE_FOR_TRADER_KIND, TRADER_KIND_FOR_OBJECT, POST_OBJECTS, POST_LINE_TABLES,
@@ -203,6 +203,34 @@ describe('η προσφορά ταυτίζεται με την κρίση (lineF
             .toEqual({ table, kind, fits: lineFits(table, ctxFor(kind)) });
         }
       }
+    }
+  });
+});
+
+describe('registryKindForSeries — τι λέει το κουμπί δημιουργίας ανά ενότητα', () => {
+  it('κάθε ενότητα προσφέρει το μητρώο που ΔΕΧΕΤΑΙ ο πίνακας γραμμών της', () => {
+    // 1251 αγορές → AUTO (είδος/υπηρεσία/έξοδο): ξεκινάμε από Είδος.
+    expect(registryKindForSeries(1251)).toBe('product');
+    // Ειδικές συναλλαγές → LINLINES: ΜΟΝΟ χρεοπίστωση. Εδώ το παλιό «+» έφτιαχνε λάθος εγγραφή.
+    expect(registryKindForSeries(1653)).toBe('lineitem');
+    expect(registryKindForSeries(1253)).toBe('lineitem');
+    expect(registryKindForSeries(1553)).toBe('lineitem');
+  });
+
+  it('χωρίς σειρά ή σε μη υποστηριζόμενη ενότητα δεν προσφέρει τίποτα', () => {
+    // Το κουμπί κλειδώνει αντί να δημιουργήσει κάτι που δεν χωράει πουθενά.
+    expect(registryKindForSeries(null)).toBeNull();
+    expect(registryKindForSeries(undefined)).toBeNull();
+    expect(registryKindForSeries(Number.NaN)).toBeNull();
+    expect(registryKindForSeries(9999)).toBeNull();
+    // Απλογραφικά: ο picker δεν έχει μητρώο να προσφέρει — «δεν δέχεται τίποτα», όχι «άγνωστο».
+    expect(registryKindForSeries(1261)).toBeNull();
+  });
+
+  it('ό,τι επιστρέφει έχει ΠΑΝΤΑ ελληνική ετικέτα για το κουμπί', () => {
+    for (const so of [1251, 1253, 1553, 1653]) {
+      const k = registryKindForSeries(so)!;
+      expect(LINE_KIND_LABEL[k], `ενότητα ${so}`).toBeTruthy();
     }
   });
 });

@@ -210,7 +210,8 @@ export type BlockerCode =
 /** Μη-αποτρεπτικές παρατηρήσεις: φαίνονται στην προεπισκόπηση, δεν κλειδώνουν το κουμπί. */
 export type WarningCode =
   | 'no_mydata_classification' | 'mydata_from_master'
-  | 'account_unknown' | 'account_not_covered' | 'account_vat_mismatch';
+  | 'account_unknown' | 'account_not_covered' | 'account_vat_mismatch'
+  | 'shared_code_many_products';
 
 const num = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 
@@ -708,12 +709,52 @@ export function postingBlockers(
  * Παρατηρήσεις που ΔΕΝ εμποδίζουν: ο χρήστης πρέπει να τις δει πριν πατήσει «Καταχώριση», αλλά
  * δεν είναι λάθος του παραστατικού — είναι κατάσταση του μητρώου στο SoftOne.
  */
+/**
+ * ΕΝΑΣ ΚΩΔΙΚΟΣ, ΠΟΛΛΑ ΠΡΟΪΟΝΤΑ. Το πέρασμα κωδικού του `softone-match` ταιριάζει με ισότητα
+ * `code`/`code1`/`code2` — και δεν κάθε «κωδικός» σε τιμολόγιο είναι ταυτότητα προϊόντος.
+ *
+ * Μετρημένο ζωντανά: τιμολόγιο BESSEY με **29 διαφορετικά εργαλεία** που κουβαλούν όλα τον ίδιο
+ * `82057000` — τον **δασμολογικό κωδικό (CN)** για σφιγκτήρες, όχι κωδικό είδους. Το μητρώο του
+ * ERP τυχαίνει να έχει είδος με αυτόν τον κωδικό, οπότε και τα 29 θα γίνονταν σιωπηλά ΤΟ ΙΔΙΟ
+ * είδος: λάθος αποθήκη, λάθος κόστος, και κανείς δεν θα το έβλεπε ποτέ.
+ *
+ * ΔΕΝ μπλοκάρουμε: υπάρχει και η νόμιμη περίπτωση — ίδιο προϊόν σε πολλές γραμμές που διαφέρουν
+ * μόνο στο σειριακό (π.χ. «ΠΡΟΓΡΑΜΜΑ ΑΝΑΒΑΘΜΙΣΗΣ IRIS SN: …»). Εκεί το ταίριασμα είναι σωστό και
+ * ένα μπλόκο θα πετούσε δουλειά. Λέμε αυτό που ξέρουμε με βεβαιότητα: «ο κωδικός καλύπτει γραμμές
+ * με διαφορετικές περιγραφές — έλεγξέ τες».
+ */
+function sharedCodeManyProducts(
+  document: DocumentJson,
+  lines: readonly PurdocLineCtx[],
+): boolean {
+  const byRow = new Map(lines.map((l) => [l.rowIndex, l]));
+  const groups = new Map<string, { names: Set<string>; mtrls: Set<number> }>();
+  document.lines.forEach((line, i) => {
+    const code = text(line.code);
+    const mtrl = byRow.get(i)?.mtrl;
+    if (!code || mtrl == null) return;
+    let g = groups.get(code);
+    if (!g) { g = { names: new Set(), mtrls: new Set() }; groups.set(code, g); }
+    // ΟΧΙ `normalizeLineText`: αυτός κόβει επίτηδες τους αριθμούς, για να ταιριάζει η ΜΝΗΜΗ
+    // «ίδιο προϊόν, άλλο μέγεθος». Εδώ οι αριθμοί είναι ΤΟ ΠΑΝ — «TGRC 160/80» και «TGRC 500/120»
+    // είναι άλλο εργαλείο. Μετρημένο: με τον κανονικοποιητή της μνήμης και οι 10 γραμμές BESSEY
+    // έμοιαζαν ίδιες και η προειδοποίηση δεν χτυπούσε ποτέ.
+    g.names.add(line.name?.toLowerCase().replace(/\s+/g, ' ').trim() || '');
+    g.mtrls.add(mtrl);
+  });
+  // Διαφορετικές περιγραφές ΚΑΙ όλες κατέληξαν στο ΙΔΙΟ είδος: εκεί είναι το ρίσκο.
+  return Array.from(groups.values()).some((g) => g.names.size > 1 && g.mtrls.size === 1);
+}
+
 export function postingWarnings(
   ctx: Pick<PurdocContext, 'lines' | 'target'>,
   accounts?: AccountCheck | null,
+  /** Προαιρετικό: χωρίς αυτό δεν μπορεί να ελεγχθεί ο κοινός κωδικός (οι παλιοί καλούντες/tests). */
+  document?: DocumentJson | null,
 ): WarningCode[] {
   const out: WarningCode[] = [];
   const hasLines = ctx.lines.length > 0;
+  if (document && sharedCodeManyProducts(document, ctx.lines)) out.push('shared_code_many_products');
   if (hasLines && ctx.lines.some((l) => l.noClassification)) out.push('no_mydata_classification');
   // Οι πίνακες χωρίς πεδίο MYDATACODE: ο χαρακτηρισμός έρχεται αποκλειστικά από το μητρώο.
   if (hasLines && (ctx.target.lines === 'LINLINES' || ctx.target.lines === 'EXPANAL')) {

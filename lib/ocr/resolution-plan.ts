@@ -17,6 +17,7 @@
 import type { MatchKind } from '@/lib/ocr/line-match';
 import {
   SODTYPE_FOR_OBJECT,
+  defaultPostingTarget,
   TRADER_KIND_FOR_OBJECT,
   TRADER_KIND_TEXT,
   type PostObject,
@@ -155,4 +156,23 @@ export function commonLineKind(kinds: readonly (MatchKind | null | undefined)[])
   let bestN = 0;
   for (const [k, n] of tally) if (n > bestN) { best = k; bestN = n; }
   return best;
+}
+
+/**
+ * ΤΙ ΜΗΤΡΩΟ ΠΡΟΣΦΕΡΕΙ ΤΟ ΚΟΥΜΠΙ «ΔΗΜΙΟΥΡΓΙΑ» μιας γραμμής, με βάση ΜΟΝΟ την ενότητα της σειράς.
+ *
+ * Υπήρχε ένα γυμνό «+» δίπλα σε κάθε γραμμή που δημιουργούσε **πάντα ΕΙΔΟΣ** — και σε σειρά
+ * πιστωτών (1653), που δέχεται μόνο ΧΡΕΟΠΙΣΤΩΣΗ, έφτιαχνε εγγραφή που η καταχώριση θα απέρριπτε.
+ * Ούτε το εικονίδιο έλεγε τι κάνει. Η ενότητα ξέρει την απάντηση· την επιστρέφουμε ρητά, και η
+ * ετικέτα του κουμπιού είναι το `LINE_KIND_LABEL` αυτής της τιμής.
+ *
+ * `null` = δεν έχει επιλεγεί (ή δεν υποστηρίζεται) σειρά ⇒ το κουμπί κλειδώνει και το λέει.
+ * Όταν η ενότητα δέχεται πολλά (PURDOC: είδος/υπηρεσία/έξοδο) ξεκινάμε από **Είδος**, και ο
+ * χρήστης αλλάζει μέσα στο modal.
+ */
+export function registryKindForSeries(sosource: number | null | undefined): MatchKind | null {
+  if (sosource == null || !Number.isFinite(Number(sosource))) return null;
+  const allowed = allowedLineKinds(defaultPostingTarget({ sosource: Number(sosource) }));
+  if (allowed.length === 0) return null;
+  return allowed.includes('product') ? 'product' : allowed[0];
 }

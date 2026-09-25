@@ -417,6 +417,62 @@ describe('postingWarnings', () => {
     expect(postingWarnings(ctx({ lines: [{ rowIndex: 0, mtrl: 555 }] })))
       .not.toContain('mydata_from_master');
   });
+
+  describe('ένας κωδικός, πολλά προϊόντα', () => {
+    // Οι γραμμές του πραγματικού τιμολογίου BESSEY: διαφορετικά εργαλεία, ΙΔΙΟΣ δασμολογικός 82057000.
+    const withCodes = (rows: [code: string, name: string][]): DocumentJson => doc({
+      lines: rows.map(([code, name]) => ({
+        code, name, unit: null, quantity: 1, unitPrice: 100, discount: 0,
+        net: 100, vatRate: 24, vatAmount: 24, total: 124, custom: {},
+      })),
+    });
+    const matchedTo = (...mtrls: number[]) =>
+      ctx({ lines: mtrls.map((mtrl, rowIndex) => ({ rowIndex, mtrl })) });
+
+    it('δασμολογικός κωδικός σε διαφορετικά προϊόντα → προειδοποίηση', () => {
+      const d = withCodes([['82057000', 'Clippix XC 50/50'], ['82057000', 'Lever clamp GH 300/120']]);
+      expect(postingWarnings(matchedTo(2914, 2914), null, d)).toContain('shared_code_many_products');
+    });
+
+    it('ΔΕΝ είναι εμπόδιο — η καταχώριση παραμένει δυνατή', () => {
+      const d = withCodes([['82057000', 'Clippix XC 50/50'], ['82057000', 'Lever clamp GH 300/120']]);
+      expect(postingBlockers(d, postingDoc(), matchedTo(2914, 2914))).toEqual([]);
+    });
+
+    it('ΜΕΓΕΘΗ που διαφέρουν μόνο σε αριθμούς μετρούν ως διαφορετικά προϊόντα', () => {
+      // Οι πραγματικές γραμμές: 10 μεγέθη TGRC δεμένα όλα στο «TGRC 160». Ο κανονικοποιητής της
+      // μνήμης τα ισοπεδώνει σε ένα όνομα — αν τον χρησιμοποιούσαμε εδώ, δεν θα χτυπούσε ΠΟΤΕ.
+      const d = withCodes([
+        ['82057000', 'Malleable cast iron screw clamp TGRC 160/80'],
+        ['82057000', 'Malleable cast iron screw clamp TGRC 500/120'],
+      ]);
+      expect(postingWarnings(matchedTo(2914, 2914), null, d)).toContain('shared_code_many_products');
+    });
+
+    it('ίδιος κωδικός ΚΑΙ ίδια περιγραφή → καμία προειδοποίηση', () => {
+      const d = withCodes([['82057000', 'Screw clamp TG 20'], ['82057000', 'Screw clamp TG 20']]);
+      expect(postingWarnings(matchedTo(2914, 2914), null, d)).not.toContain('shared_code_many_products');
+    });
+
+    it('διαφορετικές περιγραφές σε ΔΙΑΦΟΡΕΤΙΚΑ είδη → σωστό, καμία προειδοποίηση', () => {
+      const d = withCodes([['82057000', 'Clippix XC 50/50'], ['82057000', 'Lever clamp GH 300/120']]);
+      expect(postingWarnings(matchedTo(2914, 3001), null, d)).not.toContain('shared_code_many_products');
+    });
+
+    it('ΑΝΑΝΤΙΣΤΟΙΧΙΣΤΕΣ γραμμές δεν προειδοποιούν — δεν έχει γίνει ακόμη λάθος', () => {
+      const d = withCodes([['82057000', 'Clippix XC 50/50'], ['82057000', 'Lever clamp GH 300/120']]);
+      expect(postingWarnings(ctx({ lines: [] }), null, d)).not.toContain('shared_code_many_products');
+    });
+
+    it('χωρίς κωδικό γραμμής δεν υπάρχει ομάδα να κριθεί', () => {
+      const d = withCodes([['', 'Clippix XC 50/50'], ['', 'Lever clamp GH 300/120']]);
+      expect(postingWarnings(matchedTo(2914, 2914), null, d)).not.toContain('shared_code_many_products');
+    });
+
+    it('χωρίς έγγραφο ο έλεγχος δεν τρέχει (παλιοί καλούντες)', () => {
+      expect(postingWarnings(matchedTo(2914, 2914))).not.toContain('shared_code_many_products');
+    });
+  });
 });
 
 describe('postingBlockers — σειρά και συναλλασσόμενος', () => {
