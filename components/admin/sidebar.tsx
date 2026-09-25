@@ -115,6 +115,29 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
   // Collapsible groups: all open by default, remembered per browser, and the
   // group holding the current route is always forced open on navigation.
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
+
+  /**
+   * ΣΥΜΠΤΥΞΗ ΣΕ ΣΤΕΝΕΣ ΟΘΟΝΕΣ. Σε business laptop 1280px το sidebar των 244px είναι το **19%**
+   * της οθόνης — και ο πίνακας παραστατικών, που θέλει ~1100px, αναγκαζόταν σε μόνιμη οριζόντια
+   * κύλιση. Κάτω από 1440px ανοίγει συμπτυγμένο (μόνο εικονίδια, 60px) και κερδίζονται 184px.
+   *
+   * Ο χρήστης έχει πάντα τον τελευταίο λόγο: η επιλογή του αποθηκεύεται και ΝΙΚΑΕΙ το πλάτος —
+   * ένα sidebar που ξαναμαζεύεται μόνο του σε κάθε φόρτωση είναι χειρότερο από στενή οθόνη.
+   */
+  const [collapsed, setCollapsed] = React.useState(false);
+  React.useEffect(() => {
+    let saved: string | null = null;
+    try { saved = window.localStorage.getItem('admin.sidebar.collapsed'); } catch { /* private mode */ }
+    if (saved === '1' || saved === '0') { setCollapsed(saved === '1'); return; }
+    setCollapsed(window.innerWidth < 1440);
+  }, []);
+  const toggleCollapsed = React.useCallback(() => {
+    setCollapsed((c) => {
+      const next = !c;
+      try { window.localStorage.setItem('admin.sidebar.collapsed', next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
   React.useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(OPEN_GROUPS_KEY) ?? '{}') as Record<string, boolean>;
@@ -164,17 +187,37 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
   const allBadges: Badges = { ...badges, ...queueCounts };
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-[244px] shrink-0 flex-col self-start border-r border-sidebar-border bg-sidebar lg:flex">
+    <aside
+      data-collapsed={collapsed ? '' : undefined}
+      className={cn(
+        'sticky top-0 hidden h-screen shrink-0 flex-col self-start border-r border-sidebar-border bg-sidebar lg:flex cx-transition',
+        collapsed ? 'w-[60px]' : 'w-[244px]',
+      )}
+    >
       <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
         <Link href="/admin" className="-m-1.5 flex items-center rounded-md p-1.5" aria-label="DGsoft">
           <img src={BRAND_LOGO_URL} alt="DGsoft" className="h-7 w-auto" />
         </Link>
-        <span className="ml-auto inline-flex items-center gap-1 rounded-sm border border-border px-1.5 py-0.5 text-[length:var(--fs-10)] font-medium uppercase tracking-wide text-muted-foreground">
-          <FiShield className="size-3" /> Admin
-        </span>
+        {!collapsed && (
+          <span className="ml-auto inline-flex items-center gap-1 rounded-sm border border-border px-1.5 py-0.5 text-[length:var(--fs-10)] font-medium uppercase tracking-wide text-muted-foreground">
+            <FiShield className="size-3" /> Admin
+          </span>
+        )}
+        <button
+          type="button" onClick={toggleCollapsed}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? 'Άνοιγμα πλαϊνού μενού' : 'Σύμπτυξη πλαϊνού μενού'}
+          title={collapsed ? 'Άνοιγμα μενού' : 'Σύμπτυξη μενού'}
+          className={cn(
+            'grid size-7 shrink-0 place-items-center rounded-sm text-muted-foreground cx-transition hover:bg-[var(--cx-hover)] hover:text-foreground',
+            collapsed ? 'mx-auto' : 'ml-1',
+          )}
+        >
+          <FiChevronDown aria-hidden className={cn('size-3.5', collapsed ? '-rotate-90' : 'rotate-90')} />
+        </button>
       </div>
 
-      <div className="border-b border-sidebar-border px-4 py-2.5">
+      <div className={cn('border-b border-sidebar-border px-4 py-2.5', collapsed && 'hidden')}>
         <p className="cx-eyebrow">Ρόλος</p>
         <p className="mt-0.5 truncate text-[length:var(--fs-13)] font-medium text-foreground">{roleName}</p>
       </div>
@@ -192,7 +235,12 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
                 onClick={() => toggleGroup(group.label)}
                 aria-expanded={expanded}
                 aria-controls={groupId}
-                className="mb-1 flex h-7 w-full items-center gap-1 rounded-sm px-2 text-left cx-transition hover:bg-[var(--cx-hover)]"
+                className={cn(
+                  'mb-1 flex h-7 w-full items-center gap-1 rounded-sm px-2 text-left cx-transition hover:bg-[var(--cx-hover)]',
+                  // Μαζεμένο: ο τίτλος ομάδας φεύγει, αλλά η ομάδα ΔΕΝ κλείνει — αλλιώς τα
+                  // εικονίδια θα κρύβονταν κι αυτά και το μενού θα ήταν άχρηστο.
+                  collapsed && 'hidden',
+                )}
               >
                 <span className="cx-eyebrow flex-1">{group.label}</span>
                 <FiChevronDown
@@ -208,8 +256,11 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
                     <li key={item.href}>
                       <Link
                         href={item.href}
+                        title={collapsed ? item.label : undefined}
+                        aria-label={collapsed ? item.label : undefined}
                         className={cn(
-                          'group/item relative flex h-8 items-center gap-2.5 rounded-sm px-2 text-[length:var(--fs-13)] font-medium cx-transition',
+                          'group/item relative flex h-8 items-center rounded-sm text-[length:var(--fs-13)] font-medium cx-transition',
+                          collapsed ? 'justify-center px-0' : 'gap-2.5 px-2',
                           active
                             ? 'bg-[var(--cx-accent-soft)] text-foreground'
                             : 'text-muted-foreground hover:bg-[var(--cx-hover)] hover:text-foreground',
@@ -223,11 +274,23 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
                           )}
                         />
                         <item.icon className={cn('size-3.5', active ? 'text-[var(--cx-accent)]' : 'text-muted-foreground/80')} />
-                        <span className="flex-1 truncate">{item.label}</span>
+                        {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
                         {badge !== undefined && badge > 0 && (
-                          <span className="min-w-[18px] rounded-full px-1 text-center text-[length:var(--fs-10)] font-medium tabular-nums text-muted-foreground ring-1 ring-inset ring-border/70">
-                            {badge > 99 ? '99+' : badge}
-                          </span>
+                          collapsed
+                            // Μαζεμένο: ο αριθμός δεν χωράει, αλλά η ΕΙΔΟΠΟΙΗΣΗ δεν επιτρέπεται να
+                            // χαθεί — μένει ως κουκκίδα, με το πλήθος στο tooltip.
+                            ? (
+                              <span
+                                aria-hidden
+                                title={`${item.label}: ${badge}`}
+                                className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[var(--cx-accent)]"
+                              />
+                            )
+                            : (
+                              <span className="min-w-[18px] rounded-full px-1 text-center text-[length:var(--fs-10)] font-medium tabular-nums text-muted-foreground ring-1 ring-inset ring-border/70">
+                                {badge > 99 ? '99+' : badge}
+                              </span>
+                            )
                         )}
                       </Link>
                     </li>
@@ -240,17 +303,21 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
       </nav>
 
       <div className="border-t border-sidebar-border p-2 space-y-2">
-        <div className="px-1">
-          <LocaleSwitcher currentLocale={locale} />
-        </div>
-        <div className="flex items-center gap-2.5 rounded-sm px-2 py-1.5">
+        {!collapsed && (
+          <div className="px-1">
+            <LocaleSwitcher currentLocale={locale} />
+          </div>
+        )}
+        <div className={cn('flex items-center rounded-sm py-1.5', collapsed ? 'flex-col gap-1 px-0' : 'gap-2.5 px-2')}>
           <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-muted text-[length:var(--fs-10)] font-medium text-foreground">
             {initials || 'U'}
           </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[length:var(--fs-12)] font-medium text-foreground">{user.name ?? user.email ?? 'User'}</p>
-            <p className="truncate text-[length:var(--fs-10)] uppercase tracking-wide text-muted-foreground">{roleName.toLowerCase()}</p>
-          </div>
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[length:var(--fs-12)] font-medium text-foreground">{user.name ?? user.email ?? 'User'}</p>
+              <p className="truncate text-[length:var(--fs-10)] uppercase tracking-wide text-muted-foreground">{roleName.toLowerCase()}</p>
+            </div>
+          )}
           <Link
             href="/api/auth/signout"
             title="Αποσύνδεση"

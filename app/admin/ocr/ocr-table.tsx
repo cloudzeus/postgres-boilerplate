@@ -425,6 +425,7 @@ export function OcrTable({
     {
       accessorKey: 'fileName',
       header: 'Αρχείο',
+      size: 160,
       cell: ({ row }) => {
         const r = row.original;
         const dup = dupInfo.get(r.id);
@@ -450,30 +451,50 @@ export function OcrTable({
         );
       },
     },
+    /*
+      ΔΥΟ ΓΡΑΜΜΕΣ ΑΝΤΙ ΓΙΑ ΔΥΟ ΣΤΗΛΕΣ. Ο πίνακας είχε 14 στήλες και ζητούσε 2118px — σε laptop
+      1280px αυτό σημαίνει μόνιμη ΟΡΙΖΟΝΤΙΑ κύλιση, και μαζί με τους φωλιασμένους κάθετους
+      scrollers ο χρήστης δεν ξέρει πια ποιον κινεί. Το ζητούμενο ήταν ψηλότερη γραμμή, όχι
+      πλατύτερος πίνακας: ό,τι ανήκει μαζί μπαίνει στο ΙΔΙΟ κελί, σε δύο σειρές.
+
+      Το `accessorFn` ΕΝΩΝΕΙ τις τιμές, ώστε η αναζήτηση και η ταξινόμηση να εξακολουθούν να
+      πιάνουν ΚΑΙ τα δύο πεδία — αλλιώς η συγχώνευση θα έκοβε σιωπηλά την αναζήτηση με ΑΦΜ.
+    */
     {
-      accessorKey: 'issuer',
-      header: 'Εκδότης / Τίτλος',
-      cell: ({ row }) => row.original.issuer ?? <span className="text-muted-foreground">-</span>,
+      id: 'issuer',
+      size: 160,
+      accessorFn: (r: OcrRow) => [r.issuer, r.vatNumber].filter(Boolean).join(' '),
+      header: 'Εκδότης',
+      cell: ({ row }) => {
+        const r = row.original;
+        return (
+          <div className="flex min-w-0 flex-col leading-tight">
+            <span className="truncate">{r.issuer ?? <span className="text-muted-foreground">-</span>}</span>
+            {r.vatNumber && (
+              <span className="font-mono text-[length:var(--fs-10)] text-muted-foreground">ΑΦΜ {r.vatNumber}</span>
+            )}
+          </div>
+        );
+      },
     },
     {
-      accessorKey: 'docNumber',
-      header: 'Αρ. Παραστατικού',
-      cell: ({ row }) => (
-        <span className="font-mono text-xs">{row.original.docNumber ?? '-'}</span>
-      ),
-    },
-    {
-      accessorKey: 'docDate',
-      header: 'Ημερομηνία',
-      cell: ({ row }) => row.original.docDate ?? <span className="text-muted-foreground">-</span>,
-    },
-    {
-      accessorKey: 'vatNumber',
-      header: 'ΑΦΜ',
-      cell: ({ row }) => <span className="font-mono text-xs">{row.original.vatNumber ?? '-'}</span>,
+      id: 'doc',
+      size: 105,
+      accessorFn: (r: OcrRow) => [r.docNumber, r.docDate].filter(Boolean).join(' '),
+      header: 'Παραστατικό',
+      cell: ({ row }) => {
+        const r = row.original;
+        return (
+          <div className="flex min-w-0 flex-col leading-tight">
+            <span className="font-mono text-xs">{r.docNumber ?? '-'}</span>
+            {r.docDate && <span className="text-[length:var(--fs-10)] text-muted-foreground">{r.docDate}</span>}
+          </div>
+        );
+      },
     },
     {
       id: 'softone',
+      size: 115,
       header: 'SoftOne',
       cell: ({ row }) => {
         const r = row.original;
@@ -511,6 +532,8 @@ export function OcrTable({
     },
     {
       id: 'series',
+      size: 130,
+      accessorFn: (r: OcrRow) => [r.softoneSeries, r.category].filter(Boolean).join(' '),
       // «Σειρά»: το αποτέλεσμα του αυτόματου ταξινομητή. Κλικ ανοίγει τη γραμμή, όπου βρίσκεται
       // ο επιλογέας σειράς (η αλλαγή γίνεται `manual` και δεν ξαναγράφεται αυτόματα).
       // Χωρίς καμία ενεργοποιημένη σειρά (ούτε αγορών ούτε πιστωτών) η στήλη κρατά το όνομά της
@@ -555,129 +578,110 @@ export function OcrTable({
                 </span>
               )}
             </span>
-            <span className="text-[length:var(--fs-10)] text-muted-foreground">
-              {opt?.family ?? SERIES_SIDE_LABEL[seriesTraderKind(r.seriesSource ?? 1251)]}{manual ? ' · χειροκίνητη' : ''}
+            <span className="flex flex-wrap items-center gap-1 text-[length:var(--fs-10)] text-muted-foreground">
+              <span>{opt?.family ?? SERIES_SIDE_LABEL[seriesTraderKind(r.seriesSource ?? 1251)]}{manual ? ' · χειροκίνητη' : ''}</span>
+              {/* Η ΚΑΤΗΓΟΡΙΑ ζει εδώ, όχι σε δική της στήλη: λέει το ίδιο πράγμα με τη σειρά —
+                  «τι είδους παραστατικό είναι» — και ως ξεχωριστή στήλη κόστιζε 105px για ένα chip. */}
+              {r.category && (
+                <Badge variant="outline" className="px-1 py-0 text-[length:var(--fs-10)]">
+                  {CATEGORY_LABEL[r.category] ?? r.category}
+                </Badge>
+              )}
             </span>
           </button>
         );
       },
     },
     {
-      accessorKey: 'templateRunStatus',
-      header: 'Πρότυπο',
-      // Alphabetical order over five Greek words tells nobody what to open first — sort by how loudly
-      // the run is asking for attention instead (μπλοκαρισμένο → απέτυχε → …  → κενό).
-      sortingFn: (a, b) => runSeverity(a.original.templateRunStatus) - runSeverity(b.original.templateRunStatus),
-      cell: ({ row }) => {
-        const r = row.original;
-        const st = r.templateRunStatus;
-        // Χωρίς εκτέλεση υπάρχουν δύο πολύ διαφορετικές σιωπές: «δεν έτρεξε ακόμη τίποτα» και
-        // «ψάξαμε και δεν ξέρουμε τι έντυπο είναι». Μόνο η δεύτερη ζητά κάτι από τον χρήστη.
-        if (!st) {
-          return r.unknownForm ? (
-            <span
-              className="inline-flex items-center rounded-full px-2 py-0.5 text-[length:var(--fs-11)] font-medium"
-              style={{ backgroundColor: '#EEF2FF', color: '#4338CA' }}
-              title="Δεν βρέθηκε πρότυπο ούτε από το ΑΦΜ ούτε από τη διάταξη — διάλεξε πρότυπο στην καρτέλα του εγγράφου"
-            >
-              Άγνωστο έντυπο
-            </span>
-          ) : (
-            <span className="text-xs text-muted-foreground">—</span>
-          );
-        }
-        return (
-          <div className="flex flex-col items-start gap-0.5 min-w-[120px]">
-            <span className="max-w-[150px] truncate text-[length:var(--fs-12)] font-medium text-foreground" title={r.templateName ?? undefined}>
-              {r.templateName ?? '—'}
-            </span>
-            <span className="flex items-center gap-1">
-              <RunStatusPill status={st} />
-              {r.blockedCount > 0 && (
-                <span
-                  className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[length:var(--fs-10)] font-bold tabular-nums"
-                  style={{ backgroundColor: '#FDE8E8', color: '#B91C1C' }}
-                  title={`${r.blockedCount} πεδία μπλοκάρουν την ανάρτηση`}
-                >
-                  {r.blockedCount}
-                </span>
-              )}
-              {r.reviewCount > 0 && (
-                <span
-                  className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[length:var(--fs-10)] font-bold tabular-nums"
-                  style={{ backgroundColor: '#FDF3E3', color: '#B45309' }}
-                  title={`${r.reviewCount} πεδία θέλουν έλεγχο`}
-                >
-                  {r.reviewCount}
-                </span>
-              )}
-            </span>
-          </div>
-        );
-      },
-    },
-    {
       accessorKey: 'total',
+      size: 88,
       header: () => <span className="block text-right">Σύνολο</span>,
       cell: ({ row }) => <span className="block text-right font-semibold">{fmtMoney(row.original.total)}</span>,
     },
+    /*
+      ΜΙΑ στήλη «Κατάσταση» αντί για τρεις (OCR · SoftOne · συμφωνία). Οι τρεις έλεγαν τρία
+      κομμάτια της ΙΔΙΑΣ ιστορίας — «πώς πήγε η ανάγνωση», «ανέβηκε;», «συμφωνούν τα ποσά;» —
+      και μαζί έτρωγαν το τρίτο του πλάτους. Μπαίνουν σε στήλη, με τη σειρά που τα κοιτάζει
+      κανείς: πρώτα αν διαβάστηκε, μετά αν στέκει, μετά αν ανέβηκε.
+    */
     {
-      accessorKey: 'category',
-      header: 'Κατηγορία',
-      cell: ({ row }) => row.original.category
-        ? <Badge variant="outline">{CATEGORY_LABEL[row.original.category] ?? row.original.category}</Badge>
-        : <span className="text-xs text-muted-foreground">—</span>,
-    },
-    {
-      accessorKey: 'status',
-      header: 'OCR',
+      id: 'status',
+      size: 155,
+      accessorFn: (r: OcrRow) => [r.status, r.postStatus, r.postedRef, r.templateName].filter(Boolean).join(' '),
+      header: 'Κατάσταση',
       cell: ({ row }) => {
         const r = row.original;
         const isProcessing = r.status === 'PROCESSING' || reextractingId === r.id;
-        if (isProcessing) {
-          return (
-            <div className="flex flex-col gap-1 min-w-[120px]">
-              <div className="flex items-center gap-1.5 text-[length:var(--fs-10)] font-semibold uppercase tracking-wide text-sisyphus-600">
-                <span className="inline-block size-1.5 animate-pulse rounded-full bg-sisyphus-500" />
-                Σκανάρισμα HQ…
-              </div>
-              <div className="relative h-1 overflow-hidden rounded-full bg-neutral-8">
-                <div className="absolute inset-y-0 w-1/3 animate-[ocrProgress_1.4s_ease-in-out_infinite] rounded-full bg-sisyphus-500" />
-              </div>
-            </div>
-          );
-        }
-        return <Badge variant={STATUS_VARIANT[r.status] ?? 'outline'}>{r.status}</Badge>;
-      },
-    },
-    {
-      accessorKey: 'postStatus',
-      header: 'SoftOne',
-      cell: ({ row }) => {
-        const r = row.original;
-        if (r.postStatus === 'NONE') return <span className="text-xs text-muted-foreground">—</span>;
+        const m = reconMeta(r);
         return (
-          <div className="flex flex-col items-start gap-0.5">
-            <Badge variant={POST_VARIANT[r.postStatus] ?? 'outline'}>{r.postStatus}</Badge>
-            {r.postedRef && <span className="font-mono text-[length:var(--fs-10)] text-muted-foreground">{r.postedRef}</span>}
+          <div className="flex min-w-0 flex-col items-start gap-1">
+            {isProcessing ? (
+              <div className="flex w-full min-w-[120px] flex-col gap-1">
+                <div className="flex items-center gap-1.5 text-[length:var(--fs-10)] font-semibold uppercase tracking-wide text-sisyphus-600">
+                  <span className="inline-block size-1.5 animate-pulse rounded-full bg-sisyphus-500" />
+                  Σκανάρισμα HQ…
+                </div>
+                <div className="relative h-1 overflow-hidden rounded-full bg-neutral-8">
+                  <div className="absolute inset-y-0 w-1/3 animate-[ocrProgress_1.4s_ease-in-out_infinite] rounded-full bg-sisyphus-500" />
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-1">
+                <Badge variant={STATUS_VARIANT[r.status] ?? 'outline'}>{r.status}</Badge>
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[length:var(--fs-10)] font-semibold"
+                  style={{ backgroundColor: m.tone.bg, color: m.tone.fg, borderColor: m.tone.bd }}
+                  title={m.problem ?? m.label}
+                >
+                  {m.pending && <span className="inline-block size-1.5 rounded-full" style={{ backgroundColor: m.tone.fg }} />}
+                  {m.label}
+                </span>
+              </div>
+            )}
+            {/* ΠΡΟΤΥΠΟ: μέρος της ίδιας ιστορίας «πώς πήγε η ανάγνωση», όχι δική του στήλη.
+                Ως ξεχωριστή στήλη κόστιζε 95px για ένα chip που ο χρήστης κοιτάζει μαζί με το OCR. */}
+            {(r.templateRunStatus || r.unknownForm) && (
+              <span className="flex min-w-0 flex-wrap items-center gap-1">
+                {r.templateRunStatus
+                  ? (
+                    <>
+                      <RunStatusPill status={r.templateRunStatus} />
+                      {r.templateName && (
+                        <span className="max-w-[110px] truncate text-[length:var(--fs-10)] text-muted-foreground" title={r.templateName}>
+                          {r.templateName}
+                        </span>
+                      )}
+                      {r.blockedCount > 0 && (
+                        <span
+                          className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[length:var(--fs-10)] font-bold tabular-nums"
+                          style={{ backgroundColor: '#FDE8E8', color: '#B91C1C' }}
+                          title={`${r.blockedCount} μπλοκαρισμένα πεδία`}
+                        >
+                          {r.blockedCount}
+                        </span>
+                      )}
+                    </>
+                  )
+                  : (
+                    <span
+                      className="inline-flex items-center rounded-full px-2 py-0.5 text-[length:var(--fs-10)] font-medium"
+                      style={{ backgroundColor: '#EEF2FF', color: '#4338CA' }}
+                      title="Δεν βρέθηκε πρότυπο ούτε από το ΑΦΜ ούτε από τη διάταξη — διάλεξε πρότυπο στην καρτέλα του εγγράφου"
+                    >
+                      Άγνωστο έντυπο
+                    </span>
+                  )}
+              </span>
+            )}
+            {r.postStatus !== 'NONE' && (
+              <span className="flex flex-wrap items-center gap-1">
+                <Badge variant={POST_VARIANT[r.postStatus] ?? 'outline'}>{r.postStatus}</Badge>
+                {r.postedRef && (
+                  <span className="font-mono text-[length:var(--fs-10)] text-muted-foreground">{r.postedRef}</span>
+                )}
+              </span>
+            )}
           </div>
-        );
-      },
-    },
-    {
-      id: 'recon',
-      header: 'Κατάσταση',
-      cell: ({ row }) => {
-        const m = reconMeta(row.original);
-        return (
-          <span
-            className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[length:var(--fs-10)] font-semibold"
-            style={{ backgroundColor: m.tone.bg, color: m.tone.fg, borderColor: m.tone.bd }}
-            title={m.problem ?? m.label}
-          >
-            {m.pending && <span className="inline-block size-1.5 rounded-full" style={{ backgroundColor: m.tone.fg }} />}
-            {m.label}
-          </span>
         );
       },
     },
