@@ -132,7 +132,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
   const traderValue = data.supplier.mismatch
     ? `${data.supplier.name} — λάθος τύπος (${data.supplier.kind ?? data.supplier.sodtype})`
     : !data.supplier.checked ? 'Δεν ελέγχθηκε'
-      : data.supplier.found ? String(data.supplier.name) : 'Δεν βρέθηκε';
+      : data.supplier.found ? String(data.supplier.name) : 'Χρειάζεται καρτέλα';
 
   return (
     <>
@@ -148,10 +148,10 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
             </Link>
           )}
           {data.target?.supported ? (
-            <>
-              <span className="font-medium text-foreground">{data.target.label}</span>
-              <span className="text-muted-foreground">· {data.target.reason}</span>
-            </>
+            /* ΤΟ «ΓΙΑΤΙ» ΣΕ TOOLTIP. Η αιτία («Ενότητα 1653 «Παραστατικά πιστωτών» → Ειδικές
+               συναλλαγές πιστωτών») επαναδιατυπώνει την ίδια την ετικέτα δίπλα της, σε διπλάσιο
+               μήκος. Μένει προσιτή, σταματά να τρώει γραμμή σε κάθε παραστατικό. */
+            <span className="font-medium text-foreground" title={data.target.reason}>{data.target.label}</span>
           ) : (
             <span className="inline-flex items-center gap-1" style={{ color: '#B45309' }}>
               <FiAlertTriangle aria-hidden className="size-3" />
@@ -182,7 +182,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                   <PopoverTrigger asChild>
                     <button type="button"
                       className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-current/20 px-2 py-1 text-[length:var(--fs-11)] font-semibold hover:bg-current/5">
-                      {data.supplier.mismatch ? 'Διόρθωσε' : 'Σύνδεσε'} <FiChevronDown className="size-3" />
+                      {data.supplier.mismatch ? 'Διόρθωσε' : data.supplier.found ? 'Αλλαγή' : 'Δημιουργία'} <FiChevronDown className="size-3" />
                     </button>
                   </PopoverTrigger>
                   <PopoverContent align="end" className="w-[24rem] space-y-2">
@@ -229,14 +229,16 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                     {/* ΕΞΑΚΡΙΒΩΣΗ ΠΡΙΝ ΤΗ ΔΗΜΙΟΥΡΓΙΑ. Μέχρι τώρα, για να δεις τι λέει η ΑΑΔΕ για
                         έναν ΑΦΜ έπρεπε να ΞΕΚΙΝΗΣΕΙΣ να φτιάχνεις καρτέλα. Τώρα κοιτάς πρώτα —
                         και βλέπεις σε ποιο πεδίο του SoftOne κάθεται το κάθε στοιχείο. */}
-                    {data.supplier.afm && <AadeVerifyPanel afm={data.supplier.afm} />}
-                    {req && (
-                      <button type="button" onClick={() => setCreatingTrader(true)}
-                        className="inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-md border border-sisyphus-500/30 px-2 py-1.5 text-[length:var(--fs-12)] font-semibold text-sisyphus-600 hover:bg-sisyphus-50">
-                        <FiPlusCircle className="size-3.5" /> Δημιουργία {req.labelAcc}
-                        {data.supplier.afm ? ` (ΑΦΜ ${data.supplier.afm})` : ''}
-                      </button>
+                    {data.supplier.afm && (
+                      <AadeVerifyPanel
+                        afm={data.supplier.afm}
+                        kind={req?.kind ?? null}
+                        onCreated={() => void load()}
+                      />
                     )}
+                    {/* ΧΩΡΙΣ ΔΕΥΤΕΡΟ ΚΟΥΜΠΙ ΔΗΜΙΟΥΡΓΙΑΣ: ο διάλογος ξαναρωτούσε την ΑΑΔΕ και
+                        ξαναζωγράφιζε τα ΙΔΙΑ πεδία που μόλις είδε ο χρήστης από πάνω. Η
+                        καταχώριση γίνεται μέσα στο panel εξακρίβωσης. */}
                     <TraderSearch
                       id={`trader-${docId}`}
                       label={req

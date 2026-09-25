@@ -157,13 +157,13 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
       <header className="rounded-xl border border-border bg-card p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="truncate text-lg font-semibold">{doc.fileName}</h1>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {doc.docType} · {doc.language.toUpperCase()} · {doc.mimeType} · {(doc.size / 1024).toFixed(1)} KB
-              {doc.pdfSource && ` · ${doc.pdfSource}`}
-              {doc.durationMs && ` · ${doc.durationMs} ms`}
-              {doc.model && ` · ${doc.model}`}
-            </p>
+            <h1
+              className="truncate text-lg font-semibold"
+              title={[
+                doc.docType, doc.language.toUpperCase(), doc.mimeType, `${(doc.size / 1024).toFixed(1)} KB`,
+                doc.pdfSource, doc.durationMs ? `${doc.durationMs} ms` : null, doc.model,
+              ].filter(Boolean).join(' · ')}
+            >{doc.fileName}</h1>
             {doc.softoneSeries && (
               <p
                 className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground"

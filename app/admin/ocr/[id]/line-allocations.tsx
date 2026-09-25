@@ -164,9 +164,21 @@ function AccountPicker({
     <div ref={boxRef} className="relative">
       <button
         type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
+        title={label ?? undefined}
         className={cn(CELL, 'flex items-center justify-between gap-2 text-left', !value && 'text-muted-foreground')}
       >
-        <span className="truncate">{label ?? (searchType === 'sxaccounts' ? 'Επίλεξε λογαριασμό εξόδων…' : 'Επίλεξε λογαριασμό δαπάνης…')}</span>
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          {label ? (
+            <>
+              <span className="shrink-0 font-mono font-semibold text-foreground">{label.split(' · ')[0]}</span>
+              {label.includes(' · ') && (
+                <span className="truncate text-muted-foreground">{label.slice(label.indexOf(' · ') + 3)}</span>
+              )}
+            </>
+          ) : (
+            <span className="truncate">{searchType === 'sxaccounts' ? 'Επίλεξε λογαριασμό εξόδων…' : 'Επίλεξε λογαριασμό δαπάνης…'}</span>
+          )}
+        </span>
         <FiSearch className="size-3.5 shrink-0 opacity-60" />
       </button>
       {panel}
@@ -473,7 +485,7 @@ export function LineAllocations({
           )}
 
           {rows.map((r, i) => (
-            <div key={i} className="grid grid-cols-1 gap-1.5 sm:grid-cols-[1fr_92px_120px_32px] sm:items-center">
+            <div key={i} className="grid grid-cols-1 gap-1.5 sm:grid-cols-[minmax(0,1fr)_84px_108px_28px] sm:items-center">
               <AccountPicker
                 value={r.registryMtrl || null}
                 label={r.registryMtrl ? [r.accountCode, r.accountName].filter(Boolean).join(' · ') || `#${r.registryMtrl}` : null}

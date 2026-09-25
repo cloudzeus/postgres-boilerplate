@@ -19,7 +19,8 @@ type Preview = {
   profession: string | null; address: string | null;
   zip: string | null; city: string | null;
   legalForm: string | null; isActive: boolean;
-  softoneDoy?: { office: { code: string; name: string } | null; note?: string | null } | null;
+  // `key` = η ΤΑΥΤΟΤΗΤΑ της γραμμής IRSDATA που στέλνεται στο SoftOne· `code`/`name` είναι για τον άνθρωπο.
+  softoneDoy?: { office: { key: string; code: string; name: string } | null; note?: string | null } | null;
 };
 
 const Row = ({ aade, softone, value, hint }: {
@@ -37,10 +38,43 @@ const Row = ({ aade, softone, value, hint }: {
   </div>
 );
 
-export function AadeVerifyPanel({ afm }: { afm: string }) {
+export function AadeVerifyPanel({ afm, kind, onCreated }: {
+  afm: string;
+  /** Ο τύπος καρτέλας που ζητά η σειρά. `null` = άγνωστη σειρά ⇒ ΔΕΝ δημιουργούμε στα τυφλά. */
+  kind: 'supplier' | 'creditor' | 'debtor' | null;
+  onCreated?: () => void;
+}) {
   const [data, setData] = React.useState<Preview | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [creating, setCreating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  /**
+   * ΕΝΑ ΣΗΜΕΙΟ, ΟΧΙ ΤΕΣΣΕΡΑ. Πριν, η ίδια δουλειά ζούσε σε τρεις οθόνες: αυτή η εξακρίβωση,
+   * ένας ξεχωριστός διάλογος που ΞΑΝΑΡΩΤΟΥΣΕ την ΑΑΔΕ και ξαναζωγράφιζε τα ίδια πεδία, και η
+   * ουρά «Νέοι συναλλασσόμενοι». Ό,τι μόλις επαληθεύτηκε καταχωρείται από ΕΔΩ.
+   */
+  async function create() {
+    if (!data || !kind) return;
+    setCreating(true); setError(null);
+    try {
+      const codeRes = await fetch(`/api/admin/ocr/new-traders/next-code?kind=${kind}`).then((r) => r.json()).catch(() => null);
+      const r = await fetch(`/api/admin/ocr/new-traders/${clean}/create`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind, name: data.name ?? '', code: codeRes?.code ?? null, country: 'GR',
+          irsData: data.softoneDoy?.office?.key ?? null,
+          profession: data.profession, address: data.address, zip: data.zip, city: data.city,
+          dryRun: false,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setError(d?.message ?? 'Η καταχώριση στο SoftOne απέτυχε.'); return; }
+      onCreated?.();
+    } catch {
+      setError('Σφάλμα δικτύου.');
+    } finally { setCreating(false); }
+  }
 
   const clean = String(afm ?? '').replace(/\D/g, '');
   const usable = /^\d{9}$/.test(clean);
@@ -114,6 +148,20 @@ export function AadeVerifyPanel({ afm }: { afm: string }) {
           <Row aade="Πόλη" softone="CITY" value={data.city} />
           <Row aade="Τ.Κ." softone="ZIP" value={data.zip} />
           <Row aade="Νομική μορφή" softone="—" value={data.legalForm} hint="Πληροφοριακό· δεν στέλνεται" />
+
+          <button
+            type="button" onClick={create} disabled={creating || !kind}
+            title={kind ? 'Δημιουργία καρτέλας στο SoftOne με τα παραπάνω στοιχεία'
+              : 'Άγνωστη σειρά — δεν ξέρουμε τι ΤΥΠΟ καρτέλας δέχεται το παραστατικό'}
+            className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded bg-sisyphus-500 px-2.5 py-1.5 text-[length:var(--fs-12)] font-semibold text-white shadow-fluent-2 transition hover:bg-sisyphus-600 disabled:opacity-50"
+          >
+            <FiCheckCircle className="size-3.5" /> {creating ? 'Καταχώριση…' : 'Καταχώριση στο SoftOne'}
+          </button>
+          {!kind && (
+            <p className="mt-1 text-[length:var(--fs-11)] text-muted-foreground">
+              Διάλεξε πρώτα σειρά παραστατικού — αυτή ορίζει αν χρειάζεται προμηθευτής, πιστωτής ή χρεώστης.
+            </p>
+          )}
         </div>
       )}
     </div>

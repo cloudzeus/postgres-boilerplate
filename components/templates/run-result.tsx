@@ -278,15 +278,19 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
       </div>
 
       {!run ? (
-        <div className="space-y-1 rounded-lg border border-dashed border-border p-4 text-[length:var(--fs-12)] text-muted-foreground">
-          <p>Δεν έχει τρέξει πρότυπο σε αυτό το έγγραφο.</p>
-          {unknownForm && (
-            <p style={{ color: '#4338CA' }}>
-              Άγνωστο έντυπο: κανένα ενεργό πρότυπο δεν ταιριάζει ούτε στο ΑΦΜ του εκδότη ούτε στη διάταξη της σελίδας.
-              {canManage ? ' Διάλεξε πρότυπο και τρέξε το — μετά πρόσθεσέ το ως δείγμα εκπαίδευσης, ώστε το επόμενο ίδιο έντυπο να αναγνωριστεί μόνο του.' : ''}
-            </p>
-          )}
-          {vatHint && <p style={{ color: '#047857' }}>Βρέθηκε πρότυπο για το ΑΦΜ εκδότη.</p>}
+        <div className="rounded-lg border border-dashed border-border px-3 py-2 text-[length:var(--fs-12)] text-muted-foreground">
+          {/* ΜΙΑ ΓΡΑΜΜΗ. Η πλήρης εξήγηση («διάλεξε πρότυπο, τρέξ' το, πρόσθεσέ το ως δείγμα»)
+              είναι μάθημα που επαναλαμβανόταν σε ΚΑΘΕ παραστατικό χωρίς πρότυπο — περνά σε
+              tooltip, ώστε να υπάρχει χωρίς να τρώει τη σελίδα. */}
+          <span
+            title={unknownForm && canManage
+              ? 'Κανένα ενεργό πρότυπο δεν ταιριάζει στο ΑΦΜ του εκδότη ούτε στη διάταξη της σελίδας. Διάλεξε πρότυπο και τρέξε το — μετά πρόσθεσέ το ως δείγμα εκπαίδευσης, ώστε το επόμενο ίδιο έντυπο να αναγνωριστεί μόνο του.'
+              : undefined}
+          >
+            Δεν έχει τρέξει πρότυπο
+            {unknownForm && <span style={{ color: '#4338CA' }}> · άγνωστο έντυπο</span>}
+            {vatHint && <span style={{ color: '#047857' }}> · βρέθηκε πρότυπο για το ΑΦΜ</span>}
+          </span>
         </div>
       ) : (
         <>

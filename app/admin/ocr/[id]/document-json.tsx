@@ -79,12 +79,25 @@ function Disclosure({ open, onToggle, children, label }: { open: boolean; onTogg
   );
 }
 
+/**
+ * Η ΟΥΣΙΑ ΤΟΥ ΜΗΝΥΜΑΤΟΣ. Τα κείμενα του `POST_ERROR_TEXT` είναι ΚΟΙΝΑ — τα δείχνουν toasts, τα
+ * BLOCKED runs και αυτή η κάρτα — και είναι σκόπιμα πλήρη: λένε τι φταίει ΚΑΙ τι να κάνεις.
+ * Σε λίστα όμως τριών-τεσσάρων εμποδίων γίνονται παράγραφος. Κόβουμε στην ΕΜΦΑΝΙΣΗ, στο πρώτο
+ * «—» ή στην πρώτη τελεία, και κρατάμε το πλήρες κείμενο σε tooltip. Καμία απώλεια πληροφορίας.
+ */
+const shortMsg = (m: string): { head: string; hasMore: boolean } => {
+  const dash = m.indexOf(' — ');
+  const cut = dash > 0 ? dash : (m.indexOf('. ') > 0 ? m.indexOf('. ') + 1 : -1);
+  return cut > 0 ? { head: m.slice(0, cut).trim(), hasMore: true } : { head: m, hasMore: false };
+};
+
 export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: boolean }) {
   const [envelope, setEnvelope] = React.useState<DocumentEnvelope | null>(null);
   const [preview, setPreview] = React.useState<Preview | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [jsonOpen, setJsonOpen] = React.useState(false);
+  const [refOpen, setRefOpen] = React.useState(false);
   const [payloadOpen, setPayloadOpen] = React.useState(false);
   const [posting, setPosting] = React.useState(false);
 
@@ -184,14 +197,10 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
 
       {!loading && d && (
         <>
+          {/* ΧΩΡΙΣ ΧΙΠ: Είδος, Τύπος, Αριθμός, Ημερομηνία, Εκδότης, ΑΦΜ και Σύνολο εμφανίζονταν
+              ΤΡΙΤΗ φορά στη σελίδα — και οι δύο προηγούμενες είναι επεξεργάσιμες. Μένουν μόνο
+              όσα ΔΕΝ λέει καμία άλλη κάρτα. */}
           <div className="flex flex-wrap items-center gap-1.5">
-            <Chip label="Είδος" value={KIND_LABEL[d.kind] ?? d.kind} />
-            {d.type.label && <Chip label="Τύπος" value={d.type.label} />}
-            <Chip label="Αριθμός" value={[d.type.series, d.type.number].filter(Boolean).join(' ') || '—'} />
-            <Chip label="Ημερομηνία" value={d.date ?? '—'} />
-            <Chip label="Εκδότης" value={d.issuer.name ?? '—'} />
-            <Chip label="ΑΦΜ" value={d.issuer.vat ?? '—'} />
-            <Chip label="Σύνολο" value={`${money(d.totals.total)} ${d.currency}`} />
             <Chip label="ΜΑΡΚ" value={d.digital.mark ?? 'χωρίς'} tone={d.digital.mark ? 'ok' : undefined} />
             <Chip label="Γραμμές" value={String(d.lines.length)} />
           </div>
@@ -228,13 +237,21 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
 
           {posted ? null : blocked ? (
             <div className="rounded-lg border p-2.5 text-[length:var(--fs-12)]" style={{ borderColor: '#B4530940', backgroundColor: '#FDF3E3', color: '#B45309' }}>
-              <p className="font-semibold">Εκκρεμότητες πριν την καταχώριση</p>
+              {/* ΒΗΜΑΤΑ, ΟΧΙ ΕΛΛΕΙΨΕΙΣ. «Εκκρεμότητες» + τρίγωνο κινδύνου σε κάθε γραμμή έκανε τη
+                  σελίδα να διαφημίζει προβλήματα· είναι η ίδια πληροφορία ως λίστα δουλειάς. */}
+              <p className="font-semibold">
+                {preview.blockers.length === 1 ? 'Μένει 1 βήμα' : `Μένουν ${preview.blockers.length} βήματα`} για την καταχώριση
+              </p>
               <ul className="mt-1 space-y-0.5">
-                {preview.blockers.map((b, i) => (
-                  <li key={`${b.code}-${i}`} className="flex items-start gap-1.5">
-                    <FiAlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden /> {b.message}
-                  </li>
-                ))}
+                {preview.blockers.map((b, i) => {
+                  const { head, hasMore } = shortMsg(b.message);
+                  return (
+                    <li key={`${b.code}-${i}`} className="flex items-start gap-1.5" title={hasMore ? b.message : undefined}>
+                      <span className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-current/15 text-[length:var(--fs-10)] font-bold tabular-nums" aria-hidden>{i + 1}</span>
+                      <span>{head}{hasMore && <span className="ml-1 cursor-help text-muted-foreground underline decoration-dotted">γιατί;</span>}</span>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ) : (
@@ -243,20 +260,14 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
             </p>
           )}
 
-          {/* Πού πάει: το πρώτο πράγμα που θέλει να δει ο χρήστης πριν σταλεί οτιδήποτε. */}
-          <div className="rounded-lg border p-2.5 text-[length:var(--fs-12)]"
-            style={preview.target.supported ? { borderColor: 'var(--border)', backgroundColor: 'color-mix(in srgb, var(--muted) 40%, transparent)' } : { borderColor: '#B4530940', backgroundColor: '#FDF3E3', color: '#B45309' }}>
-            <p className="font-semibold">Προορισμός: {preview.target.label}</p>
-            <p className="mt-0.5 text-muted-foreground">
-              {preview.target.source === 'default' ? 'Προεπιλογή ενότητας' : 'Ρύθμιση σειράς'} · {preview.target.reason}
-              {' · '}
-              <Link href="/admin/doc-series" className="underline hover:text-foreground">Αλλαγή στις σειρές παραστατικών</Link>
-            </p>
-          </div>
-
+          {/* Ο ΠΡΟΟΡΙΣΜΟΣ ΔΕΝ ΕΠΑΝΑΛΑΜΒΑΝΕΤΑΙ ΕΔΩ: τον δείχνει η λωρίδα στην κορυφή της
+              σελίδας, με την ίδια πηγή και το ίδιο «γιατί». Δύο αντίγραφα της ίδιας πρότασης
+              σπρώχνουν κάτω τη δουλειά και διαφωνούν μόλις αλλάξει το ένα. */}
           {preview.warnings.length > 0 && !posted && (
-            <div className="rounded-lg border p-2.5 text-[length:var(--fs-12)]" style={{ borderColor: '#B4530930', backgroundColor: '#FFFBF3', color: '#92400E' }}>
-              <p className="font-semibold">Παρατηρήσεις (δεν εμποδίζουν)</p>
+            <details className="rounded-lg border px-2.5 py-1.5 text-[length:var(--fs-12)]" style={{ borderColor: '#B4530930', backgroundColor: '#FFFBF3', color: '#92400E' }}>
+              <summary className="cursor-pointer font-semibold">
+                {preview.warnings.length === 1 ? '1 παρατήρηση' : `${preview.warnings.length} παρατηρήσεις`} — δεν εμποδίζουν
+              </summary>
               <ul className="mt-1 space-y-0.5">
                 {preview.warnings.map((w, i) => (
                   <li key={`${w.code}-${i}`} className="flex items-start gap-1.5">
@@ -264,9 +275,15 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
                   </li>
                 ))}
               </ul>
-            </div>
+            </details>
           )}
 
+          {/* ΥΛΙΚΟ ΑΝΑΦΟΡΑΣ, ΟΧΙ ΕΝΕΡΓΕΙΑ. Η σύνοψη (σειρά/προμηθευτής/ημερομηνία/γραμμές) και ο
+              οδηγός «πού γράφεται ο αριθμός» είναι σωστά και χρήσιμα — αλλά κάθονταν ΠΑΝΩ από τη
+              δουλειά, σε κάθε παραστατικό, ακόμη κι όταν κανείς δεν τα ρωτούσε. Μετρημένο: 964px
+              πριν φτάσεις στα πεδία. Μένουν ένα κλικ μακριά. */}
+          <Disclosure open={refOpen} onToggle={() => setRefOpen((o) => !o)} label="Λεπτομέρειες καταχώρισης">
+            <div className="space-y-2 pt-1.5">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-[length:var(--fs-12)] sm:grid-cols-4">
             <div><dt className="text-muted-foreground">Σειρά καταχώρισης</dt><dd className="font-medium">{preview.summary.series ?? '—'}</dd></div>
             <div><dt className="text-muted-foreground">Προμηθευτής</dt><dd className="font-medium">{preview.summary.trader ?? '—'}{preview.summary.trdr ? ` (${preview.summary.trdr})` : ''}</dd></div>
@@ -366,7 +383,10 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
             </div>
           )}
 
-          <Disclosure open={payloadOpen} onToggle={() => setPayloadOpen((o) => !o)} label={`Προβολή payload (${preview.payload.OBJECT} · ${preview.target.lines})`}>
+                      </div>
+          </Disclosure>
+
+<Disclosure open={payloadOpen} onToggle={() => setPayloadOpen((o) => !o)} label={`Προβολή payload (${preview.payload.OBJECT} · ${preview.target.lines})`}>
             <JsonBlock value={preview.payload} label={`Payload καταχώρισης ${preview.payload.OBJECT}`} />
           </Disclosure>
         </div>
