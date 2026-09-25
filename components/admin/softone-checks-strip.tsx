@@ -89,6 +89,22 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
       : data.supplier.found ? 'ok' : 'warn';
   const itemsUnmatched = data.items.unmatched.length;
   const itemsTone: Tone = data.items.total === 0 ? 'idle' : itemsUnmatched === 0 ? 'ok' : 'warn';
+
+  /**
+   * ΤΙ ΧΡΕΙΑΖΕΤΑΙ, ΟΧΙ ΤΙ ΛΕΙΠΕΙ. Το «χωρίς αντιστοίχιση» είναι λεξιλόγιο του προγραμματιστή:
+   * περιγράφει την κατάσταση της βάσης, όχι τη δουλειά του χρήστη. Σε ένα έξοδο δεν υπάρχει
+   * «πρόβλημα προς λύση» — υπάρχει **απόφαση**: σε ποιον λογαριασμό δαπάνης πάει η γραμμή. Ο
+   * προορισμός το ξέρει ήδη (`allowedKinds`), οπότε το λέμε με τα λόγια της δουλειάς.
+   */
+  const itemsNeed = React.useMemo(() => {
+    const n = itemsUnmatched;
+    const γρ = n === 1 ? '1 γραμμή' : `${n} γραμμές`;
+    const kinds = data.items.allowedKinds;
+    if (kinds.length === 1 && kinds[0] === 'lineitem') return `${γρ} χωρίς λογαριασμό δαπάνης`;
+    if (kinds.length === 1 && kinds[0] === 'expense') return `${γρ} χωρίς έξοδο`;
+    if (kinds.length > 0 && !kinds.includes('lineitem')) return `${γρ} χωρίς είδος ή υπηρεσία`;
+    return `${γρ} χωρίς αντιστοίχιση`;
+  }, [itemsUnmatched, data.items.allowedKinds]);
   const vatMissing = data.vat.missing.length;
   const vatTone: Tone = data.items.total === 0 ? 'idle' : vatMissing === 0 ? 'ok' : 'warn';
 
@@ -237,12 +253,12 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
             icon={<FiBox />}
             title="Γραμμές"
             value={data.items.total === 0 ? '—'
-              : itemsUnmatched === 0 ? `Όλες αντιστοιχισμένες (${data.items.total})` : `${itemsUnmatched} χωρίς αντιστοίχιση`}
+              : itemsUnmatched === 0 ? `Όλες αντιστοιχισμένες (${data.items.total})` : itemsNeed}
             action={itemsTone === 'warn'
               ? (
                 <button type="button" onClick={() => setOpen((o) => !o)}
                   className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-current/20 px-2 py-1 text-[length:var(--fs-11)] font-semibold hover:bg-current/5">
-                  Λύσε <FiChevronDown className={cn('size-3 transition-transform', open && 'rotate-180')} />
+                  Επίλυση <FiChevronDown className={cn('size-3 transition-transform', open && 'rotate-180')} />
                 </button>
               )
               : undefined}
