@@ -45,7 +45,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const doc = await prisma.ocrDocument.findUnique({
     where: { id },
-    include: { items: { orderBy: { rowIndex: 'asc' } } },
+    // Οι ΕΠΙΜΕΡΙΣΜΟΙ μαζί με τις γραμμές: το ανοιγμένο πλαίσιο της λίστας δείχνει πλέον τη λωρίδα
+    // «Λογαριασμός δαπάνης», και χωρίς αυτούς θα ξεκινούσε πάντα άδεια — σβήνοντας οπτικά δουλειά
+    // που έχει ήδη γίνει.
+    include: {
+      items: {
+        orderBy: { rowIndex: 'asc' },
+        include: { allocations: { orderBy: { order: 'asc' } } },
+      },
+    },
   });
   if (!doc) return NextResponse.json({ error: 'not found' }, { status: 404 });
   return NextResponse.json(doc);

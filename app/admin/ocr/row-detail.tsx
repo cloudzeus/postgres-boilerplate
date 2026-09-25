@@ -10,8 +10,10 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { reconcileInvoice, analyzeLine } from '@/lib/ocr/invoice-math';
 import { toLineItems, EMPTY_LINE, type LineItem } from '@/lib/ocr/line-items';
 import { docTypeOf } from '@/lib/ocr/canonical';
-import { objectsForSosource } from '@/lib/ocr/posting-target';
+import { objectsForSosource, defaultPostingTarget } from '@/lib/ocr/posting-target';
 import { registryKindForSeries, LINE_KIND_LABEL } from '@/lib/ocr/resolution-plan';
+import { LineAllocations, type AllocationRow } from './[id]/line-allocations';
+import type { AllocationKind } from '@/lib/ocr/line-allocation';
 import type { MatchKind } from '@/lib/ocr/line-match';
 import { SoftoneChecksStrip } from '@/components/admin/softone-checks-strip';
 import { ZoomablePreview } from '@/components/admin/zoomable-preview';
@@ -240,6 +242,44 @@ export function OcrRowDetail({
    * κάθε γραμμή που ανοίγει. `localStorage` και όχι state του γονέα, γιατί αφορά τον χρήστη, όχι
    * το παραστατικό — και διαβάζεται σε effect ώστε το SSR markup να μην διαφέρει από το client.
    */
+  /**
+   * ΟΙ ΑΠΟΘΗΚΕΥΜΕΝΕΣ ΓΡΑΜΜΕΣ, για τη λωρίδα «Λογαριασμός δαπάνης».
+   *
+   * Ο επεξεργαστής εδώ δουλεύει πάνω στο κανονικό JSON, που ΔΕΝ έχει ids — και ο επιμερισμός
+   * αποθηκεύεται ανά `OcrInvoiceItem.id`. Τα φέρνουμε όταν ανοίγει η γραμμή (ένα αίτημα, μόνο για
+   * το παραστατικό που κοιτάει ο χρήστης) αντί να βαραίνει η λίστα των 200 με γραμμές και
+   * επιμερισμούς που κανείς δεν ζήτησε.
+   */
+  const [saved, setSaved] = React.useState<Map<number, { id: string; allocations: AllocationRow[] }>>(new Map());
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(`/api/admin/ocr/${row.id}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (!alive || !Array.isArray(d?.items)) return;
+        setSaved(new Map(d.items.map((it: any) => [it.rowIndex, {
+          id: it.id,
+          allocations: (it.allocations ?? []).map((a: any): AllocationRow => ({
+            order: a.order, registryMtrl: a.registryMtrl,
+            kind: a.kind === 'SXACCOUNT' ? 'SXACCOUNT' : 'LINEITEM',
+            accountCode: a.accountCode, percent: Number(a.percent), amount: Number(a.amount),
+          })),
+        }])));
+      } catch { /* η λωρίδα απλώς δεν εμφανίζεται */ }
+    })();
+    return () => { alive = false; };
+  }, [row.id]);
+
+  /** Ο κόσμος του επιμερισμού τον ορίζει η ΣΕΙΡΑ, όπως και στη σελίδα του παραστατικού. */
+  const allocKind: AllocationKind = React.useMemo(() => {
+    const sep = seriesKey.indexOf(':');
+    if (sep < 0) return 'LINEITEM';
+    const target = defaultPostingTarget({ sosource: Number(seriesKey.slice(0, sep)) });
+    return target.lines === 'SXDOCLINES' ? 'SXACCOUNT' : 'LINEITEM';
+  }, [seriesKey]);
+
   const [showPdf, setShowPdf] = React.useState(true);
   React.useEffect(() => {
     try { setShowPdf(localStorage.getItem('admin.ocr.rowdetail.pdf') !== '0'); } catch { /* ιδιωτική περιήγηση */ }
@@ -648,6 +688,20 @@ export function OcrRowDetail({
                             </td>
                           )}
                         </tr>
+                        {/* Ο ΕΠΙΜΕΡΙΣΜΟΣ ΚΑΙ ΕΔΩ. Μέχρι τώρα ζούσε μόνο στη σελίδα του
+                            παραστατικού: ο χρήστης έβλεπε τη γραμμή, ήθελε να τη σπάσει σε δύο
+                            λογαριασμούς, και δεν υπήρχε τίποτα να πατήσει. */}
+                        {saved.get(i) && (
+                          <LineAllocations
+                            key={`${saved.get(i)!.id}-alloc`}
+                            lineId={saved.get(i)!.id}
+                            lineTotal={toNum(it.total) ?? null}
+                            canManage={!ro}
+                            colSpan={ro ? 8 : 9}
+                            kind={allocKind}
+                            initial={saved.get(i)!.allocations}
+                          />
+                        )}
                         {hasLineCustomFields(lineCf) && (
                           <tr className="bg-sisyphus-500/5">
                             <td colSpan={ro ? 8 : 9} className="px-3 py-1.5 text-[length:var(--fs-11)] text-muted-foreground">

@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
+import { serveStoredFile } from '@/lib/serve-file';
 import { logAudit } from '@/lib/audit';
 import { SampleError, SAMPLE_ERROR, SAMPLE_MAX_BYTES, storeSample } from '@/lib/templates/sample';
 import { refreshTrainingScore } from '@/lib/templates/samples';
@@ -34,4 +36,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (e instanceof SampleError) return NextResponse.json(ERRORS[e.code].body, { status: ERRORS[e.code].status });
     throw e;
   }
+}
+
+/**
+ * Το ΔΕΙΓΜΑ του προτύπου — το παραστατικό πάνω στο οποίο σχεδιάστηκε.
+ *
+ * Υπήρχε μόνο `POST` (ανέβασμα): το αρχείο έμπαινε και δεν ξαναέβγαινε ποτέ. Χρειάζεται για να
+ * το δει κανείς, και για να περάσει στη λίστα σαρωμένων μέσα από την κανονική ροή ανεβάσματος.
+ */
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  await requirePermission('ocr.read');
+  const { id } = await params;
+  const t = await prisma.extractionTemplate.findUnique({
+    where: { id },
+    select: { name: true, sampleStorageKey: true, sampleMimeType: true },
+  });
+  if (!t) return new Response('not found', { status: 404 });
+  if (!t.sampleStorageKey) return new Response('no sample', { status: 404 });
+  return serveStoredFile(req, {
+    key: t.sampleStorageKey,
+    contentType: t.sampleMimeType ?? 'application/pdf',
+    fileName: `${t.name}.pdf`,
+  });
 }
