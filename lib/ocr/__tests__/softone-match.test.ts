@@ -202,7 +202,7 @@ describe('alignTraderToTarget — ο τύπος του συναλλασσομέ�
   });
 
   it('μη υποστηριζόμενη ενότητα → δεν μαντεύουμε τύπο', async () => {
-    db.ocrDocument.findUnique.mockResolvedValue(docRow({ seriesSource: 1261 }));
+    db.ocrDocument.findUnique.mockResolvedValue(docRow({ seriesSource: 1351 }));
     db.softoneTrader.findUnique.mockResolvedValue({ sodtype: 12 });
 
     expect(await alignTraderToTarget('d1')).toBe(false);

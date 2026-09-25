@@ -24,6 +24,7 @@ import {
   softoneFetchItems,
   softoneFetchLineCategories,
   softoneFetchLineItems,
+  softoneFetchSxAccounts,
   softoneFetchLookups,
   softoneFetchMyDataClassCategories,
   softoneFetchMyDataClassTypes,
@@ -471,6 +472,48 @@ export async function syncLineItems(actor: SyncActor): Promise<SyncPayload> {
   await logAudit({
     userId: actor.id, userEmail: actor.email,
     action: 'metadata.lineitems.sync_softone', resource: 'setting',
+    metadata: { total: created + updated, created, updated, deactivated },
+  });
+
+  return { created, updated, skipped: 0, total: created + updated, syncedAt, detail: { deactivated } };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Λογαριασμοί εσόδων/εξόδων (SXACNT → SoftoneSxAccount) — απλογραφικά, βιβλία Β'
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Το μητρώο που δέχεται η ενότητα 1261 «Παραστατικά εξόδων». Ίδιο μοτίβο με τις χρεοπιστώσεις:
+ * upsert ανά `MTRL`, **ποτέ διαγραφή** (γραμμές παραστατικών μπορεί να δείχνουν ακόμη εκεί) —
+ * ό,τι έφυγε από το ERP απλώς σημαδεύεται ανενεργό.
+ */
+export async function syncSxAccounts(actor: SyncActor): Promise<SyncPayload> {
+  const rows = await softoneFetchSxAccounts();
+  assertNonEmpty(rows, 'λογαριασμοί εσόδων/εξόδων', MAY_BE_EMPTY);
+
+  const existing = new Set((await prisma.softoneSxAccount.findMany({ select: { mtrl: true } })).map((v) => v.mtrl));
+  const now = new Date();
+  let created = 0;
+  let updated = 0;
+  for (const r of rows) {
+    const data = {
+      code: r.code, name: r.name || r.code, mtrType: r.mtrType, soClmns: r.soClmns,
+      vat: r.vat, myDataCode: r.myDataCode, isActive: true, syncedAt: now,
+    };
+    await prisma.softoneSxAccount.upsert({ where: { mtrl: r.mtrl }, update: data, create: { mtrl: r.mtrl, ...data } });
+    if (existing.has(r.mtrl)) updated++; else created++;
+  }
+
+  const deactivated = (await prisma.softoneSxAccount.updateMany({
+    where: { mtrl: { notIn: rows.map((r) => r.mtrl) }, isActive: true },
+    data: { isActive: false },
+  })).count;
+
+  const syncedAt = now.toISOString();
+  await setSetting('integrations.softoneSxAccountsLastSync', syncedAt, actor.id);
+  await logAudit({
+    userId: actor.id, userEmail: actor.email,
+    action: 'metadata.sxaccounts.sync_softone', resource: 'setting',
     metadata: { total: created + updated, created, updated, deactivated },
   });
 

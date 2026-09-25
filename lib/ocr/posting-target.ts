@@ -18,7 +18,15 @@
 // /admin/doc-series.
 
 /** Το SoftOne object (EditMaster) που δέχεται το setData. */
-export const POST_OBJECTS = ['PURDOC', 'LINSUPDOC', 'LINCREDOC', 'LINDEBDOC'] as const;
+/**
+ * Τα business objects όπου μπορεί να καταχωρηθεί ένα ΕΙΣΕΡΧΟΜΕΝΟ παραστατικό.
+ *
+ * `SXDOCSEX` («Παραστατικά εξόδων», ενότητα 1261) είναι ο κόσμος των **απλογραφικών** βιβλίων
+ * (Β' κατηγορίας): οι γραμμές του δείχνουν σε **λογαριασμούς εσόδων/εξόδων** (`MTRL` SODTYPE 61),
+ * όχι σε χρεοπιστώσεις του ΕΓΛΣ. Η εφαρμογή δίνεται σε πελάτες **και των δύο** κατηγοριών, και ο
+ * διαχωρισμός δεν χρειάζεται ρύθμιση: τον κάνει η ΕΝΟΤΗΤΑ της σειράς του παραστατικού.
+ */
+export const POST_OBJECTS = ['PURDOC', 'LINSUPDOC', 'LINCREDOC', 'LINDEBDOC', 'SXDOCSEX'] as const;
 export type PostObject = (typeof POST_OBJECTS)[number];
 
 /**
@@ -31,6 +39,7 @@ export const POST_OBJECT_SHORT: Record<PostObject, string> = {
   LINSUPDOC: 'Ειδικές συναλλαγές προμηθευτών',
   LINCREDOC: 'Ειδικές συναλλαγές πιστωτών',
   LINDEBDOC: 'Ειδικές συναλλαγές χρεωστών',
+  SXDOCSEX: 'Παραστατικό εξόδων',
 };
 
 /**
@@ -43,7 +52,7 @@ export const POST_OBJECT_SHORT: Record<PostObject, string> = {
  * ούτε αποθήκη ούτε εγγραφή απόσβεσης, οπότε κάθε τέτοιο payload θα απορριπτόταν από το SoftOne.
  * Ο στόχος θα ξαναμπεί όταν υπάρχει μητρώο παγίων· μέχρι τότε δεν προσφέρεται καν.
  */
-export const POST_LINE_TABLES = ['AUTO', 'ITELINES', 'SRVLINES', 'EXPANAL', 'LINLINES'] as const;
+export const POST_LINE_TABLES = ['AUTO', 'ITELINES', 'SRVLINES', 'EXPANAL', 'LINLINES', 'SXDOCLINES'] as const;
 export type PostLineTable = (typeof POST_LINE_TABLES)[number];
 
 export const POST_OBJECT_LABEL: Record<PostObject, string> = {
@@ -51,6 +60,7 @@ export const POST_OBJECT_LABEL: Record<PostObject, string> = {
   LINSUPDOC: 'Ειδικές συναλλαγές προμηθευτών (LINSUPDOC)',
   LINCREDOC: 'Ειδικές συναλλαγές πιστωτών (LINCREDOC)',
   LINDEBDOC: 'Ειδικές συναλλαγές χρεωστών (LINDEBDOC)',
+  SXDOCSEX: 'Παραστατικά εξόδων (SXDOCSEX)',
 };
 
 export const POST_LINES_LABEL: Record<PostLineTable, string> = {
@@ -59,6 +69,7 @@ export const POST_LINES_LABEL: Record<PostLineTable, string> = {
   SRVLINES: 'Υπηρεσίες',
   EXPANAL: 'Έξοδα',
   LINLINES: 'Ειδικές συναλλαγές',
+  SXDOCLINES: 'Λογαριασμοί εσόδων/εξόδων',
 };
 
 /** Ποιοι πίνακες γραμμών προσφέρονται σε κάθε object (βλ. σημείωση για τα πάγια πιο πάνω). */
@@ -67,6 +78,7 @@ export const LINES_FOR_OBJECT: Record<PostObject, PostLineTable[]> = {
   LINSUPDOC: ['LINLINES'],
   LINCREDOC: ['LINLINES'],
   LINDEBDOC: ['LINLINES'],
+  SXDOCSEX: ['SXDOCLINES'],
 };
 
 /**
@@ -80,6 +92,7 @@ export const OBJECTS_FOR_SOSOURCE: Record<number, PostObject> = {
   1253: 'LINSUPDOC',  // Λοιπές / ειδικές συναλλαγές προμηθευτών
   1553: 'LINDEBDOC',  // Λοιπές / ειδικές συναλλαγές ΧΡΕΩΣΤΩΝ
   1653: 'LINCREDOC',  // Παραστατικά (ειδικές συναλλαγές) πιστωτών
+  1261: 'SXDOCSEX',   // Παραστατικά εξόδων — απλογραφικά (βιβλία Β')
 };
 
 /** Ποιο object επιτρέπεται για μια ενότητα — κενό όταν η ενότητα δεν υποστηρίζεται καθόλου. */
@@ -99,12 +112,15 @@ export const SODTYPE_FOR_OBJECT: Record<PostObject, number> = {
   LINSUPDOC: 12,
   LINCREDOC: 16,
   LINDEBDOC: 15,
+  // Επαληθευμένο από το ίδιο το ERP: `getTableFields SXDOCSEX.TRDR` δίνει caption «Προμηθευτής».
+  SXDOCSEX: 12,
 };
 
 export const SODTYPE_LABEL_FOR_OBJECT: Record<PostObject, string> = {
   PURDOC: 'προμηθευτής',
   LINSUPDOC: 'προμηθευτής',
   LINCREDOC: 'πιστωτής',
+  SXDOCSEX: 'προμηθευτής',
   LINDEBDOC: 'χρεώστης',
 };
 
@@ -123,6 +139,7 @@ export const TRADER_KIND_FOR_OBJECT: Record<PostObject, TraderKindName> = {
   PURDOC: 'supplier',
   LINSUPDOC: 'supplier',
   LINCREDOC: 'creditor',
+  SXDOCSEX: 'supplier',
   LINDEBDOC: 'debtor',
 };
 
@@ -217,8 +234,12 @@ export function defaultPostingTarget(input: SeriesTargetInput): PostingTarget {
     LINSUPDOC: 'Ενότητα 1253 «Λοιπές συναλλαγές προμηθευτών» → Ειδικές συναλλαγές προμηθευτών',
     LINCREDOC: 'Ενότητα 1653 «Παραστατικά πιστωτών» → Ειδικές συναλλαγές πιστωτών',
     LINDEBDOC: 'Ενότητα 1553 «Λοιπές συναλλαγές χρεωστών» → Ειδικές συναλλαγές χρεωστών',
+    SXDOCSEX: 'Ενότητα 1261 «Παραστατικά εξόδων» → Παραστατικό εξόδων (απλογραφικά)',
   };
-  return { object, lines: 'LINLINES', source: 'default', supported: true, reason: REASON[object] };
+  // Το `SXDOCSEX` έχει ΔΙΚΟ του πίνακα γραμμών: δείχνει σε λογαριασμούς εσόδων/εξόδων, όχι σε
+  // χρεοπιστώσεις — γι' αυτό δεν μπορεί να πέσει στο κοινό `LINLINES` των υπολοίπων.
+  const lines: PostLineTable = object === 'SXDOCSEX' ? 'SXDOCLINES' : 'LINLINES';
+  return { object, lines, source: 'default', supported: true, reason: REASON[object] };
 }
 
 /**
@@ -280,6 +301,7 @@ export type SeriesTraderKind = 'purchase' | 'creditor' | 'debtor';
 const SIDE_BY_OBJECT: Record<PostObject, SeriesTraderKind> = {
   PURDOC: 'purchase',
   LINSUPDOC: 'purchase',
+  SXDOCSEX: 'purchase',
   LINCREDOC: 'creditor',
   LINDEBDOC: 'debtor',
 };

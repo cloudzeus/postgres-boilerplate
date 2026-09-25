@@ -86,6 +86,9 @@ describe('ο χάρτης πίνακα → μητρώο είναι ΠΛΗΡΗΣ'
       SRVLINES: null,
       EXPANAL: 'expense',
       LINLINES: 'lineitem',
+      // Απλογραφικά (1261 → SXDOCSEX): δικό τους μητρώο, που δεν είναι κανένα από τα υπάρχοντα
+      // `MatchKind` — «δεν ξέρω», όχι «οτιδήποτε».
+      SXDOCLINES: null,
     });
   });
 });

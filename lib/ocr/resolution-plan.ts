@@ -86,6 +86,10 @@ export const KINDS_FOR_LINE_TABLE: Record<PostLineTable, MatchKind[]> = {
   ITELINES: ['product', 'service'],
   SRVLINES: ['product', 'service'],
   EXPANAL: ['expense'],
+  // Απλογραφικά: το μητρώο τους (λογαριασμοί εσόδων/εξόδων) δεν είναι κανένα από τα υπάρχοντα
+  // `MatchKind`, και ο picker του δεν έχει γραφτεί. Κενή λίστα = «δεν προσφέρουμε τίποτα», που
+  // είναι ειλικρινές· ένα λάθος μητρώο εδώ θα οδηγούσε τον χρήστη σε αντιστοίχιση που απορρίπτεται.
+  SXDOCLINES: [],
   LINLINES: ['lineitem'],
 };
 
@@ -95,10 +99,19 @@ export function allowedLineKinds(target: PostingTarget | null | undefined): Matc
   return KINDS_FOR_LINE_TABLE[target.lines] ?? [];
 }
 
-/** Χωράει αυτό το μητρώο στον προορισμό; Άγνωστος προορισμός ⇒ `true` (δεν κρίνουμε στα τυφλά). */
+/**
+ * Χωράει αυτό το μητρώο στον προορισμό; **Άγνωστος** προορισμός ⇒ `true` (δεν κρίνουμε στα τυφλά).
+ *
+ * ΠΡΟΣΟΧΗ ΣΤΗ ΔΙΑΦΟΡΑ: «δεν ξέρω τον προορισμό» ΔΕΝ είναι το ίδιο με «ο προορισμός δεν δέχεται
+ * κανένα μητρώο». Το πρώτο δεν περιορίζει· το δεύτερο απαγορεύει τα πάντα — και ισχύει για το
+ * `SXDOCLINES` των απλογραφικών, όπου ο picker δεν έχει ακόμη μητρώο να προσφέρει. Όσο τα δύο
+ * ήταν και τα δύο «κενή λίστα», το UI πρόσφερε «Είδος» σε προορισμό που το απορρίπτει — ακριβώς
+ * η απόκλιση που το test ισοδυναμίας `lineFits ↔ KINDS_FOR_LINE_TABLE` υπάρχει για να πιάνει.
+ */
 export function lineKindFits(target: PostingTarget | null | undefined, kind: MatchKind): boolean {
-  const allowed = allowedLineKinds(target);
-  return allowed.length === 0 || allowed.includes(kind);
+  if (!target?.supported) return true;               // άγνωστος/μη υποστηριζόμενος ⇒ δεν κρίνουμε
+  const allowed = KINDS_FOR_LINE_TABLE[target.lines] ?? [];
+  return allowed.includes(kind);
 }
 
 /**

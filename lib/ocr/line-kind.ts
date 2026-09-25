@@ -32,6 +32,10 @@ export const KIND_FOR_LINE_TABLE: Record<PostLineTable, MatchKind | null> = {
   ITELINES: null,
   SRVLINES: null,
   EXPANAL: 'expense',
+  // Τα απλογραφικά έχουν ΔΙΚΟ τους μητρώο (λογαριασμοί εσόδων/εξόδων, `MTRL` SODTYPE 61) που δεν
+  // αντιστοιχεί σε κανένα από τα υπάρχοντα `MatchKind`. Μέχρι να αποκτήσει δικό του picker, δεν
+  // ισχυριζόμαστε τίποτα — `null` σημαίνει «δεν ξέρω», ποτέ «οτιδήποτε».
+  SXDOCLINES: null,
   LINLINES: 'lineitem',
 };
 

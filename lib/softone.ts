@@ -1841,6 +1841,62 @@ function mapLineItem(o: Record<string, string>): LineItemRow {
   };
 }
 
+/**
+ * Λογαριασμοί ΕΣΟΔΩΝ / ΕΞΟΔΩΝ — object `SXACNT`, πίνακας `MTRL` με **SODTYPE 61**.
+ *
+ * Το μητρώο της ενότητας 1261 «Παραστατικά εξόδων» (απλογραφικά, βιβλία Β'). Η εφαρμογή δίνεται
+ * σε πελάτες και των δύο κατηγοριών βιβλίων, οπότε χρειάζεται ΚΑΙ αυτό το μητρώο δίπλα στις
+ * χρεοπιστώσεις των διπλογραφικών.
+ *
+ * ⚠️ Το `GetTable SXACNT` σκάει με «Ole exception» — διαβάζουμε τον ΥΠΟΚΕΙΜΕΝΟ πίνακα `MTRL`,
+ * που δίνει και raw τιμές αντί για ετικέτες (ο browser του SXACNT επιστρέφει «Εσόδων»/«Εξόδων»
+ * ως κείμενο, άχρηστο για αποθήκευση).
+ */
+export const SXACCOUNT_SODTYPE = 61;
+
+/** Οι τιμές του `MTRTYPE` στο μητρώο SXACNT, μετρημένες στο tenant (2026-09-25). */
+export const SXACCOUNT_MTRTYPE = {
+  /** 208 — έσοδα (π.χ. «700003 Πωλ. Εμπορευμ. 3% Χονδρικώς»). */
+  income: 1,
+  /** 167 — ΕΞΟΔΑ (π.χ. «140013 Αγορές Παγίων Επίπλων 13%»). Αυτά αφορούν τα εισερχόμενα. */
+  expense: 2,
+  /** 14 — δημοτικός φόρος · 1 — ΕΛΓΑ · 94/54 — ΦΠΑ πωλήσεων/αγορών · 4 — ταμειακές κινήσεις. */
+} as const;
+
+export interface SxAccountRow {
+  mtrl: number;
+  code: string;
+  name: string;
+  /** 1 έσοδα · 2 έξοδα · 3 δημ. φόρος · 4 ΕΛΓΑ · 5/6 ΦΠΑ · 8 ταμειακές. */
+  mtrType: number | null;
+  /** Στήλη βιβλίων. */
+  soClmns: number | null;
+  vat: string | null;
+  myDataCode: string | null;
+  isActive: boolean;
+}
+
+const SXACCOUNT_FIELDS = ['MTRL', 'CODE', 'NAME', 'MTRTYPE', 'SOCLMNS', 'VAT', 'MYDATACODE', 'ISACTIVE'];
+
+function mapSxAccount(o: Record<string, string>): SxAccountRow {
+  return {
+    mtrl: Number(o.MTRL),
+    code: o.CODE,
+    name: o.NAME || o.CODE,
+    mtrType: str(o.MTRTYPE) !== '' && Number.isFinite(Number(str(o.MTRTYPE))) ? Number(str(o.MTRTYPE)) : null,
+    soClmns: intOrNull(o.SOCLMNS),
+    vat: idOrNull(o.VAT),
+    myDataCode: idOrNull(o.MYDATACODE),
+    isActive: o.ISACTIVE !== '0',
+  };
+}
+
+/** Διαβάζει το μητρώο λογαριασμών εσόδων/εξόδων (MTRL SODTYPE 61, ενεργοί). Μόνο ΑΝΑΓΝΩΣΗ. */
+export async function softoneFetchSxAccounts(): Promise<SxAccountRow[]> {
+  const rows = await softoneGetTable('MTRL', SXACCOUNT_FIELDS, `SODTYPE=${SXACCOUNT_SODTYPE} AND ISACTIVE=1`);
+  return rows.map(mapSxAccount).filter((r) => Number.isFinite(r.mtrl));
+}
+
 /** Διαβάζει το μητρώο χρεοπιστώσεων (MTRL SODTYPE 53, ενεργές) με GetTable. Μόνο ΑΝΑΓΝΩΣΗ. */
 export async function softoneFetchLineItems(): Promise<LineItemRow[]> {
   const rows = await softoneGetTable('MTRL', LINEITEM_FIELDS, `SODTYPE=${LINEITEM_SODTYPE} AND ISACTIVE=1`);

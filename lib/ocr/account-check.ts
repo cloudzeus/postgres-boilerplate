@@ -81,7 +81,7 @@ export const isPostable = (a: ChartAccount): boolean => a.postable === true;
 export type AccountChart = { synced: boolean; accounts: readonly ChartAccount[] };
 
 /** Ο πίνακας γραμμών όπου πάει μια γραμμή — από τον στόχο της σειράς. */
-export type AccountPath = 'LINLINES' | 'ITELINES' | 'SRVLINES' | 'EXPANAL';
+export type AccountPath = 'LINLINES' | 'ITELINES' | 'SRVLINES' | 'EXPANAL' | 'SXDOCLINES';
 
 export type AccountCheckInput = {
   rowIndex: number;
@@ -264,6 +264,7 @@ const PATH_LABEL: Record<AccountPath, string> = {
   ITELINES: 'είδη',
   SRVLINES: 'υπηρεσίες',
   EXPANAL: 'έξοδα',
+  SXDOCLINES: 'λογαριασμοί εσόδων/εξόδων',
 };
 
 /**
