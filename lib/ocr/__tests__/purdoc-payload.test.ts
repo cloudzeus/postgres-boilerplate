@@ -69,8 +69,8 @@ describe('buildPurdocPayload', () => {
           MYDATAMARK: '400001',
           MYDATAUID: 'ABC',
         }],
-        ITELINES: [{ LINENUM: 9000001, MTRL: 555, QTY1: 2, PRICE: 50, DISC1PRC: 0, VAT: 1, COMMENTS: 'Είδος Α' }],
-        SRVLINES: [{ LINENUM: 9000001, MTRL: 666, QTY1: 1, PRICE: 100, DISC1PRC: 0, VAT: 1, COMMENTS: 'Υπηρεσία Β' }],
+        ITELINES: [{ LINENUM: 9000001, MTRL: 555, QTY1: 2, PRICE: 50, VAT: 1, COMMENTS: 'Είδος Α' }],
+        SRVLINES: [{ LINENUM: 9000001, MTRL: 666, QTY1: 1, PRICE: 100, VAT: 1, COMMENTS: 'Υπηρεσία Β' }],
       },
     });
   });
@@ -107,7 +107,11 @@ describe('buildPurdocPayload', () => {
       lines: [{ ...doc().lines[0], quantity: null, discount: null }],
     });
     const payload = buildPurdocPayload(d, ctx({ company: 1001, lines: [{ rowIndex: 0, mtrl: 555, expn: null, isService: false }] }));
-    expect(payload.DATA.ITELINES?.[0]).toMatchObject({ QTY1: 1, DISC1PRC: 0 });
+    // Χωρίς έκπτωση δεν στέλνεται ΚΑΝΕΝΑ πεδίο έκπτωσης: ένα `DISC1PRC: 0` είναι αβλαβές, αλλά
+    // η παρουσία του πεδίου ήταν αυτή που έκρυβε ότι εκεί γραφόταν ΠΟΣΟ αντί για ποσοστό.
+    expect(payload.DATA.ITELINES?.[0]).toMatchObject({ QTY1: 1 });
+    expect(payload.DATA.ITELINES?.[0]).not.toHaveProperty('DISC1PRC');
+    expect(payload.DATA.ITELINES?.[0]).not.toHaveProperty('DISC1VAL');
     expect(payload.DATA.PURDOC?.[0]).toMatchObject({ COMPANY: 1001 });
   });
 });
@@ -289,8 +293,8 @@ describe('buildPurdocPayload — LINLINES', () => {
     expect(payload.DATA.PURDOC).toBeUndefined();
     expect(payload.DATA.LINSUPDOC?.[0]).toMatchObject({ SERIES: 7001, TRDR: 12345, FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17' });
     expect(payload.DATA.LINLINES).toEqual([
-      { LINENUM: 9000001, MTRL: 777, MTRTYPE: 1, QTY1: 2, PRICE: 50, DISC1PRC: 0, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Είδος Α' },
-      { LINENUM: 9000002, MTRL: 778, MTRTYPE: 0, QTY1: 1, PRICE: 100, DISC1PRC: 0, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Υπηρεσία Β' },
+      { LINENUM: 9000001, MTRL: 777, MTRTYPE: 1, QTY1: 2, PRICE: 50, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Είδος Α' },
+      { LINENUM: 9000002, MTRL: 778, MTRTYPE: 0, QTY1: 1, PRICE: 100, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Υπηρεσία Β' },
     ]);
   });
 

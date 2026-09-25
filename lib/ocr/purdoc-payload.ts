@@ -9,6 +9,7 @@
 // παραστατικό χρεώστη σε `LINDEBDOC`/`LINLINES`.
 import { normalizeDocRef } from '@/lib/doc-reference';
 import type { DocumentJson } from './canonical';
+import { analyzeLine } from './invoice-math';
 import {
   accountBlockers, accountWarnings,
   type AccountCheck, type AccountCheckInput, type AccountPath,
@@ -119,7 +120,11 @@ export type PurdocHeader = {
 
 /** Γραμμή ειδών/υπηρεσιών (DB MTRLINES) σε PURDOC. */
 export type PurdocItemLine = {
-  LINENUM: number; MTRL: number; QTY1: number; PRICE: number; DISC1PRC: number;
+  LINENUM: number; MTRL: number; QTY1: number; PRICE: number;
+  /** Έκπτωση **ΠΟΣΟΣΤΟ**. Δες {@link discountFields}: ποτέ ποσό εδώ μέσα. */
+  DISC1PRC?: number;
+  /** Έκπτωση **ΠΟΣΟ** σε νόμισμα. */
+  DISC1VAL?: number;
   VAT?: number; COMMENTS?: string; MYDATACODE?: string;
   COSTCNTR?: number; PRJC?: number; PRJCSTAGE?: number;
 };
@@ -127,7 +132,10 @@ export type PurdocItemLine = {
 export type PurdocExpenseLine = { LINENUM: number; EXPN: number; VAT?: number; EXPVAL: number };
 /** Γραμμή ειδικών συναλλαγών (LINLINES): `MTRL` = ΧΡΕΟΠΙΣΤΩΣΗ, με τον τύπο της. */
 export type PurdocLinLine = {
-  LINENUM: number; MTRL: number; MTRTYPE: number; QTY1: number; PRICE: number; DISC1PRC: number;
+  LINENUM: number; MTRL: number; MTRTYPE: number; QTY1: number; PRICE: number;
+  /** Έκπτωση ΠΟΣΟΣΤΟ / ΠΟΣΟ — δες {@link discountFields}. */
+  DISC1PRC?: number;
+  DISC1VAL?: number;
   NETLINEVAL: number; VAT?: number; COMMENTS?: string;
   COSTCNTR?: number; PRJC?: number; PRJCSTAGE?: number;
 };
@@ -172,6 +180,7 @@ export type PostingDoc = {
 export type BlockerCode =
   | 'not_completed'
   | 'no_category'
+  | 'line_discount_ambiguous'
   | 'no_trader'
   | 'no_series'
   | 'no_date'
@@ -201,6 +210,53 @@ export type WarningCode =
   | 'account_unknown' | 'account_not_covered' | 'account_vat_mismatch';
 
 const num = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+
+/**
+ * Η έκπτωση της γραμμής στα **σωστά** πεδία του SoftOne.
+ *
+ * ΤΙ ΠΗΓΕ ΣΤΡΑΒΑ. Γραφόταν πάντα `DISC1PRC: line.discount` — αλλά το `DISC1PRC` είναι **ποσοστό**.
+ * Μια γραμμή «350 → 227,50» κουβαλά έκπτωση **122,5 ευρώ**, που ως ποσοστό σημαίνει 122,5 %:
+ * το SoftOne υπολόγισε `350 × (1 − 1,225) = −78,75` και κατέγραψε **αρνητικό** παραστατικό.
+ * Δέκα παραστατικά μπήκαν έτσι στη demo στις 23/09/2026 πριν το δει άνθρωπος.
+ *
+ * Η διάκριση υπήρχε ήδη στο `analyzeLine` (`lib/ocr/invoice-math.ts`) και απλώς δεν διαβαζόταν.
+ * `unknown` ⇒ **ΔΕΝ μαντεύουμε**: η γραμμή μπλοκάρει την καταχώριση (`line_discount_ambiguous`).
+ */
+export interface DiscountLine {
+  quantity?: unknown; unitPrice?: unknown; discount?: unknown; net?: unknown;
+}
+
+export function discountFields(line: DiscountLine): { DISC1PRC?: number; DISC1VAL?: number } {
+  const d = num(line.discount, 0);
+  if (!d) return {};
+  const a = analyzeLine({
+    quantity: line.quantity, price: line.unitPrice, discount: line.discount, total: line.net,
+  });
+  if (a.discountKind === 'percent') return { DISC1PRC: d };
+  if (a.discountKind === 'amount') return { DISC1VAL: d };
+  return {};
+}
+
+/**
+ * Η γραμμή **δεν βγαίνει αριθμητικά** — δεν επιτρέπεται να φύγει.
+ *
+ * Δύο περιπτώσεις, και η δεύτερη είναι αυτή που ξέφυγε την πρώτη φορά:
+ *  1. Υπάρχει έκπτωση αλλά καμία ερμηνεία (ποσοστό/ποσό) δεν βγάζει το σύνολο ⇒ ασαφής.
+ *  2. **ΔΕΝ υπάρχει έκπτωση** και το σύνολο δεν ισούται με ποσότητα × τιμή. Το SoftOne δεν
+ *     παίρνει σύνολο γραμμής: το ΥΠΟΛΟΓΙΖΕΙ. Έτσι μια γραμμή «5 × 450 = 1.316,25» χωρίς
+ *     καταγεγραμμένη έκπτωση καταχωρήθηκε ως 2.250 — σωστά κατά το SoftOne, λάθος κατά το
+ *     παραστατικό, και κανείς δεν το είδε.
+ *
+ * Το `analyzeLine` κρίνει ήδη και τις δύο μέσω του `consistent`· ο παλιός έλεγχος απλώς έβγαινε
+ * νωρίς όταν η έκπτωση ήταν μηδενική.
+ */
+export function discountAmbiguous(line: DiscountLine): boolean {
+  const a = analyzeLine({
+    quantity: line.quantity, price: line.unitPrice, discount: line.discount, total: line.net,
+  });
+  if (!a.consistent) return true;
+  return num(line.discount, 0) !== 0 && a.discountKind === 'unknown';
+}
 const text = (v: unknown): string | undefined => {
   const s = v == null ? '' : String(v).trim();
   return s === '' ? undefined : s;
@@ -456,7 +512,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
         MTRTYPE: num(match.linMtrType, 0),
         QTY1: num(line.quantity, 1),
         PRICE: num(line.unitPrice, 0),
-        DISC1PRC: num(line.discount, 0),
+        ...discountFields(line),
         NETLINEVAL: num(line.net, 0),
         ...analyticsOf(match),
       };
@@ -483,7 +539,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
       MTRL: match.mtrl as number,
       QTY1: num(line.quantity, 1),
       PRICE: num(line.unitPrice, 0),
-      DISC1PRC: num(line.discount, 0),
+      ...discountFields(line),
       ...analyticsOf(match),
     };
     if (vat != null) row.VAT = vat;
@@ -560,6 +616,9 @@ export function postingBlockers(
   const out: BlockerCode[] = [];
   if (doc.status !== 'COMPLETED') out.push('not_completed');
   if (!doc.category) out.push('no_category');
+  // Ασαφής έκπτωση ⇒ ΣΤΟΠ. Το SoftOne δεν ρωτά «ποσοστό ή ποσό;» — υπολογίζει, και μια λάθος
+  // ερμηνεία γράφει παραστατικό με λάθος (ή αρνητικό) ποσό που κανείς δεν βλέπει μετά.
+  if (document.lines.some((l) => discountAmbiguous(l))) out.push('line_discount_ambiguous');
   if (!doc.softoneTrdr) out.push('no_trader');
   if (!doc.softoneSeries || !doc.seriesSource) out.push('no_series');
   // Σειρά που δεν υπάρχει στο μητρώο: το `SERIES` θα έφευγε ούτως ή άλλως, αλλά κανείς δεν ξέρει
