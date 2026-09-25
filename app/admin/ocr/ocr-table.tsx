@@ -9,6 +9,7 @@ import { FiMoreVertical, FiFile, FiExternalLink, FiSend, FiTrash2, FiEye, FiUser
 import { SoftoneAfmDialog } from '@/components/admin/softone-afm-dialog';
 import { OcrDayProblemsModal } from '@/components/admin/ocr-day-problems-modal';
 import { DataTable } from '@/components/ui/data-table';
+import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -179,6 +180,12 @@ function uniqueInvoiceCount(rows: OcrRow[]): number {
   return seen.size + standalone;
 }
 
+type TabKey = 'open' | 'posted';
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'open', label: 'Προς επεξεργασία' },
+  { key: 'posted', label: 'Αναρτημένα' },
+];
+
 export function OcrTable({
   rows, canCategorize, canPost, canDelete, canCreateCompany, seriesOptions = [],
 }: {
@@ -190,6 +197,28 @@ export function OcrTable({
   seriesOptions?: SeriesOption[];
 }) {
   const router = useRouter();
+
+  /** «Αναρτημένο» = έχει φύγει στο SoftOne, με όποιον από τους δύο δείκτες το μαρτυρά. */
+  const { openRows, postedRows } = React.useMemo(() => {
+    const posted: OcrRow[] = [];
+    const open: OcrRow[] = [];
+    for (const r of rows) (r.postStatus === 'POSTED' || r.postedRef ? posted : open).push(r);
+    return { openRows: open, postedRows: posted };
+  }, [rows]);
+
+  const [tab, setTab] = React.useState<TabKey>('open');
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem('admin.ocr.tab');
+      if (saved === 'posted' || saved === 'open') setTab(saved);
+    } catch { /* ιδιωτική περιήγηση */ }
+  }, []);
+  const selectTab = React.useCallback((k: TabKey) => {
+    setTab(k);
+    try { localStorage.setItem('admin.ocr.tab', k); } catch { /* αδιάφορο */ }
+  }, []);
+
+  const visibleRows = tab === 'posted' ? postedRows : openRows;
 
   // Map of row id → its position within a set of identical-invoice scans.
   // The oldest scan is the "original" (ordinal 1); later scans are flagged copies.
@@ -793,9 +822,36 @@ export function OcrTable({
 
   return (
     <>
+      {/* ΔΥΟ ΚΟΣΜΟΙ, ΔΥΟ ΚΑΡΤΕΛΕΣ. Τα αναρτημένα είναι τελειωμένη δουλειά: ανακατεμένα με τα
+          υπόλοιπα γέμιζαν τη λίστα με γραμμές που δεν χρειάζονται καμία ενέργεια, και η ημέρα
+          έδειχνε πλήθη που δεν αφορούσαν τον χρήστη. Η επιλογή μένει στο `localStorage`. */}
+      <div className="mb-3 inline-flex rounded-lg border border-border bg-muted/40 p-0.5">
+        {TABS.map((t) => {
+          const active = tab === t.key;
+          return (
+            <button
+              key={t.key} type="button" onClick={() => selectTab(t.key)}
+              aria-pressed={active}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[length:var(--fs-12)] font-semibold transition',
+                active ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {t.label}
+              <span className={cn(
+                'rounded-full px-1.5 py-0.5 text-[length:var(--fs-10)] tabular-nums',
+                active ? 'bg-sisyphus-500/15 text-sisyphus-700 dark:text-sisyphus-300' : 'bg-muted text-muted-foreground',
+              )}>
+                {t.key === 'posted' ? postedRows.length : openRows.length}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       <DataTable
         columns={columns}
-        data={rows}
+        data={visibleRows}
         searchKey="fileName"
         searchPlaceholder="Αναζήτηση εγγράφου…"
         persistKey="admin.ocr.table.v2"

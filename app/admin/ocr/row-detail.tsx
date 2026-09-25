@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { FiSend, FiSave, FiExternalLink, FiAlertCircle, FiPlus, FiTrash2, FiRotateCcw, FiCheck, FiPlusCircle, FiMaximize2 } from 'react-icons/fi';
+import { FiSend, FiSave, FiExternalLink, FiAlertCircle, FiPlus, FiTrash2, FiRotateCcw, FiCheck, FiPlusCircle, FiMaximize2, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { CreateRegistryEntryModal } from '@/components/admin/create-registry-entry-modal';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -233,6 +233,24 @@ export function OcrRowDetail({
   const missing = specs.filter((s) => s.required && !String(form[s.key] ?? '').trim());
   const fileUrl = `/api/admin/ocr/${row.id}/file`;
   const isPdf = row.mimeType === 'application/pdf';
+
+  /**
+   * ΤΟ ΠΡΩΤΟΤΥΠΟ ΚΛΕΙΝΕΙ. Σε laptop 1280 το PDF έτρωγε 380px από τον editor και η δουλειά
+   * (γραμμές, λογαριασμοί) στριμωχνόταν. Η επιλογή ΜΕΝΕΙ: ο χρήστης δεν θέλει να την ξαναπατά σε
+   * κάθε γραμμή που ανοίγει. `localStorage` και όχι state του γονέα, γιατί αφορά τον χρήστη, όχι
+   * το παραστατικό — και διαβάζεται σε effect ώστε το SSR markup να μην διαφέρει από το client.
+   */
+  const [showPdf, setShowPdf] = React.useState(true);
+  React.useEffect(() => {
+    try { setShowPdf(localStorage.getItem('admin.ocr.rowdetail.pdf') !== '0'); } catch { /* ιδιωτική περιήγηση */ }
+  }, []);
+  const togglePdf = React.useCallback(() => {
+    setShowPdf((v) => {
+      const next = !v;
+      try { localStorage.setItem('admin.ocr.rowdetail.pdf', next ? '1' : '0'); } catch { /* αδιάφορο */ }
+      return next;
+    });
+  }, []);
   const linesNet = items.reduce((sum, it) => sum + (toNum(it.total) ?? 0), 0);
 
   const tNet = toNum(form.subtotal), tVat = toNum(form.vatAmount), tTotal = toNum(form.totalAmount);
@@ -437,15 +455,48 @@ export function OcrRowDetail({
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(300px,380px)_1fr] lg:items-stretch">
+      {/* ΚΛΕΙΣΤΟ ΠΡΩΤΟΤΥΠΟ: λεπτή κάθετη λαβή που το ξαναφέρνει. Μένει ΠΑΝΤΑ ορατή, αλλιώς το
+          κλείσιμο θα ήταν μονόδρομος και ο χρήστης δεν θα ήξερε πώς να το ανοίξει. */}
+      {!showPdf && (
+        <button
+          type="button" onClick={togglePdf}
+          className="mb-2 inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[length:var(--fs-11)] font-semibold text-foreground shadow-sm transition hover:bg-muted"
+        >
+          <FiChevronRight className="size-3.5" /> Εμφάνιση πρωτοτύπου
+        </button>
+      )}
+
+      {/* Η στήλη του PDF συρρικνώνεται σε 0 με μετάβαση — «συρτό» άνοιγμα/κλείσιμο. Το πλάτος ζει
+          σε CSS variable ώστε να μένει responsive (κάτω από `lg` η διάταξη είναι μονόστηλη).
+          ΣΤΑΘΕΡΟ px, ΟΧΙ `minmax()`: το `minmax(300px,380px)` → `0px` ΔΕΝ παρεμβάλλεται — ο browser
+          πηδά κατευθείαν στο τέλος και η κίνηση χάνεται (μετρημένο: στα 150 ms ήταν ήδη στο 0).
+          Δύο τιμές ίδιου τύπου κινούνται κανονικά. */}
+      <div
+        style={{ '--pdf-col': showPdf ? '380px' : '0px' } as React.CSSProperties}
+        className="grid grid-cols-1 gap-3 lg:grid-cols-[var(--pdf-col)_1fr] lg:items-stretch lg:transition-[grid-template-columns] lg:duration-300 lg:ease-out"
+      >
         {/* ---- PERSISTENT preview ---- */}
-        <aside className="flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <aside
+          aria-hidden={!showPdf}
+          className={cn(
+            'flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-opacity duration-200',
+            !showPdf && 'pointer-events-none max-lg:hidden lg:border-0 lg:opacity-0',
+          )}
+        >
           <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-2">
             <span className="text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">Πρωτότυπο</span>
-            <a href={fileUrl} target="_blank" rel="noreferrer"
-               className="inline-flex items-center gap-1 text-[length:var(--fs-11)] font-semibold text-sisyphus-600 hover:underline">
-              <FiExternalLink className="size-3" /> Άνοιγμα
-            </a>
+            <div className="flex items-center gap-2">
+              <a href={fileUrl} target="_blank" rel="noreferrer"
+                 className="inline-flex items-center gap-1 text-[length:var(--fs-11)] font-semibold text-sisyphus-600 hover:underline">
+                <FiExternalLink className="size-3" /> Άνοιγμα
+              </a>
+              <button
+                type="button" onClick={togglePdf} title="Κλείσιμο πρωτοτύπου — περισσότερος χώρος για τη δουλειά"
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[length:var(--fs-11)] font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              >
+                <FiChevronLeft className="size-3.5" /> Κλείσιμο
+              </button>
+            </div>
           </div>
           {isPdf ? (
             // Native PDF viewer — crisp vector zoom for verification, no dependency
