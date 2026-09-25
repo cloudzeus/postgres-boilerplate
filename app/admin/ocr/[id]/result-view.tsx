@@ -103,9 +103,9 @@ function fmtMoney(n: any): string {
 function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match: LineMatchOptions }) {
   const defaultKind = pickerKind(doc.items, match.target);
   return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden">
+    <div className="overflow-hidden rounded-xl border border-border border-l-4 border-l-sisyphus-500 bg-card shadow-fluent-2">
       <table className="w-full text-sm">
-        <thead className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
+        <thead className="border-b-2 border-sisyphus-500/30 bg-sisyphus-500/[0.07] text-left text-xs font-semibold uppercase tracking-wide text-foreground">
           <tr>
             <th className="px-3 py-2">Κωδ.</th>
             <th className="px-3 py-2">Περιγραφή</th>

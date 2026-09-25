@@ -47,6 +47,11 @@ export function AadeVerifyPanel({ afm, kind, onCreated }: {
   const [data, setData] = React.useState<Preview | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
+  /**
+   * ΑΠΟΔΟΧΗ ΠΡΙΝ ΤΗΝ ΕΓΓΡΑΦΗ. Μια καρτέλα μέσα στο ERP δεν ξεγίνεται — ούτε με διαγραφή, γιατί
+   * μένει ο κωδικός. Το πρώτο κλικ ΔΕΙΧΝΕΙ τι θα γραφτεί, το δεύτερο το γράφει.
+   */
+  const [confirming, setConfirming] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   /**
@@ -70,6 +75,7 @@ export function AadeVerifyPanel({ afm, kind, onCreated }: {
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { setError(d?.message ?? 'Η καταχώριση στο SoftOne απέτυχε.'); return; }
+      setConfirming(false);
       onCreated?.();
     } catch {
       setError('Σφάλμα δικτύου.');
@@ -149,14 +155,33 @@ export function AadeVerifyPanel({ afm, kind, onCreated }: {
           <Row aade="Τ.Κ." softone="ZIP" value={data.zip} />
           <Row aade="Νομική μορφή" softone="—" value={data.legalForm} hint="Πληροφοριακό· δεν στέλνεται" />
 
-          <button
-            type="button" onClick={create} disabled={creating || !kind}
-            title={kind ? 'Δημιουργία καρτέλας στο SoftOne με τα παραπάνω στοιχεία'
-              : 'Άγνωστη σειρά — δεν ξέρουμε τι ΤΥΠΟ καρτέλας δέχεται το παραστατικό'}
-            className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded bg-sisyphus-500 px-2.5 py-1.5 text-[length:var(--fs-12)] font-semibold text-white shadow-fluent-2 transition hover:bg-sisyphus-600 disabled:opacity-50"
-          >
-            <FiCheckCircle className="size-3.5" /> {creating ? 'Καταχώριση…' : 'Καταχώριση στο SoftOne'}
-          </button>
+          {!confirming ? (
+            <button
+              type="button" onClick={() => setConfirming(true)} disabled={creating || !kind}
+              title={kind ? 'Δημιουργία καρτέλας στο SoftOne με τα παραπάνω στοιχεία'
+                : 'Άγνωστη σειρά — δεν ξέρουμε τι ΤΥΠΟ καρτέλας δέχεται το παραστατικό'}
+              className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded bg-sisyphus-500 px-2.5 py-1.5 text-[length:var(--fs-12)] font-semibold text-white shadow-fluent-2 transition hover:bg-sisyphus-600 disabled:opacity-50"
+            >
+              <FiCheckCircle className="size-3.5" /> Καταχώριση στο SoftOne
+            </button>
+          ) : (
+            <div className="mt-2 rounded border border-sisyphus-500/40 bg-sisyphus-500/10 p-2">
+              <p className="text-[length:var(--fs-11)] text-foreground">
+                Θα δημιουργηθεί <strong>νέα καρτέλα</strong> στο SoftOne με τα παραπάνω στοιχεία.
+                Δεν αναιρείται.
+              </p>
+              <div className="mt-1.5 flex gap-1.5">
+                <button type="button" onClick={create} disabled={creating}
+                  className="flex-1 rounded bg-sisyphus-500 px-2 py-1 text-[length:var(--fs-12)] font-semibold text-white transition hover:bg-sisyphus-600 disabled:opacity-50">
+                  {creating ? 'Καταχώριση…' : 'Ναι, δημιούργησέ την'}
+                </button>
+                <button type="button" onClick={() => setConfirming(false)} disabled={creating}
+                  className="rounded border border-border px-2 py-1 text-[length:var(--fs-12)] font-medium transition hover:bg-muted disabled:opacity-50">
+                  Άκυρο
+                </button>
+              </div>
+            </div>
+          )}
           {!kind && (
             <p className="mt-1 text-[length:var(--fs-11)] text-muted-foreground">
               Διάλεξε πρώτα σειρά παραστατικού — αυτή ορίζει αν χρειάζεται προμηθευτής, πιστωτής ή χρεώστης.

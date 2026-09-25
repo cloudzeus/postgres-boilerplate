@@ -128,9 +128,9 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
           const keys = g.keys.filter((k) => fields.includes(k));
           if (keys.length === 0) return null;
           return (
-        <section key={g.title} className="mb-2.5 rounded-lg border border-border bg-card p-2.5 shadow-fluent-2">
-        <h3 className="mb-1.5 border-b border-border/60 pb-1 text-[length:var(--fs-12)] font-extrabold uppercase tracking-wider text-foreground">{g.title}</h3>
-        <div className={`grid gap-2 ${showDoc ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4'}`}>
+        <section key={g.title} className="mb-2.5 overflow-hidden rounded-lg border border-border border-l-4 border-l-sisyphus-500 bg-card shadow-fluent-2">
+        <h3 className="mb-2 border-b border-border/60 bg-sisyphus-500/[0.07] px-2.5 py-1.5 text-[length:var(--fs-12)] font-extrabold uppercase tracking-wider text-foreground">{g.title}</h3>
+        <div className={`grid gap-2 px-2.5 pb-2.5 ${showDoc ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4'}`}>
         {keys.map((f) => (
           <div key={f} className={`flex items-end gap-1.5 rounded p-1 ${activeField===f ? 'ring-2 ring-sisyphus-500' : ''}`}>
             <label className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -155,9 +155,9 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
           const rest = fields.filter((f) => !known.has(f));
           if (rest.length === 0) return null;
           return (
-            <section className="mb-2.5 rounded-lg border border-border bg-card p-2.5 shadow-fluent-2">
-              <h3 className="mb-1.5 border-b border-border/60 pb-1 text-[length:var(--fs-12)] font-extrabold uppercase tracking-wider text-foreground">Λοιπά</h3>
-              <div className={`grid gap-2 ${showDoc ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4'}`}>
+            <section className="mb-2.5 overflow-hidden rounded-lg border border-border border-l-4 border-l-sisyphus-500 bg-card shadow-fluent-2">
+              <h3 className="mb-2 border-b border-border/60 bg-sisyphus-500/[0.07] px-2.5 py-1.5 text-[length:var(--fs-12)] font-extrabold uppercase tracking-wider text-foreground">Λοιπά</h3>
+              <div className={`grid gap-2 px-2.5 pb-2.5 ${showDoc ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4'}`}>
                 {rest.map((f) => (
                   <label key={f} className="flex min-w-0 flex-col gap-0.5">
                     <span className="truncate text-[length:var(--fs-10)] font-semibold uppercase tracking-wide text-muted-foreground">{FIELD_LABELS[f] ?? f}</span>
