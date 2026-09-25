@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { normalizeLineText } from '@/lib/ocr/line-match';
+import { parseShapeParts } from '@/lib/ocr/allocation-shape';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -67,7 +68,38 @@ export async function GET(req: Request) {
   };
 
   const pattern = normalizeLineText(line.name);
-  if (!pattern) return NextResponse.json({ suggestion: null, handwritten });
+  if (!pattern) return NextResponse.json({ suggestion: null, handwritten, shape: null });
+
+  // ΤΟ ΣΧΗΜΑ ΠΡΩΤΑ: αν ο ίδιος εκδότης έσπασε ήδη αυτή τη γραμμή, αυτό είναι η ισχυρότερη
+  // πρόταση που έχουμε — προέρχεται από ανθρώπινη απόφαση που επαναλήφθηκε.
+  const afmKey = String(line.document?.issuerAfm ?? '').trim();
+  const shapeRow = await prisma.allocationShapeRule.findFirst({
+    where: { pattern, afm: { in: afmKey ? [afmKey, ''] : [''] } },
+    orderBy: [{ afm: 'desc' }, { timesUsed: 'desc' }],
+    select: { parts: true, kind: true, timesUsed: true, afm: true },
+  });
+  const shapeParts = shapeRow ? parseShapeParts(shapeRow.parts) : null;
+  // Κάθε κομμάτι πρέπει να δείχνει σε μητρώο που ΥΠΑΡΧΕΙ ΚΑΙ ΕΙΝΑΙ ΕΝΕΡΓΟ ακόμη. Ένα νεκρό
+  // κομμάτι κάνει ολόκληρο το σχήμα άχρηστο — δεν προτείνουμε μισό.
+  let shape: null | { kind: string; timesUsed: number; sameIssuer: boolean;
+    parts: { registryMtrl: number; code: string; name: string; percent: number }[] } = null;
+  if (shapeParts && shapeRow) {
+    const live = await prisma.softoneLineItem.findMany({
+      where: { mtrl: { in: shapeParts.map((p) => p.registryMtrl) }, isActive: true },
+      select: { mtrl: true, code: true, name: true },
+    });
+    const byMtrl = new Map(live.map((l) => [l.mtrl, l]));
+    if (shapeParts.every((p) => byMtrl.has(p.registryMtrl))) {
+      shape = {
+        kind: shapeRow.kind, timesUsed: shapeRow.timesUsed,
+        sameIssuer: Boolean(afmKey) && shapeRow.afm === afmKey,
+        parts: shapeParts.map((p) => ({
+          registryMtrl: p.registryMtrl, percent: p.percent,
+          code: byMtrl.get(p.registryMtrl)!.code, name: byMtrl.get(p.registryMtrl)!.name,
+        })),
+      };
+    }
+  }
 
   // Πρώτα ο κανόνας ΑΥΤΟΥ του εκδότη· αν δεν υπάρχει, ο γενικός (κενό ΑΦΜ) για την ίδια γραμμή.
   const afm = String(line.document?.issuerAfm ?? '').trim();
@@ -76,14 +108,14 @@ export async function GET(req: Request) {
     orderBy: [{ afm: 'desc' }, { timesUsed: 'desc' }],
     select: { lin: true, timesUsed: true, afm: true },
   });
-  if (!rule?.lin) return NextResponse.json({ suggestion: null, handwritten });
+  if (!rule?.lin) return NextResponse.json({ suggestion: null, handwritten, shape });
 
   const account = await prisma.softoneLineItem.findUnique({
     where: { mtrl: rule.lin },
     select: { mtrl: true, code: true, name: true, isActive: true },
   });
   // Κανόνας που δείχνει σε μητρώο που δεν υπάρχει πια: δεν προτείνουμε νεκρό λογαριασμό.
-  if (!account?.isActive) return NextResponse.json({ suggestion: null, handwritten });
+  if (!account?.isActive) return NextResponse.json({ suggestion: null, handwritten, shape });
 
   return NextResponse.json({
     suggestion: {
@@ -96,6 +128,7 @@ export async function GET(req: Request) {
       sameIssuer: Boolean(afm) && rule.afm === afm,
     },
     handwritten,
+    shape,
   });
 }
 

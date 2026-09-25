@@ -103,13 +103,13 @@ model User {
   locale           String        @default("el")
   preferredLocales String[]      @default(["el"])
   roleId           String
-  role          Role          @relation(fields: [roleId], references: [id])
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  accounts      Account[]
-  sessions      Session[]
-  otpTokens     OtpToken[]
-  excelImports  ExcelImport[]
+  role             Role          @relation(fields: [roleId], references: [id])
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  accounts         Account[]
+  sessions         Session[]
+  otpTokens        OtpToken[]
+  excelImports     ExcelImport[]
 
   @@index([roleId])
 }
@@ -164,8 +164,8 @@ model AuditLog {
   id         String   @id @default(cuid())
   userId     String?
   userEmail  String?
-  action     String   // e.g. "users.create", "roles.delete", "auth.login"
-  resource   String   // e.g. "user", "role"
+  action     String // e.g. "users.create", "roles.delete", "auth.login"
+  resource   String // e.g. "user", "role"
   resourceId String?
   metadata   Json?
   ip         String?
@@ -196,7 +196,7 @@ model DbBackup {
   storageKey   String   @unique
   sizeBytes    BigInt
   status       String   @default("READY") // PENDING | READY | FAILED | RESTORING
-  trigger      String   @default("cron")  // cron | manual
+  trigger      String   @default("cron") // cron | manual
   errorMessage String?
   createdById  String?
   createdAt    DateTime @default(now())
@@ -205,39 +205,39 @@ model DbBackup {
 }
 
 model MediaFolder {
-  id        String         @id @default(cuid())
-  name      String
-  parentId  String?
-  parent    MediaFolder?   @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children  MediaFolder[]  @relation("FolderTree")
-  files     MediaFile[]
-  order     Int            @default(0)
+  id          String        @id @default(cuid())
+  name        String
+  parentId    String?
+  parent      MediaFolder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    MediaFolder[] @relation("FolderTree")
+  files       MediaFile[]
+  order       Int           @default(0)
   createdById String?
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
-  @@index([parentId])
   @@unique([parentId, name])
+  @@index([parentId])
 }
 
 model MediaFile {
-  id            String       @id @default(cuid())
-  folderId      String?
-  folder        MediaFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  name          String       // user-facing filename
-  originalName  String       // upload-time original
-  storageKey    String       @unique  // path on Bunny S3 (e.g. media/2025/12/abc-photo.webp)
-  originalKey   String?      // for SVG: path of original .svg companion
-  mimeType      String
-  size          Int          // bytes
-  width         Int?
-  height        Int?
-  isImage       Boolean      @default(false)
-  isSvg         Boolean      @default(false)
-  publicUrl     String       // CDN URL for primary file
-  originalUrl   String?      // CDN URL for SVG original (when isSvg)
-  uploadedById  String?
-  uploadedAt    DateTime     @default(now())
+  id           String       @id @default(cuid())
+  folderId     String?
+  folder       MediaFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  name         String // user-facing filename
+  originalName String // upload-time original
+  storageKey   String       @unique // path on Bunny S3 (e.g. media/2025/12/abc-photo.webp)
+  originalKey  String? // for SVG: path of original .svg companion
+  mimeType     String
+  size         Int // bytes
+  width        Int?
+  height       Int?
+  isImage      Boolean      @default(false)
+  isSvg        Boolean      @default(false)
+  publicUrl    String // CDN URL for primary file
+  originalUrl  String? // CDN URL for SVG original (when isSvg)
+  uploadedById String?
+  uploadedAt   DateTime     @default(now())
 
   @@index([folderId])
   @@index([uploadedAt])
@@ -248,115 +248,115 @@ model MediaFile {
 // ============================================================
 
 model CompanyType {
-  id          String                    @id @default(cuid())
-  key         String                    @unique           // e.g. CUSTOMER, SUPPLIER, PARTNER, PROSPECT
-  name        String                                      // display name (Greek), e.g. "Πελάτης"
-  pluralName  String?                                     // "Πελάτες"
+  id          String                  @id @default(cuid())
+  key         String                  @unique // e.g. CUSTOMER, SUPPLIER, PARTNER, PROSPECT
+  name        String // display name (Greek), e.g. "Πελάτης"
+  pluralName  String? // "Πελάτες"
   description String?
-  color       String?                   // hex, for badge
-  icon        String?                   // react-icons key (e.g. "FiUser")
-  isSystem    Boolean                   @default(false)   // CUSTOMER/SUPPLIER/PARTNER seeded as system
-  order       Int                       @default(0)
-  createdAt   DateTime                  @default(now())
-  updatedAt   DateTime                  @updatedAt
+  color       String? // hex, for badge
+  icon        String? // react-icons key (e.g. "FiUser")
+  isSystem    Boolean                 @default(false) // CUSTOMER/SUPPLIER/PARTNER seeded as system
+  order       Int                     @default(0)
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
   companies   CompanyTypeAssignment[]
 
   @@index([order])
 }
 
 model Company {
-  id              String                  @id @default(cuid())
+  id                   String            @id @default(cuid())
   // SoftOne TRDR identity
-  code            String?                 @unique           // TRDR.CODE — internal code
-  sodtype         Int?                                      // SoftOne sodtype (13=customer, 12=supplier...) (optional, informative)
-  name            String                                    // TRDR.NAME — επωνυμία
-  shortName       String?                                   // brand / σύντομη επωνυμία
+  code                 String?           @unique // TRDR.CODE — internal code
+  sodtype              Int? // SoftOne sodtype (13=customer, 12=supplier...) (optional, informative)
+  name                 String // TRDR.NAME — επωνυμία
+  shortName            String? // brand / σύντομη επωνυμία
   // Tax / legal
-  afm             String?                 @unique           // ΑΦΜ / VAT number
-  doy             String?                                   // ΔΟΥ / tax office
-  irsData         String?                                   // additional IRS notes
-  profession      String?                                   // επάγγελμα / activity
-  legalForm       String?                                   // νομική μορφή (Α.Ε., Ι.Κ.Ε., κ.λπ.)
-  gemhNumber      String?                                   // αρ. ΓΕΜΗ
+  afm                  String?           @unique // ΑΦΜ / VAT number
+  doy                  String? // ΔΟΥ / tax office
+  irsData              String? // additional IRS notes
+  profession           String? // επάγγελμα / activity
+  legalForm            String? // νομική μορφή (Α.Ε., Ι.Κ.Ε., κ.λπ.)
+  gemhNumber           String? // αρ. ΓΕΜΗ
   // Contact
-  address         String?
-  city            String?
-  zip             String?
-  country         String?                 @default("GR")
-  district        String?
-  phone           String?
-  phone2          String?
-  fax             String?
-  email           String?
-  website         String?
-  contactPerson   String?
-  contactTitle    String?
+  address              String?
+  city                 String?
+  zip                  String?
+  country              String?           @default("GR")
+  district             String?
+  phone                String?
+  phone2               String?
+  fax                  String?
+  email                String?
+  website              String?
+  contactPerson        String?
+  contactTitle         String?
   // Financial
-  iban            String?
-  bankName        String?
-  currency        String?                 @default("EUR")
-  paymentTerms    String?
-  creditLimit     Decimal?                @db.Decimal(14, 2)
-  balance         Decimal?                @db.Decimal(14, 2)
-  discount        Decimal?                @db.Decimal(5, 2)
-  vatCategory     String?
+  iban                 String?
+  bankName             String?
+  currency             String?           @default("EUR")
+  paymentTerms         String?
+  creditLimit          Decimal?          @db.Decimal(14, 2)
+  balance              Decimal?          @db.Decimal(14, 2)
+  discount             Decimal?          @db.Decimal(5, 2)
+  vatCategory          String?
   // Classification
-  category        String?
-  branchInfo      String?
-  notes           String?
+  category             String?
+  branchInfo           String?
+  notes                String?
   // State
-  isActive        Boolean                 @default(true)
+  isActive             Boolean           @default(true)
   // ΑΕΔΕΕ extras
-  foundingDate    DateTime?                                 // ημερομηνία ίδρυσης (regist_date)
-  aadeStatus      String?                                   // deactivation_flag_descr (π.χ. ΕΝΕΡΓΟΣ ΑΦΜ)
-  aadeFirmKind    String?                                   // firm_flag_descr (π.χ. ΕΠΙΤΗΔΕΥΜΑΤΙΑΣ)
-  aadeSyncedAt    DateTime?
+  foundingDate         DateTime? // ημερομηνία ίδρυσης (regist_date)
+  aadeStatus           String? // deactivation_flag_descr (π.χ. ΕΝΕΡΓΟΣ ΑΦΜ)
+  aadeFirmKind         String? // firm_flag_descr (π.χ. ΕΠΙΤΗΔΕΥΜΑΤΙΑΣ)
+  aadeSyncedAt         DateTime?
   // Logo (Bunny CDN)
-  logoUrl         String?
-  logoStorageKey  String?
+  logoUrl              String?
+  logoStorageKey       String?
   // ΓΕΜΗ extras
-  arGemi              String?   @unique                     // Αριθμός ΓΕΜΗ (από Open Data) — string γιατί ξεπερνά Int32
-  gemiOffice          String?                                // Τοπική Υπηρεσία ΓΕΜΗ
-  gemiStatus          String?                                // Κατάσταση επιχείρησης (ΓΕΜΗ)
-  gemiObjective       String?                                // Σκοπός εταιρείας
-  gemiIsBranch        Boolean?                               // Υποκατάστημα ή Μητρική
-  gemiAutoRegistered  Boolean?                               // Ολοκληρωμένη αυτοαπογραφή
+  arGemi               String?           @unique // Αριθμός ΓΕΜΗ (από Open Data) — string γιατί ξεπερνά Int32
+  gemiOffice           String? // Τοπική Υπηρεσία ΓΕΜΗ
+  gemiStatus           String? // Κατάσταση επιχείρησης (ΓΕΜΗ)
+  gemiObjective        String? // Σκοπός εταιρείας
+  gemiIsBranch         Boolean? // Υποκατάστημα ή Μητρική
+  gemiAutoRegistered   Boolean? // Ολοκληρωμένη αυτοαπογραφή
   gemiLastStatusChange DateTime?
-  gemiSyncedAt        DateTime?
-  gemiData            Json?                                  // raw GEMI response για future-proofing
+  gemiSyncedAt         DateTime?
+  gemiData             Json? // raw GEMI response για future-proofing
   // SoftOne sync
-  s1Trdr          Int?                    @unique           // mirror TRDR primary key when synced
-  s1UpdDate       DateTime?
+  s1Trdr               Int?              @unique // mirror TRDR primary key when synced
+  s1UpdDate            DateTime?
   // Geocoding (MapTiler)
-  latitude        Float?
-  longitude       Float?
-  geocodedAt      DateTime?
-  geocodedAddress String?                                    // canonical address returned by geocoder
+  latitude             Float?
+  longitude            Float?
+  geocodedAt           DateTime?
+  geocodedAddress      String? // canonical address returned by geocoder
   // Audit
-  createdById     String?
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
+  createdById          String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
   // FK to lookup tables (nullable; text counterparts above act as denormalized cache)
   legalTypeId          Int?
   legalTypeRef         LegalType?        @relation(fields: [legalTypeId], references: [id])
   businessTypeId       String?
   businessType         BusinessType?     @relation(fields: [businessTypeId], references: [id], onDelete: SetNull)
   businessTypeOverride Boolean           @default(false)
-  gemiOfficeId      Int?
-  gemiOfficeRef     GemiOfficeRef?    @relation(fields: [gemiOfficeId], references: [id])
-  companyStatusId   Int?
-  companyStatusRef  CompanyStatusRef? @relation(fields: [companyStatusId], references: [id])
-  prefectureId      String?
-  prefectureRef     Prefecture?       @relation(fields: [prefectureId], references: [id])
-  municipalityId    String?
-  municipalityRef   Municipality?     @relation(fields: [municipalityId], references: [id])
-  regionCode        String?
-  regionRef         Region?           @relation("CompanyRegion", fields: [regionCode], references: [code])
-  vatCategoryId     Int?
-  vatCategoryRef    VatCategory?      @relation(fields: [vatCategoryId], references: [id])
+  gemiOfficeId         Int?
+  gemiOfficeRef        GemiOfficeRef?    @relation(fields: [gemiOfficeId], references: [id])
+  companyStatusId      Int?
+  companyStatusRef     CompanyStatusRef? @relation(fields: [companyStatusId], references: [id])
+  prefectureId         String?
+  prefectureRef        Prefecture?       @relation(fields: [prefectureId], references: [id])
+  municipalityId       String?
+  municipalityRef      Municipality?     @relation(fields: [municipalityId], references: [id])
+  regionCode           String?
+  regionRef            Region?           @relation("CompanyRegion", fields: [regionCode], references: [code])
+  vatCategoryId        Int?
+  vatCategoryRef       VatCategory?      @relation(fields: [vatCategoryId], references: [id])
 
   // Manual operational data (όχι από API)
-  employeeCount     Int?                                  // αριθμός εργαζομένων
+  employeeCount Int? // αριθμός εργαζομένων
 
   types           CompanyTypeAssignment[]
   branches        CompanyBranch[]
@@ -376,7 +376,6 @@ model Company {
   @@index([municipalityId])
   @@index([regionCode])
   @@index([vatCategoryId])
-
   @@index([name])
   @@index([afm])
   @@index([isActive])
@@ -387,7 +386,7 @@ model Company {
 // ============================================================
 
 model LegalType {
-  id          Int      @id            // GEMI legalType.id
+  id          Int       @id // GEMI legalType.id
   descr       String
   descrEn     String?
   lastUpdated DateTime?
@@ -395,7 +394,7 @@ model LegalType {
 }
 
 model GemiOfficeRef {
-  id          Int      @id            // GEMI gemiOffice.id
+  id          Int       @id // GEMI gemiOffice.id
   descr       String
   descrEn     String?
   address     String?
@@ -409,50 +408,50 @@ model GemiOfficeRef {
 }
 
 model CompanyStatusRef {
-  id          Int      @id            // GEMI status.id
+  id          Int       @id // GEMI status.id
   descr       String
   descrEn     String?
-  isActive    Boolean  @default(true)
+  isActive    Boolean   @default(true)
   lastUpdated DateTime?
   companies   Company[]
 }
 
 model Prefecture {
-  id            String   @id          // GEMI prefecture.id (string in API)
-  descr         String
-  descrEn       String?
-  lastUpdated   DateTime?
+  id             String         @id // GEMI prefecture.id (string in API)
+  descr          String
+  descrEn        String?
+  lastUpdated    DateTime?
   municipalities Municipality[]
-  companies     Company[]
+  companies      Company[]
 }
 
 // ΦΠΑ καθεστώτα/κατηγορίες — manual seed (όχι από ΓΕΜΗ).
 model VatCategory {
-  id          Int       @id @default(autoincrement())
-  code        String    @unique          // ο κωδικός ΦΠΑ του SoftOne (VAT.VAT), αριθμητικός ως κείμενο: "1", "4", "13"…
-                                         // — αυτός φεύγει στο PURDOC ως `VAT` της γραμμής, όχι λεκτικό.
-  descr       String                     // "Κανονικό", "Μειωμένο", "Απαλλασσόμενο"…
-  rate        Float?                     // π.χ. 24, 13, 6, 0 (nullable: για καθεστώτα χωρίς ποσοστό)
-  isActive    Boolean   @default(true)
-  order       Int       @default(0)
-  companies   Company[]
+  id        Int       @id @default(autoincrement())
+  code      String    @unique // ο κωδικός ΦΠΑ του SoftOne (VAT.VAT), αριθμητικός ως κείμενο: "1", "4", "13"…
+  // — αυτός φεύγει στο PURDOC ως `VAT` της γραμμής, όχι λεκτικό.
+  descr     String // "Κανονικό", "Μειωμένο", "Απαλλασσόμενο"…
+  rate      Float? // π.χ. 24, 13, 6, 0 (nullable: για καθεστώτα χωρίς ποσοστό)
+  isActive  Boolean   @default(true)
+  order     Int       @default(0)
+  companies Company[]
 
   @@index([order])
 }
 
 // Τύποι παραστατικών αγορών — σειρές (SERIES) της ενότητας Αγορών (PURDOC) από SoftOne.
 model PurchaseDocType {
-  id        Int      @id @default(autoincrement())
-  code      String   @unique          // SoftOne SERIES (αριθμός σειράς)
-  abbrev    String?                   // CODE (σύντμηση)
-  name      String                    // NAME (Περιγραφή)
-  section   String?                   // Υποενότητα (SOREDIR)
-  isActive  Boolean  @default(true)
-  enabled   Boolean  @default(false)   // on/off: τη χρησιμοποιούμε στην εφαρμογή (χειροκίνητο, δεν το αγγίζει το sync)
-  order     Int      @default(0)
+  id         Int     @id @default(autoincrement())
+  code       String  @unique // SoftOne SERIES (αριθμός σειράς)
+  abbrev     String? // CODE (σύντμηση)
+  name       String // NAME (Περιγραφή)
+  section    String? // Υποενότητα (SOREDIR)
+  isActive   Boolean @default(true)
+  enabled    Boolean @default(false) // on/off: τη χρησιμοποιούμε στην εφαρμογή (χειροκίνητο, δεν το αγγίζει το sync)
+  order      Int     @default(0)
   // Στόχος καταχώρισης (lib/ocr/posting-target.ts). NULL = η προεπιλογή της ενότητας.
-  postObject String?                   // PURDOC | LINSUPDOC | LINCREDOC | LINDEBDOC (το ορίζει η ενότητα)
-  postLines  String?                   // AUTO | ITELINES | SRVLINES | EXPANAL | LINLINES
+  postObject String? // PURDOC | LINSUPDOC | LINCREDOC | LINDEBDOC (το ορίζει η ενότητα)
+  postLines  String? // AUTO | ITELINES | SRVLINES | EXPANAL | LINLINES
 
   @@index([order])
 }
@@ -461,19 +460,19 @@ model PurchaseDocType {
 // αγορών (1251 → PurchaseDocType): έξοδα, πάγια, άρθρα λογιστικής, εισπράξεις κλπ.
 // Ομαδοποιούνται ανά SOSOURCE (ενότητα) — μητρώο αναφοράς.
 model SoftoneDocSeries {
-  id        Int      @id @default(autoincrement())
-  sosource  Int                        // SoftOne SOSOURCE (ενότητα/module id)
-  family    String                     // Ετικέτα ενότητας (π.χ. «Πάγια»)
-  code      String                     // SERIES (αριθμός σειράς)
-  abbrev    String?                    // CODE (σύντμηση)
-  name      String                     // NAME (Περιγραφή)
-  section   String?                    // FPRMS (Τύπος)
-  isActive  Boolean  @default(true)    // ενεργή στο SoftOne (από sync)
-  enabled   Boolean  @default(false)   // on/off: τη χρησιμοποιούμε στην εφαρμογή (χειροκίνητο, δεν το αγγίζει το sync)
-  order     Int      @default(0)
+  id         Int     @id @default(autoincrement())
+  sosource   Int // SoftOne SOSOURCE (ενότητα/module id)
+  family     String // Ετικέτα ενότητας (π.χ. «Πάγια»)
+  code       String // SERIES (αριθμός σειράς)
+  abbrev     String? // CODE (σύντμηση)
+  name       String // NAME (Περιγραφή)
+  section    String? // FPRMS (Τύπος)
+  isActive   Boolean @default(true) // ενεργή στο SoftOne (από sync)
+  enabled    Boolean @default(false) // on/off: τη χρησιμοποιούμε στην εφαρμογή (χειροκίνητο, δεν το αγγίζει το sync)
+  order      Int     @default(0)
   // Στόχος καταχώρισης (lib/ocr/posting-target.ts). NULL = η προεπιλογή της ενότητας.
-  postObject String?                   // PURDOC | LINSUPDOC | LINCREDOC | LINDEBDOC (το ορίζει η ενότητα)
-  postLines  String?                   // AUTO | ITELINES | SRVLINES | EXPANAL | LINLINES
+  postObject String? // PURDOC | LINSUPDOC | LINCREDOC | LINDEBDOC (το ορίζει η ενότητα)
+  postLines  String? // AUTO | ITELINES | SRVLINES | EXPANAL | LINLINES
 
   @@unique([sosource, code])
   @@index([sosource])
@@ -483,20 +482,20 @@ model SoftoneDocSeries {
 // SODTYPE 12 Προμηθευτές · 13 Πελάτες · 14 Χρηματικοί λογαριασμοί · 15 Χρεώστες · 16 Πιστωτές.
 model SoftoneTrader {
   id         Int     @id @default(autoincrement())
-  trdr       Int     @unique           // SoftOne TRDR id
-  sodtype    Int                       // SoftOne SODTYPE (τύπος συναλλασσομένου)
-  kind       String                    // Ετικέτα τύπου (Πελάτης, Προμηθευτής, …)
-  code       String                    // CODE (κωδικός)
-  name       String                    // NAME (επωνυμία)
-  afm        String?                   // Α.Φ.Μ.
-  doy        String?                   // IRSDATA (Δ.Ο.Υ.)
-  profession String?                   // JOBTYPETRD (επάγγελμα)
+  trdr       Int     @unique // SoftOne TRDR id
+  sodtype    Int // SoftOne SODTYPE (τύπος συναλλασσομένου)
+  kind       String // Ετικέτα τύπου (Πελάτης, Προμηθευτής, …)
+  code       String // CODE (κωδικός)
+  name       String // NAME (επωνυμία)
+  afm        String? // Α.Φ.Μ.
+  doy        String? // IRSDATA (Δ.Ο.Υ.)
+  profession String? // JOBTYPETRD (επάγγελμα)
   address    String?
   district   String?
   zip        String?
   city       String?
-  phone      String?                   // PHONE01
-  phone2     String?                   // PHONE02
+  phone      String? // PHONE01
+  phone2     String? // PHONE02
   fax        String?
   email      String?
   webpage    String?
@@ -511,16 +510,16 @@ model SoftoneTrader {
 // Είδη & Υπηρεσίες (MTRL SODTYPE 51=είδος, 52=υπηρεσία) από SoftOne via GetTable.
 model SoftoneItem {
   id         Int     @id @default(autoincrement())
-  mtrl       Int     @unique           // SoftOne MTRL id
-  code       String                    // CODE (κύριος κωδικός)
-  code1      String?                   // CODE1 (Barcode / EAN)
-  code2      String?                   // CODE2 (Κωδ. εργοστασίου)
-  name       String                    // NAME (περιγραφή)
-  name2      String?                   // NAME1 (περιγραφή 2)
-  price      Float?                    // PRICER (λιανικής)
-  isService  Boolean @default(false)   // SODTYPE=52
+  mtrl       Int     @unique // SoftOne MTRL id
+  code       String // CODE (κύριος κωδικός)
+  code1      String? // CODE1 (Barcode / EAN)
+  code2      String? // CODE2 (Κωδ. εργοστασίου)
+  name       String // NAME (περιγραφή)
+  name2      String? // NAME1 (περιγραφή 2)
+  price      Float? // PRICER (λιανικής)
+  isService  Boolean @default(false) // SODTYPE=52
   isActive   Boolean @default(true)
-  myDataCode String?                   // MYDATACODE («Κατηγορία myDATA») — χαρακτηρισμός του μητρώου
+  myDataCode String? // MYDATACODE («Κατηγορία myDATA») — χαρακτηρισμός του μητρώου
 
   @@index([name])
   @@index([code])
@@ -533,9 +532,9 @@ model SoftoneItem {
 // για combo boxes / γενική χρήση. kind = το όνομα του SoftOne πίνακα.
 model SoftoneLookup {
   id    Int    @id @default(autoincrement())
-  kind  String                // π.χ. VAT | MTRUNIT | MTRGROUP | MTRCATEGORY | MTRMANFCTR | MTRMARK
-  code  String                // SoftOne id/code
-  name  String                // περιγραφή (combo label)
+  kind  String // π.χ. VAT | MTRUNIT | MTRGROUP | MTRCATEGORY | MTRMANFCTR | MTRMARK
+  code  String // SoftOne id/code
+  name  String // περιγραφή (combo label)
   order Int    @default(0)
 
   @@unique([kind, code])
@@ -543,13 +542,13 @@ model SoftoneLookup {
 }
 
 model Municipality {
-  id            String     @id        // GEMI municipality.id (string)
-  prefectureId  String?
-  prefecture    Prefecture? @relation(fields: [prefectureId], references: [id])
-  descr         String
-  descrEn       String?
-  lastUpdated   DateTime?
-  companies     Company[]
+  id           String      @id // GEMI municipality.id (string)
+  prefectureId String?
+  prefecture   Prefecture? @relation(fields: [prefectureId], references: [id])
+  descr        String
+  descrEn      String?
+  lastUpdated  DateTime?
+  companies    Company[]
 
   @@index([prefectureId])
   @@index([descr])
@@ -557,19 +556,19 @@ model Municipality {
 
 // Καλλικράτης δενδροειδής δομή — seed από public/periferies-*.json (όχι GEMI).
 model Region {
-  code        String   @id            // "111" (Περιφ.), "11102" (Π.Ε./Νομός), "1110202" (Δήμος)
-  nameEL      String
-  nameEN      String?
-  level       Int                      // 3=Περιφέρεια, 4=Περιφ. Ενότητα/Νομός, 5=Δήμος
-  parentCode  String?
-  parent      Region?  @relation("RegionHierarchy", fields: [parentCode], references: [code], onDelete: SetNull)
-  children    Region[] @relation("RegionHierarchy")
-  path        String?                  // "111>11102>1110202"
-  latitude    Float?
-  longitude   Float?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  code       String   @id // "111" (Περιφ.), "11102" (Π.Ε./Νομός), "1110202" (Δήμος)
+  nameEL     String
+  nameEN     String?
+  level      Int // 3=Περιφέρεια, 4=Περιφ. Ενότητα/Νομός, 5=Δήμος
+  parentCode String?
+  parent     Region?  @relation("RegionHierarchy", fields: [parentCode], references: [code], onDelete: SetNull)
+  children   Region[] @relation("RegionHierarchy")
+  path       String? // "111>11102>1110202"
+  latitude   Float?
+  longitude  Float?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   companies       Company[]       @relation("CompanyRegion")
   companyBranches CompanyBranch[] @relation("BranchRegion")
@@ -585,61 +584,61 @@ enum DocumentSource {
 }
 
 enum DocumentKind {
-  DECISION       // CompanyDocumentDecision (απόφαση οργάνου)
-  PUBLICATION    // CompanyDocumentPublication (ΥΜΣ)
+  DECISION // CompanyDocumentDecision (απόφαση οργάνου)
+  PUBLICATION // CompanyDocumentPublication (ΥΜΣ)
   OTHER
 }
 
 model CompanyDocument {
-  id            String          @id @default(cuid())
-  companyId     String
-  company       Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  source        DocumentSource  @default(GEMI)
-  kind          DocumentKind    @default(OTHER)
-  title         String                                       // τίτλος (decisionSubject ή summary ή filename)
+  id                  String         @id @default(cuid())
+  companyId           String
+  company             Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  source              DocumentSource @default(GEMI)
+  kind                DocumentKind   @default(OTHER)
+  title               String // τίτλος (decisionSubject ή summary ή filename)
   // GEMI document metadata
-  kak           String?                                      // Κωδικός Αριθμός Καταχώρισης
-  assembly      String?                                      // είδος οργάνου
-  summary       String?                                      // περίληψη
-  decisionSubject String?
-  dateAssemblyDecided  DateTime?
-  dateAnnounced        DateTime?
-  dateRegistrated      DateTime?
-  applicationStatus String?
+  kak                 String? // Κωδικός Αριθμός Καταχώρισης
+  assembly            String? // είδος οργάνου
+  summary             String? // περίληψη
+  decisionSubject     String?
+  dateAssemblyDecided DateTime?
+  dateAnnounced       DateTime?
+  dateRegistrated     DateTime?
+  applicationStatus   String?
   // File on Bunny CDN
-  sourceUrl     String?                                      // αρχική URL στο businessportal
-  storageKey    String?                                      // path στο Bunny zone
-  publicUrl     String?                                      // CDN URL
-  mimeType      String?
-  sizeBytes     Int?
-  metadata      Json?                                        // raw GEMI item για debugging
-  createdAt     DateTime        @default(now())
+  sourceUrl           String? // αρχική URL στο businessportal
+  storageKey          String? // path στο Bunny zone
+  publicUrl           String? // CDN URL
+  mimeType            String?
+  sizeBytes           Int?
+  metadata            Json? // raw GEMI item για debugging
+  createdAt           DateTime       @default(now())
 
+  @@unique([companyId, kak])
   @@index([companyId])
   @@index([kak])
-  @@unique([companyId, kak])
 }
 
 // Master catalog of all ΚΑΔ codes (Greek Activity Code register).
 // Auto-populated from ΑΕΔΕΕ lookups and used for mapping/search across companies.
 model KadCode {
-  code            String    @id                              // canonical with dots, π.χ. "43.21.00" ή "62.10.12.00"
-  codeWithoutDots String?   @unique @db.VarChar(10)          // "43210000" (padded to 8 για NACE-level)
-  description     String                                     // legacy alias of title (kept for backward compat)
-  title           String?                                    // επίσημος τίτλος (από kad2025.json)
-  level           Int?                                       // 1..7
-  sector          String?   @db.VarChar(3)                   // π.χ. "Α", "ΣΤ"
-  sectorLetter    String?   @db.VarChar(3)                   // same as sector — indexed for filtering
-  parentCode      String?                                    // πατρικός ΚΑΔ (string FK to KadCode.code)
+  code            String    @id // canonical with dots, π.χ. "43.21.00" ή "62.10.12.00"
+  codeWithoutDots String?   @unique @db.VarChar(10) // "43210000" (padded to 8 για NACE-level)
+  description     String // legacy alias of title (kept for backward compat)
+  title           String? // επίσημος τίτλος (από kad2025.json)
+  level           Int? // 1..7
+  sector          String?   @db.VarChar(3) // π.χ. "Α", "ΣΤ"
+  sectorLetter    String?   @db.VarChar(3) // same as sector — indexed for filtering
+  parentCode      String? // πατρικός ΚΑΔ (string FK to KadCode.code)
   parent          KadCode?  @relation("KadHierarchy", fields: [parentCode], references: [code], onDelete: SetNull)
   children        KadCode[] @relation("KadHierarchy")
-  path            String?                                    // π.χ. "Α>01>01.1>01.11>01.11.1>01.11.11"
+  path            String? // π.χ. "Α>01>01.1>01.11>01.11.1>01.11.11"
   category        String?
   isActive        Boolean   @default(true)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  customerKADs    CustomerKAD[]
+  customerKADs        CustomerKAD[]
   licenseRequirements KadLicenseRequirement[]
 
   @@index([title])
@@ -651,16 +650,16 @@ model KadCode {
 }
 
 model CustomerKAD {
-  id            Int       @id @default(autoincrement())
-  customerId    String                                       // Company.id (cuid)
-  submittedKAD  String    @db.VarChar(20)
-  resolvedKAD   String?   @db.VarChar(20)
-  resolvedCode  KadCode?  @relation(fields: [resolvedKAD], references: [code], onDelete: SetNull)
+  id            Int      @id @default(autoincrement())
+  customerId    String // Company.id (cuid)
+  submittedKAD  String   @db.VarChar(20)
+  resolvedKAD   String?  @db.VarChar(20)
+  resolvedCode  KadCode? @relation(fields: [resolvedKAD], references: [code], onDelete: SetNull)
   hierarchyJSON Json?
-  status        String    @default("resolved")               // resolved | ambiguous | not_found
+  status        String   @default("resolved") // resolved | ambiguous | not_found
   notes         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([customerId])
   @@index([submittedKAD])
@@ -670,20 +669,20 @@ model CustomerKAD {
 // Λίστα ΚΑΔ που απαιτούν Άδεια Λειτουργίας (και άλλους τύπους αδειών στο μέλλον).
 // Seeded από public/NF BUSNESS.xlsx. Τα παιδιά κληρονομούν τον κανόνα μέσω inherited=true.
 enum KadLicenseType {
-  OPERATING_LICENSE   // Άδεια λειτουργίας
+  OPERATING_LICENSE // Άδεια λειτουργίας
 }
 
 model KadLicenseRequirement {
-  id               Int             @id @default(autoincrement())
-  code             String          @db.VarChar(20)
-  kadCode          KadCode         @relation(fields: [code], references: [code], onDelete: Cascade)
-  licenseType      KadLicenseType  @default(OPERATING_LICENSE)
-  inherited        Boolean         @default(false)   // true = το κληρονόμησε από parent ΚΑΔ
-  sourceParentCode String?         @db.VarChar(20)   // ο ρητά αναφερόμενος γονέας (αν inherited)
-  source           String          @default("NF BUSNESS")
+  id               Int            @id @default(autoincrement())
+  code             String         @db.VarChar(20)
+  kadCode          KadCode        @relation(fields: [code], references: [code], onDelete: Cascade)
+  licenseType      KadLicenseType @default(OPERATING_LICENSE)
+  inherited        Boolean        @default(false) // true = το κληρονόμησε από parent ΚΑΔ
+  sourceParentCode String?        @db.VarChar(20) // ο ρητά αναφερόμενος γονέας (αν inherited)
+  source           String         @default("NF BUSNESS")
   notes            String?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   @@unique([code, licenseType])
   @@index([licenseType])
@@ -701,18 +700,18 @@ model KadImportLog {
 }
 
 enum ActivityKind {
-  PRIMARY      // ΚΥΡΙΑ (firm_act_kind = 1)
-  SECONDARY    // ΔΕΥΤΕΡΕΥΟΥΣΑ (firm_act_kind = 2)
+  PRIMARY // ΚΥΡΙΑ (firm_act_kind = 1)
+  SECONDARY // ΔΕΥΤΕΡΕΥΟΥΣΑ (firm_act_kind = 2)
 }
 
 model CompanyActivity {
   id              String       @id @default(cuid())
   companyId       String
   company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  code            String       // ΚΑΔ canonical με τελείες (από KadCode), π.χ. "43.21.00"
-  codeWithoutDots String?      // ΚΑΔ canonical χωρίς τελείες, π.χ. "432100"
-  codeAade        String?      // ΚΑΔ ακριβώς όπως ήρθε από ΑΑΔΕ (firm_act_code), zero-padded 8-ψήφια, π.χ. "43210000"
-  description     String       // firm_act_descr
+  code            String // ΚΑΔ canonical με τελείες (από KadCode), π.χ. "43.21.00"
+  codeWithoutDots String? // ΚΑΔ canonical χωρίς τελείες, π.χ. "432100"
+  codeAade        String? // ΚΑΔ ακριβώς όπως ήρθε από ΑΑΔΕ (firm_act_code), zero-padded 8-ψήφια, π.χ. "43210000"
+  description     String // firm_act_descr
   kind            ActivityKind @default(SECONDARY)
   order           Int          @default(0)
   createdAt       DateTime     @default(now())
@@ -734,53 +733,53 @@ enum ChannelKind {
 // Πολλαπλά κανάλια επικοινωνίας ανά εταιρία (email/phone/mobile/fax) με τίτλο
 // για το καθένα (π.χ. "Λογιστήριο", "Διοίκηση", "Hot line πωλήσεων").
 model CompanyChannel {
-  id          String      @id @default(cuid())
-  companyId   String
-  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  kind        ChannelKind
-  label       String?                              // τίτλος π.χ. "Λογιστήριο", "Hotline"
-  value       String                               // η ίδια η τιμή (email ή αριθμός)
-  isPrimary   Boolean     @default(false)
-  isActive    Boolean     @default(true)
-  notes       String?
-  order       Int         @default(0)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id        String      @id @default(cuid())
+  companyId String
+  company   Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  kind      ChannelKind
+  label     String? // τίτλος π.χ. "Λογιστήριο", "Hotline"
+  value     String // η ίδια η τιμή (email ή αριθμός)
+  isPrimary Boolean     @default(false)
+  isActive  Boolean     @default(true)
+  notes     String?
+  order     Int         @default(0)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 
   @@index([companyId, kind])
   @@index([value])
 }
 
 model CompanyContact {
-  id            String   @id @default(cuid())
-  companyId     String
-  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id               String   @id @default(cuid())
+  companyId        String
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   // Identity
-  firstName     String?
-  lastName      String?
-  fullName      String                                       // derived/required (το γεμίζει ο client)
-  role          String?                                      // περιγραφή (π.χ. "Λογιστής", "Διευθυντής Πωλήσεων")
-  department    String?
+  firstName        String?
+  lastName         String?
+  fullName         String // derived/required (το γεμίζει ο client)
+  role             String? // περιγραφή (π.χ. "Λογιστής", "Διευθυντής Πωλήσεων")
+  department       String?
   // Communication
-  mobile        String?
-  phone         String?
-  email         String?
-  fax           String?
+  mobile           String?
+  phone            String?
+  email            String?
+  fax              String?
   // Address (separate from company HQ — π.χ. λογιστής με δικό του γραφείο)
-  address       String?
-  city          String?
-  zip           String?
-  country       String?  @default("GR")
+  address          String?
+  city             String?
+  zip              String?
+  country          String?  @default("GR")
   // Misc
-  isPrimary     Boolean  @default(false)                     // κύρια επαφή
-  isActive      Boolean  @default(true)
-  notes         String?
-  order         Int      @default(0)
-  avatarUrl         String?
-  avatarStorageKey  String?
-  createdById   String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  isPrimary        Boolean  @default(false) // κύρια επαφή
+  isActive         Boolean  @default(true)
+  notes            String?
+  order            Int      @default(0)
+  avatarUrl        String?
+  avatarStorageKey String?
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@index([companyId])
   @@index([email])
@@ -788,45 +787,45 @@ model CompanyContact {
 }
 
 model CompanyBranch {
-  id            String   @id @default(cuid())
-  companyId     String
-  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  code          String?                  // εσωτερικός κωδικός υποκαταστήματος
-  s1Branch      Int?                     // SoftOne BRANCH κωδικός (όταν συγχρονίζεται)
-  name          String                   // π.χ. "Έδρα", "Υποκατάστημα Θεσσαλονίκης"
-  isHeadquarters Boolean @default(false)
-  address       String?
-  city          String?
-  zip           String?
-  country       String?  @default("GR")
-  district      String?
-  phone         String?
-  phone2        String?
-  fax           String?
-  email         String?
-  contactPerson String?
-  notes         String?
-  isActive      Boolean  @default(true)
-  order         Int      @default(0)
-  latitude      Float?
-  longitude     Float?
-  geocodedAt    DateTime?
-  regionCode    String?
-  regionRef     Region?  @relation("BranchRegion", fields: [regionCode], references: [code])
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id             String    @id @default(cuid())
+  companyId      String
+  company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code           String? // εσωτερικός κωδικός υποκαταστήματος
+  s1Branch       Int? // SoftOne BRANCH κωδικός (όταν συγχρονίζεται)
+  name           String // π.χ. "Έδρα", "Υποκατάστημα Θεσσαλονίκης"
+  isHeadquarters Boolean   @default(false)
+  address        String?
+  city           String?
+  zip            String?
+  country        String?   @default("GR")
+  district       String?
+  phone          String?
+  phone2         String?
+  fax            String?
+  email          String?
+  contactPerson  String?
+  notes          String?
+  isActive       Boolean   @default(true)
+  order          Int       @default(0)
+  latitude       Float?
+  longitude      Float?
+  geocodedAt     DateTime?
+  regionCode     String?
+  regionRef      Region?   @relation("BranchRegion", fields: [regionCode], references: [code])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
+  @@unique([companyId, code])
   @@index([companyId])
   @@index([regionCode])
-  @@unique([companyId, code])
 }
 
 model CompanyTypeAssignment {
-  companyId String
-  typeId    String
+  companyId  String
+  typeId     String
   assignedAt DateTime    @default(now())
-  company   Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  type      CompanyType @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type       CompanyType @relation(fields: [typeId], references: [id], onDelete: Cascade)
 
   @@id([companyId, typeId])
   @@index([typeId])
@@ -883,83 +882,83 @@ enum OcrPostStatus {
 }
 
 model OcrDocument {
-  id            String        @id @default(cuid())
-  fileName      String                              // user-facing display name
-  originalName  String
-  storageKey    String        @unique                // Bunny path (private zone path)
-  publicUrl     String                                // CDN URL or signed URL
-  mimeType      String
-  size          Int                                   // bytes
-  docType       OcrDocType
-  pdfSource     OcrPdfSource?                         // only for PDFs
-  language      String        @default("el")          // ISO code: el / en / de ...
-  status        OcrStatus     @default(PENDING)
-  rawText       String?       @db.Text                // pdf-parse output (DIGITAL path)
-  extractedData Json?                                 // full structured payload returned by LLM (παράγωγο του `document`)
+  id                String           @id @default(cuid())
+  fileName          String // user-facing display name
+  originalName      String
+  storageKey        String           @unique // Bunny path (private zone path)
+  publicUrl         String // CDN URL or signed URL
+  mimeType          String
+  size              Int // bytes
+  docType           OcrDocType
+  pdfSource         OcrPdfSource? // only for PDFs
+  language          String           @default("el") // ISO code: el / en / de ...
+  status            OcrStatus        @default(PENDING)
+  rawText           String?          @db.Text // pdf-parse output (DIGITAL path)
+  extractedData     Json? // full structured payload returned by LLM (παράγωγο του `document`)
   // Κανονικό JSON εγγράφου (spec §17.1): kind/type/issuer/recipient/lines/totals/vatBreakdown/
   // digital/payment/references/notes/handwritten/custom. Πηγή αλήθειας για Excel και SoftOne posting.
-  document      Json?
-  errorMessage  String?       @db.Text
-  model         String?                               // which DeepSeek model was used
-  tokensUsed    Int?
-  durationMs    Int?
-  createdById   String?
-  createdAt     DateTime      @default(now())
-  completedAt   DateTime?
+  document          Json?
+  errorMessage      String?          @db.Text
+  model             String? // which DeepSeek model was used
+  tokensUsed        Int?
+  durationMs        Int?
+  createdById       String?
+  createdAt         DateTime         @default(now())
+  completedAt       DateTime?
   // Thumbnail (small WebP preview) cached on Bunny CDN.
-  thumbKey      String?
-  thumbUrl      String?
+  thumbKey          String?
+  thumbUrl          String?
   // Categorization + downstream posting state.
-  category      OcrCategory?
-  notes         String?       @db.Text
-  postStatus    OcrPostStatus @default(NONE)
-  postedAt      DateTime?
-  postedRef     String?                                 // SoftOne FINDOC ref / external doc id
-  postError     String?       @db.Text
+  category          OcrCategory?
+  notes             String?          @db.Text
+  postStatus        OcrPostStatus    @default(NONE)
+  postedAt          DateTime?
+  postedRef         String? // SoftOne FINDOC ref / external doc id
+  postError         String?          @db.Text
   // ΑΦΜ εκδότη, κανονικοποιημένο (μόνο ψηφία) από το `extractedData.vatNumber`, γραμμένο
   // τη στιγμή της εξαγωγής. Υπάρχει ώστε οι ουρές να ρωτούν με index αντί για σάρωση JSON.
-  issuerAfm      String?
+  issuerAfm         String?
   // Επιβεβαίωση ΑΠΟ ΑΝΘΡΩΠΟ: γράφεται όταν κάποιος διορθώσει/αποθηκεύσει την ανάγνωση ή όταν το
   // έγγραφο καταχωριστεί στο SoftOne. Μόνο τέτοια έγγραφα γίνονται παράδειγμα αναφοράς για τον
   // ίδιο εκδότη (`lib/ocr/example-lookup.ts`) — ποτέ αυτόματο αποτέλεσμα.
-  verifiedAt     DateTime?
-  verifiedById   String?
+  verifiedAt        DateTime?
+  verifiedById      String?
   // SoftOne supplier match (issuer ΑΦΜ → TRDR SODTYPE=12), filled on extraction.
-  softoneTrdr    Int?                                    // matched supplier TRDR id
-  softoneCode    String?                                 // matched supplier CODE
-  softoneName    String?                                 // matched supplier NAME
-  softoneKind    String?                                 // Προμηθευτής / Πιστωτής (SODTYPE)
-  softoneChecked DateTime?                               // when the SoftOne lookup ran (null = not yet)
-  invoiceKind    String?                                 // DeepSeek: service | product | mixed
+  softoneTrdr       Int? // matched supplier TRDR id
+  softoneCode       String? // matched supplier CODE
+  softoneName       String? // matched supplier NAME
+  softoneKind       String? // Προμηθευτής / Πιστωτής (SODTYPE)
+  softoneChecked    DateTime? // when the SoftOne lookup ran (null = not yet)
+  invoiceKind       String? // DeepSeek: service | product | mixed
   // PURDOC duplicate check (supplier + αριθμός + ημ/νία already in SoftOne).
-  softoneDocExists  Boolean?                              // true = πιθανό διπλό βρέθηκε
-  softoneDocRef     String?                               // FINCODE του υπάρχοντος παραστατικού
+  softoneDocExists  Boolean? // true = πιθανό διπλό βρέθηκε
+  softoneDocRef     String? // FINCODE του υπάρχοντος παραστατικού
   softoneDocChecked DateTime?
   // Reconciliation / εκκρεμότητα. The display status is *derived* (see lib/ocr/recon-status.ts);
   // reconOverride is the manual hybrid lock: null = auto, RESOLVED = ολοκληρώθηκε, IGNORED = αγνοήθηκε.
-  reconOverride String?                                   // null | RESOLVED | IGNORED
-  itemsTotal    Int?                                      // # invoice lines (persisted at correlation)
-  itemsMatched  Int?                                      // # lines matched to SoftOne MTRL
+  reconOverride     String? // null | RESOLVED | IGNORED
+  itemsTotal        Int? // # invoice lines (persisted at correlation)
+  itemsMatched      Int? // # lines matched to SoftOne MTRL
   // Chosen SoftOne document SERIES (PurchaseDocType.code) for posting. Replaces the
   // old free-text "Τύπος παραστατικού" with the real SoftOne series.
-  softoneSeries String?
+  softoneSeries     String?
   // Αναγνώριση τύπου κατά τη σάρωση (spec 2026-09-11 §1).
-  seriesSource     Int?                                   // SOSOURCE της επιλεγμένης σειράς (1251 αγορών / 1653 πιστωτών)
-  seriesConfidence Float?                                 // 0–1
-  seriesReason     String?                                // γιατί επιλέχθηκε (tooltip)
-  seriesBy         String?                                // auto | manual
+  seriesSource      Int? // SOSOURCE της επιλεγμένης σειράς (1251 αγορών / 1653 πιστωτών)
+  seriesConfidence  Float? // 0–1
+  seriesReason      String? // γιατί επιλέχθηκε (tooltip)
+  seriesBy          String? // auto | manual
   // Folder/batch this document belongs to (folder upload).
-  batchId       String?
-  batch         OcrBatch?     @relation(fields: [batchId], references: [id], onDelete: SetNull)
-  items         OcrInvoiceItem[]
+  batchId           String?
+  batch             OcrBatch?        @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  items             OcrInvoiceItem[]
   // Company & tax-template linkage
-  companyId     String?
-  company       Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  taxTemplateId String?
-  taxTemplate   TaxFormTemplate? @relation(fields: [taxTemplateId], references: [id], onDelete: SetNull)
-  templateRuns  TemplateRun[]
-  reviewFlags   Json?                                 // { review: string[], blocked: string[], templateSlug, templateName, runStatus, runId } — latest run, for the list
-  fiscalYear    Int?
+  companyId         String?
+  company           Company?         @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  taxTemplateId     String?
+  taxTemplate       TaxFormTemplate? @relation(fields: [taxTemplateId], references: [id], onDelete: SetNull)
+  templateRuns      TemplateRun[]
+  reviewFlags       Json? // { review: string[], blocked: string[], templateSlug, templateName, runStatus, runId } — latest run, for the list
+  fiscalYear        Int?
 
   @@index([status])
   @@index([docType])
@@ -975,7 +974,7 @@ model OcrDocument {
 // A folder/batch of uploaded documents processed together.
 model OcrBatch {
   id          String        @id @default(cuid())
-  name        String                                    // folder name
+  name        String // folder name
   docType     OcrDocType    @default(INVOICE)
   language    String        @default("el")
   createdById String?
@@ -983,9 +982,9 @@ model OcrBatch {
   documents   OcrDocument[]
   // Πολυ-παραστατικό PDF: το ΠΡΩΤΟΤΥΠΟ αρχείο που κόπηκε σε αυτόν τον φάκελο. Null για φακέλους
   // που φτιάχτηκαν από ανέβασμα φακέλου (εκεί κάθε αρχείο είναι ήδη ξεχωριστό έγγραφο).
-  sourceKey   String?                                   // Bunny path: ocr/batches/{id}/source.pdf
-  sourceName  String?                                   // το όνομα που ανέβασε ο χρήστης
-  sourcePages Int?                                      // σελίδες του πρωτοτύπου
+  sourceKey   String? // Bunny path: ocr/batches/{id}/source.pdf
+  sourceName  String? // το όνομα που ανέβασε ο χρήστης
+  sourcePages Int? // σελίδες του πρωτοτύπου
 
   @@index([createdAt])
 }
@@ -995,9 +994,9 @@ model OcrBatch {
 // ============================================================
 
 enum ProgramStatus {
-  DRAFT       // newly extracted, not reviewed
-  REVIEWING   // user is editing
-  PUBLISHED   // finalized, visible to internal users
+  DRAFT // newly extracted, not reviewed
+  REVIEWING // user is editing
+  PUBLISHED // finalized, visible to internal users
   ARCHIVED
 }
 
@@ -1013,68 +1012,68 @@ enum ProgramExtractStatus {
  * (allow-list) είτε λίστα εξαιρούμενων (deny-list), σπάνια και τα δύο.
  */
 enum KadEligibilityRule {
-  ALL_EXCEPT_LISTED   // Όλοι οι ΚΑΔ είναι επιλέξιμοι ΕΚΤΟΣ από αυτούς που έχει flag excluded=true
-  ONLY_LISTED         // Επιλέξιμοι ΜΟΝΟ οι ρητά αναφερόμενοι (excluded=false)
-  MIXED               // Συνδυασμός — υπάρχει λίστα επιλέξιμων αλλά και εξαιρέσεις
-  UNSPECIFIED         // Το PDF δεν διευκρινίζει
+  ALL_EXCEPT_LISTED // Όλοι οι ΚΑΔ είναι επιλέξιμοι ΕΚΤΟΣ από αυτούς που έχει flag excluded=true
+  ONLY_LISTED // Επιλέξιμοι ΜΟΝΟ οι ρητά αναφερόμενοι (excluded=false)
+  MIXED // Συνδυασμός — υπάρχει λίστα επιλέξιμων αλλά και εξαιρέσεις
+  UNSPECIFIED // Το PDF δεν διευκρινίζει
 }
 
 model Program {
-  id              String        @id @default(cuid())
+  id                  String                     @id @default(cuid())
   // Core fields
-  title           String                                 // required, editable
-  summary         String?       @db.Text
+  title               String // required, editable
+  summary             String?                    @db.Text
   // Source PDF (Bunny private)
-  sourceFileName  String?
-  storageKey      String?       @unique
-  publicUrl       String?
-  mimeType        String?
-  size            Int?
+  sourceFileName      String?
+  storageKey          String?                    @unique
+  publicUrl           String?
+  mimeType            String?
+  size                Int?
   // Dates
-  publicationDate DateTime?
-  submissionStart DateTime?
-  submissionEnd   DateTime?
+  publicationDate     DateTime?
+  submissionStart     DateTime?
+  submissionEnd       DateTime?
   // Budget & funding
-  totalBudget     Decimal?      @db.Decimal(18, 2)       // total project budget €
-  fundingRate     Decimal?      @db.Decimal(5, 2)        // subsidy percentage (e.g. 50.00)
-  durationMonths  Int?
+  totalBudget         Decimal?                   @db.Decimal(18, 2) // total project budget €
+  fundingRate         Decimal?                   @db.Decimal(5, 2) // subsidy percentage (e.g. 50.00)
+  durationMonths      Int?
   // Reference codes (e.g. ΕΣΠΑ 2021-2027 codes)
-  referenceCode   String?
+  referenceCode       String?
   // ΚΑΔ eligibility rule (how to interpret the kads[] list)
-  kadRule         KadEligibilityRule @default(UNSPECIFIED)
-  kadRuleNote     String?            @db.Text       // free-form explanation from PDF
+  kadRule             KadEligibilityRule         @default(UNSPECIFIED)
+  kadRuleNote         String?                    @db.Text // free-form explanation from PDF
   // Eligibility thresholds for the applicant company
-  minEmployeesFte     Decimal?       @db.Decimal(10, 2)   // ελάχιστες ΕΜΕ (Ετήσιες Μονάδες Εργασίας)
-  minOperationalYears Decimal?       @db.Decimal(5, 2)    // ελάχιστα έτη λειτουργίας / διαχειριστικές χρήσεις
-  eligibilityNote     String?        @db.Text             // free-form summary of eligibility
+  minEmployeesFte     Decimal?                   @db.Decimal(10, 2) // ελάχιστες ΕΜΕ (Ετήσιες Μονάδες Εργασίας)
+  minOperationalYears Decimal?                   @db.Decimal(5, 2) // ελάχιστα έτη λειτουργίας / διαχειριστικές χρήσεις
+  eligibilityNote     String?                    @db.Text // free-form summary of eligibility
   // Status (lifecycle for the user, not LLM)
-  status          ProgramStatus @default(DRAFT)
+  status              ProgramStatus              @default(DRAFT)
   // Extraction metadata
-  extractStatus   ProgramExtractStatus @default(PENDING)
-  extractedData   Json?
-  errorMessage    String?       @db.Text
-  model           String?
-  tokensUsed      Int?
-  durationMs      Int?
+  extractStatus       ProgramExtractStatus       @default(PENDING)
+  extractedData       Json?
+  errorMessage        String?                    @db.Text
+  model               String?
+  tokensUsed          Int?
+  durationMs          Int?
   // Manual notes
-  notes           String?       @db.Text
+  notes               String?                    @db.Text
   // Audit
-  createdById     String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdById         String?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
   // Relations
-  kads            ProgramKad[]
-  expenseCats     ProgramExpenseCategory[]
-  regions         ProgramRegion[]
-  criteria        ProgramCriterion[]
-  deadlines       ProgramDeadline[]
-  phases          ProgramPhase[]
-  legalForms      ProgramEligibleLegalForm[]
-  bonuses         ProgramBonus[]
-  files           ProgramFile[]
-  questionnaire   ProgramQuestionnaire?
-  assessments     CompanyAssessment[]
-  requiredFields  ProgramRequiredField[]
+  kads                ProgramKad[]
+  expenseCats         ProgramExpenseCategory[]
+  regions             ProgramRegion[]
+  criteria            ProgramCriterion[]
+  deadlines           ProgramDeadline[]
+  phases              ProgramPhase[]
+  legalForms          ProgramEligibleLegalForm[]
+  bonuses             ProgramBonus[]
+  files               ProgramFile[]
+  questionnaire       ProgramQuestionnaire?
+  assessments         CompanyAssessment[]
+  requiredFields      ProgramRequiredField[]
 
   @@index([status])
   @@index([extractStatus])
@@ -1083,13 +1082,13 @@ model Program {
 }
 
 model ProgramKad {
-  id              String   @id @default(cuid())
+  id              String  @id @default(cuid())
   programId       String
-  program         Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
-  code            String                                 // canonical dotted, e.g. "62.01.11"
+  program         Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  code            String // canonical dotted, e.g. "62.01.11"
   codeWithoutDots String?
-  description     String?  @db.Text
-  excluded        Boolean  @default(false)               // true ⇒ ΚΑΔ που ρητά εξαιρείται
+  description     String? @db.Text
+  excluded        Boolean @default(false) // true ⇒ ΚΑΔ που ρητά εξαιρείται
 
   @@unique([programId, code])
   @@index([programId])
@@ -1101,12 +1100,12 @@ model ProgramExpenseCategory {
   id            String   @id @default(cuid())
   programId     String
   program       Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
-  name          String                                  // "Μισθολογικό κόστος", "Εξοπλισμός", etc.
-  minAmount     Decimal? @db.Decimal(18, 2)             // absolute floor in €
-  minPercentage Decimal? @db.Decimal(5, 2)              // floor as % of total budget
-  maxAmount     Decimal? @db.Decimal(18, 2)             // absolute cap in €
-  maxPercentage Decimal? @db.Decimal(5, 2)              // cap as % of total budget
-  mandatory     Boolean  @default(false)                // υποχρεωτική κατηγορία δαπάνης
+  name          String // "Μισθολογικό κόστος", "Εξοπλισμός", etc.
+  minAmount     Decimal? @db.Decimal(18, 2) // absolute floor in €
+  minPercentage Decimal? @db.Decimal(5, 2) // floor as % of total budget
+  maxAmount     Decimal? @db.Decimal(18, 2) // absolute cap in €
+  maxPercentage Decimal? @db.Decimal(5, 2) // cap as % of total budget
+  mandatory     Boolean  @default(false) // υποχρεωτική κατηγορία δαπάνης
   notes         String?  @db.Text
   order         Int      @default(0)
 
@@ -1115,49 +1114,49 @@ model ProgramExpenseCategory {
 }
 
 enum ProgramBonusKind {
-  TIME_BASED       // π.χ. +10% αν ολοκλήρωση σε ≤9 μήνες
-  EMPLOYMENT       // π.χ. +5% για κάθε νέα θέση εργασίας
-  SUSTAINABILITY   // π.χ. +5% για πράσινες δαπάνες
-  WOMEN_LED        // π.χ. +5% για γυναικείες επιχειρήσεις
-  YOUTH            // π.χ. +5% για επιχειρηματίες <30 ετών
-  R_AND_D          // +X% για ερευνητικές δαπάνες
+  TIME_BASED // π.χ. +10% αν ολοκλήρωση σε ≤9 μήνες
+  EMPLOYMENT // π.χ. +5% για κάθε νέα θέση εργασίας
+  SUSTAINABILITY // π.χ. +5% για πράσινες δαπάνες
+  WOMEN_LED // π.χ. +5% για γυναικείες επιχειρήσεις
+  YOUTH // π.χ. +5% για επιχειρηματίες <30 ετών
+  R_AND_D // +X% για ερευνητικές δαπάνες
   OTHER
 }
 
 model ProgramBonus {
-  id              String           @id @default(cuid())
-  programId       String
-  program         Program          @relation(fields: [programId], references: [id], onDelete: Cascade)
-  kind            ProgramBonusKind @default(OTHER)
-  name            String                                          // "Bonus γρήγορης ολοκλήρωσης"
-  condition       String           @db.Text                       // "Ολοκλήρωση φυσικού αντικειμένου εντός 9 μηνών"
-  bonusRate       Decimal?         @db.Decimal(5, 2)              // π.χ. 10.00 (= +10%)
-  bonusAmount     Decimal?         @db.Decimal(18, 2)             // απόλυτο ποσό αν δίνεται
-  order           Int              @default(0)
+  id          String           @id @default(cuid())
+  programId   String
+  program     Program          @relation(fields: [programId], references: [id], onDelete: Cascade)
+  kind        ProgramBonusKind @default(OTHER)
+  name        String // "Bonus γρήγορης ολοκλήρωσης"
+  condition   String           @db.Text // "Ολοκλήρωση φυσικού αντικειμένου εντός 9 μηνών"
+  bonusRate   Decimal?         @db.Decimal(5, 2) // π.χ. 10.00 (= +10%)
+  bonusAmount Decimal?         @db.Decimal(18, 2) // απόλυτο ποσό αν δίνεται
+  order       Int              @default(0)
 
   @@index([programId])
 }
 
 enum ProgramFileKind {
-  MAIN              // κύριος οδηγός / πρόσκληση
-  ANNEX             // παράρτημα
-  CLARIFICATION     // διευκρινίσεις / επικαιροποίηση
-  AMENDMENT         // τροποποίηση
+  MAIN // κύριος οδηγός / πρόσκληση
+  ANNEX // παράρτημα
+  CLARIFICATION // διευκρινίσεις / επικαιροποίηση
+  AMENDMENT // τροποποίηση
   OTHER
 }
 
 model ProgramFile {
-  id          String          @id @default(cuid())
-  programId   String
-  program     Program         @relation(fields: [programId], references: [id], onDelete: Cascade)
-  fileName    String
-  storageKey  String          @unique
-  publicUrl   String?
-  mimeType    String
-  size        Int
-  kind        ProgramFileKind @default(OTHER)
-  label       String?                                              // user-facing label
-  uploadedAt  DateTime        @default(now())
+  id           String          @id @default(cuid())
+  programId    String
+  program      Program         @relation(fields: [programId], references: [id], onDelete: Cascade)
+  fileName     String
+  storageKey   String          @unique
+  publicUrl    String?
+  mimeType     String
+  size         Int
+  kind         ProgramFileKind @default(OTHER)
+  label        String? // user-facing label
+  uploadedAt   DateTime        @default(now())
   uploadedById String?
 
   @@index([programId])
@@ -1165,10 +1164,10 @@ model ProgramFile {
 }
 
 model ProgramEligibleLegalForm {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   programId String
-  program   Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
-  name      String                                       // "ΙΚΕ", "ΕΠΕ", "ΑΕ", "Ατομική", "ΟΕ", "ΕΕ" κλπ.
+  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  name      String // "ΙΚΕ", "ΕΠΕ", "ΑΕ", "Ατομική", "ΟΕ", "ΕΕ" κλπ.
   notes     String?
 
   @@unique([programId, name])
@@ -1176,22 +1175,22 @@ model ProgramEligibleLegalForm {
 }
 
 model ProgramRegion {
-  id           String   @id @default(cuid())
-  programId    String
-  program      Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
-  name         String                                   // "Αττική", "Δυτική Ελλάδα", ...
-  fundingRate  Decimal? @db.Decimal(5, 2)               // regional override of subsidy % (some programs vary)
-  notes        String?
+  id          String   @id @default(cuid())
+  programId   String
+  program     Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  name        String // "Αττική", "Δυτική Ελλάδα", ...
+  fundingRate Decimal? @db.Decimal(5, 2) // regional override of subsidy % (some programs vary)
+  notes       String?
 
   @@index([programId])
 }
 
 model ProgramCriterion {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   programId String
-  program   Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
-  text      String   @db.Text
-  order     Int      @default(0)
+  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  text      String  @db.Text
+  order     Int     @default(0)
 
   @@index([programId])
 }
@@ -1213,16 +1212,16 @@ model ProgramDeadline {
 
 /// Global catalog of supporting-document types (δικαιολογητικά), reused across all programs.
 model DocumentType {
-  id             String   @id @default(cuid())
-  name           String   @unique
+  id             String            @id @default(cuid())
+  name           String            @unique
   description    String?
   category       String?
-  requiresExpiry Boolean  @default(true)
-  notifyExpiry   Boolean  @default(true)
-  active         Boolean  @default(true)
-  order          Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  requiresExpiry Boolean           @default(true)
+  notifyExpiry   Boolean           @default(true)
+  active         Boolean           @default(true)
+  order          Int               @default(0)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
   categoryId     String?
   categoryRef    DocumentCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
@@ -1234,12 +1233,12 @@ model DocumentType {
 
 /// Free-form phases of a program (e.g. Υποβολή → Ένταξη → Υλοποίηση → Ολοκλήρωση). No dates here.
 model ProgramPhase {
-  id              String   @id @default(cuid())
+  id              String         @id @default(cuid())
   programId       String
-  program         Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program         Program        @relation(fields: [programId], references: [id], onDelete: Cascade)
   name            String
-  order           Int      @default(0)
-  createdAt       DateTime @default(now())
+  order           Int            @default(0)
+  createdAt       DateTime       @default(now())
   phaseTemplateId String?
   phaseTemplate   PhaseTemplate? @relation(fields: [phaseTemplateId], references: [id], onDelete: SetNull)
 
@@ -1250,14 +1249,14 @@ model ProgramPhase {
 
 /// Which document types are required at which phase, and whether mandatory.
 model PhaseDocumentRequirement {
-  id             String       @id @default(cuid())
+  id             String                    @id @default(cuid())
   phaseId        String
-  phase          ProgramPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  phase          ProgramPhase              @relation(fields: [phaseId], references: [id], onDelete: Cascade)
   documentTypeId String
-  documentType   DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
-  mandatory      Boolean      @default(true)
+  documentType   DocumentType              @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+  mandatory      Boolean                   @default(true)
   notes          String?
-  appliesToAll   Boolean      @default(false)
+  appliesToAll   Boolean                   @default(false)
   businessTypes  RequirementBusinessType[]
 
   @@unique([phaseId, documentTypeId])
@@ -1309,11 +1308,11 @@ model PhaseTemplate {
 }
 
 model RequirementBusinessType {
-  id             String   @id @default(cuid())
+  id             String                   @id @default(cuid())
   requirementId  String
   requirement    PhaseDocumentRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
   businessTypeId String
-  businessType   BusinessType @relation(fields: [businessTypeId], references: [id], onDelete: Cascade)
+  businessType   BusinessType             @relation(fields: [businessTypeId], references: [id], onDelete: Cascade)
 
   @@unique([requirementId, businessTypeId])
   @@index([requirementId])
@@ -1325,29 +1324,29 @@ model RequirementBusinessType {
 // ============================================================
 
 enum AiScope {
-  OCR_TEXT          // DeepSeek text model on digital PDF
-  OCR_VISION        // Gemini / VLM vision call (image or scanned PDF page)
-  OCR_VISION_RETRY  // upgraded-model retry firing on missing-fields
-  TRANSLATION       // DeepSeek translation
-  TAX_FORM          // Tax-form field extraction via vision pipeline
+  OCR_TEXT // DeepSeek text model on digital PDF
+  OCR_VISION // Gemini / VLM vision call (image or scanned PDF page)
+  OCR_VISION_RETRY // upgraded-model retry firing on missing-fields
+  TRANSLATION // DeepSeek translation
+  TAX_FORM // Tax-form field extraction via vision pipeline
   OTHER
 }
 
 model AiUsage {
   id           String   @id @default(cuid())
   scope        AiScope
-  provider     String                              // "deepseek" | "gemini" | "openai" | ...
-  model        String                              // "deepseek-chat" | "gemini-2.5-flash" | ...
-  operation    String?                             // free-form (e.g. "ocr.invoice", "i18n.batch")
+  provider     String // "deepseek" | "gemini" | "openai" | ...
+  model        String // "deepseek-chat" | "gemini-2.5-flash" | ...
+  operation    String? // free-form (e.g. "ocr.invoice", "i18n.batch")
   inputTokens  Int      @default(0)
   outputTokens Int      @default(0)
   totalTokens  Int      @default(0)
-  inputCost    Decimal? @db.Decimal(12, 6)         // USD
-  outputCost   Decimal? @db.Decimal(12, 6)         // USD
-  totalCost    Decimal? @db.Decimal(12, 6)         // USD
+  inputCost    Decimal? @db.Decimal(12, 6) // USD
+  outputCost   Decimal? @db.Decimal(12, 6) // USD
+  totalCost    Decimal? @db.Decimal(12, 6) // USD
   durationMs   Int?
   userId       String?
-  refType      String?                             // "OcrDocument" etc.
+  refType      String? // "OcrDocument" etc.
   refId        String?
   createdAt    DateTime @default(now())
 
@@ -1358,23 +1357,23 @@ model AiUsage {
 }
 
 model OcrInvoiceItem {
-  id          String      @id @default(cuid())
-  documentId  String
-  document    OcrDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  rowIndex    Int
-  code        String?
-  name        String
-  quantity    Decimal?    @db.Decimal(18, 4)
-  price       Decimal?    @db.Decimal(18, 4)
-  discount    Decimal?    @db.Decimal(18, 4)
-  vatRate     Decimal?    @db.Decimal(5, 2)
-  total       Decimal?    @db.Decimal(18, 4)
+  id               String      @id @default(cuid())
+  documentId       String
+  document         OcrDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  rowIndex         Int
+  code             String?
+  name             String
+  quantity         Decimal?    @db.Decimal(18, 4)
+  price            Decimal?    @db.Decimal(18, 4)
+  discount         Decimal?    @db.Decimal(18, 4)
+  vatRate          Decimal?    @db.Decimal(5, 2)
+  total            Decimal?    @db.Decimal(18, 4)
   // SoftOne item match (filled by correlation; null = δεν βρέθηκε).
   softoneMtrl      Int?
   softoneCode      String?
   softoneName      String?
   softoneIsService Boolean?
-  softoneMatchedBy String?                              // code2 | code1 | code | manual | memory | skipped
+  softoneMatchedBy String? // code2 | code1 | code | manual | memory | skipped
   // Αντιστοίχιση σε έξοδο SoftOne (EXPENSES/EXPN) αντί για είδος.
   softoneExpn      Int?
   // Αντιστοίχιση σε ΧΡΕΟΠΙΣΤΩΣΗ SoftOne (LINEITEM → MTRL με SODTYPE 53). Ξεχωριστή στήλη από το
@@ -1386,7 +1385,9 @@ model OcrInvoiceItem {
   softonePrjc      Int?
   softonePrjcStage Int?
 
-  /** Επιμερισμός της γραμμής σε ΠΟΛΛΟΥΣ λογαριασμούς — κενό = η γραμμή πάει ακέραιη. */
+  /**
+   * Επιμερισμός της γραμμής σε ΠΟΛΛΟΥΣ λογαριασμούς — κενό = η γραμμή πάει ακέραιη.
+   */
   allocations OcrInvoiceItemAllocation[]
 
   @@index([documentId])
@@ -1412,7 +1413,9 @@ model OcrInvoiceItemAllocation {
   id     String         @id @default(cuid())
   itemId String
   item   OcrInvoiceItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  /** Σειρά εμφάνισης και σταθερή ταυτότητα του επιμερισμού μέσα στη γραμμή. */
+  /**
+   * Σειρά εμφάνισης και σταθερή ταυτότητα του επιμερισμού μέσα στη γραμμή.
+   */
   order  Int
 
   /**
@@ -1426,21 +1429,23 @@ model OcrInvoiceItemAllocation {
    * εσόδων/εξόδων (SODTYPE 61, απλογραφικά). Και τα δύο είναι `MTRL`, οπότε χωρίς αυτό ο αριθμός
    * είναι διφορούμενος — και η εφαρμογή δίνεται σε πελάτες και των δύο κατηγοριών βιβλίων.
    */
-  kind String @default("LINEITEM")
+  kind         String  @default("LINEITEM")
   /**
    * Ο λογαριασμός όπως διαβάστηκε ΤΗ ΣΤΙΓΜΗ της επιλογής. Αντίγραφο σκοπίμως: αν αύριο αλλάξει
    * ή σβηστεί η εγγραφή στο ERP, πρέπει να εξακολουθεί να φαίνεται πού στάλθηκε το ποσό.
    */
-  accountCode String?
+  accountCode  String?
 
-  /** Ό,τι ΔΗΛΩΣΕ ο χρήστης. Είσοδος της φόρμας — το άθροισμα οφείλει να κάνει 100. */
+  /**
+   * Ό,τι ΔΗΛΩΣΕ ο χρήστης. Είσοδος της φόρμας — το άθροισμα οφείλει να κάνει 100.
+   */
   percent Decimal @db.Decimal(7, 4)
   /**
    * Ό,τι ΣΤΕΛΝΕΤΑΙ. Υπολογίζεται από το ποσοστό, με τον **τελευταίο** επιμερισμό να απορροφά το
    * υπόλοιπο στρογγυλοποίησης, ώστε το άθροισμα να κλείνει στο σεντ με το σύνολο της γραμμής.
    * Αποθηκεύεται αντί να ξαναϋπολογίζεται, για να μη βγάλει άλλο νούμερο άλλος κώδικας αργότερα.
    */
-  amount Decimal @db.Decimal(18, 4)
+  amount  Decimal @db.Decimal(18, 4)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1455,18 +1460,18 @@ model OcrInvoiceItemAllocation {
 // ============================================================
 
 model TaxFormTemplate {
-  id               String   @id @default(cuid())
+  id               String                 @id @default(cuid())
   code             String
   name             String
   year             Int?
-  description      String?  @db.Text
-  status           TaxTemplateStatus @default(DRAFT)
+  description      String?                @db.Text
+  status           TaxTemplateStatus      @default(DRAFT)
   sampleStorageKey String?
   samplePageCount  Int?
   sampleThumbUrl   String?
   createdById      String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
   fields           TaxFormTemplateField[]
   requiredBy       ProgramRequiredField[]
   documents        OcrDocument[]
@@ -1476,49 +1481,49 @@ model TaxFormTemplate {
 }
 
 model TaxFormTemplateField {
-  id          String   @id @default(cuid())
-  templateId  String
-  template    TaxFormTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  fieldKey    String
-  label       String
-  section     String?
-  valueType   FinancialValueType @default(CURRENCY)
-  kind        TaxFieldKind @default(SINGLE)
-  config      Json?        // for TABLE (records): { columns: string[] }
-  regionHint  Json?
-  aiHint      String?  @db.Text
-  required    Boolean  @default(false)
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String             @id @default(cuid())
+  templateId String
+  template   TaxFormTemplate    @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  fieldKey   String
+  label      String
+  section    String?
+  valueType  FinancialValueType @default(CURRENCY)
+  kind       TaxFieldKind       @default(SINGLE)
+  config     Json? // for TABLE (records): { columns: string[] }
+  regionHint Json?
+  aiHint     String?            @db.Text
+  required   Boolean            @default(false)
+  order      Int                @default(0)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
 
   @@unique([templateId, fieldKey])
   @@index([templateId])
 }
 
 model CompanyFinancialValue {
-  id               String   @id @default(cuid())
+  id               String               @id @default(cuid())
   companyId        String
-  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company          Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
   fieldKey         String
   templateId       String?
   year             Int
-  value            Decimal? @db.Decimal(18, 2)   // numeric value (SINGLE/SERIES point)
-  valueText        String?  @db.Text             // for DATE / free text values
-  valueJson        Json?                          // for TABLE (records): array of objects
-  kind             TaxFieldKind @default(SINGLE)
+  value            Decimal?             @db.Decimal(18, 2) // numeric value (SINGLE/SERIES point)
+  valueText        String?              @db.Text // for DATE / free text values
+  valueJson        Json? // for TABLE (records): array of objects
+  kind             TaxFieldKind         @default(SINGLE)
   valueType        FinancialValueType
   source           FinancialValueSource @default(OCR)
   sourceDocumentId String?
   confidence       Float?
-  verified         Boolean  @default(false)
+  verified         Boolean              @default(false)
   verifiedById     String?
   periodStart      DateTime?
   periodEnd        DateTime?
   validUntil       DateTime?
-  note             String?  @db.Text
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  note             String?              @db.Text
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   @@unique([companyId, fieldKey, year])
   @@index([companyId])
@@ -1526,17 +1531,17 @@ model CompanyFinancialValue {
 }
 
 model ProgramRequiredField {
-  id          String   @id @default(cuid())
-  programId   String
-  program     Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
-  templateId  String
-  template    TaxFormTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  fieldKey    String
-  yearsBack   Int      @default(1)
-  mandatory   Boolean  @default(true)
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String          @id @default(cuid())
+  programId  String
+  program    Program         @relation(fields: [programId], references: [id], onDelete: Cascade)
+  templateId String
+  template   TaxFormTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  fieldKey   String
+  yearsBack  Int             @default(1)
+  mandatory  Boolean         @default(true)
+  order      Int             @default(0)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
 
   @@unique([programId, templateId, fieldKey])
   @@index([programId])
@@ -1580,90 +1585,94 @@ enum AnswerSource {
 }
 
 model ProgramQuestionnaire {
-  id             String   @id @default(cuid())
-  programId      String   @unique
-  program        Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
-  title          String?
-  description    String?  @db.Text
-  scoringModel   QuestionnaireScoringModel @default(WEIGHTED)
-  threshold      Decimal? @db.Decimal(8, 2)
-  maxScore       Decimal? @db.Decimal(8, 2)
-  sourceNote     String?
-  status         QuestionnaireStatus @default(DRAFT)
-  generatedModel String?
-  generatedAt    DateTime?
-  computedCriteria Json?   // ① computed criteria (variables↔E3 mappings, formula, bands, weight)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  questions      ProgramQuestion[]
-  assessments    CompanyAssessment[]
+  id               String                    @id @default(cuid())
+  programId        String                    @unique
+  program          Program                   @relation(fields: [programId], references: [id], onDelete: Cascade)
+  title            String?
+  description      String?                   @db.Text
+  scoringModel     QuestionnaireScoringModel @default(WEIGHTED)
+  threshold        Decimal?                  @db.Decimal(8, 2)
+  maxScore         Decimal?                  @db.Decimal(8, 2)
+  sourceNote       String?
+  status           QuestionnaireStatus       @default(DRAFT)
+  generatedModel   String?
+  generatedAt      DateTime?
+  computedCriteria Json? // ① computed criteria (variables↔E3 mappings, formula, bands, weight)
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  questions        ProgramQuestion[]
+  assessments      CompanyAssessment[]
 }
 
 model ProgramQuestion {
-  id              String   @id @default(cuid())
+  id              String                  @id @default(cuid())
   questionnaireId String
-  questionnaire   ProgramQuestionnaire @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
+  questionnaire   ProgramQuestionnaire    @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
   code            String?
-  text            String   @db.Text
+  text            String                  @db.Text
   criterionRef    String?
-  helpText        String?  @db.Text
-  answerType      QuestionAnswerType @default(SINGLE_CHOICE)
-  weight          Decimal? @db.Decimal(8, 2)
-  maxPoints       Decimal? @db.Decimal(8, 2)
+  helpText        String?                 @db.Text
+  answerType      QuestionAnswerType      @default(SINGLE_CHOICE)
+  weight          Decimal?                @db.Decimal(8, 2)
+  maxPoints       Decimal?                @db.Decimal(8, 2)
   companyField    String?
-  order           Int      @default(0)
+  order           Int                     @default(0)
   options         ProgramQuestionOption[]
   answers         AssessmentAnswer[]
+
   @@index([questionnaireId])
 }
 
 model ProgramQuestionOption {
-  id          String  @id @default(cuid())
-  questionId  String
-  question    ProgramQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  label       String
-  points      Decimal @default(0) @db.Decimal(8, 2)
-  order       Int     @default(0)
+  id         String          @id @default(cuid())
+  questionId String
+  question   ProgramQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  label      String
+  points     Decimal         @default(0) @db.Decimal(8, 2)
+  order      Int             @default(0)
+
   @@index([questionId])
 }
 
 model CompanyAssessment {
-  id                  String   @id @default(cuid())
+  id                  String                @id @default(cuid())
   companyId           String
-  company             Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company             Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
   programId           String
-  program             Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program             Program               @relation(fields: [programId], references: [id], onDelete: Cascade)
   questionnaireId     String?
   questionnaire       ProgramQuestionnaire? @relation(fields: [questionnaireId], references: [id], onDelete: SetNull)
   eligible            Boolean?
   eligibilityResult   Json?
-  questionnaireScore  Decimal? @db.Decimal(8, 2)
-  questionnaireMax    Decimal? @db.Decimal(8, 2)
+  questionnaireScore  Decimal?              @db.Decimal(8, 2)
+  questionnaireMax    Decimal?              @db.Decimal(8, 2)
   questionnairePassed Boolean?
-  overallVerdict      AssessmentVerdict @default(NEEDS_REVIEW)
-  status              AssessmentStatus  @default(DRAFT)
-  notes               String?  @db.Text
+  overallVerdict      AssessmentVerdict     @default(NEEDS_REVIEW)
+  status              AssessmentStatus      @default(DRAFT)
+  notes               String?               @db.Text
   createdById         String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
   answers             AssessmentAnswer[]
+
   @@index([companyId])
   @@index([programId])
   @@index([programId, eligible])
 }
 
 model AssessmentAnswer {
-  id               String  @id @default(cuid())
+  id               String            @id @default(cuid())
   assessmentId     String
   assessment       CompanyAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
   questionId       String
   question         ProgramQuestion   @relation(fields: [questionId], references: [id], onDelete: Cascade)
   valueBool        Boolean?
-  valueNumber      Decimal? @db.Decimal(14, 4)
-  valueText        String?  @db.Text
-  selectedOptionId String?  // intentional loose ref (no FK): questionnaire regen full-replaces options; we keep historical answers
-  pointsAwarded    Decimal? @db.Decimal(8, 2)
-  source           AnswerSource @default(MANUAL)
+  valueNumber      Decimal?          @db.Decimal(14, 4)
+  valueText        String?           @db.Text
+  selectedOptionId String? // intentional loose ref (no FK): questionnaire regen full-replaces options; we keep historical answers
+  pointsAwarded    Decimal?          @db.Decimal(8, 2)
+  source           AnswerSource      @default(MANUAL)
+
   @@index([assessmentId])
   @@index([questionId])
 }
@@ -1730,38 +1739,38 @@ enum TemplateJobItemStatus {
 }
 
 model ExtractionTemplate {
-  id               String          @id @default(cuid())
-  name             String
-  slug             String          @unique         // auto από name — κλειδί του JSON εξόδου
-  department       String?                         // τμήμα / κατηγορία (ελεύθερο κείμενο)
-  vatNumber        String?                         // ΑΦΜ προμηθευτή — προαιρετική συσχέτιση
-  traderTrdr       Int?                            // → SoftoneTrader.trdr (προαιρετικό)
-  supplierName     String?                         // denormalized για λίστες
-  mode             TemplateMode    @default(MANUAL)
-  status           TemplateStatus  @default(DRAFT)
-  version          Int             @default(1)
-  sampleStorageKey String?                         // Bunny private — δείγμα εικόνας/PDF
-  sampleMimeType   String?
-  samplePageCount  Int?
-  sampleThumbUrl   String?
+  id                 String              @id @default(cuid())
+  name               String
+  slug               String              @unique // auto από name — κλειδί του JSON εξόδου
+  department         String? // τμήμα / κατηγορία (ελεύθερο κείμενο)
+  vatNumber          String? // ΑΦΜ προμηθευτή — προαιρετική συσχέτιση
+  traderTrdr         Int? // → SoftoneTrader.trdr (προαιρετικό)
+  supplierName       String? // denormalized για λίστες
+  mode               TemplateMode        @default(MANUAL)
+  status             TemplateStatus      @default(DRAFT)
+  version            Int                 @default(1)
+  sampleStorageKey   String? // Bunny private — δείγμα εικόνας/PDF
+  sampleMimeType     String?
+  samplePageCount    Int?
+  sampleThumbUrl     String?
   // Αποτύπωμα διάταξης του κύριου δείγματος (§14.7) — { afm, issuer, words[], aspect }.
-  fingerprint      Json?
+  fingerprint        Json?
   // Κατώφλια ενεργοποίησης (§11): 0 δείγματα = χωρίς έλεγχο εκπαίδευσης.
-  minTrainingScore   Float         @default(0.9)
-  minTrainingSamples Int           @default(3)
-  trainingScore      Float?                        // τελευταίος υπολογισμένος συνολικός βαθμός 0-1
-  verifiedSamples    Int           @default(0)     // πλήθος δειγμάτων σε status VERIFIED
-  notifyEmails     String?                         // ";"-separated (NOTIFY)
-  timesUsed        Int             @default(0)
-  createdById      String?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  fields           TemplateField[]
-  mappings         TemplateMapping[]
-  conditions       TemplateCondition[]
-  runs             TemplateRun[]
-  samples          TemplateSample[]
-  jobs             TemplateJob[]
+  minTrainingScore   Float               @default(0.9)
+  minTrainingSamples Int                 @default(3)
+  trainingScore      Float? // τελευταίος υπολογισμένος συνολικός βαθμός 0-1
+  verifiedSamples    Int                 @default(0) // πλήθος δειγμάτων σε status VERIFIED
+  notifyEmails       String? // ";"-separated (NOTIFY)
+  timesUsed          Int                 @default(0)
+  createdById        String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  fields             TemplateField[]
+  mappings           TemplateMapping[]
+  conditions         TemplateCondition[]
+  runs               TemplateRun[]
+  samples            TemplateSample[]
+  jobs               TemplateJob[]
 
   @@index([vatNumber, status])
 }
@@ -1770,13 +1779,13 @@ model TemplateField {
   id         String             @id @default(cuid())
   templateId String
   template   ExtractionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  key        String                                // slug (auto από label), σταθερό
+  key        String // slug (auto από label), σταθερό
   label      String
   kind       TemplateFieldKind  @default(SINGLE)
   valueType  TemplateValueType  @default(TEXT)
-  color      String                                // hex, μοναδικό μέσα στο πρότυπο
-  region     Json?                                 // { page:number, bbox:[x,y,w,h] } 0-1
-  columns    Json?                                 // TABLE → [{ key, label, valueType }]
+  color      String // hex, μοναδικό μέσα στο πρότυπο
+  region     Json? // { page:number, bbox:[x,y,w,h] } 0-1
+  columns    Json? // TABLE → [{ key, label, valueType }]
   aiHint     String?            @db.Text
   required   Boolean            @default(false)
   order      Int                @default(0)
@@ -1794,7 +1803,7 @@ model TemplateMapping {
   name       String             @default("default")
   target     MappingTarget
   isDefault  Boolean            @default(true)
-  rows       Json                                  // INVOICE: [{fieldKey, invoiceKey}] · EXCEL: [{fieldKey, column, order}]
+  rows       Json // INVOICE: [{fieldKey, invoiceKey}] · EXCEL: [{fieldKey, column, order}]
 
   @@unique([templateId, name])
 }
@@ -1806,9 +1815,9 @@ model TemplateCondition {
   name       String
   order      Int                @default(0)
   isActive   Boolean            @default(true)
-  logic      String             @default("AND")   // AND | OR
-  clauses    Json                                  // [{ fieldKey, op, value }]
-  actions    Json                                  // [{ type, params }]
+  logic      String             @default("AND") // AND | OR
+  clauses    Json // [{ fieldKey, op, value }]
+  actions    Json // [{ type, params }]
 
   @@index([templateId, order])
 }
@@ -1821,12 +1830,12 @@ model TemplateRun {
   documentId      String
   document        OcrDocument        @relation(fields: [documentId], references: [id], onDelete: Cascade)
   status          TemplateRunStatus
-  trigger         String             @default("upload")   // upload | manual | reextract
+  trigger         String             @default("upload") // upload | manual | reextract
   error           String?            @db.Text
-  values          Json                              // { key: FieldValue }
+  values          Json // { key: FieldValue }
   // Φάκελος εξόδου v3: { template, version, extractedAt, file, documentId, document } (spec §17.1).
   output          Json?
-  matched         Json                              // [{ id, name, actions }]
+  matched         Json // [{ id, name, actions }]
   // { review: string[], blocked: string[], fields: Record<string, 'review'|'blocked'>, notified: string[],
   //   baseOcr: Record<string, unknown> }
   // baseOcr = what the base OCR read for the cross-checked keys (totalAmount, subtotal, vatAmount,
@@ -1856,11 +1865,11 @@ model TemplateSample {
   mimeType    String
   pageCount   Int?
   status      TemplateSampleStatus @default(PENDING)
-  expected    Json?                                 // { fieldKey: value } επιβεβαιωμένο από χρήστη
-  lastResult  Json?                                 // { fieldKey: { raw, value, source, match } }
-  score       Float?                                // 0-1 ποσοστό πεδίων που ταιριάζουν
-  fingerprint Json?                                 // §14.7 — { afm, issuer, words[], aspect }
-  isPrimary   Boolean              @default(false)  // το δείγμα πάνω στο οποίο σχεδιάστηκαν οι περιοχές
+  expected    Json? // { fieldKey: value } επιβεβαιωμένο από χρήστη
+  lastResult  Json? // { fieldKey: { raw, value, source, match } }
+  score       Float? // 0-1 ποσοστό πεδίων που ταιριάζουν
+  fingerprint Json? // §14.7 — { afm, issuer, words[], aspect }
+  isPrimary   Boolean              @default(false) // το δείγμα πάνω στο οποίο σχεδιάστηκαν οι περιοχές
   createdById String?
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
@@ -1870,21 +1879,21 @@ model TemplateSample {
 
 // Εργασίες μαζικής σάρωσης (spec §12).
 model TemplateJob {
-  id              String            @id @default(cuid())
+  id              String             @id @default(cuid())
   templateId      String
   template        ExtractionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   templateVersion Int
-  status          TemplateJobStatus @default(QUEUED)
-  title           String?                                // τίτλος της παρτίδας, όπως τον έγραψε ο χρήστης
-  reference       String?                                // ελεύθερη σήμανση/κωδικός του χρήστη
-  docDate         DateTime?                              // ημερομηνία αναφοράς που δίνει ο χρήστης (≠ createdAt)
+  status          TemplateJobStatus  @default(QUEUED)
+  title           String? // τίτλος της παρτίδας, όπως τον έγραψε ο χρήστης
+  reference       String? // ελεύθερη σήμανση/κωδικός του χρήστη
+  docDate         DateTime? // ημερομηνία αναφοράς που δίνει ο χρήστης (≠ createdAt)
   description     String?
-  notifyEmails    String?                                // comma-separated· κενό → τα emails του προτύπου
-  total           Int               @default(0)
-  done            Int               @default(0)
-  failed          Int               @default(0)
+  notifyEmails    String? // comma-separated· κενό → τα emails του προτύπου
+  total           Int                @default(0)
+  done            Int                @default(0)
+  failed          Int                @default(0)
   createdById     String?
-  createdAt       DateTime          @default(now())
+  createdAt       DateTime           @default(now())
   startedAt       DateTime?
   finishedAt      DateTime?
   items           TemplateJobItem[]
@@ -1903,8 +1912,8 @@ model TemplateJobItem {
   mimeType   String
   size       Int
   status     TemplateJobItemStatus @default(QUEUED)
-  page       Int?                                   // πλήθος σελίδων του αρχείου (για το page-image)
-  values     Json?                                  // { fieldKey: FieldValue }
+  page       Int? // πλήθος σελίδων του αρχείου (για το page-image)
+  values     Json? // { fieldKey: FieldValue }
   matched    Json?
   flags      Json?
   model      String?
@@ -1920,20 +1929,20 @@ model TemplateJobItem {
 
 // Έξοδα SoftOne (EditMaster EXPENSES, πίνακας EXPN) — μητρώο για την αντιστοίχιση γραμμών.
 model SoftoneExpense {
-  id       Int      @id @default(autoincrement())
-  expn     Int      @unique           // SoftOne EXPN id
-  code     String                     // CODE
-  name     String                     // NAME
-  vat      String?                    // VAT (κατηγορία ΦΠΑ)
-  isActive Boolean  @default(true)
-  syncedAt DateTime @default(now())
+  id             Int      @id @default(autoincrement())
+  expn           Int      @unique // SoftOne EXPN id
+  code           String // CODE
+  name           String // NAME
+  vat            String? // VAT (κατηγορία ΦΠΑ)
+  isActive       Boolean  @default(true)
+  syncedAt       DateTime @default(now())
   // Χαρακτηρισμός myDATA του ΜΗΤΡΩΟΥ (όχι της γραμμής). Το EXPN κρατά δύο ζεύγη: εσόδων και
   // εξόδων (…X). Για παραστατικά που λαμβάνουμε ισχύει το ζεύγος ΕΞΟΔΩΝ.
-  classType       Int?                // CLASSTYPE       (εσόδων)
-  classTypeX      Int?                // CLASSTYPEX      (εξόδων)
-  classCategory   Int?                // CLASSCATEGORY   (εσόδων)
-  classCategoryX  Int?                // CLASSCATEGORYEX (εξόδων)
-  myDataVprc      Int?                // MYDATAVPRC (κατηγορία φόρων)
+  classType      Int? // CLASSTYPE       (εσόδων)
+  classTypeX     Int? // CLASSTYPEX      (εξόδων)
+  classCategory  Int? // CLASSCATEGORY   (εσόδων)
+  classCategoryX Int? // CLASSCATEGORYEX (εξόδων)
+  myDataVprc     Int? // MYDATAVPRC (κατηγορία φόρων)
 
   @@index([name])
   @@index([code])
@@ -1943,20 +1952,20 @@ model SoftoneExpense {
 // SODTYPE 53 (51 είδη · 52 υπηρεσίες · 53 χρεοπιστώσεις · 54 πάγια). Είναι ΑΥΤΕΣ που δέχεται το
 // `MTRL` μιας γραμμής LINLINES («Ειδικές συναλλαγές»), όχι τα είδη/υπηρεσίες ούτε τα έξοδα.
 model SoftoneLineItem {
-  id       Int      @id @default(autoincrement())
-  mtrl     Int      @unique           // SoftOne MTRL id (SODTYPE 53)
-  code     String                     // CODE
-  name     String                     // NAME
-  vat      String?                    // VAT (κατηγορία ΦΠΑ)
-  mtrType  Int?                       // MTRTYPE («Τύπος», editor $LINTYPE) — το θέλει η γραμμή LINLINES
-  mtrCategory Int?                    // MTRCATEGORY → SoftoneLineCategory.mtrCategory (κατηγορία δαπάνης)
-  isActive Boolean  @default(true)
-  syncedAt DateTime @default(now())
+  id             Int       @id @default(autoincrement())
+  mtrl           Int       @unique // SoftOne MTRL id (SODTYPE 53)
+  code           String // CODE
+  name           String // NAME
+  vat            String? // VAT (κατηγορία ΦΠΑ)
+  mtrType        Int? // MTRTYPE («Τύπος», editor $LINTYPE) — το θέλει η γραμμή LINLINES
+  mtrCategory    Int? // MTRCATEGORY → SoftoneLineCategory.mtrCategory (κατηγορία δαπάνης)
+  isActive       Boolean   @default(true)
+  syncedAt       DateTime  @default(now())
   // Χαρακτηρισμός myDATA του ΜΗΤΡΩΟΥ — η γραμμή LINLINES δεν έχει πεδίο χαρακτηρισμού.
-  classType     Int?                  // CLASSTYPE
-  classCategory Int?                  // CLASSCATEGORY
-  myDataCode    String?               // MYDATACODE («Στοιχεία εσόδων / εξόδων»)
-  myDataVprc    Int?                  // MYDATAVPRC
+  classType      Int? // CLASSTYPE
+  classCategory  Int? // CLASSCATEGORY
+  myDataCode     String? // MYDATACODE («Στοιχεία εσόδων / εξόδων»)
+  myDataVprc     Int? // MYDATAVPRC
   // Λογαριασμός γενικής λογιστικής της χρεοπίστωσης — `MTRL.ACNMSK` («Γενικής», editor ACNTGL).
   // ΠΡΟΣΟΧΗ, δύο διαφορετικά «κενά»: `acnmskSyncedAt = null` σημαίνει ότι ο συγχρονισμός δεν έχει
   // διαβάσει ΑΚΟΜΗ το πεδίο (άγνωστο), ενώ `acnmsk = null` με `acnmskSyncedAt` γεμάτο σημαίνει ότι
@@ -1975,14 +1984,14 @@ model SoftoneLineItem {
 // Ο πελάτης έχει ΕΓΛΣ: 4 βαθμίδες, με την 4η να είναι κατάληξη συντελεστή ΦΠΑ (…0024, …0013).
 model SoftoneAccount {
   id         Int      @id @default(autoincrement())
-  acnt       Int      @unique            // ACNT (κλειδί)
-  code       String   @unique            // CODE, π.χ. «61.02.00.0024»
-  name       String                      // NAME
-  grade      Int?                        // ACNGRADE — βαθμίδα 1..4
+  acnt       Int      @unique // ACNT (κλειδί)
+  code       String   @unique // CODE, π.χ. «61.02.00.0024»
+  name       String // NAME
+  grade      Int? // ACNGRADE — βαθμίδα 1..4
   // Ο κωδικός χωρίς το τελευταίο τμήμα («61.02.00.0024» → «61.02.00»). Υπολογίζεται εδώ, δεν
   // έρχεται από το SoftOne· κενό για πρωτοβάθμιους.
   parentCode String?
-  sodtype    Int?                        // SODTYPE (89 γενική · 90 ομάδα 9 αναλυτικής)
+  sodtype    Int? // SODTYPE (89 γενική · 90 ομάδα 9 αναλυτικής)
   // ACNMOVING «Κινείται»: ο λογαριασμός δέχεται εγγραφές. `null` = δεν διαβάστηκε — ΑΓΝΩΣΤΟ, ποτέ
   // «κινείται». (Στον πελάτη ΔΕΝ υπάρχουν GLMASTER / ISFINAL — το σχέδιο είναι ACNT, η σημαία ACNMOVING.)
   postable   Boolean?
@@ -2004,22 +2013,24 @@ model SoftoneAccount {
 // Ο δρόμος που δουλεύει είναι `GetTable MTRL FILTER=SODTYPE=61` (raw τιμές) — ή, εναλλακτικά,
 // `getBrowserInfo OBJECT=SXACNT` που δίνει ετικέτες αντί για κωδικούς.
 model SoftoneSxAccount {
-  id       Int      @id @default(autoincrement())
-  mtrl     Int      @unique           // SoftOne MTRL id (SODTYPE 61)
-  code     String                     // CODE — ο κωδικός του λογαριασμού
-  name     String                     // NAME
+  id         Int      @id @default(autoincrement())
+  mtrl       Int      @unique // SoftOne MTRL id (SODTYPE 61)
+  code       String // CODE — ο κωδικός του λογαριασμού
+  name       String // NAME
   /**
    * MTRTYPE — ΤΙ είδους λογαριασμός: 1 έσοδα (208) · **2 έξοδα (167)** · 3 δημοτικός φόρος (14) ·
    * 4 ΕΛΓΑ (1) · 5 ΦΠΑ πωλήσεων (94) · 6 ΦΠΑ αγορών (54) · 8 ταμειακές κινήσεις (4).
    * Για τα ΕΙΣΕΡΧΟΜΕΝΑ παραστατικά μας ενδιαφέρει ο **2**· τα ΦΠΑ τα συμπληρώνει το SoftOne.
    */
-  mtrType  Int?
-  /** SOCLMNS — η στήλη βιβλίων όπου κινείται ο λογαριασμός. */
-  soClmns  Int?
-  vat      String?                    // VAT (κατηγορία ΦΠΑ)
-  myDataCode String?                  // MYDATACODE — χαρακτηρισμός μητρώου
-  isActive Boolean  @default(true)
-  syncedAt DateTime @default(now())
+  mtrType    Int?
+  /**
+   * SOCLMNS — η στήλη βιβλίων όπου κινείται ο λογαριασμός.
+   */
+  soClmns    Int?
+  vat        String? // VAT (κατηγορία ΦΠΑ)
+  myDataCode String? // MYDATACODE — χαρακτηρισμός μητρώου
+  isActive   Boolean  @default(true)
+  syncedAt   DateTime @default(now())
 
   @@index([name])
   @@index([code])
@@ -2030,17 +2041,17 @@ model SoftoneSxAccount {
 // MTRCATEGORY με SODTYPE 53. Είναι η ομαδοποίηση ΠΑΝΩ από τις χρεοπιστώσεις (`LINEITEM.MTRCATEGORY`),
 // όχι ξεχωριστή λίστα δαπανών· τη χρησιμοποιεί η ουρά για να στενέψει την αναζήτηση χρεοπίστωσης.
 model SoftoneLineCategory {
-  id          Int      @id @default(autoincrement())
-  mtrCategory Int      @unique          // SoftOne MTRCATEGORY id (SODTYPE 53)
-  code        String                    // CODE (σύντμηση)
-  name        String                    // NAME (περιγραφή)
-  vat         String?                   // VAT (προεπιλεγμένη κατηγορία ΦΠΑ της κατηγορίας)
-  acnmsk      String?                   // ACNMSK (λογαριασμός γενικής)
+  id              Int      @id @default(autoincrement())
+  mtrCategory     Int      @unique // SoftOne MTRCATEGORY id (SODTYPE 53)
+  code            String // CODE (σύντμηση)
+  name            String // NAME (περιγραφή)
+  vat             String? // VAT (προεπιλεγμένη κατηγορία ΦΠΑ της κατηγορίας)
+  acnmsk          String? // ACNMSK (λογαριασμός γενικής)
   // `false` = η εγκατάσταση δεν εξέθεσε SODTYPE στον MTRCATEGORY, οπότε ο κατάλογος μπορεί να
   // περιέχει και κατηγορίες ειδών/υπηρεσιών/παγίων. Το UI το λέει αντί να το κρύβει.
-  sodtypeFiltered Boolean @default(true)
-  isActive    Boolean  @default(true)
-  syncedAt    DateTime @default(now())
+  sodtypeFiltered Boolean  @default(true)
+  isActive        Boolean  @default(true)
+  syncedAt        DateTime @default(now())
 
   @@index([name])
   @@index([code])
@@ -2050,12 +2061,12 @@ model SoftoneLineCategory {
 // Μπαίνουν ΑΝΑ ΓΡΑΜΜΗ (`COSTCNTR`) σε ITELINES / SRVLINES / LINLINES· το EXPANAL ΔΕΝ το έχει.
 model SoftoneCostCenter {
   id       Int      @id @default(autoincrement())
-  costcntr Int      @unique          // SoftOne COSTCNTR (Integer key)
-  code     String                    // CODE (σύντμηση)
-  name     String                    // NAME (περιγραφή)
-  name2    String?                   // NAME2
-  sohCode  String?                   // SOHCODE (κωδικός ιεραρχίας)
-  acnmsk   String?                   // ACNMSK (λογαριασμός)
+  costcntr Int      @unique // SoftOne COSTCNTR (Integer key)
+  code     String // CODE (σύντμηση)
+  name     String // NAME (περιγραφή)
+  name2    String? // NAME2
+  sohCode  String? // SOHCODE (κωδικός ιεραρχίας)
+  acnmsk   String? // ACNMSK (λογαριασμός)
   isActive Boolean  @default(true)
   syncedAt DateTime @default(now())
 
@@ -2067,11 +2078,11 @@ model SoftoneCostCenter {
 // Το `trdr` επιτρέπει να στενέψει η λίστα στα έργα ΤΟΥ εκδότη του παραστατικού.
 model SoftoneProject {
   id       Int      @id @default(autoincrement())
-  prjc     Int      @unique          // SoftOne PRJC
-  code     String                    // CODE
-  name     String                    // NAME
-  trdr     Int?                      // TRDR («Πελάτης») — για φιλτράρισμα ανά συναλλασσόμενο
-  prjType  Int?                      // PRJTYPE
+  prjc     Int      @unique // SoftOne PRJC
+  code     String // CODE
+  name     String // NAME
+  trdr     Int? // TRDR («Πελάτης») — για φιλτράρισμα ανά συναλλασσόμενο
+  prjType  Int? // PRJTYPE
   isActive Boolean  @default(true)
   syncedAt DateTime @default(now())
 
@@ -2084,9 +2095,9 @@ model SoftoneProject {
 // Στη γραμμή λέγεται «Κατηγορία δραστηριότητας».
 model SoftoneProjectStage {
   id        Int      @id @default(autoincrement())
-  prjcStage Int      @unique         // SoftOne PRJCSTAGE
-  code      String                   // CODE (σύντμηση)
-  name      String                   // NAME (μπορεί να είναι κενό στο SoftOne → πέφτουμε στο CODE)
+  prjcStage Int      @unique // SoftOne PRJCSTAGE
+  code      String // CODE (σύντμηση)
+  name      String // NAME (μπορεί να είναι κενό στο SoftOne → πέφτουμε στο CODE)
   isActive  Boolean  @default(true)
   syncedAt  DateTime @default(now())
 
@@ -2099,12 +2110,12 @@ model SoftoneProjectStage {
 // Η εφαρμογή ΔΕΝ ορίζει χαρακτηρισμό ανά γραμμή — τον ορίζει το μητρώο στο SoftOne.
 model SoftoneMyDataClassType {
   id         Int      @id @default(autoincrement())
-  sotype     Int                       // SOTYPE (πλευρά: εσόδων/εξόδων)
-  code       Int                       // MYDATACLTYPE
-  myDataCode String?                   // MYDATACODE (π.χ. «category2_1»)
-  sohCode    String?                   // SOHCODE (ομαδοποίηση myDATA)
+  sotype     Int // SOTYPE (πλευρά: εσόδων/εξόδων)
+  code       Int // MYDATACLTYPE
+  myDataCode String? // MYDATACODE (π.χ. «category2_1»)
+  sohCode    String? // SOHCODE (ομαδοποίηση myDATA)
   name       String
-  isVat      Boolean  @default(false)  // ISVAT («Αφορά περιοδική»)
+  isVat      Boolean  @default(false) // ISVAT («Αφορά περιοδική»)
   syncedAt   DateTime @default(now())
 
   @@unique([sotype, code])
@@ -2113,8 +2124,8 @@ model SoftoneMyDataClassType {
 
 model SoftoneMyDataClassCategory {
   id         Int      @id @default(autoincrement())
-  sotype     Int                       // SOTYPE
-  code       Int                       // MYDATACLCATEGORY
+  sotype     Int // SOTYPE
+  code       Int // MYDATACLCATEGORY
   myDataCode String?
   sohCode    String?
   name       String
@@ -2127,27 +2138,55 @@ model SoftoneMyDataClassCategory {
 // Μνήμη αντιστοίχισης γραμμών: (ΑΦΜ εκδότη ή '' για γενικό, κανονικοποιημένο κείμενο) → είδος/υπηρεσία/έξοδο.
 // ΠΡΟΣΟΧΗ: το afm είναι NOT NULL με default '' — η Postgres θεωρεί τα NULL διακριτά στο unique index,
 // οπότε οι γενικοί κανόνες γράφονται πάντα με afm = '' και ποτέ NULL.
+/**
+ * ΤΟ ΣΧΗΜΑ ΤΟΥ ΕΠΙΜΕΡΙΣΜΟΥ, ΘΥΜΗΜΕΝΟ.
+ * Ο λογιστής σπάει κάθε μήνα ΤΟ ΙΔΙΟ τιμολόγιο με τον ίδιο τρόπο — μετρημένο στα χειρόγραφα
+ * των σαρωμένων: «Ιγνατιάδου → 6 κομμάτια», «Δεσποτόπουλος → 4 λογαριασμοί». Το `LineMatchRule`
+ * θυμάται ΕΝΑΝ λογαριασμό ανά γραμμή· εδώ θυμόμαστε ΟΛΟΚΛΗΡΟ το σχήμα, ώστε την επόμενη φορά
+ * να είναι ένα κλικ αντί για έξι επιλογές και έξι ποσοστά.
+ * Κλειδί: ΑΦΜ εκδότη + κανονικοποιημένο κείμενο γραμμής + κόσμος (χρεοπιστώσεις ή απλογραφικά) —
+ * το ίδιο κλειδί με τη μνήμη αντιστοίχισης, ώστε οι δύο μνήμες να μη διαφωνούν για το ποια
+ * γραμμή είναι «ίδια».
+ * `parts` = [{ registryMtrl, accountCode, percent }] σε σειρά. Κρατάμε ΠΟΣΟΣΤΑ και όχι ποσά:
+ * το ποσό αλλάζει κάθε μήνα, η αναλογία είναι αυτό που επαναλαμβάνεται.
+ */
+model AllocationShapeRule {
+  id          String    @id @default(cuid())
+  afm         String    @default("")
+  pattern     String
+  kind        String    @default("LINEITEM")
+  parts       Json
+  timesUsed   Int       @default(0)
+  lastUsedAt  DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([afm, pattern, kind])
+  @@index([pattern])
+}
+
 model LineMatchRule {
-  id          String   @id @default(cuid())
-  afm         String   @default("")
-  pattern     String                     // normalizeLineText του ονόματος της γραμμής
-  mtrl        Int?                       // SoftoneItem.mtrl
-  expn        Int?                       // SoftoneExpense.expn
-  lin         Int?                       // SoftoneLineItem.mtrl (χρεοπίστωση)
+  id           String   @id @default(cuid())
+  afm          String   @default("")
+  pattern      String // normalizeLineText του ονόματος της γραμμής
+  mtrl         Int? // SoftoneItem.mtrl
+  expn         Int? // SoftoneExpense.expn
+  lin          Int? // SoftoneLineItem.mtrl (χρεοπίστωση)
   // «Αν το κάνει μια φορά να το θυμάται»: η αναλυτική μαθαίνεται με το ΙΔΙΟ κλειδί (ΑΦΜ + pattern).
-  costCntr    Int?                       // SoftoneCostCenter.costcntr
-  prjc        Int?                       // SoftoneProject.prjc
-  prjcStage   Int?                       // SoftoneProjectStage.prjcStage
-  isService   Boolean  @default(false)
+  costCntr     Int? // SoftoneCostCenter.costcntr
+  prjc         Int? // SoftoneProject.prjc
+  prjcStage    Int? // SoftoneProjectStage.prjcStage
+  isService    Boolean  @default(false)
   // ΠΟΙΟΣ διάλεξε τον ΣΤΟΧΟ (mtrl/expn/lin): 'manual' = άνθρωπος τον επέλεξε ρητά (ο μόνος
   // δρόμος που γράφει στόχο, `rememberLineMatch`)· NULL = κανόνας πριν από τη στήλη, ΑΓΝΩΣΤΟ. Μια
   // αλλαγή ΜΟΝΟ αναλυτικής δεν γράφει ποτέ στόχο ούτε δημιουργεί κανόνα (`rememberAnalyticsOnly`).
   // Μόνο το 'manual' μετρά ως ανθρώπινη επιβεβαίωση (βλ. `lib/ocr/chart-grounding.ts`).
   targetSource String?
-  timesUsed   Int      @default(0)
-  createdById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  timesUsed    Int      @default(0)
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@unique([afm, pattern])
   @@index([pattern])

@@ -90,14 +90,19 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
       className="grid grid-cols-1 gap-4 lg:grid-cols-[var(--doc-col)_1fr] lg:transition-[grid-template-columns] lg:duration-300 lg:ease-out"
     >
       {/* Document with marquee overlay */}
-      <div className={`relative rounded-lg overflow-hidden shadow-fluent-8 bg-neutral-4 transition-opacity duration-200 ${showDoc ? '' : 'pointer-events-none max-lg:hidden lg:h-0 lg:overflow-hidden lg:opacity-0'}`}>
-        <button type="button" onClick={toggleDoc}
-          title="Κλείσιμο παραστατικού — περισσότερος χώρος για τη δουλειά"
-          className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded bg-card/90 px-2 py-1 text-[length:var(--fs-11)] font-semibold text-foreground shadow-fluent-2 backdrop-blur transition hover:bg-card">
-          <FiChevronLeft className="size-3.5" /> Κλείσιμο
-        </button>
+      {/* ΧΩΡΙΣ `overflow-hidden` ΕΔΩ. Το `overflow-hidden` σε πρόγονο ΑΚΥΡΩΝΕΙ το `sticky` του
+          παιδιού: το κουμπί κλεισίματος μετρήθηκε να φεύγει στο y=-204 ενώ ήταν δηλωμένο sticky.
+          Η στρογγυλή γωνία του PDF περνά τώρα σε δικό του wrapper, πιο κάτω. */}
+      <div className={`relative rounded-lg shadow-fluent-8 bg-neutral-4 transition-opacity duration-200 ${showDoc ? '' : 'pointer-events-none max-lg:hidden lg:h-0 lg:overflow-hidden lg:opacity-0'}`}>
+        <div className="sticky top-0 z-20 flex justify-end rounded-t-lg bg-neutral-4/95 p-1.5 backdrop-blur">
+          <button type="button" onClick={toggleDoc}
+            title="Κλείσιμο παραστατικού — περισσότερος χώρος για τη δουλειά"
+            className="inline-flex items-center gap-1 rounded bg-card px-2 py-1 text-[length:var(--fs-11)] font-semibold text-foreground shadow-fluent-4 transition hover:bg-muted">
+            <FiChevronLeft className="size-3.5" /> Κλείσιμο παραστατικού
+          </button>
+        </div>
         <div ref={ref} {...handlers}
-          className={`relative ${activeField ? 'cursor-crosshair' : ''}`}>
+          className={`relative overflow-hidden rounded-b-lg ${activeField ? 'cursor-crosshair' : ''}`}>
           {mimeType.startsWith('image/')
             ? <img src={fileUrl} alt="" className="w-full select-none pointer-events-none" />
             /* Το PDF είναι ΑΔΡΑΝΕΣ ΜΟΝΟ όσο σχεδιάζεις πλαίσιο σε πεδίο.

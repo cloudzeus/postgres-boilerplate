@@ -6,6 +6,7 @@ import { logAudit } from '@/lib/audit';
 import { normalizeLineText } from '@/lib/ocr/line-match';
 import { rememberLineMatch } from '@/lib/ocr/queues';
 import { refreshDocTallies } from '@/lib/ocr/softone-match';
+import { isShapeWorthRemembering, toShapeParts } from '@/lib/ocr/allocation-shape';
 import { ALLOCATION_KINDS, computeAllocationAmounts, validateAllocations, type AllocationKind } from '@/lib/ocr/line-allocation';
 
 export const runtime = 'nodejs';
@@ -146,6 +147,27 @@ export async function POST(req: Request) {
       },
       analytics: { costCntr: null, prjc: null, prjcStage: null },
       userId: u.id,
+    }).catch(() => null);
+  }
+
+  /**
+   * Η ΜΝΗΜΗ ΤΟΥ ΣΧΗΜΑΤΟΣ. Από δύο κομμάτια και πάνω: ο ίδιος εκδότης με την ίδια γραμμή σπάει
+   * κάθε μήνα με τον ίδιο τρόπο, οπότε την επόμενη φορά αρκεί ένα κλικ αντί για N επιλογές και
+   * N ποσοστά. Ποτέ μοιραίο — μια αποτυχία εδώ δεν ακυρώνει τον επιμερισμό που μόλις σώθηκε.
+   */
+  if (pattern && isShapeWorthRemembering(computed)) {
+    const shapeKind = (computed[0]?.kind ?? 'LINEITEM') as AllocationKind;
+    const parts = toShapeParts(computed.map((c) => ({
+      registryMtrl: c.registryMtrl,
+      accountCode: byKind[c.kind ?? 'LINEITEM']?.get(c.registryMtrl)?.code ?? null,
+      percent: c.percent,
+    })));
+    const key = { afm: String(line.document?.issuerAfm ?? '').trim(), pattern, kind: shapeKind };
+    await prisma.allocationShapeRule.upsert({
+      where: { afm_pattern_kind: key },
+      create: { ...key, parts, timesUsed: 1, lastUsedAt: new Date(), createdById: u.id },
+      // Το ΤΕΛΕΥΤΑΙΟ σχήμα κερδίζει: αν ο λογιστής άλλαξε την αναλογία, αυτή θέλει να ξαναδεί.
+      update: { parts, timesUsed: { increment: 1 }, lastUsedAt: new Date() },
     }).catch(() => null);
   }
 

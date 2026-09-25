@@ -211,6 +211,14 @@ export function LineAllocations({
    * ούτως ή άλλως — «ο λογιστής το έσπασε σε 6» είναι πληροφορία, ακόμη κι αν δεν μπορούμε να
    * την περάσουμε αυτόματα (τα κέντρα κόστους δεν χωράνε ακόμη στον επιμερισμό).
    */
+  /**
+   * ΤΟ ΣΧΗΜΑ ΠΟΥ ΕΓΙΝΕ ΗΔΗ ΜΙΑ ΦΟΡΑ. Ισχυρότερη πρόταση από το χειρόγραφο: προέρχεται από
+   * ανθρώπινη απόφαση που ΕΠΑΝΑΛΗΦΘΗΚΕ, και τα κομμάτια του δείχνουν σε ζωντανό μητρώο.
+   */
+  const [shape, setShape] = React.useState<
+    { kind: string; timesUsed: number; sameIssuer: boolean;
+      parts: { registryMtrl: number; code: string; name: string; percent: number }[] } | null
+  >(null);
   const [hw, setHw] = React.useState<
     { applicable: boolean;
       parts: { label: string; amount: number; percent: number; registryMtrl: number; code: string; name: string }[];
@@ -220,7 +228,7 @@ export function LineAllocations({
     // ΤΟ ΧΕΙΡΟΓΡΑΦΟ ΔΕΝ ΕΞΑΡΤΑΤΑΙ ΑΠΟ ΤΟΝ ΚΟΣΜΟ. Ο φύλακας `kind === 'SXACCOUNT'` υπάρχει για τη
     // ΜΝΗΜΗ, που καλύπτει μόνο χρεοπιστώσεις — αλλά έκοβε και το χειρόγραφο, δηλαδή ακριβώς στα
     // απλογραφικά (Cosmote, 1261) όπου ο λογιστής έχει γράψει το σπάσιμο με το χέρι.
-    if (!canManage || rows.length > 0) { setHint(null); setHw(null); return; }
+    if (!canManage || rows.length > 0) { setHint(null); setHw(null); setShape(null); return; }
     let ignore = false;
     fetch(`/api/admin/ocr/line-allocations/suggest?lineId=${encodeURIComponent(lineId)}`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
@@ -228,10 +236,22 @@ export function LineAllocations({
         if (ignore) return;
         setHint(kind === 'SXACCOUNT' ? null : (d?.suggestion ?? null));
         setHw(d?.handwritten ?? null);
+        setShape(d?.shape ?? null);
       })
-      .catch(() => { if (!ignore) { setHint(null); setHw(null); } });
+      .catch(() => { if (!ignore) { setHint(null); setHw(null); setShape(null); } });
     return () => { ignore = true; };
   }, [lineId, canManage, rows.length, kind]);
+
+  /** Ξαναφτιάχνει τον ΙΔΙΟ επιμερισμό πάνω στο ΝΕΟ ποσό της γραμμής. */
+  function applyShape() {
+    if (!shape) return;
+    setDirty(true);
+    setRows(shape.parts.map((p, i) => ({
+      order: i, registryMtrl: p.registryMtrl, kind,
+      accountCode: p.code, accountName: p.name,
+      percent: p.percent, amount: round2((total * p.percent) / 100),
+    })));
+  }
 
   /** Περνά ΟΛΟΚΛΗΡΟ το χειρόγραφο σχήμα — όχι ένα κομμάτι. */
   function applyHandwritten() {
@@ -370,6 +390,33 @@ export function LineAllocations({
               </div>
             )}
           </div>
+
+          {/* ── ΘΥΜΗΜΕΝΟ ΣΧΗΜΑ: πρώτο απ' όλα — έχει ήδη γίνει, και επαναλήφθηκε ──── */}
+          {shape && rows.length === 0 && (
+            <div className="rounded-md border border-sisyphus-500/40 bg-sisyphus-500/10 px-2 py-1.5 shadow-fluent-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1 text-[length:var(--fs-12)] font-extrabold uppercase tracking-wide text-foreground">
+                  <FiZap aria-hidden className="size-3 text-sisyphus-600" />
+                  Ίδιο σπάσιμο με την προηγούμενη φορά — {shape.parts.length} κομμάτια
+                </span>
+                {canManage && (
+                  <button type="button" onClick={applyShape}
+                    className="shrink-0 rounded bg-sisyphus-500 px-2 py-0.5 text-[length:var(--fs-11)] font-semibold text-white transition hover:bg-sisyphus-600">
+                    Χρήση
+                  </button>
+                )}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[length:var(--fs-11)] text-foreground">
+                {shape.parts.map((p, i) => (
+                  <span key={i}><span className="font-mono">{p.code}</span> {p.percent}% · {eur(round2((total * p.percent) / 100))}</span>
+                ))}
+              </div>
+              <p className="mt-1 text-[length:var(--fs-11)] text-muted-foreground">
+                {shape.sameIssuer ? 'Ίδιος εκδότης' : 'Ίδια περιγραφή'}
+                {shape.timesUsed > 0 ? ` · ${shape.timesUsed} φορές` : ''} · τα ποσά υπολογίζονται στο σημερινό σύνολο
+              </p>
+            </div>
+          )}
 
           {/* ── ΧΕΙΡΟΓΡΑΦΟ: πρώτο, γιατί είναι η απόφαση που ΗΔΗ πήρε ο λογιστής ──── */}
           {hw && rows.length === 0 && (

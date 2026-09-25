@@ -132,13 +132,13 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
                   <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{it.code ?? '-'}</td>
                   <td className="px-3 py-2.5">
                     <span className="mr-1.5 inline-flex size-4 items-center justify-center rounded bg-muted text-[length:var(--fs-10)] font-bold tabular-nums text-muted-foreground">{idx + 1}</span>
-                    <span className="font-semibold text-foreground">{it.name}</span>
+                    <span className="text-[length:var(--fs-12)] font-semibold text-foreground">{it.name}</span>
                   </td>
-                  <td className="px-3 py-2 text-right">{fmtNum(it.quantity)}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{(line.unit ?? '') || '—'}</td>
-                  <td className="px-3 py-2 text-right">{fmtMoney(it.price)}</td>
-                  <td className="px-3 py-2 text-right text-destructive">{fmtNum(it.discount)}</td>
-                  <td className="px-3 py-2 text-right font-semibold">{fmtMoney(it.total)}</td>
+                  <td className="px-3 py-2 text-right text-[length:var(--fs-12)]">{fmtNum(it.quantity)}</td>
+                  <td className="px-3 py-2 text-[length:var(--fs-12)] text-muted-foreground">{(line.unit ?? '') || '—'}</td>
+                  <td className="px-3 py-2 text-right text-[length:var(--fs-12)]">{fmtMoney(it.price)}</td>
+                  <td className="px-3 py-2 text-right text-[length:var(--fs-12)] text-destructive">{fmtNum(it.discount)}</td>
+                  <td className="px-3 py-2 text-right text-[length:var(--fs-12)] font-semibold">{fmtMoney(it.total)}</td>
                   <td className="px-3 py-2 min-w-[260px] align-top">
                     <LineMatchCell
                       lineId={it.id}
