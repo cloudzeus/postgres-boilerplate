@@ -314,7 +314,7 @@ export function DataTable<TData, TValue>({
                       setColumnVisibility(initialColumnVisibility ?? {});
                       setColumnOrder([]);
                     }}
-                    className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                    className="text-[length:var(--fs-10)] text-muted-foreground hover:text-foreground underline"
                   >
                     reset
                   </button>
@@ -334,7 +334,7 @@ export function DataTable<TData, TValue>({
         className="relative flex flex-col rounded-lg border border-border dark:border-border bg-white dark:bg-card shadow-fluent-2 overflow-hidden"
       >
         <div className="min-h-0 flex-1 overflow-auto">
-          <table className="w-full text-[12px]" style={{ tableLayout: 'fixed', width: table.getTotalSize() }}>
+          <table className="w-full text-[length:var(--fs-12)]" style={{ tableLayout: 'fixed', width: table.getTotalSize() }}>
             <thead className="sticky top-0 z-10 bg-neutral-4 dark:bg-muted shadow-[inset_0_-1px_0_0_var(--border)]">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id}>
@@ -346,7 +346,7 @@ export function DataTable<TData, TValue>({
                         key={header.id}
                         colSpan={header.colSpan}
                         style={{ width: header.getSize() }}
-                        className="relative h-8 px-2.5 text-left font-semibold text-[10px] uppercase tracking-wider text-muted-foreground dark:text-muted-foreground select-none"
+                        className="relative h-8 px-2.5 text-left font-semibold text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground dark:text-muted-foreground select-none"
                       >
                         {!header.isPlaceholder && (
                           <div
@@ -403,7 +403,7 @@ export function DataTable<TData, TValue>({
                           <tr className="border-y border-sisyphus-500/25 bg-sisyphus-500/10 dark:bg-sisyphus-500/20">
                             <td
                               colSpan={row.getVisibleCells().length}
-                              className="h-9 px-2.5 text-[11px] font-semibold text-foreground"
+                              className="h-9 px-2.5 text-[length:var(--fs-11)] font-semibold text-foreground"
                             >
                               {groupBy.renderHeader(key, groupRows?.get(key) ?? [], {
                                 collapsed: isCollapsed,
@@ -429,7 +429,7 @@ export function DataTable<TData, TValue>({
                             key={cell.id}
                             style={{ width: cell.column.getSize() }}
                             className={cn(
-                              'h-8 px-2.5 text-[12px] text-foreground',
+                              'h-8 px-2.5 text-[length:var(--fs-12)] text-foreground',
                               isActions ? 'overflow-visible text-center' : 'truncate',
                             )}
                           >
@@ -440,8 +440,31 @@ export function DataTable<TData, TValue>({
                     </tr>
                     {row.getIsExpanded() && expandable && (
                       <tr className="bg-muted/30 dark:bg-muted/30 border-b border-border dark:border-border animate-fade-in">
-                        <td colSpan={row.getVisibleCells().length} className="px-4 py-3">
-                          {expandable(row.original)}
+                        {/*
+                          Η ανοιγμένη γραμμή ΔΕΝ ακολουθεί το πλάτος του πίνακα.
+
+                          Ο πίνακας έχει 17 στήλες και πιάνει 2118px· σε laptop 1280px αυτό σημαίνει
+                          ότι ΟΛΟ το περιεχόμενο της ανοιγμένης γραμμής — μαζί και η μπάρα με τον
+                          τύπο παραστατικού, την κατηγορία και τα «Αποθήκευση/Ανάρτηση» — στηνόταν
+                          σε πλάτος 2118px και κατέληγε **εκτός οθόνης δεξιά** (μετρημένο: η μπάρα
+                          ξεκινούσε στο x=714 και τελείωνε στο 2382). Ο χρήστης έπρεπε να σκρολάρει
+                          οριζόντια για να βρει τα κουμπιά του.
+
+                          `sticky left-0` κολλάει το περιεχόμενο στο ΑΡΙΣΤΕΡΟ άκρο του παραθύρου
+                          κύλισης και το `width` το δένει στο ΟΡΑΤΟ πλάτος, όχι στου πίνακα: ό,τι
+                          κι αν κάνει η οριζόντια κύλιση των στηλών, ο επεξεργαστής μένει μπροστά
+                          στα μάτια. Η οριζόντια κύλιση παραμένει εκεί που ανήκει — στις στήλες.
+                        */}
+                        <td
+                          colSpan={row.getVisibleCells().length}
+                          className="p-0"
+                        >
+                          <div
+                            className="sticky left-0 px-4 py-3"
+                            style={{ width: cardRef.current?.clientWidth ?? undefined }}
+                          >
+                            {expandable(row.original)}
+                          </div>
                         </td>
                       </tr>
                     )}
@@ -456,7 +479,7 @@ export function DataTable<TData, TValue>({
 
         {/* Footer / pagination — pinned to the bottom of the card */}
         <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border dark:border-border bg-muted/30 dark:bg-muted/30 px-3 py-2">
-          <div className="text-[12px] text-muted-foreground">
+          <div className="text-[length:var(--fs-12)] text-muted-foreground">
             {enableSelection && Object.keys(rowSelection).length > 0 ? (
               <span>{Object.keys(rowSelection).length} επιλεγμένα από {totalRows}</span>
             ) : (
@@ -468,7 +491,7 @@ export function DataTable<TData, TValue>({
               value={String(table.getState().pagination.pageSize)}
               onValueChange={(v) => table.setPageSize(Number(v))}
             >
-              <SelectTrigger className="h-7 w-[110px] text-[12px]">
+              <SelectTrigger className="h-7 w-[110px] text-[length:var(--fs-12)]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -477,7 +500,7 @@ export function DataTable<TData, TValue>({
                 ))}
               </SelectContent>
             </Select>
-            <span className="text-[12px] text-muted-foreground px-2">
+            <span className="text-[length:var(--fs-12)] text-muted-foreground px-2">
               {pageCount === 0 ? '0 / 0' : `${currentPage} / ${pageCount}`}
             </span>
             <Button variant="ghost" size="icon-sm" onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()}>
@@ -585,7 +608,7 @@ function ColumnRow({ id, column }: { id: string; column: any }) {
         aria-label={label}
       />
       <span
-        className="text-[12px] flex-1 truncate cursor-pointer"
+        className="text-[length:var(--fs-12)] flex-1 truncate cursor-pointer"
         onClick={() => column.toggleVisibility(!column.getIsVisible())}
       >
         {label}

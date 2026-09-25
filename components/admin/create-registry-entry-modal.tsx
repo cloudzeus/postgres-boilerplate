@@ -88,12 +88,12 @@ function Combo({
 }: { label: string; value: string; onChange: (v: string) => void; opts: Opt[]; ph?: string }) {
   return (
     <label className="grid gap-1.5">
-      <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+      <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">{label}</span>
       <Select value={value || ''} onValueChange={onChange}>
-        <SelectTrigger className="h-9 text-[13px]"><SelectValue placeholder={ph} /></SelectTrigger>
+        <SelectTrigger className="h-9 text-[length:var(--fs-13)]"><SelectValue placeholder={ph} /></SelectTrigger>
         <SelectContent className="max-h-72">
-          {opts.length === 0 && <div className="px-2 py-1.5 text-[12px] text-muted-foreground">— κενό —</div>}
-          {opts.map((o) => <SelectItem key={o.id} value={o.id} className="text-[13px]">{o.name}</SelectItem>)}
+          {opts.length === 0 && <div className="px-2 py-1.5 text-[length:var(--fs-12)] text-muted-foreground">— κενό —</div>}
+          {opts.map((o) => <SelectItem key={o.id} value={o.id} className="text-[length:var(--fs-13)]">{o.name}</SelectItem>)}
         </SelectContent>
       </Select>
     </label>
@@ -103,7 +103,7 @@ function Combo({
 function Note({ children, tone = 'warn' }: { children: React.ReactNode; tone?: 'warn' | 'bad' | 'ok' }) {
   const color = tone === 'bad' ? '#B91C1C' : tone === 'ok' ? '#047857' : '#B45309';
   return (
-    <span className="flex items-start gap-1 text-[11px]" style={{ color }}>
+    <span className="flex items-start gap-1 text-[length:var(--fs-11)]" style={{ color }}>
       {tone !== 'ok' && <FiAlertTriangle aria-hidden className="mt-0.5 h-3 w-3 shrink-0" />}
       {tone === 'ok' && <FiCheck aria-hidden className="mt-0.5 h-3 w-3 shrink-0" />}
       {children}
@@ -148,7 +148,7 @@ function AccountPicker({
           id={id} value={q} disabled={disabled}
           onChange={(e) => { setQ(e.target.value); setOpen(true); }}
           placeholder={value ? `Αλλαγή (τώρα: ${value})` : 'Αναζήτηση λογαριασμού (κωδικός ή περιγραφή)…'}
-          className="h-9 pl-8 text-[13px]" autoComplete="off"
+          className="h-9 pl-8 text-[length:var(--fs-13)]" autoComplete="off"
         />
       </div>
       {open && rows.length > 0 && (
@@ -159,8 +159,8 @@ function AccountPicker({
               <button type="button"
                 onClick={() => { onPick({ code: r.code, name: r.name }); setQ(''); setRows([]); setOpen(false); }}
                 className="flex w-full cursor-pointer flex-col items-start gap-0.5 px-3 py-1.5 text-left hover:bg-[var(--cx-hover)]">
-                <span className="line-clamp-1 text-[13px] font-medium text-foreground">{r.name}</span>
-                <span className="font-mono text-[11px] text-muted-foreground">{r.code}</span>
+                <span className="line-clamp-1 text-[length:var(--fs-13)] font-medium text-foreground">{r.name}</span>
+                <span className="font-mono text-[length:var(--fs-11)] text-muted-foreground">{r.code}</span>
               </button>
             </li>
           ))}
@@ -222,8 +222,31 @@ export function CreateRegistryEntryModal({
   const hasUnit = kind !== 'expense';
   const needsTemplate = kind === 'lineitem';
 
+  /**
+   * Η «Δοκιμή» ΑΚΟΛΟΥΘΕΙ τον διακόπτη `softone.postingEnabled` — δες το ίδιο σκεπτικό στο
+   * `create-trader-dialog.tsx`. Εδώ μετράει διπλά: για ένα ΕΞΟΔΟ πρέπει να καταχωρηθεί είδος ή
+   * υπηρεσία ΑΝΑ ΓΡΑΜΜΗ, οπότε ένας διάλογος που εξ ορισμού «μόνο ετοιμάζει object» σταματούσε
+   * τη ροή τόσες φορές όσες και οι γραμμές του παραστατικού.
+   */
+  const [postingEnabled, setPostingEnabled] = React.useState<boolean | null>(null);
   React.useEffect(() => {
     if (!open) return;
+    let ignore = false;
+    setPostingEnabled(null);
+    fetch('/api/admin/ocr/posting-enabled', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { enabled?: boolean } | null) => {
+        if (ignore || d == null) return;
+        setPostingEnabled(d.enabled === true);
+        setDryRun(d.enabled !== true);
+      })
+      .catch(() => { if (!ignore) setPostingEnabled(null); });
+    return () => { ignore = true; };
+  }, [open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    // Ξεκινά ΑΝΟΙΧΤΗ μέχρι να απαντήσει ο διακόπτης — ποτέ δεν υποθέτουμε «στείλ' το».
     setTab('form'); setDryPayload(null); setDryRun(true);
     setCodeError(null); setCodeOffer(null); setCodeSource(null);
     setTemplate(null); setTemplateIssue(null);
@@ -389,17 +412,17 @@ export function CreateRegistryEntryModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-2xl">
         <DialogHeader className="gap-1 border-b border-border px-5 pb-4 pt-5">
-          <DialogTitle className="flex items-center gap-2.5 text-[15px]">
+          <DialogTitle className="flex items-center gap-2.5 text-[length:var(--fs-15)]">
             <span className="grid h-8 w-8 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600">{KIND_ICON[kind]}</span>
             Νέα εγγραφή: {LINE_KIND_LABEL[kind]}
           </DialogTitle>
-          <DialogDescription className="text-[12px]">{KIND_WHERE[kind]}</DialogDescription>
+          <DialogDescription className="text-[length:var(--fs-12)]">{KIND_WHERE[kind]}</DialogDescription>
         </DialogHeader>
 
         <div className="flex gap-1 border-b border-border bg-muted/30 px-5 py-2">
           {([['form', 'Στοιχεία', <FiEdit3 key="a" className="h-3.5 w-3.5" />], ['object', 'Αντικείμενο', <FiCode key="b" className="h-3.5 w-3.5" />]] as const).map(([v, lbl, ic]) => (
             <button key={v} onClick={() => setTab(v)} type="button"
-              className={cn('inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors',
+              className={cn('inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-[length:var(--fs-12)] font-medium transition-colors',
                 tab === v ? 'bg-card text-foreground shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:text-foreground')}>
               {ic} {lbl}
             </button>
@@ -407,12 +430,12 @@ export function CreateRegistryEntryModal({
         </div>
 
         {!meta ? (
-          <div className="px-5 py-12 text-center text-[13px] text-muted-foreground">Φόρτωση πινάκων…</div>
+          <div className="px-5 py-12 text-center text-[length:var(--fs-13)] text-muted-foreground">Φόρτωση πινάκων…</div>
         ) : tab === 'form' ? (
           <div className="max-h-[60vh] space-y-5 overflow-auto px-5 py-4">
             {needsTemplate && (
               <section className="space-y-2 rounded-xl border border-sisyphus-200 bg-sisyphus-50/40 p-3">
-                <p className="text-[11px] font-medium text-sisyphus-700">
+                <p className="text-[length:var(--fs-11)] font-medium text-sisyphus-700">
                   Πρότυπο χρεοπίστωσης <span className="text-destructive">*</span> — από εκεί αντιγράφονται ο
                   «Τύπος» (<code>MTRTYPE</code>) και η <strong>«Κατηγορία τιμολόγησης»</strong>
                   (<code>LISOURCETYPE</code>), που ορίζει σε ποιων τύπων συναλλασσομένων τα παραστατικά
@@ -426,10 +449,10 @@ export function CreateRegistryEntryModal({
                 />
                 {template && (
                   <>
-                    <p className="flex items-center gap-1.5 text-[11px] text-emerald-700">
+                    <p className="flex items-center gap-1.5 text-[length:var(--fs-11)] text-emerald-700">
                       <FiCheck className="h-3.5 w-3.5" /> Πρότυπο: <span className="font-medium">{template.code} — {template.name}</span>
                     </p>
-                    <div className="rounded-lg border border-border bg-card p-2 text-[11px]">
+                    <div className="rounded-lg border border-border bg-card p-2 text-[length:var(--fs-11)]">
                       <p className="font-medium">
                         Κατηγορία τιμολόγησης: <span className="font-mono">{template.lisourceType || '—'}</span>
                         {lisource.length > 0 && (
@@ -469,19 +492,19 @@ export function CreateRegistryEntryModal({
             {/* Ο λογαριασμός ΓΕΝΙΚΗΣ είναι ρητό πεδίο, όχι αόρατη κληρονομιά. */}
             {needsTemplate && (
               <section className="space-y-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="text-[length:var(--fs-10)] font-semibold uppercase tracking-wider text-muted-foreground">
                   Λογαριασμός γενικής λογιστικής <span className="text-destructive">*</span>
                 </p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[length:var(--fs-11)] text-muted-foreground">
                   Εκεί θα χρεωθεί κάθε γραμμή αυτής της χρεοπίστωσης. Προτείνεται ο λογαριασμός του
                   προτύπου — <strong>έλεγξέ τον</strong>: λάθος λογαριασμός δεν φαίνεται πουθενά μετά.
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-md border border-border bg-muted/40 px-2 py-1 font-mono text-[12px]">
+                  <span className="rounded-md border border-border bg-muted/40 px-2 py-1 font-mono text-[length:var(--fs-12)]">
                     {account.code || '— κανένας —'}
                   </span>
                   {(account.name || accountVerdict?.accountName) && (
-                    <span className="text-[12px] text-foreground">{account.name ?? accountVerdict?.accountName}</span>
+                    <span className="text-[length:var(--fs-12)] text-foreground">{account.name ?? accountVerdict?.accountName}</span>
                   )}
                 </div>
                 <AccountPicker
@@ -496,18 +519,18 @@ export function CreateRegistryEntryModal({
             )}
 
             <section className="space-y-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Βασικά στοιχεία</p>
+              <p className="text-[length:var(--fs-10)] font-semibold uppercase tracking-wider text-muted-foreground">Βασικά στοιχεία</p>
               <label className="grid gap-1.5">
-                <span className="text-[11px] font-medium text-muted-foreground">Περιγραφή <span className="text-destructive">*</span></span>
-                <Input value={f.name} onChange={(e) => set('name', e.target.value)} className="h-9 text-[13px]" />
+                <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Περιγραφή <span className="text-destructive">*</span></span>
+                <Input value={f.name} onChange={(e) => set('name', e.target.value)} className="h-9 text-[length:var(--fs-13)]" />
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <label className="grid gap-1.5">
-                  <span className="text-[11px] font-medium text-muted-foreground">Κωδικός <span className="text-destructive">*</span></span>
+                  <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Κωδικός <span className="text-destructive">*</span></span>
                   <Input value={f.code} onChange={(e) => { set('code', e.target.value); setCodeError(null); }}
-                    aria-invalid={codeError ? true : undefined} className="h-9 font-mono text-[13px]" />
+                    aria-invalid={codeError ? true : undefined} className="h-9 font-mono text-[length:var(--fs-13)]" />
                   {codeError ? (
-                    <span className="text-[11px]" style={{ color: '#B91C1C' }}>
+                    <span className="text-[length:var(--fs-11)]" style={{ color: '#B91C1C' }}>
                       {codeError}
                       {codeOffer && (
                         <button type="button" onClick={() => { set('code', codeOffer); setCodeError(null); }}
@@ -515,7 +538,7 @@ export function CreateRegistryEntryModal({
                       )}
                     </span>
                   ) : codeSource === 'account' ? (
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-[length:var(--fs-11)] text-muted-foreground">
                       Ο κωδικός ακολουθεί τον λογαριασμό γενικής — έτσι είναι φτιαγμένο το μητρώο αυτής
                       της εγκατάστασης (μία χρεοπίστωση ανά λογαριασμό).
                     </span>
@@ -523,8 +546,8 @@ export function CreateRegistryEntryModal({
                 </label>
                 {isItem && (
                   <label className="grid gap-1.5">
-                    <span className="text-[11px] font-medium text-muted-foreground">Τιμή χονδρικής (από τη γραμμή)</span>
-                    <Input value={f.price} onChange={(e) => set('price', e.target.value)} type="number" placeholder="0,00" className="h-9 text-[13px]" />
+                    <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Τιμή χονδρικής (από τη γραμμή)</span>
+                    <Input value={f.price} onChange={(e) => set('price', e.target.value)} type="number" placeholder="0,00" className="h-9 text-[length:var(--fs-13)]" />
                   </label>
                 )}
                 <div className="grid gap-1.5">
@@ -542,7 +565,7 @@ export function CreateRegistryEntryModal({
             </section>
 
             <section className="space-y-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Ταξινόμηση (προαιρετικά)</p>
+              <p className="text-[length:var(--fs-10)] font-semibold uppercase tracking-wider text-muted-foreground">Ταξινόμηση (προαιρετικά)</p>
               <div className="grid grid-cols-2 gap-3">
                 {/* Οι δύο κατάλογοι είναι ΔΙΑΦΟΡΕΤΙΚΟΙ πίνακες: `MTRCATEGORY` (είδη) και
                     `LINCATEGORY` (δαπάνες, SODTYPE 53). Μια χρεοπίστωση σε κατηγορία ειδών δεν
@@ -559,18 +582,25 @@ export function CreateRegistryEntryModal({
         ) : (
           <div className="max-h-[60vh] space-y-2 overflow-auto px-5 py-4">
             {dryPayload != null
-              ? <p className="text-[11px] font-medium text-emerald-700">Object από τον server (dry-run) — αυτό ακριβώς θα σταλεί στο SoftOne:</p>
-              : <p className="text-[11px] text-muted-foreground">Πάτησε «Προετοιμασία object» για να δεις τι θα σταλεί.</p>}
+              ? <p className="text-[length:var(--fs-11)] font-medium text-emerald-700">Object από τον server (dry-run) — αυτό ακριβώς θα σταλεί στο SoftOne:</p>
+              : <p className="text-[length:var(--fs-11)] text-muted-foreground">Πάτησε «Προετοιμασία object» για να δεις τι θα σταλεί.</p>}
             {dryPayload != null && (
-              <pre className="overflow-auto rounded-xl border border-border bg-[#0E1626] p-4 font-mono text-[11.5px] leading-relaxed text-[#d6e2f5]">{JSON.stringify(dryPayload, null, 2)}</pre>
+              <pre className="overflow-auto rounded-xl border border-border bg-[#0E1626] p-4 font-mono text-[length:var(--fs-11-5)] leading-relaxed text-[#d6e2f5]">{JSON.stringify(dryPayload, null, 2)}</pre>
             )}
           </div>
         )}
 
         <DialogFooter className="flex-col gap-2 border-t border-border bg-muted/30 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <label className="flex cursor-pointer items-center gap-2 text-[12px] text-muted-foreground">
-            <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} className="h-3.5 w-3.5 accent-sisyphus-600" />
-            Δοκιμή — μόνο προετοιμασία object (χωρίς αποστολή)
+          <label className={cn('flex items-center gap-2 text-[length:var(--fs-12)] text-muted-foreground',
+            postingEnabled === false ? 'cursor-not-allowed' : 'cursor-pointer')}>
+            <input
+              type="checkbox" checked={dryRun} disabled={postingEnabled === false}
+              onChange={(e) => setDryRun(e.target.checked)}
+              className="h-3.5 w-3.5 accent-sisyphus-600 disabled:opacity-50"
+            />
+            {postingEnabled === false
+              ? 'Η καταχώριση στο SoftOne είναι κλειστή (Ρυθμίσεις → Διασυνδέσεις) — μόνο προετοιμασία object'
+              : 'Δοκιμή — μόνο προετοιμασία object (χωρίς αποστολή)'}
           </label>
           <div className="flex gap-2">
             {dryPayload != null && (

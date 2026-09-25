@@ -58,7 +58,15 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
           className={`relative ${activeField ? 'cursor-crosshair' : ''}`}>
           {mimeType.startsWith('image/')
             ? <img src={fileUrl} alt="" className="w-full select-none pointer-events-none" />
-            : <iframe src={fileUrl} className="w-full h-[70vh] pointer-events-none" title="doc" />}
+            /* Το PDF είναι ΑΔΡΑΝΕΣ ΜΟΝΟ όσο σχεδιάζεις πλαίσιο σε πεδίο.
+               Πριν, το `pointer-events-none` ήταν ΜΟΝΙΜΟ ώστε το σύρσιμο να φτάνει στο wrapper —
+               με αποτέλεσμα ένα PDF που δεν κυλάει, δεν κάνει ζουμ και δεν δίνει πρόσβαση στη
+               δεύτερη σελίδα του: «παγωμένο». Ο marquee χρειάζεται τα γεγονότα ΜΟΝΟ όταν υπάρχει
+               ενεργό πεδίο — τον υπόλοιπο χρόνο το παραστατικό πρέπει να διαβάζεται κανονικά. */
+            : <iframe
+                src={fileUrl} title="doc"
+                className={`w-full h-[70vh] ${activeField ? 'pointer-events-none' : ''}`}
+              />}
           {active && box && (
             <div className="absolute border-2 border-sisyphus-500 bg-sisyphus-500/10"
               style={{ left: `${box.x*100}%`, top: `${box.y*100}%`, width: `${box.w*100}%`, height: `${box.h*100}%` }} />

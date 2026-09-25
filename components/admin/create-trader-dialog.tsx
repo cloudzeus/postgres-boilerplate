@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { TRADER_KIND_TEXT, type TraderKindName } from '@/lib/ocr/posting-target';
 import type { TaxOfficeMapping } from '@/lib/tax-office';
+import { cn } from '@/lib/utils';
 
 type Preview = {
   afm: string; name: string;
@@ -98,12 +99,39 @@ export function CreateTraderDialog({
     const initAfm = (afm || '').replace(/\D/g, '');
     setAfmInput(initAfm);
     setName(fallbackName || '');
+    // Η «Δοκιμή» ξεκινά ΑΝΟΙΧΤΗ μέχρι να μάθουμε τον διακόπτη — ποτέ δεν υποθέτουμε «στείλ' το».
     setCode(''); setData(null); setError(null); setDryPayload(null); setDryRun(true);
     setCodeError(null); setCodeOffer(null); setSuggestion(null);
     proposed.current = null;
     if (/^\d{9}$/.test(initAfm)) void runLookup(initAfm);
     else setError('Το ΑΦΜ του παραστατικού δεν είναι ελληνικό 9ψήφιο — διόρθωσέ το για άντληση ΑΑΔΕ ή συμπλήρωσε χειροκίνητα.');
   }, [open, afm, fallbackName, runLookup]);
+
+  /**
+   * Η «Δοκιμή» ΑΚΟΛΟΥΘΕΙ τον διακόπτη `softone.postingEnabled`.
+   *
+   * Πριν, ήταν καρφωτά `true`: σε εγκατάσταση που καταχωρεί κανονικά, ο χρήστης συμπλήρωνε
+   * ΑΦΜ, επωνυμία, ΔΟΥ, ΚΑΔ, διεύθυνση και κωδικό, και το κουμπί έλεγε «Προετοιμασία object» —
+   * δηλαδή η φόρμα δεν ολοκλήρωνε τίποτα κι έπρεπε να ξέρεις να ξετσεκάρεις ένα checkbox.
+   * Τώρα: καταχώριση ανοιχτή → ο διάλογος ανοίγει έτοιμος να δημιουργήσει, με τη «Δοκιμή» ως
+   * προαιρετική έξοδο· κλειστή → η «Δοκιμή» κλειδώνει και ο διάλογος ΛΕΕΙ γιατί, αντί να
+   * φαίνεται σαν να μη δουλεύει.
+   */
+  const [postingEnabled, setPostingEnabled] = React.useState<boolean | null>(null);
+  React.useEffect(() => {
+    if (!open) return;
+    let ignore = false;
+    setPostingEnabled(null);
+    fetch('/api/admin/ocr/posting-enabled', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { enabled?: boolean } | null) => {
+        if (ignore || d == null) return;
+        setPostingEnabled(d.enabled === true);
+        setDryRun(d.enabled !== true);
+      })
+      .catch(() => { if (!ignore) setPostingEnabled(null); });
+    return () => { ignore = true; };
+  }, [open]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -172,11 +200,11 @@ export function CreateTraderDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-lg">
         <DialogHeader className="gap-1 border-b border-border px-5 pb-4 pt-5">
-          <DialogTitle className="flex items-center gap-2.5 text-[15px]">
+          <DialogTitle className="flex items-center gap-2.5 text-[length:var(--fs-15)]">
             <span className="grid h-8 w-8 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600"><FiUser className="h-4 w-4" /></span>
             Νέος {text.nom} {isGreek ? 'από ΑΑΔΕ' : ''}
           </DialogTitle>
-          <DialogDescription className="text-[12px]">
+          <DialogDescription className="text-[length:var(--fs-12)]">
             Ο τύπος καρτέλας δεν επιλέγεται: τον ορίζει η σειρά του παραστατικού.
             {reason ? ` ${reason}.` : ''}
           </DialogDescription>
@@ -184,26 +212,26 @@ export function CreateTraderDialog({
 
         <div className="max-h-[60vh] space-y-3 overflow-auto px-5 py-4">
           <div className="grid gap-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">ΑΦΜ <span className="text-destructive">*</span></span>
+            <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">ΑΦΜ <span className="text-destructive">*</span></span>
             <div className="flex gap-2">
-              <Input value={afmInput} onChange={(e) => setAfmInput(e.target.value)} placeholder="9ψήφιο ελληνικό ΑΦΜ" className="h-9 font-mono text-[13px]" />
-              <Button variant="outline" className="h-9 shrink-0 text-[12px]" disabled={!isGreek || loading} onClick={() => runLookup(afmInput)}>
+              <Input value={afmInput} onChange={(e) => setAfmInput(e.target.value)} placeholder="9ψήφιο ελληνικό ΑΦΜ" className="h-9 font-mono text-[length:var(--fs-13)]" />
+              <Button variant="outline" className="h-9 shrink-0 text-[length:var(--fs-12)]" disabled={!isGreek || loading} onClick={() => runLookup(afmInput)}>
                 <FiDownloadCloud className="mr-1.5 h-3.5 w-3.5" /> {loading ? 'Άντληση…' : 'Άντληση ΑΑΔΕ'}
               </Button>
             </div>
             {!isGreek && afmInput && (
-              <span className="text-[11px] text-amber-700">Μη ελληνικό/μη έγκυρο ΑΦΜ — η ΑΑΔΕ δεν είναι διαθέσιμη. Μπορείς να δημιουργήσεις χειροκίνητα.</span>
+              <span className="text-[length:var(--fs-11)] text-amber-700">Μη ελληνικό/μη έγκυρο ΑΦΜ — η ΑΑΔΕ δεν είναι διαθέσιμη. Μπορείς να δημιουργήσεις χειροκίνητα.</span>
             )}
           </div>
 
           <label className="grid gap-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">Επωνυμία <span className="text-destructive">*</span></span>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`Επωνυμία ${text.acc}`} className="h-9 text-[13px]" />
+            <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Επωνυμία <span className="text-destructive">*</span></span>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`Επωνυμία ${text.acc}`} className="h-9 text-[length:var(--fs-13)]" />
           </label>
 
-          {loading && <div className="py-2 text-center text-[12px] text-muted-foreground">Άντληση από ΑΑΔΕ…</div>}
+          {loading && <div className="py-2 text-center text-[length:var(--fs-12)] text-muted-foreground">Άντληση από ΑΑΔΕ…</div>}
           {error && (
-            <div className="flex items-start gap-2 rounded-lg border p-3 text-[12px]" style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}>
+            <div className="flex items-start gap-2 rounded-lg border p-3 text-[length:var(--fs-12)]" style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}>
               <FiAlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
             </div>
           )}
@@ -225,7 +253,7 @@ export function CreateTraderDialog({
               <Field label="Επάγγελμα (ΚΑΔ)" value={data.profession} />
               <Field label="Διεύθυνση" value={[data.address, data.zip, data.city].filter(Boolean).join(', ') || null} />
               {!data.isActive && (
-                <div className="rounded-md border p-2.5 text-[12px]" style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}>
+                <div className="rounded-md border p-2.5 text-[length:var(--fs-12)]" style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}>
                   Προσοχή: η ΑΑΔΕ δηλώνει το ΑΦΜ ως ανενεργό.
                 </div>
               )}
@@ -233,7 +261,7 @@ export function CreateTraderDialog({
           )}
 
           <label className="grid gap-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">
+            <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">
               Κωδικός SoftOne <span className="text-destructive">*</span>
             </span>
             <Input
@@ -241,10 +269,10 @@ export function CreateTraderDialog({
               onChange={(e) => { setCode(e.target.value); setCodeError(null); }}
               placeholder={`κωδικός ${text.acc}`}
               aria-invalid={codeError ? true : undefined}
-              className="h-9 font-mono text-[13px]"
+              className="h-9 font-mono text-[length:var(--fs-13)]"
             />
             {codeError ? (
-              <span className="text-[11px]" style={{ color: '#B91C1C' }}>
+              <span className="text-[length:var(--fs-11)]" style={{ color: '#B91C1C' }}>
                 {codeError}
                 {codeOffer && (
                   <button type="button" onClick={() => { setCode(codeOffer); setCodeError(null); }}
@@ -254,7 +282,7 @@ export function CreateTraderDialog({
                 )}
               </span>
             ) : suggestion ? (
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-[length:var(--fs-11)] text-muted-foreground">
                 {suggestion.code
                   ? `Προτεινόμενος από τη σειρά κωδικών ${text.acc} (${suggestion.taken} υπάρχοντες).`
                   : 'Δεν υπάρχει αρκετό δείγμα για πρόταση — συμπλήρωσε κωδικό.'}
@@ -265,16 +293,23 @@ export function CreateTraderDialog({
 
           {dryPayload != null && (
             <div className="space-y-1.5 pt-1">
-              <p className="text-[11px] font-medium text-emerald-700">Object από τον server (dry-run) — αυτό ακριβώς θα σταλεί στο SoftOne:</p>
-              <pre className="overflow-auto rounded-xl border border-border bg-[#0E1626] p-4 font-mono text-[11px] leading-relaxed text-[#d6e2f5]">{JSON.stringify(dryPayload, null, 2)}</pre>
+              <p className="text-[length:var(--fs-11)] font-medium text-emerald-700">Object από τον server (dry-run) — αυτό ακριβώς θα σταλεί στο SoftOne:</p>
+              <pre className="overflow-auto rounded-xl border border-border bg-[#0E1626] p-4 font-mono text-[length:var(--fs-11)] leading-relaxed text-[#d6e2f5]">{JSON.stringify(dryPayload, null, 2)}</pre>
             </div>
           )}
         </div>
 
         <DialogFooter className="flex-col gap-2 border-t border-border bg-muted/30 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <label className="flex cursor-pointer items-center gap-2 text-[12px] text-muted-foreground">
-            <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} className="h-3.5 w-3.5 accent-sisyphus-600" />
-            Δοκιμή — μόνο προετοιμασία object (χωρίς αποστολή)
+          <label className={cn('flex items-center gap-2 text-[length:var(--fs-12)] text-muted-foreground',
+            postingEnabled === false ? 'cursor-not-allowed' : 'cursor-pointer')}>
+            <input
+              type="checkbox" checked={dryRun} disabled={postingEnabled === false}
+              onChange={(e) => setDryRun(e.target.checked)}
+              className="h-3.5 w-3.5 accent-sisyphus-600 disabled:opacity-50"
+            />
+            {postingEnabled === false
+              ? 'Η καταχώριση στο SoftOne είναι κλειστή (Ρυθμίσεις → Διασυνδέσεις) — μόνο προετοιμασία object'
+              : 'Δοκιμή — μόνο προετοιμασία object (χωρίς αποστολή)'}
           </label>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Άκυρο</Button>
@@ -292,9 +327,9 @@ export function CreateTraderDialog({
 function Field({ label, value, hint }: { label: string; value: string | null; hint?: React.ReactNode }) {
   return (
     <div className="grid gap-0.5">
-      <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
-      <span className="text-[13px] text-foreground">{value || <span className="text-muted-foreground">—</span>}</span>
-      {hint && <span className="text-[11px]">{hint}</span>}
+      <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">{label}</span>
+      <span className="text-[length:var(--fs-13)] text-foreground">{value || <span className="text-muted-foreground">—</span>}</span>
+      {hint && <span className="text-[length:var(--fs-11)]">{hint}</span>}
     </div>
   );
 }
