@@ -124,7 +124,7 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
           if (keys.length === 0) return null;
           return (
         <section key={g.title} className="mb-2.5 rounded-lg border border-border bg-card p-2.5 shadow-fluent-2">
-        <h3 className="mb-1.5 border-b border-border/60 pb-1 text-[length:var(--fs-12)] font-extrabold uppercase tracking-wider text-sisyphus-800 dark:text-sisyphus-200">{g.title}</h3>
+        <h3 className="mb-1.5 border-b border-border/60 pb-1 text-[length:var(--fs-12)] font-extrabold uppercase tracking-wider text-foreground">{g.title}</h3>
         <div className={`grid gap-2 ${showDoc ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4'}`}>
         {keys.map((f) => (
           <div key={f} className={`flex items-end gap-1.5 rounded p-1 ${activeField===f ? 'ring-2 ring-sisyphus-500' : ''}`}>

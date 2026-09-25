@@ -347,7 +347,7 @@ export function LineAllocations({
       <td colSpan={colSpan} className="px-3 py-2">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[length:var(--fs-12)] font-extrabold uppercase tracking-wide text-sisyphus-800 dark:text-sisyphus-200">
+            <span className="text-[length:var(--fs-12)] font-extrabold uppercase tracking-wide text-foreground">
               Λογαριασμός δαπάνης {rows.length > 1 ? `— επιμερισμός σε ${rows.length}` : ''}
             </span>
             {canManage && (
@@ -357,7 +357,7 @@ export function LineAllocations({
                   title={lineTotal == null ? 'Η γραμμή δεν έχει σύνολο' : undefined}
                   className="inline-flex items-center gap-1 rounded bg-sisyphus-500 px-2.5 py-1 text-[length:var(--fs-12)] font-semibold text-white shadow-fluent-2 transition hover:bg-sisyphus-600 disabled:opacity-50"
                 >
-                  <FiPlus className="size-3" /> Προσθήκη λογαριασμού
+                  <FiPlus className="size-3" /> Προσθήκη γραμμής επιμερισμού
                 </button>
                 {dirty && (
                   <button
@@ -375,7 +375,7 @@ export function LineAllocations({
           {hw && rows.length === 0 && (
             <div className="rounded-md border border-sisyphus-500/40 bg-sisyphus-500/10 px-2 py-1.5 shadow-fluent-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-1 text-[length:var(--fs-11)] font-semibold text-sisyphus-700 dark:text-sisyphus-300">
+                <span className="inline-flex items-center gap-1 text-[length:var(--fs-12)] font-extrabold uppercase tracking-wide text-foreground">
                   <FiZap aria-hidden className="size-3 text-sisyphus-600" /> Χειρόγραφο στο παραστατικό
                   {hw.parts.length + hw.unresolved.length > 1 && ` — ${hw.parts.length + hw.unresolved.length} κομμάτια`}
                 </span>

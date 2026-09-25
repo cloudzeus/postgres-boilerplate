@@ -199,6 +199,8 @@ export function LineMatchCell({
   };
 
   const kindsReason = React.useMemo(() => lineKindsReason(target), [target]);
+  /** Τα μητρώα που ΟΝΤΩΣ χωράνε εδώ — αν είναι ένα, δεν υπάρχει τίποτα να διαλέξει ο χρήστης. */
+  const allowedHere = React.useMemo(() => SEGMENTS.filter((k) => lineKindFits(target, k)), [target]);
   const meta = current ? KIND_META[current] : null;
   const label = match?.code || match?.name ? [match.code, match.name].filter(Boolean).join(' — ') : null;
   const analyticsSupported = current !== 'expense';
@@ -268,11 +270,19 @@ export function LineMatchCell({
           </button>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-[22rem] max-h-[70vh] overflow-y-auto">
-          <p className="text-caption font-semibold uppercase tracking-wider text-muted-foreground">
-            Μητρώο SoftOne
+          <p className="text-[length:var(--fs-12)] font-extrabold uppercase tracking-wider text-foreground">
+            Πού πάει αυτή η γραμμή;
           </p>
-          {/* Τα μητρώα που ΔΕΝ χωράνε στον πίνακα γραμμών της σειράς απενεργοποιούνται αντί να
-              κρυφτούν: ο χρήστης πρέπει να βλέπει ότι υπάρχουν ΚΑΙ γιατί δεν επιτρέπονται εδώ. */}
+          {/* ΕΠΙΛΟΓΗ ΜΟΝΟ ΟΤΑΝ ΥΠΑΡΧΕΙ ΕΠΙΛΟΓΗ. Η τετραπλή μπάρα με τρία γκριζαρισμένα κουμπιά
+              έμοιαζε με ερώτηση ενώ η απάντηση ήταν ήδη δεδομένη από τη σειρά — και η πρώτη
+              εικόνα του διαλόγου ήταν λεξιλόγιο ERP («Χρεοπίστωση») αντί για τη δουλειά. */}
+          {allowedHere.length <= 1 ? (
+            <p className="mt-1 text-caption text-muted-foreground">
+              {allowedHere.length === 1
+                ? <>Η σειρά του παραστατικού δέχεται <strong className="text-foreground">{KIND_META[allowedHere[0]].label}</strong>. Ψάξε παρακάτω.</>
+                : 'Η σειρά του παραστατικού δεν δέχεται καμία εγγραφή μητρώου.'}
+            </p>
+          ) : (
           <div role="group" aria-label="Κατηγορία μητρώου" className="flex rounded-lg border border-border p-0.5">
             {SEGMENTS.map((k) => {
               const fits = lineKindFits(target, k);
@@ -297,7 +307,8 @@ export function LineMatchCell({
               );
             })}
           </div>
-          <p className="mt-1 text-caption text-muted-foreground">{kindsReason}</p>
+          )}
+          {allowedHere.length > 1 && <p className="mt-1 text-caption text-muted-foreground">{kindsReason}</p>}
 
           {/* Η κατηγορία δαπάνης είναι ΤΟ κλειδί για να βρεθεί η σωστή χρεοπίστωση. */}
           {kind === 'lineitem' && (

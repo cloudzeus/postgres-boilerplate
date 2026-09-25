@@ -117,7 +117,10 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
             <th className="px-3 py-2">SoftOne</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-border">
+        {/* ΧΩΡΙΣ `divide-y`: κάθε ΓΡΑΜΜΗ είναι ομάδα (τιμολογιακή γραμμή + λωρίδα λογαριασμού +
+            ειδικά πεδία). Μια λεπτή γραμμή ανάμεσα σε ΚΑΘΕ <tr> έκοβε την ομάδα στη μέση και οι
+            γραμμές έμοιαζαν όλες ίδιες. Τώρα το χοντρό όριο μπαίνει στην ΑΡΧΗ κάθε ομάδας. */}
+        <tbody>
           {doc.items.length === 0 ? (
             <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">Δεν εξήχθησαν γραμμές.</td></tr>
           ) : doc.items.map((it, idx) => {
@@ -125,9 +128,12 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
             const lineCf = (line.customFields ?? null) as Record<string, unknown> | null;
             return (
               <React.Fragment key={it.id}>
-                <tr className="hover:bg-muted/30">
-                  <td className="px-3 py-2 font-mono text-xs">{it.code ?? '-'}</td>
-                  <td className="px-3 py-2 font-medium">{it.name}</td>
+                <tr className={`transition hover:bg-muted/40 ${idx > 0 ? 'border-t-2 border-border' : ''}`}>
+                  <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{it.code ?? '-'}</td>
+                  <td className="px-3 py-2.5">
+                    <span className="mr-1.5 inline-flex size-4 items-center justify-center rounded bg-muted text-[length:var(--fs-10)] font-bold tabular-nums text-muted-foreground">{idx + 1}</span>
+                    <span className="font-semibold text-foreground">{it.name}</span>
+                  </td>
                   <td className="px-3 py-2 text-right">{fmtNum(it.quantity)}</td>
                   <td className="px-3 py-2 text-muted-foreground">{(line.unit ?? '') || '—'}</td>
                   <td className="px-3 py-2 text-right">{fmtMoney(it.price)}</td>
