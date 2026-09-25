@@ -78,14 +78,25 @@ export async function refreshDocTallies(docIds: string[]): Promise<void> {
   if (ids.length === 0) return;
   const lines = await prisma.ocrInvoiceItem.findMany({
     where: { documentId: { in: ids } },
-    select: { documentId: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true },
+    select: {
+      documentId: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true,
+      // Ο ΕΠΙΜΕΡΙΣΜΟΣ ΕΙΝΑΙ ΑΝΤΙΣΤΟΙΧΙΣΗ. Η γραμμή ΞΕΡΕΙ πού πάει — σε έναν ή περισσότερους
+      // λογαριασμούς — και το `postingBlockers` το δέχεται ήδη (`hasAllocations`). Χωρίς αυτό ο
+      // μετρητής έλεγε `matched 0 από 1`, η λίστα έδειχνε «1 χωρίς αντιστοίχιση · Λύσε», και το
+      // παραστατικό μετριόταν ΕΚΚΡΕΜΕΣ ενώ η καταχώριση δεν είχε κανένα εμπόδιο. Δηλαδή ο χρήστης
+      // έκανε τη δουλειά και η εφαρμογή του ζητούσε να την ξανακάνει.
+      _count: { select: { allocations: true } },
+    },
   });
   const tally = new Map(ids.map((id) => [id, { total: 0, matched: 0 }]));
   for (const l of lines) {
     const t = tally.get(l.documentId);
     if (!t) continue;
     t.total++;
-    if (l.softoneMtrl != null || l.softoneExpn != null || l.softoneLinMtrl != null) t.matched++;
+    // `_count` με `?.`: μια γραμμή χωρίς το πεδίο (παλιοί καλούντες, mocks) μετράει ως «χωρίς
+    // επιμερισμό» αντί να ρίξει ολόκληρο τον υπολογισμό των συνόλων.
+    const hasAlloc = (l._count?.allocations ?? 0) > 0;
+    if (l.softoneMtrl != null || l.softoneExpn != null || l.softoneLinMtrl != null || hasAlloc) t.matched++;
   }
   await Promise.all(Array.from(tally.entries()).map(([id, t]) => writeDocTally(id, t.total, t.matched)));
 }

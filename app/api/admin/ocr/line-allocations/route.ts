@@ -5,6 +5,7 @@ import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { normalizeLineText } from '@/lib/ocr/line-match';
 import { rememberLineMatch } from '@/lib/ocr/queues';
+import { refreshDocTallies } from '@/lib/ocr/softone-match';
 import { ALLOCATION_KINDS, computeAllocationAmounts, validateAllocations, type AllocationKind } from '@/lib/ocr/line-allocation';
 
 export const runtime = 'nodejs';
@@ -60,6 +61,9 @@ export async function POST(req: Request) {
         metadata: { docId: line.documentId, rowIndex: line.rowIndex, removed: count },
       });
     }
+    // ΚΑΙ ΣΤΟ ΣΒΗΣΙΜΟ. Χωρίς αυτό η γραμμή έμενε «αντιστοιχισμένη» στον μετρητή αφού ο χρήστης
+    // αφαίρεσε τον επιμερισμό — η εκκρεμότητα δεν θα επέστρεφε ποτέ.
+    await refreshDocTallies([line.documentId]);
     return NextResponse.json({ ok: true, allocations: [] });
   }
 
@@ -153,6 +157,10 @@ export async function POST(req: Request) {
       allocations: computed.map((c) => ({ registryMtrl: c.registryMtrl, kind: c.kind ?? 'LINEITEM', percent: c.percent, amount: c.amount })),
     },
   });
+
+  // Ο ΜΕΤΡΗΤΗΣ ΤΗΣ ΛΙΣΤΑΣ. Ο επιμερισμός είναι αντιστοίχιση — αλλιώς το παραστατικό έμενε
+  // «1 χωρίς αντιστοίχιση · Λύσε» ενώ η καταχώριση δεν είχε κανένα εμπόδιο.
+  await refreshDocTallies([line.documentId]);
 
   const saved = await prisma.ocrInvoiceItemAllocation.findMany({
     where: { itemId: lineId }, orderBy: { order: 'asc' },

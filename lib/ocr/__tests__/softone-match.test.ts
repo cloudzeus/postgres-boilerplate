@@ -27,7 +27,7 @@ vi.mock('@/lib/softone', async (orig) => ({
   softoneFindTraderByAfm: softone.softoneFindTraderByAfm,
 }));
 
-import { buildDuplicateCheck, matchDocItems, alignTraderToTarget } from '../softone-match';
+import { buildDuplicateCheck, matchDocItems, alignTraderToTarget, refreshDocTallies } from '../softone-match';
 
 const updateFor = (id: string) =>
   db.ocrInvoiceItem.update.mock.calls.map((c) => c[0]).find((a) => a.where.id === id)?.data;
@@ -263,5 +263,37 @@ describe('buildDuplicateCheck', () => {
     softone.softoneCheckPurchaseDoc.mockRejectedValue(new Error('boom'));
     expect(await buildDuplicateCheck(12345, { series: 'ΤΠΥ', number: '17' }, null))
       .toMatchObject({ softoneDocExists: null, softoneDocRef: null });
+  });
+});
+
+describe('refreshDocTallies — ο ΕΠΙΜΕΡΙΣΜΟΣ μετράει ως αντιστοίχιση', () => {
+  const tallyOf = (docId: string) =>
+    db.ocrDocument.update.mock.calls.map((c) => c[0]).find((a) => a.where.id === docId)?.data;
+
+  it('γραμμή χωρίς mtrl/expn/lin αλλά ΜΕ επιμερισμό μετράει αντιστοιχισμένη', async () => {
+    // Το πραγματικό σενάριο: ο χρήστης έσπασε τη γραμμή σε λογαριασμούς. Η καταχώριση δεν έχει
+    // κανένα εμπόδιο — αλλά η λίστα έλεγε «1 χωρίς αντιστοίχιση · Λύσε» και του ζητούσε να
+    // ξανακάνει δουλειά που είχε ήδη κάνει.
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { documentId: 'd1', softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, _count: { allocations: 2 } },
+    ]);
+    await refreshDocTallies(['d1']);
+    expect(tallyOf('d1')).toMatchObject({ itemsTotal: 1, itemsMatched: 1 });
+  });
+
+  it('χωρίς επιμερισμό και χωρίς μητρώο παραμένει ΑΝΑΝΤΙΣΤΟΙΧΙΣΤΗ', async () => {
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { documentId: 'd1', softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, _count: { allocations: 0 } },
+    ]);
+    await refreshDocTallies(['d1']);
+    expect(tallyOf('d1')).toMatchObject({ itemsTotal: 1, itemsMatched: 0 });
+  });
+
+  it('γραμμή ΧΩΡΙΣ το πεδίο `_count` δεν ρίχνει τον υπολογισμό', async () => {
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { documentId: 'd1', softoneMtrl: 555, softoneExpn: null, softoneLinMtrl: null },
+    ]);
+    await expect(refreshDocTallies(['d1'])).resolves.toBeUndefined();
+    expect(tallyOf('d1')).toMatchObject({ itemsTotal: 1, itemsMatched: 1 });
   });
 });
