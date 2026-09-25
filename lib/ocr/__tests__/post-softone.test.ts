@@ -216,8 +216,9 @@ describe('postingPreview (dry-run)', () => {
     db.ocrDocument.findUnique.mockResolvedValue({ ...READY_DOC, softoneTrdr: null, softoneSeries: null, seriesSource: null });
     const preview = await postingPreview('d1');
     // Χωρίς σειρά δεν υπάρχει και ενότητα, άρα ούτε υποστηριζόμενος προορισμός.
-    expect(preview.blockers.map((b) => b.code)).toEqual(['no_trader', 'no_series', 'series_module_unsupported']);
-    expect(preview.blockers[0].message).toMatch(/προμηθευτ/i);
+    // Το δείγμα δεν έχει ΑΦΜ εκδότη, άρα το εμπόδιο ΔΕΝ είναι «φτιάξε καρτέλα» — είναι «λείπει ο ΑΦΜ».
+    expect(preview.blockers.map((b) => b.code)).toEqual(['no_trader_afm_missing', 'no_series', 'series_module_unsupported']);
+    expect(preview.blockers[0].message).toMatch(/ΑΦΜ/);
     expect(softone.softoneCall).not.toHaveBeenCalled();
   });
 

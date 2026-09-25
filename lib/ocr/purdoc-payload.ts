@@ -8,6 +8,7 @@
 // δαπανών πάει σε `LINSUPDOC`/`LINLINES`, μια αγορά εμπορευμάτων σε `PURDOC`/`ITELINES`, ένα
 // παραστατικό χρεώστη σε `LINDEBDOC`/`LINLINES`.
 import { normalizeDocRef } from '@/lib/doc-reference';
+import { normalizeVatId } from './validate';
 import type { DocumentJson } from './canonical';
 import { analyzeLine } from './invoice-math';
 import {
@@ -182,6 +183,8 @@ export type BlockerCode =
   | 'no_category'
   | 'line_discount_ambiguous'
   | 'no_trader'
+  | 'no_trader_afm_missing'
+  | 'no_trader_afm_invalid'
   | 'no_series'
   | 'no_date'
   | 'no_number'
@@ -619,7 +622,19 @@ export function postingBlockers(
   // Ασαφής έκπτωση ⇒ ΣΤΟΠ. Το SoftOne δεν ρωτά «ποσοστό ή ποσό;» — υπολογίζει, και μια λάθος
   // ερμηνεία γράφει παραστατικό με λάθος (ή αρνητικό) ποσό που κανείς δεν βλέπει μετά.
   if (document.lines.some((l) => discountAmbiguous(l))) out.push('line_discount_ambiguous');
-  if (!doc.softoneTrdr) out.push('no_trader');
+  // ΤΡΕΙΣ διαφορετικές καταστάσεις, όχι μία. Το ενιαίο «δεν έχει αντιστοιχιστεί συναλλασσόμενος»
+  // έστελνε τον χρήστη να ψάξει καρτέλα ακόμη κι όταν το παραστατικό ΔΕΝ ΕΧΕΙ ΑΦΜ για να ψάξει με
+  // αυτόν — δουλειά που δεν γίνεται από εκεί που τον στέλναμε. Η εφαρμογή ξέρει ποια περίπτωση
+  // είναι· ας το πει.
+  if (!doc.softoneTrdr) {
+    // `country: null` = σκέτα ψηφία που ΔΕΝ περνούν τον mod-11 της ΑΑΔΕ και δεν έχουν αναγνωρίσιμο
+    // πρόθεμα χώρας — δηλαδή σκουπίδι της σάρωσης. Ξένο VAT με έγκυρο πρόθεμα (π.χ. `IE…`) ΔΕΝ
+    // είναι άκυρο: απλώς δεν έχει καρτέλα ακόμη.
+    const vat = normalizeVatId(document.issuer?.vat);
+    if (!vat) out.push('no_trader_afm_missing');
+    else if (vat.country == null) out.push('no_trader_afm_invalid');
+    else out.push('no_trader');
+  }
   if (!doc.softoneSeries || !doc.seriesSource) out.push('no_series');
   // Σειρά που δεν υπάρχει στο μητρώο: το `SERIES` θα έφευγε ούτως ή άλλως, αλλά κανείς δεν ξέρει
   // τι είναι — και καμία ρύθμιση στόχου δεν μπορεί να εφαρμοστεί πάνω της.

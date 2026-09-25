@@ -27,6 +27,14 @@ const doc = (over: Partial<DocumentJson> = {}): DocumentJson => ({
   ...over,
 });
 
+/** Έγγραφο με συγκεκριμένο ΑΦΜ εκδότη — για τον διαχωρισμό των τριών «δεν υπάρχει καρτέλα». */
+const withIssuerVat = (vat: string | null): DocumentJson => doc({
+  issuer: {
+    name: 'Εκδότης ΑΕ', vat, doy: null, profession: null, address: null,
+    city: null, zip: null, country: null, phone: null, email: null, gemi: null, code: null,
+  },
+});
+
 const ctx = (over: Partial<PurdocContext> = {}): PurdocContext => ({
   target: PURCHASE,
   series: 7001,
@@ -124,9 +132,28 @@ describe('postingBlockers', () => {
   it('κατάσταση / κατηγορία / προμηθευτής / σειρά', () => {
     expect(postingBlockers(doc(), postingDoc({ status: 'PENDING' }), ctx())).toContain('not_completed');
     expect(postingBlockers(doc(), postingDoc({ category: null }), ctx())).toContain('no_category');
-    expect(postingBlockers(doc(), postingDoc({ softoneTrdr: null }), ctx())).toContain('no_trader');
+    // Χωρίς καρτέλα, ΑΛΛΑ με έγκυρο ΑΦΜ: η δουλειά είναι «φτιάξε καρτέλα».
+    expect(postingBlockers(withIssuerVat('094019245'), postingDoc({ softoneTrdr: null }), ctx())).toContain('no_trader');
     expect(postingBlockers(doc(), postingDoc({ softoneSeries: null }), ctx())).toContain('no_series');
     expect(postingBlockers(doc(), postingDoc({ seriesSource: null }), ctx())).toContain('no_series');
+  });
+
+  it('«δεν υπάρχει καρτέλα» είναι ΤΡΕΙΣ διαφορετικές δουλειές, όχι μία', () => {
+    const blocked = (d: DocumentJson) => postingBlockers(d, postingDoc({ softoneTrdr: null }), ctx());
+    // Κενό ΑΦΜ: δεν έχει νόημα να σταλεί ο χρήστης στα «Νέοι συναλλασσόμενοι» — δεν έχει με τι να ψάξει.
+    expect(blocked(withIssuerVat(null))).toContain('no_trader_afm_missing');
+    expect(blocked(withIssuerVat('   '))).toContain('no_trader_afm_missing');
+    // Σκουπίδι σάρωσης (7 ψηφία, κόβει τον mod-11): η δουλειά είναι ΔΙΟΡΘΩΣΗ, όχι δημιουργία.
+    expect(blocked(withIssuerVat('3668997'))).toContain('no_trader_afm_invalid');
+    expect(blocked(withIssuerVat('999999999'))).toContain('no_trader_afm_invalid');
+    // Ξένο VAT με αναγνωρίσιμο πρόθεμα ΔΕΝ είναι άκυρο — απλώς λείπει η καρτέλα.
+    expect(blocked(withIssuerVat('IE6388047V'))).toContain('no_trader');
+    expect(blocked(withIssuerVat('094019245'))).toContain('no_trader');
+    // Και ποτέ δύο κωδικοί μαζί: ένα εμπόδιο, μία πρόταση.
+    for (const v of [null, '3668997', 'IE6388047V', '094019245']) {
+      const codes = blocked(withIssuerVat(v)).filter((c) => c.startsWith('no_trader'));
+      expect(codes, `ΑΦΜ ${v}`).toHaveLength(1);
+    }
   });
 
   it('ημερομηνία και αριθμός παραστατικού', () => {
