@@ -27,7 +27,7 @@ export function LocaleMultiSelect({ value, onChange, placeholder = 'Επίλεξ
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={`flex w-full min-h-8 items-center justify-between gap-2 rounded-md border border-input bg-card px-2.5 py-1 text-[13px] text-foreground hover:border-primary focus:outline-none focus:ring-2 focus:ring-ring/20 transition-colors ${className ?? ''}`}
+          className={`flex w-full min-h-8 items-center justify-between gap-2 rounded-md border border-input bg-card px-2.5 py-1 text-[length:var(--fs-13)] text-foreground hover:border-primary focus:outline-none focus:ring-2 focus:ring-ring/20 transition-colors ${className ?? ''}`}
         >
           <div className="flex flex-wrap gap-1 flex-1 min-w-0 py-0.5">
             {selectedLocales.length === 0 ? (
@@ -36,7 +36,7 @@ export function LocaleMultiSelect({ value, onChange, placeholder = 'Επίλεξ
               selectedLocales.map((l) => (
                 <span
                   key={l.code}
-                  className="inline-flex items-center gap-1 rounded-md bg-accent text-accent-foreground pl-1 pr-1.5 py-0.5 text-[11px] font-medium"
+                  className="inline-flex items-center gap-1 rounded-md bg-accent text-accent-foreground pl-1 pr-1.5 py-0.5 text-[length:var(--fs-11)] font-medium"
                 >
                   <LocaleBadge code={l.code} className="!bg-card/70" />
                   {l.label}
@@ -63,7 +63,7 @@ export function LocaleMultiSelect({ value, onChange, placeholder = 'Επίλεξ
             return (
               <label
                 key={l.code}
-                className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] cursor-pointer hover:bg-muted"
+                className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[length:var(--fs-13)] cursor-pointer hover:bg-muted"
               >
                 <Checkbox checked={checked} onCheckedChange={() => toggle(l.code)} className="size-3.5" />
                 <LocaleBadge code={l.code} />

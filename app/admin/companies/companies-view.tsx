@@ -117,7 +117,7 @@ function text(
     id, accessorFn: (r) => pick(r) ?? '', header, size,
     cell: ({ row }) => {
       const v = pick(row.original);
-      return <span className={`text-[12px] text-muted-foreground truncate ${mono ? 'font-mono tabular-nums' : ''}`}>{v || '—'}</span>;
+      return <span className={`text-[length:var(--fs-12)] text-muted-foreground truncate ${mono ? 'font-mono tabular-nums' : ''}`}>{v || '—'}</span>;
     },
   };
 }
@@ -130,8 +130,8 @@ function money(
     id, accessorFn: (r) => pick(r) ?? 0, header, size,
     cell: ({ row }) => {
       const v = pick(row.original);
-      if (v == null) return <span className="text-[12px] text-muted-foreground">—</span>;
-      return <span className="text-[12px] text-muted-foreground tabular-nums">
+      if (v == null) return <span className="text-[length:var(--fs-12)] text-muted-foreground">—</span>;
+      return <span className="text-[length:var(--fs-12)] text-muted-foreground tabular-nums">
         {v.toLocaleString('el-GR', { style: 'currency', currency: currency(row.original) || 'EUR' })}
       </span>;
     },
@@ -145,7 +145,7 @@ function percent(
     id, accessorFn: (r) => pick(r) ?? 0, header, size,
     cell: ({ row }) => {
       const v = pick(row.original);
-      return <span className="text-[12px] text-muted-foreground tabular-nums">{v == null ? '—' : `${v}%`}</span>;
+      return <span className="text-[length:var(--fs-12)] text-muted-foreground tabular-nums">{v == null ? '—' : `${v}%`}</span>;
     },
   };
 }
@@ -157,7 +157,7 @@ function date(
     id, accessorFn: (r) => pick(r) ?? '', header, size,
     cell: ({ row }) => {
       const v = pick(row.original);
-      return <span className="text-[12px] text-muted-foreground tabular-nums">{v ? new Date(v).toLocaleDateString('el-GR') : '—'}</span>;
+      return <span className="text-[length:var(--fs-12)] text-muted-foreground tabular-nums">{v ? new Date(v).toLocaleDateString('el-GR') : '—'}</span>;
     },
   };
 }
@@ -171,8 +171,8 @@ function coordsCol(
     accessorFn: (r) => (lat(r) != null && lng(r) != null ? `${lat(r)},${lng(r)}` : ''),
     cell: ({ row }) => {
       const la = lat(row.original); const ln = lng(row.original);
-      if (la == null || ln == null) return <span className="text-[12px] text-muted-foreground">—</span>;
-      return <span className="text-[11px] text-muted-foreground font-mono tabular-nums">{la.toFixed(4)}, {ln.toFixed(4)}</span>;
+      if (la == null || ln == null) return <span className="text-[length:var(--fs-12)] text-muted-foreground">—</span>;
+      return <span className="text-[length:var(--fs-11)] text-muted-foreground font-mono tabular-nums">{la.toFixed(4)}, {ln.toFixed(4)}</span>;
     },
   };
 }
@@ -206,13 +206,13 @@ export function CompaniesView({
               // eslint-disable-next-line @next/next/no-img-element
               ? <img src={row.original.logoUrl} alt="" className="h-6 w-6 rounded-sm object-contain border border-border bg-background shrink-0" />
               : (
-                <span className="inline-flex h-6 w-6 items-center justify-center rounded-sm bg-primary text-primary-foreground text-[10px] font-semibold shrink-0">
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-sm bg-primary text-primary-foreground text-[length:var(--fs-10)] font-semibold shrink-0">
                   {initials}
                 </span>
               )}
             <div className="min-w-0">
-              <div className="font-medium text-foreground truncate text-[12px]">{row.original.name}</div>
-              {row.original.code && <div className="text-[10px] text-muted-foreground truncate">#{row.original.code}</div>}
+              <div className="font-medium text-foreground truncate text-[length:var(--fs-12)]">{row.original.name}</div>
+              {row.original.code && <div className="text-[length:var(--fs-10)] text-muted-foreground truncate">#{row.original.code}</div>}
             </div>
           </div>
         );
@@ -227,7 +227,7 @@ export function CompaniesView({
               key={t.id}
               variant="outline"
               style={t.color ? { borderColor: `${t.color}55`, color: t.color } : undefined}
-              className="text-[10px]"
+              className="text-[length:var(--fs-10)]"
             >
               {t.name}
             </Badge>
@@ -237,24 +237,24 @@ export function CompaniesView({
     },
     {
       accessorKey: 'afm', header: 'ΑΦΜ', size: 110,
-      cell: ({ row }) => <span className="tabular-nums text-[12px] text-muted-foreground">{row.original.afm || '—'}</span>,
+      cell: ({ row }) => <span className="tabular-nums text-[length:var(--fs-12)] text-muted-foreground">{row.original.afm || '—'}</span>,
     },
     {
       accessorKey: 'email', header: 'Email', size: 200,
-      cell: ({ row }) => <span className="truncate text-[12px] text-muted-foreground">{row.original.email || '—'}</span>,
+      cell: ({ row }) => <span className="truncate text-[length:var(--fs-12)] text-muted-foreground">{row.original.email || '—'}</span>,
     },
     {
       accessorKey: 'phone', header: 'Τηλέφωνο', size: 120,
-      cell: ({ row }) => <span className="tabular-nums text-[12px] text-muted-foreground">{row.original.phone || '—'}</span>,
+      cell: ({ row }) => <span className="tabular-nums text-[length:var(--fs-12)] text-muted-foreground">{row.original.phone || '—'}</span>,
     },
     {
       accessorKey: 'city', header: 'Πόλη', size: 120,
-      cell: ({ row }) => <span className="text-[12px] text-muted-foreground">{row.original.city || '—'}</span>,
+      cell: ({ row }) => <span className="text-[length:var(--fs-12)] text-muted-foreground">{row.original.city || '—'}</span>,
     },
     {
       accessorKey: 'branchCount', header: 'Υποκ/τα', size: 80,
       cell: ({ row }) => (
-        <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground tabular-nums">
+        <span className="inline-flex items-center gap-1 text-[length:var(--fs-12)] text-muted-foreground tabular-nums">
           <FiMapPin className="size-3" /> {row.original.branchCount}
         </span>
       ),
@@ -298,7 +298,7 @@ export function CompaniesView({
     {
       id: 'employeeCount', header: 'Εργαζόμενοι', size: 100,
       accessorFn: (r) => r.employeeCount ?? 0,
-      cell: ({ row }) => <span className="text-[12px] text-muted-foreground tabular-nums">{row.original.employeeCount ?? '—'}</span>,
+      cell: ({ row }) => <span className="text-[length:var(--fs-12)] text-muted-foreground tabular-nums">{row.original.employeeCount ?? '—'}</span>,
     },
     text('category', 'Κατηγορία', 130, (r) => r.category),
     text('gemiOffice', 'Υπηρεσία ΓΕΜΗ', 200, (r) => r.gemiOffice),
@@ -377,12 +377,12 @@ export function CompaniesView({
         <Tabs value={tab} onValueChange={setTab} className="flex-1 min-w-0">
           <TabsList variant="line">
             <TabsTrigger value="ALL">
-              Όλες <span className="ml-1.5 text-[10px] text-muted-foreground tabular-nums">{rows.length}</span>
+              Όλες <span className="ml-1.5 text-[length:var(--fs-10)] text-muted-foreground tabular-nums">{rows.length}</span>
             </TabsTrigger>
             {types.map((t) => (
               <TabsTrigger key={t.id} value={t.key}>
                 <span style={t.color ? { color: t.color } : undefined}>{t.pluralName}</span>
-                <span className="ml-1.5 text-[10px] text-muted-foreground tabular-nums">{t.count}</span>
+                <span className="ml-1.5 text-[length:var(--fs-10)] text-muted-foreground tabular-nums">{t.count}</span>
               </TabsTrigger>
             ))}
           </TabsList>
@@ -684,10 +684,10 @@ function CompanyDialog({
               onChange={(url) => { set('logoUrl', url); setReloadKey((k) => k + 1); }}
             />
             <div className="flex-1 min-w-0">
-              <DialogTitle className="text-[14px] leading-tight truncate">
+              <DialogTitle className="text-[length:var(--fs-14)] leading-tight truncate">
                 {isEdit ? (form.name || 'Επεξεργασία εταιρίας') : 'Νέα εταιρία'}
               </DialogTitle>
-              <DialogDescription className="text-[11px] truncate flex items-center gap-2 mt-0.5">
+              <DialogDescription className="text-[length:var(--fs-11)] truncate flex items-center gap-2 mt-0.5">
                 {form.afm && <span className="tabular-nums">ΑΦΜ {form.afm}</span>}
                 {form.arGemi && <span className="tabular-nums">· ΓΕΜΗ {form.arGemi}</span>}
                 {typeIds.length > 0 && (
@@ -700,7 +700,7 @@ function CompanyDialog({
                           key={id}
                           variant="outline"
                           style={t.color ? { borderColor: `${t.color}55`, color: t.color } : undefined}
-                          className="text-[9px] py-0 h-4"
+                          className="text-[length:var(--fs-9)] py-0 h-4"
                         >
                           {t.name}
                         </Badge>
@@ -714,7 +714,7 @@ function CompanyDialog({
             </div>
             <label className="flex items-center gap-1.5 cursor-pointer shrink-0 mr-1">
               <Checkbox checked={!!form.isActive} onCheckedChange={(v) => set('isActive', !!v)} />
-              <span className="text-[11px] text-muted-foreground">Ενεργή</span>
+              <span className="text-[length:var(--fs-11)] text-muted-foreground">Ενεργή</span>
             </label>
             <AadeLookupButton initialAfm={form.afm ?? ''} onApply={applyAade} />
             {isEdit && company && (
@@ -731,10 +731,10 @@ function CompanyDialog({
             Scoped compact typography for all inputs/labels/textarea/select in the form. */}
         <div
           className="flex-1 min-h-0 flex flex-row
-            [&_input]:!text-[12px] [&_input]:!h-8 [&_input]:!px-2
-            [&_textarea]:!text-[12px]
-            [&_select]:!text-[12px] [&_select]:!h-8
-            [&_label]:!text-[11px] [&_label]:!font-medium"
+            [&_input]:!text-[length:var(--fs-12)] [&_input]:!h-8 [&_input]:!px-2
+            [&_textarea]:!text-[length:var(--fs-12)]
+            [&_select]:!text-[length:var(--fs-12)] [&_select]:!h-8
+            [&_label]:!text-[length:var(--fs-11)] [&_label]:!font-medium"
         >
           <nav className="w-[210px] shrink-0 border-r border-border bg-muted/30 p-2 flex flex-col gap-0.5 overflow-y-auto">
             {sections.map((s) => {
@@ -752,8 +752,8 @@ function CompanyDialog({
                 >
                   <s.icon className={`size-3.5 mt-0.5 shrink-0 ${active ? 'text-primary' : ''}`} />
                   <span className="flex flex-col min-w-0">
-                    <span className="text-[12px] font-medium leading-tight truncate">{s.label}</span>
-                    <span className="text-[10px] text-muted-foreground leading-tight truncate font-normal">{s.hint}</span>
+                    <span className="text-[length:var(--fs-12)] font-medium leading-tight truncate">{s.label}</span>
+                    <span className="text-[length:var(--fs-10)] text-muted-foreground leading-tight truncate font-normal">{s.hint}</span>
                   </span>
                 </button>
               );
@@ -771,7 +771,7 @@ function CompanyDialog({
                         type="button"
                         key={t.id}
                         onClick={() => toggleType(t.id)}
-                        className={`text-[12px] rounded-sm border px-2.5 py-1 transition-colors ${
+                        className={`text-[length:var(--fs-12)] rounded-sm border px-2.5 py-1 transition-colors ${
                           active ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:bg-muted'
                         }`}
                         style={active && t.color ? { borderColor: t.color, color: t.color, backgroundColor: `${t.color}10` } : undefined}
@@ -846,8 +846,8 @@ function CompanyDialog({
                       />
                       <AadeLookupButton initialAfm={form.afm ?? ''} onApply={applyAade} />
                     </div>
-                    {aadeAuto && <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-sisyphus-600">Άντληση στοιχείων από ΑΑΔΕ…</span>}
-                    {!isEdit && <span className="mt-1 block text-[11px] text-muted-foreground">Με τη συμπλήρωση 9ψήφιου ΑΦΜ αντλούνται αυτόματα ΑΑΔΕ· το ΓΕΜΗ συγχρονίζεται μετά την αποθήκευση.</span>}
+                    {aadeAuto && <span className="mt-1 inline-flex items-center gap-1 text-[length:var(--fs-11)] text-sisyphus-600">Άντληση στοιχείων από ΑΑΔΕ…</span>}
+                    {!isEdit && <span className="mt-1 block text-[length:var(--fs-11)] text-muted-foreground">Με τη συμπλήρωση 9ψήφιου ΑΦΜ αντλούνται αυτόματα ΑΑΔΕ· το ΓΕΜΗ συγχρονίζεται μετά την αποθήκευση.</span>}
                   </Field>
                   <Field label="ΔΟΥ" id="c-doy"><Input id="c-doy" value={form.doy ?? ''} onChange={(e) => set('doy', e.target.value)} /></Field>
                   <Field label="Κατηγορία ΦΠΑ" id="c-vat">
@@ -866,19 +866,19 @@ function CompanyDialog({
                 </Grid>
                 {(form.aadeStatus || form.aadeFirmKind) && (
                   <div className="mt-3 flex flex-wrap gap-1.5 rounded-sm bg-muted/40 px-2.5 py-1.5">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mr-1">ΑΕΔΕΕ</span>
-                    {form.aadeStatus && <Badge variant="outline" className="text-[10px] border-emerald-300 text-emerald-700">{form.aadeStatus}</Badge>}
-                    {form.aadeFirmKind && <Badge variant="outline" className="text-[10px]">{form.aadeFirmKind}</Badge>}
+                    <span className="text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground font-semibold mr-1">ΑΕΔΕΕ</span>
+                    {form.aadeStatus && <Badge variant="outline" className="text-[length:var(--fs-10)] border-emerald-300 text-emerald-700">{form.aadeStatus}</Badge>}
+                    {form.aadeFirmKind && <Badge variant="outline" className="text-[length:var(--fs-10)]">{form.aadeFirmKind}</Badge>}
                   </div>
                 )}
                 {(form.arGemi || form.gemiStatus || form.gemiOffice) && (
                   <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-sm bg-muted/40 px-2.5 py-1.5">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mr-1">ΓΕΜΗ</span>
-                    {form.arGemi && <Badge variant="outline" className="text-[10px] tabular-nums">Αρ. {form.arGemi}</Badge>}
-                    {form.gemiStatus && <Badge variant="outline" className="text-[10px] border-emerald-300 text-emerald-700">{form.gemiStatus}</Badge>}
-                    {form.gemiOffice && <Badge variant="outline" className="text-[10px]">{form.gemiOffice}</Badge>}
+                    <span className="text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground font-semibold mr-1">ΓΕΜΗ</span>
+                    {form.arGemi && <Badge variant="outline" className="text-[length:var(--fs-10)] tabular-nums">Αρ. {form.arGemi}</Badge>}
+                    {form.gemiStatus && <Badge variant="outline" className="text-[length:var(--fs-10)] border-emerald-300 text-emerald-700">{form.gemiStatus}</Badge>}
+                    {form.gemiOffice && <Badge variant="outline" className="text-[length:var(--fs-10)]">{form.gemiOffice}</Badge>}
                     {form.gemiSyncedAt && (
-                      <span className="text-[10px] text-muted-foreground ml-auto">
+                      <span className="text-[length:var(--fs-10)] text-muted-foreground ml-auto">
                         Sync: {new Date(form.gemiSyncedAt).toLocaleString('el-GR')}
                       </span>
                     )}
@@ -993,7 +993,7 @@ function CompanyDialog({
             {activeSection === 'notes' && <div className="p-5">
               <SectionBlock title="Σημειώσεις" hint="Εσωτερικές σημειώσεις, ορατές μόνο σε χρήστες με πρόσβαση στην εταιρία.">
                 <textarea
-                  className="w-full rounded-sm border border-input bg-background px-3 py-2 text-[13px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y min-h-[180px]"
+                  className="w-full rounded-sm border border-input bg-background px-3 py-2 text-[length:var(--fs-13)] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y min-h-[180px]"
                   rows={8}
                   value={form.notes ?? ''}
                   onChange={(e) => set('notes', e.target.value)}
@@ -1007,7 +1007,7 @@ function CompanyDialog({
         {/* Sticky footer. mx-0/mb-0 override DialogFooter's default -mx-4 -mb-4 negative margins
             (which assume the parent has p-4 — our DialogContent uses p-0). */}
         <DialogFooter className="!mx-0 !mb-0 !rounded-none border-t border-border bg-background px-5 py-3 sm:justify-between">
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-[length:var(--fs-11)] text-muted-foreground">
             {isEdit ? 'Επεξεργασία υφιστάμενης εγγραφής' : 'Νέα καταχώριση'}
           </span>
           <div className="flex gap-2">
@@ -1026,8 +1026,8 @@ function SectionBlock({
   return (
     <section>
       <div className="mb-2.5">
-        <h3 className="text-[12px] font-semibold text-foreground leading-tight">{title}</h3>
-        {hint && <p className="text-[11px] text-muted-foreground mt-0.5">{hint}</p>}
+        <h3 className="text-[length:var(--fs-12)] font-semibold text-foreground leading-tight">{title}</h3>
+        {hint && <p className="text-[length:var(--fs-11)] text-muted-foreground mt-0.5">{hint}</p>}
       </div>
       {children}
     </section>
@@ -1037,7 +1037,7 @@ function SectionBlock({
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-2">{title}</div>
+      <div className="text-[length:var(--fs-10)] uppercase tracking-wider font-semibold text-muted-foreground mb-2">{title}</div>
       {children}
     </div>
   );
@@ -1059,7 +1059,7 @@ function LookupSelect<T extends string | number>({
     <div className="space-y-1">
       <select
         id={id}
-        className="h-8 w-full rounded-sm border border-input bg-background px-2 text-[12px]"
+        className="h-8 w-full rounded-sm border border-input bg-background px-2 text-[length:var(--fs-12)]"
         value={value == null || value === '' ? '' : String(value)}
         onChange={(e) => {
           const raw = e.target.value;
@@ -1075,7 +1075,7 @@ function LookupSelect<T extends string | number>({
         ))}
       </select>
       {!value && freeText && (
-        <p className="text-[10px] text-amber-700">Free-text τιμή: «{freeText}» — δεν συνδέεται με το μητρώο. Επίλεξε από τη λίστα για να την ομαλοποιήσεις.</p>
+        <p className="text-[length:var(--fs-10)] text-amber-700">Free-text τιμή: «{freeText}» — δεν συνδέεται με το μητρώο. Επίλεξε από τη λίστα για να την ομαλοποιήσεις.</p>
       )}
     </div>
   );
@@ -1084,7 +1084,7 @@ function LookupSelect<T extends string | number>({
 function Field({ label, id, children, wide }: { label: string; id: string; children: React.ReactNode; wide?: boolean }) {
   return (
     <div className={`grid gap-1 ${wide ? 'sm:col-span-2' : ''}`}>
-      <Label htmlFor={id} className="text-[11px] font-medium text-muted-foreground">{label}</Label>
+      <Label htmlFor={id} className="text-[length:var(--fs-11)] font-medium text-muted-foreground">{label}</Label>
       {children}
     </div>
   );
@@ -1123,24 +1123,24 @@ function BranchesPanel({ companyId }: { companyId: string }) {
   return (
     <div className="space-y-2">
       <ul className="divide-y divide-border rounded-sm border min-h-[44px]">
-        {loading && <li className="px-3 py-2 text-[12px] text-muted-foreground">Φόρτωση…</li>}
+        {loading && <li className="px-3 py-2 text-[length:var(--fs-12)] text-muted-foreground">Φόρτωση…</li>}
         {!loading && branches.length === 0 && (
-          <li className="px-3 py-2 text-[12px] text-muted-foreground">Δεν υπάρχουν υποκαταστήματα.</li>
+          <li className="px-3 py-2 text-[length:var(--fs-12)] text-muted-foreground">Δεν υπάρχουν υποκαταστήματα.</li>
         )}
         {branches.map((b) => (
           <li key={b.id} className="flex items-center gap-2 px-3 py-2">
             <FiMapPin className="size-3.5 text-muted-foreground shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-[13px] font-medium text-foreground truncate">{b.name}</span>
+                <span className="text-[length:var(--fs-13)] font-medium text-foreground truncate">{b.name}</span>
                 {b.isHeadquarters && (
-                  <Badge variant="outline" className="text-[9px] border-amber-300 text-amber-700">
+                  <Badge variant="outline" className="text-[length:var(--fs-9)] border-amber-300 text-amber-700">
                     <FiStar className="mr-0.5" /> Έδρα
                   </Badge>
                 )}
-                {!b.isActive && <Badge variant="outline" className="text-[9px]">Ανενεργό</Badge>}
+                {!b.isActive && <Badge variant="outline" className="text-[length:var(--fs-9)]">Ανενεργό</Badge>}
               </div>
-              <div className="text-[10px] text-muted-foreground truncate">
+              <div className="text-[length:var(--fs-10)] text-muted-foreground truncate">
                 {[b.code && `#${b.code}`, b.address, b.city, b.phone].filter(Boolean).join(' · ') || '—'}
               </div>
             </div>
@@ -1225,11 +1225,11 @@ function BranchDialog({
         <div className="flex items-center gap-4 pt-1">
           <label className="flex items-center gap-2 cursor-pointer">
             <Checkbox checked={!!form.isHeadquarters} onCheckedChange={(v) => set('isHeadquarters', !!v)} />
-            <span className="text-[13px]">Έδρα</span>
+            <span className="text-[length:var(--fs-13)]">Έδρα</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <Checkbox checked={!!form.isActive} onCheckedChange={(v) => set('isActive', !!v)} />
-            <span className="text-[13px]">Ενεργό</span>
+            <span className="text-[length:var(--fs-13)]">Ενεργό</span>
           </label>
         </div>
         <DialogFooter>
@@ -1271,8 +1271,8 @@ function AvatarUploader({
         {url
           // eslint-disable-next-line @next/next/no-img-element
           ? <img src={url} alt="avatar" className="h-full w-full object-cover" />
-          : <span className="text-[11px] font-semibold">{initials}</span>}
-        <span className={`absolute -bottom-0.5 -right-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-background text-[8px] ${
+          : <span className="text-[length:var(--fs-11)] font-semibold">{initials}</span>}
+        <span className={`absolute -bottom-0.5 -right-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-background text-[length:var(--fs-8)] ${
           canUpload ? 'bg-primary text-primary-foreground' : 'bg-muted-foreground/60 text-background'
         }`}>
           <FiImage className="size-2.5" />
@@ -1282,7 +1282,7 @@ function AvatarUploader({
         <button
           type="button"
           onClick={onRemove}
-          className="absolute -top-1 -right-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute -top-1 -right-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[length:var(--fs-10)] opacity-0 group-hover:opacity-100 transition-opacity"
           aria-label="Διαγραφή avatar"
         >×</button>
       )}
@@ -1342,9 +1342,9 @@ function ContactsPanel({ companyId }: { companyId: string }) {
   return (
     <div className="space-y-2">
       <ul className="divide-y divide-border rounded-sm border min-h-[44px]">
-        {loading && <li className="px-3 py-2 text-[12px] text-muted-foreground">Φόρτωση…</li>}
+        {loading && <li className="px-3 py-2 text-[length:var(--fs-12)] text-muted-foreground">Φόρτωση…</li>}
         {!loading && list.length === 0 && (
-          <li className="px-3 py-2 text-[12px] text-muted-foreground italic">Δεν υπάρχουν επαφές.</li>
+          <li className="px-3 py-2 text-[length:var(--fs-12)] text-muted-foreground italic">Δεν υπάρχουν επαφές.</li>
         )}
         {list.map((c) => (
           <li key={c.id} className="flex items-start gap-2 px-3 py-2">
@@ -1352,18 +1352,18 @@ function ContactsPanel({ companyId }: { companyId: string }) {
               // eslint-disable-next-line @next/next/no-img-element
               ? <img src={c.avatarUrl} alt="" className="mt-0.5 h-7 w-7 rounded-sm object-cover border border-border shrink-0" />
               : (
-                <span className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-sm bg-muted text-foreground text-[10px] font-semibold shrink-0">
+                <span className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-sm bg-muted text-foreground text-[length:var(--fs-10)] font-semibold shrink-0">
                   {(c.fullName || '?').slice(0, 2).toUpperCase()}
                 </span>
               )}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[13px] font-medium text-foreground truncate">{c.fullName}</span>
-                {c.role && <Badge variant="outline" className="text-[9px]">{c.role}</Badge>}
-                {c.isPrimary && <Badge variant="outline" className="text-[9px] border-amber-300 text-amber-700"><FiStar className="mr-0.5" /> Κύρια</Badge>}
-                {!c.isActive && <Badge variant="outline" className="text-[9px]">Ανενεργή</Badge>}
+                <span className="text-[length:var(--fs-13)] font-medium text-foreground truncate">{c.fullName}</span>
+                {c.role && <Badge variant="outline" className="text-[length:var(--fs-9)]">{c.role}</Badge>}
+                {c.isPrimary && <Badge variant="outline" className="text-[length:var(--fs-9)] border-amber-300 text-amber-700"><FiStar className="mr-0.5" /> Κύρια</Badge>}
+                {!c.isActive && <Badge variant="outline" className="text-[length:var(--fs-9)]">Ανενεργή</Badge>}
               </div>
-              <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-0.5 flex-wrap">
+              <div className="flex items-center gap-3 text-[length:var(--fs-11)] text-muted-foreground mt-0.5 flex-wrap">
                 {c.mobile && <span className="inline-flex items-center gap-1"><FiSmartphone className="size-3" /> {c.mobile}</span>}
                 {c.phone && <span className="inline-flex items-center gap-1"><FiPhone className="size-3" /> {c.phone}</span>}
                 {c.email && <a href={`mailto:${c.email}`} className="inline-flex items-center gap-1 hover:text-primary"><FiMail className="size-3" /> {c.email}</a>}
@@ -1468,9 +1468,9 @@ function ContactDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-1
-          [&_input]:!text-[12px] [&_input]:!h-8 [&_input]:!px-2
-          [&_textarea]:!text-[12px]
-          [&_label]:!text-[11px] [&_label]:!font-medium">
+          [&_input]:!text-[length:var(--fs-12)] [&_input]:!h-8 [&_input]:!px-2
+          [&_textarea]:!text-[length:var(--fs-12)]
+          [&_label]:!text-[length:var(--fs-11)] [&_label]:!font-medium">
 
           {/* Avatar uploader — visible always; informs user that save is needed if new contact */}
           <div className="flex items-center gap-3 rounded-md border border-border bg-muted/30 p-3">
@@ -1482,8 +1482,8 @@ function ContactDialog({
               onRemove={removeAvatar}
             />
             <div className="flex-1 min-w-0">
-              <p className="text-[12px] font-medium text-foreground">Avatar επαφής</p>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[length:var(--fs-12)] font-medium text-foreground">Avatar επαφής</p>
+              <p className="text-[length:var(--fs-10)] text-muted-foreground">
                 {isEdit
                   ? 'PNG/JPG/WEBP/SVG · μέχρι 3MB. Κλικ στο εικονίδιο για ανέβασμα.'
                   : 'Αποθήκευσε πρώτα την επαφή και μετά πρόσθεσε avatar.'}
@@ -1532,11 +1532,11 @@ function ContactDialog({
           <div className="flex items-center gap-4 pt-1">
             <label className="flex items-center gap-2 cursor-pointer">
               <Checkbox checked={!!form.isPrimary} onCheckedChange={(v) => set('isPrimary', !!v)} />
-              <span className="text-[13px]">Κύρια επαφή</span>
+              <span className="text-[length:var(--fs-13)]">Κύρια επαφή</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <Checkbox checked={!!form.isActive} onCheckedChange={(v) => set('isActive', !!v)} />
-              <span className="text-[13px]">Ενεργή</span>
+              <span className="text-[length:var(--fs-13)]">Ενεργή</span>
             </label>
           </div>
         </div>
@@ -1630,9 +1630,9 @@ function ChannelsPanel({ companyId, compact = false }: { companyId: string; comp
 
   return (
     <div className="space-y-3">
-      {loading && <div className="text-[12px] text-muted-foreground">Φόρτωση…</div>}
+      {loading && <div className="text-[length:var(--fs-12)] text-muted-foreground">Φόρτωση…</div>}
       {!loading && items.length === 0 && (
-        <div className="text-[12px] text-muted-foreground italic rounded-[4px] border border-dashed px-3 py-2">
+        <div className="text-[length:var(--fs-12)] text-muted-foreground italic rounded-[4px] border border-dashed px-3 py-2">
           Δεν έχουν καταχωρηθεί κανάλια επικοινωνίας.
         </div>
       )}
@@ -1641,7 +1641,7 @@ function ChannelsPanel({ companyId, compact = false }: { companyId: string; comp
         const Meta = CHANNEL_META[g.kind];
         return (
           <div key={g.kind} className="rounded-[4px] border border-border bg-background">
-            <div className="px-3 py-1.5 border-b border-border bg-muted/30 text-[10px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1.5">
+            <div className="px-3 py-1.5 border-b border-border bg-muted/30 text-[length:var(--fs-10)] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1.5">
               <Meta.icon className="size-3" /> {Meta.label} <span className="text-muted-foreground/60">({g.list.length})</span>
             </div>
             <ul className="divide-y divide-border">
@@ -1650,10 +1650,10 @@ function ChannelsPanel({ companyId, compact = false }: { companyId: string; comp
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {c.kind === 'EMAIL'
-                        ? <a href={`mailto:${c.value}`} className="text-[12px] text-foreground hover:text-primary truncate">{c.value}</a>
+                        ? <a href={`mailto:${c.value}`} className="text-[length:var(--fs-12)] text-foreground hover:text-primary truncate">{c.value}</a>
                         : c.kind === 'PHONE' || c.kind === 'MOBILE'
-                          ? <a href={`tel:${c.value}`} className="text-[12px] text-foreground hover:text-primary font-mono">{c.value}</a>
-                          : <span className="text-[12px] text-foreground font-mono">{c.value}</span>}
+                          ? <a href={`tel:${c.value}`} className="text-[length:var(--fs-12)] text-foreground hover:text-primary font-mono">{c.value}</a>
+                          : <span className="text-[length:var(--fs-12)] text-foreground font-mono">{c.value}</span>}
                       {c.label && <Badge variant="outline">{c.label}</Badge>}
                       {c.isPrimary && <Badge variant="outline" className="border-amber-300 text-amber-700"><FiStar className="mr-0.5" /> Κύριο</Badge>}
                       {!c.isActive && <Badge variant="outline">Ανενεργό</Badge>}
@@ -1678,12 +1678,12 @@ function ChannelsPanel({ companyId, compact = false }: { companyId: string; comp
 
       {!compact && (
         <div className="rounded-[4px] border border-dashed border-border p-3 space-y-2">
-          <div className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">Προσθήκη καναλιού</div>
+          <div className="text-[length:var(--fs-10)] uppercase tracking-wider font-semibold text-muted-foreground">Προσθήκη καναλιού</div>
           <div className="grid grid-cols-[110px_140px_1fr_auto] gap-2 items-end">
             <Field label="Τύπος" id="ch-kind">
               <select
                 id="ch-kind"
-                className="h-8 w-full rounded-sm border border-input bg-background px-2 text-[12px]"
+                className="h-8 w-full rounded-sm border border-input bg-background px-2 text-[length:var(--fs-12)]"
                 value={draft.kind}
                 onChange={(e) => setDraft({ ...draft, kind: e.target.value as ChannelKind })}
               >
@@ -1708,7 +1708,7 @@ function ChannelsPanel({ companyId, compact = false }: { companyId: string; comp
           </div>
           <label className="flex items-center gap-2 cursor-pointer mt-1">
             <Checkbox checked={draft.isPrimary} onCheckedChange={(v) => setDraft({ ...draft, isPrimary: !!v })} />
-            <span className="text-[11px]">Όρισε ως κύριο για τον τύπο</span>
+            <span className="text-[length:var(--fs-11)]">Όρισε ως κύριο για τον τύπο</span>
           </label>
         </div>
       )}
@@ -1743,22 +1743,22 @@ function ActivitiesEditor({
   return (
     <div className="space-y-2">
       {activities.length === 0
-        ? <div className="text-[12px] text-muted-foreground rounded-sm border border-dashed px-3 py-2">Δεν έχουν καταχωρηθεί ΚΑΔ.</div>
+        ? <div className="text-[length:var(--fs-12)] text-muted-foreground rounded-sm border border-dashed px-3 py-2">Δεν έχουν καταχωρηθεί ΚΑΔ.</div>
         : (
           <ul className="divide-y divide-border rounded-sm border max-h-60 overflow-y-auto">
             {activities.map((a) => (
               <li key={a.code} className="flex items-center gap-2 px-2 py-1.5">
-                <span className="font-mono text-[11px] tabular-nums w-24 shrink-0" title="ΑΑΔΕ form">
+                <span className="font-mono text-[length:var(--fs-11)] tabular-nums w-24 shrink-0" title="ΑΑΔΕ form">
                   {a.codeAade ?? a.code.replace(/\./g, '')}
                 </span>
-                <span className="font-mono text-[10px] tabular-nums text-muted-foreground w-20 shrink-0" title="Με τελείες (canonical)">
+                <span className="font-mono text-[length:var(--fs-10)] tabular-nums text-muted-foreground w-20 shrink-0" title="Με τελείες (canonical)">
                   {a.code}
                 </span>
-                <span className="flex-1 text-[11px] truncate" title={a.description}>{a.description}</span>
+                <span className="flex-1 text-[length:var(--fs-11)] truncate" title={a.description}>{a.description}</span>
                 {a.requiresLicense && (
                   <Badge
                     variant="outline"
-                    className="text-[9px] border-amber-400 text-amber-700 bg-amber-50"
+                    className="text-[length:var(--fs-9)] border-amber-400 text-amber-700 bg-amber-50"
                     title="Ο ΚΑΔ απαιτεί άδεια λειτουργίας (NF BUSNESS)"
                   >
                     Άδεια
@@ -1766,7 +1766,7 @@ function ActivitiesEditor({
                 )}
                 <Badge
                   variant="outline"
-                  className={a.kind === 'PRIMARY' ? 'text-[9px] border-emerald-300 text-emerald-700' : 'text-[9px]'}
+                  className={a.kind === 'PRIMARY' ? 'text-[length:var(--fs-9)] border-emerald-300 text-emerald-700' : 'text-[length:var(--fs-9)]'}
                 >
                   {a.kind === 'PRIMARY' ? 'ΚΥΡΙΑ' : 'ΔΕΥΤ.'}
                 </Badge>
@@ -1792,7 +1792,7 @@ function ActivitiesEditor({
         <Field label="Τύπος" id="a-kind">
           <select
             id="a-kind"
-            className="h-8 w-full rounded-sm border border-input bg-background px-2 text-[12px]"
+            className="h-8 w-full rounded-sm border border-input bg-background px-2 text-[length:var(--fs-12)]"
             value={draft.kind}
             onChange={(e) => setDraft({ ...draft, kind: e.target.value as 'PRIMARY' | 'SECONDARY' })}
           >
@@ -1894,13 +1894,13 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
               key={t.id}
               type="button"
               onClick={() => switchTo(t.id)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] border-b-2 transition-colors whitespace-nowrap ${
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[length:var(--fs-12)] border-b-2 transition-colors whitespace-nowrap ${
                 active ? 'border-primary text-foreground font-medium' : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
             >
               <t.icon className="size-3.5" /> {t.label}
               {t.badge !== undefined && (
-                <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-muted text-[10px] tabular-nums">{t.badge}</span>
+                <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-muted text-[length:var(--fs-10)] tabular-nums">{t.badge}</span>
               )}
             </button>
           );
@@ -1923,15 +1923,15 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
               <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
-                    {c.legalForm && <Badge variant="outline" className="text-[10px]">{c.legalForm}</Badge>}
+                    {c.legalForm && <Badge variant="outline" className="text-[length:var(--fs-10)]">{c.legalForm}</Badge>}
                     {c.isActive
-                      ? <Badge variant="outline" className="text-[10px] border-emerald-300 text-emerald-700"><FiCheck className="mr-0.5" /> Ενεργή</Badge>
-                      : <Badge variant="outline" className="text-[10px]"><FiX className="mr-0.5" /> Ανενεργή</Badge>}
-                    {c.aadeStatus && <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-700">ΑΕΔΕΕ: {c.aadeStatus}</Badge>}
-                    {c.gemiStatus && <Badge variant="outline" className="text-[10px] border-purple-300 text-purple-700">ΓΕΜΗ: {c.gemiStatus}</Badge>}
+                      ? <Badge variant="outline" className="text-[length:var(--fs-10)] border-emerald-300 text-emerald-700"><FiCheck className="mr-0.5" /> Ενεργή</Badge>
+                      : <Badge variant="outline" className="text-[length:var(--fs-10)]"><FiX className="mr-0.5" /> Ανενεργή</Badge>}
+                    {c.aadeStatus && <Badge variant="outline" className="text-[length:var(--fs-10)] border-blue-300 text-blue-700">ΑΕΔΕΕ: {c.aadeStatus}</Badge>}
+                    {c.gemiStatus && <Badge variant="outline" className="text-[length:var(--fs-10)] border-purple-300 text-purple-700">ΓΕΜΗ: {c.gemiStatus}</Badge>}
                   </div>
-                  <h3 className="text-[14px] font-semibold text-foreground leading-tight">{c.name}</h3>
-                  {c.shortName && <p className="text-[12px] text-muted-foreground truncate">{c.shortName}</p>}
+                  <h3 className="text-[length:var(--fs-14)] font-semibold text-foreground leading-tight">{c.name}</h3>
+                  {c.shortName && <p className="text-[length:var(--fs-12)] text-muted-foreground truncate">{c.shortName}</p>}
                 </div>
               </div>
 
@@ -1992,14 +1992,14 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
             {/* Free-text blocks — collapse whitespace so the layout doesn't explode vertically */}
             {clean(c.gemiObjective) && (
               <div className="rounded-md border border-border p-4">
-                <div className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1">Σκοπός εταιρίας (ΓΕΜΗ)</div>
-                <p className="text-[12px] text-foreground leading-relaxed">{clean(c.gemiObjective)}</p>
+                <div className="text-[length:var(--fs-10)] uppercase tracking-wider font-semibold text-muted-foreground mb-1">Σκοπός εταιρίας (ΓΕΜΗ)</div>
+                <p className="text-[length:var(--fs-12)] text-foreground leading-relaxed">{clean(c.gemiObjective)}</p>
               </div>
             )}
             {clean(c.notes) && (
               <div className="rounded-md border border-border p-4">
-                <div className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1">Σημειώσεις</div>
-                <p className="text-[12px] text-foreground leading-relaxed">{clean(c.notes)}</p>
+                <div className="text-[length:var(--fs-10)] uppercase tracking-wider font-semibold text-muted-foreground mb-1">Σημειώσεις</div>
+                <p className="text-[length:var(--fs-12)] text-foreground leading-relaxed">{clean(c.notes)}</p>
               </div>
             )}
           </div>
@@ -2010,7 +2010,7 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
         <LazySection loading={detailLoading} data={detail}>
           {(c) => (
             <div className="space-y-4">
-              <div className="grid sm:grid-cols-3 gap-4 px-1 py-1 text-[12px]">
+              <div className="grid sm:grid-cols-3 gap-4 px-1 py-1 text-[length:var(--fs-12)]">
                 <Stat label="Website">
                   {c.website
                     ? <a href={c.website.startsWith('http') ? c.website : `https://${c.website}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{c.website}</a>
@@ -2021,7 +2021,7 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
                 <Stat label="Θέση">{c.contactTitle || '—'}</Stat>
               </div>
               <div>
-                <div className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1">Κανάλια επικοινωνίας</div>
+                <div className="text-[length:var(--fs-10)] uppercase tracking-wider font-semibold text-muted-foreground mb-1">Κανάλια επικοινωνίας</div>
                 <ChannelsPanel companyId={company.id} compact />
               </div>
             </div>
@@ -2033,28 +2033,28 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
         <LazySection loading={detailLoading} data={detail}>
           {(c) => (
             <div className="space-y-3">
-              <div className="grid sm:grid-cols-4 gap-4 text-[12px]">
+              <div className="grid sm:grid-cols-4 gap-4 text-[length:var(--fs-12)]">
                 <Stat label="ΑΦΜ">{c.afm || '—'}</Stat>
                 <Stat label="ΔΟΥ">{c.doy || '—'}</Stat>
                 <Stat label="Αρ. ΓΕΜΗ"><span className="tabular-nums">{c.arGemi || '—'}</span></Stat>
                 <Stat label="Νομική μορφή">{c.legalForm || '—'}</Stat>
               </div>
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
+                <div className="text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
                   ΚΑΔ ({c.activities?.length ?? 0})
                 </div>
                 {(!c.activities || c.activities.length === 0)
-                  ? <div className="text-[12px] text-muted-foreground italic">Δεν έχουν καταχωρηθεί ΚΑΔ.</div>
+                  ? <div className="text-[length:var(--fs-12)] text-muted-foreground italic">Δεν έχουν καταχωρηθεί ΚΑΔ.</div>
                   : (
                     <ul className="divide-y divide-border rounded-sm border max-h-60 overflow-y-auto">
                       {c.activities.map((a: any) => (
-                        <li key={a.code} className="flex items-center gap-2 px-2 py-1.5 text-[11px]">
+                        <li key={a.code} className="flex items-center gap-2 px-2 py-1.5 text-[length:var(--fs-11)]">
                           <span className="font-mono tabular-nums w-20 shrink-0">{a.code}</span>
                           <span className="flex-1 truncate" title={a.description}>{a.description}</span>
                           {a.requiresLicense && (
                             <Badge
                               variant="outline"
-                              className="text-[9px] border-amber-400 text-amber-700 bg-amber-50"
+                              className="text-[length:var(--fs-9)] border-amber-400 text-amber-700 bg-amber-50"
                               title="Ο ΚΑΔ απαιτεί άδεια λειτουργίας (NF BUSNESS)"
                             >
                               Άδεια
@@ -2062,7 +2062,7 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
                           )}
                           <Badge
                             variant="outline"
-                            className={a.kind === 'PRIMARY' ? 'text-[9px] border-emerald-300 text-emerald-700' : 'text-[9px]'}
+                            className={a.kind === 'PRIMARY' ? 'text-[length:var(--fs-9)] border-emerald-300 text-emerald-700' : 'text-[length:var(--fs-9)]'}
                           >
                             {a.kind === 'PRIMARY' ? 'ΚΥΡΙΑ' : 'ΔΕΥΤ.'}
                           </Badge>
@@ -2083,7 +2083,7 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
       {tab === 'branches' && (
         <LazySection loading={branchesLoading} data={branches}>
           {(items) => items.length === 0
-            ? <div className="text-[12px] text-muted-foreground italic">Δεν υπάρχουν υποκαταστήματα.</div>
+            ? <div className="text-[length:var(--fs-12)] text-muted-foreground italic">Δεν υπάρχουν υποκαταστήματα.</div>
             : (
               <ul className="divide-y divide-border rounded-sm border">
                 {items.map((b: any) => (
@@ -2091,11 +2091,11 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
                     <FiMapPin className="size-3.5 text-muted-foreground shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[12px] font-medium text-foreground truncate">{b.name}</span>
-                        {b.isHeadquarters && <Badge variant="outline" className="text-[9px] border-amber-300 text-amber-700"><FiStar className="mr-0.5" /> Έδρα</Badge>}
-                        {!b.isActive && <Badge variant="outline" className="text-[9px]">Ανενεργό</Badge>}
+                        <span className="text-[length:var(--fs-12)] font-medium text-foreground truncate">{b.name}</span>
+                        {b.isHeadquarters && <Badge variant="outline" className="text-[length:var(--fs-9)] border-amber-300 text-amber-700"><FiStar className="mr-0.5" /> Έδρα</Badge>}
+                        {!b.isActive && <Badge variant="outline" className="text-[length:var(--fs-9)]">Ανενεργό</Badge>}
                       </div>
-                      <div className="text-[10px] text-muted-foreground truncate">
+                      <div className="text-[length:var(--fs-10)] text-muted-foreground truncate">
                         {[b.code && `#${b.code}`, b.address, b.city, b.phone].filter(Boolean).join(' · ') || '—'}
                       </div>
                     </div>
@@ -2109,7 +2109,7 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
       {tab === 'documents' && (
         <LazySection loading={docsLoading} data={docs}>
           {(items) => items.length === 0
-            ? <div className="text-[12px] text-muted-foreground italic">Δεν υπάρχουν έγγραφα ΓΕΜΗ. Άνοιξε την εγγραφή και πάτησε συγχρονισμό ΓΕΜΗ.</div>
+            ? <div className="text-[length:var(--fs-12)] text-muted-foreground italic">Δεν υπάρχουν έγγραφα ΓΕΜΗ. Άνοιξε την εγγραφή και πάτησε συγχρονισμό ΓΕΜΗ.</div>
             : (
               <ul className="divide-y divide-border rounded-sm border max-h-[360px] overflow-y-auto">
                 {items.map((d) => (
@@ -2121,11 +2121,11 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
                     </span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[12px] font-medium text-foreground truncate">{d.title}</span>
-                        <Badge variant="outline" className="text-[9px]">{d.kind === 'DECISION' ? 'Απόφαση' : d.kind === 'PUBLICATION' ? 'ΥΜΣ' : 'Άλλο'}</Badge>
-                        {d.kak && <span className="text-[10px] text-muted-foreground tabular-nums">ΚΑΚ {d.kak}</span>}
+                        <span className="text-[length:var(--fs-12)] font-medium text-foreground truncate">{d.title}</span>
+                        <Badge variant="outline" className="text-[length:var(--fs-9)]">{d.kind === 'DECISION' ? 'Απόφαση' : d.kind === 'PUBLICATION' ? 'ΥΜΣ' : 'Άλλο'}</Badge>
+                        {d.kak && <span className="text-[length:var(--fs-10)] text-muted-foreground tabular-nums">ΚΑΚ {d.kak}</span>}
                       </div>
-                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5 flex-wrap">
+                      <div className="flex items-center gap-2 text-[length:var(--fs-10)] text-muted-foreground mt-0.5 flex-wrap">
                         {d.assembly && <span>{d.assembly}</span>}
                         {d.dateRegistrated && <span>Κατ.: {new Date(d.dateRegistrated).toLocaleDateString('el-GR')}</span>}
                         {d.sizeBytes && <span>{(d.sizeBytes / 1024).toFixed(0)} KB</span>}
@@ -2151,7 +2151,7 @@ function CompanyExpandedRow({ company }: { company: CompanyRow }) {
       {tab === 'financial' && (
         <LazySection loading={detailLoading} data={detail}>
           {(c) => (
-            <div className="grid sm:grid-cols-3 gap-4 px-1 py-1 text-[12px]">
+            <div className="grid sm:grid-cols-3 gap-4 px-1 py-1 text-[length:var(--fs-12)]">
               <Stat label="IBAN"><span className="font-mono">{c.iban || '—'}</span></Stat>
               <Stat label="Τράπεζα">{c.bankName || '—'}</Stat>
               <Stat label="Νόμισμα">{c.currency || '—'}</Stat>
@@ -2182,10 +2182,10 @@ function LazySection<T>({
   loading, data, children,
 }: { loading: boolean; data: T | null; children: (d: T) => React.ReactNode }) {
   if (loading && data == null) {
-    return <div className="flex items-center gap-2 px-1 py-3 text-[12px] text-muted-foreground"><FiRefreshCw className="size-3 animate-spin" /> Φόρτωση…</div>;
+    return <div className="flex items-center gap-2 px-1 py-3 text-[length:var(--fs-12)] text-muted-foreground"><FiRefreshCw className="size-3 animate-spin" /> Φόρτωση…</div>;
   }
   if (data == null) {
-    return <div className="text-[12px] text-muted-foreground italic">Δεν φορτώθηκαν δεδομένα.</div>;
+    return <div className="text-[length:var(--fs-12)] text-muted-foreground italic">Δεν φορτώθηκαν δεδομένα.</div>;
   }
   return <>{children(data)}</>;
 }
@@ -2193,7 +2193,7 @@ function LazySection<T>({
 function Stat({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
   return (
     <div className={wide ? 'sm:col-span-3' : ''}>
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-0.5">{label}</div>
+      <div className="text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground font-semibold mb-0.5">{label}</div>
       <div className="text-foreground">{children}</div>
     </div>
   );
@@ -2211,10 +2211,10 @@ function KeyValue({
   const isEmpty = value === null || value === undefined || value === '';
   return (
     <div className={`flex items-baseline gap-2 ${wide ? 'sm:col-span-2' : ''}`}>
-      <span className="text-[11px] text-muted-foreground shrink-0 min-w-[120px]">{label}</span>
-      <span className={`text-[12px] flex-1 min-w-0 truncate ${isEmpty ? 'text-muted-foreground/60' : 'text-foreground'} ${mono ? 'font-mono tabular-nums' : ''}`}>
+      <span className="text-[length:var(--fs-11)] text-muted-foreground shrink-0 min-w-[120px]">{label}</span>
+      <span className={`text-[length:var(--fs-12)] flex-1 min-w-0 truncate ${isEmpty ? 'text-muted-foreground/60' : 'text-foreground'} ${mono ? 'font-mono tabular-nums' : ''}`}>
         {isEmpty ? '—' : value}
-        {hint && !isEmpty && <span className="ml-1.5 text-[10px] text-muted-foreground">· {hint}</span>}
+        {hint && !isEmpty && <span className="ml-1.5 text-[length:var(--fs-10)] text-muted-foreground">· {hint}</span>}
       </span>
     </div>
   );
@@ -2237,11 +2237,11 @@ function Tile({
       className={`rounded-md border border-border bg-background p-3 text-left transition-colors ${onClick ? 'hover:border-primary hover:bg-muted/40 cursor-pointer' : ''}`}
     >
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">{label}</span>
+        <span className="text-[length:var(--fs-10)] uppercase tracking-wider font-semibold text-muted-foreground">{label}</span>
         <Icon className="size-3 text-muted-foreground" />
       </div>
-      <div className="text-[18px] font-semibold text-foreground leading-tight tabular-nums">{value}</div>
-      {hint && <div className="text-[10px] text-muted-foreground mt-0.5 truncate">{hint}</div>}
+      <div className="text-[length:var(--fs-18)] font-semibold text-foreground leading-tight tabular-nums">{value}</div>
+      {hint && <div className="text-[length:var(--fs-10)] text-muted-foreground mt-0.5 truncate">{hint}</div>}
     </Wrapper>
   );
 }
@@ -2252,7 +2252,7 @@ function CompanyMap({
   if (lat == null || lng == null) {
     return (
       <div className="rounded-sm border border-dashed p-6 text-center space-y-2">
-        <p className="text-[12px] text-muted-foreground">Δεν υπάρχουν συντεταγμένες για αυτή την εταιρία.</p>
+        <p className="text-[length:var(--fs-12)] text-muted-foreground">Δεν υπάρχουν συντεταγμένες για αυτή την εταιρία.</p>
         <Button size="sm" variant="outline" onClick={onGeocode} disabled={geocoding}>
           <FiMapPin className="mr-1" /> {geocoding ? 'Γεωκωδικοποίηση…' : 'Γεωκωδικοποίηση τώρα'}
         </Button>
@@ -2275,7 +2275,7 @@ function CompanyMap({
           referrerPolicy="no-referrer-when-downgrade"
         />
       </div>
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+      <div className="flex items-center justify-between text-[length:var(--fs-11)] text-muted-foreground">
         <span className="truncate">{address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`}</span>
         <div className="flex items-center gap-1.5 shrink-0">
           <span className="font-mono tabular-nums">{lat.toFixed(5)}, {lng.toFixed(5)}</span>
@@ -2363,10 +2363,10 @@ function LogoBlock({
         {logoUrl
           // eslint-disable-next-line @next/next/no-img-element
           ? <img src={logoUrl} alt="logo" className="h-full w-full object-contain" />
-          : <span className="text-[12px] font-semibold">{initials}</span>}
+          : <span className="text-[length:var(--fs-12)] font-semibold">{initials}</span>}
         {/* Camera badge always visible — affordance for upload */}
         <span
-          className={`absolute -bottom-0.5 -right-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-background text-[8px] ${
+          className={`absolute -bottom-0.5 -right-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-background text-[length:var(--fs-8)] ${
             canUpload ? 'bg-primary text-primary-foreground' : 'bg-muted-foreground/60 text-background'
           }`}
         >
@@ -2377,7 +2377,7 @@ function LogoBlock({
         <button
           type="button"
           onClick={remove}
-          className="absolute -top-1.5 -right-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute -top-1.5 -right-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[length:var(--fs-10)] opacity-0 group-hover:opacity-100 transition-opacity"
           aria-label="Διαγραφή λογότυπου"
           title="Διαγραφή"
         >
@@ -2433,32 +2433,32 @@ function DocumentsPanel({
     <div className="space-y-3">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div className="rounded-[4px] border border-border bg-background p-2">
-          <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Σύνολο</div>
-          <div className="text-[14px] font-semibold tabular-nums">{docs.length}</div>
+          <div className="text-[length:var(--fs-9)] uppercase tracking-wider text-muted-foreground">Σύνολο</div>
+          <div className="text-[length:var(--fs-14)] font-semibold tabular-nums">{docs.length}</div>
         </div>
         <div className="rounded-[4px] border border-border bg-background p-2">
-          <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Στο Bunny CDN</div>
-          <div className="text-[14px] font-semibold tabular-nums">
-            {uploaded}<span className="text-muted-foreground text-[11px]"> / {docs.length}</span>
+          <div className="text-[length:var(--fs-9)] uppercase tracking-wider text-muted-foreground">Στο Bunny CDN</div>
+          <div className="text-[length:var(--fs-14)] font-semibold tabular-nums">
+            {uploaded}<span className="text-muted-foreground text-[length:var(--fs-11)]"> / {docs.length}</span>
           </div>
         </div>
         <div className="rounded-[4px] border border-border bg-background p-2">
-          <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Μέγεθος</div>
-          <div className="text-[14px] font-semibold tabular-nums">
+          <div className="text-[length:var(--fs-9)] uppercase tracking-wider text-muted-foreground">Μέγεθος</div>
+          <div className="text-[length:var(--fs-14)] font-semibold tabular-nums">
             {totalBytes > 0 ? `${(totalBytes / 1024 / 1024).toFixed(1)} MB` : '—'}
           </div>
         </div>
         <div className="rounded-[4px] border border-border bg-background p-2">
-          <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Τύποι</div>
-          <div className="text-[14px] font-semibold tabular-nums">
-            {counts.DECISION}<span className="text-muted-foreground text-[11px]">Α</span>
+          <div className="text-[length:var(--fs-9)] uppercase tracking-wider text-muted-foreground">Τύποι</div>
+          <div className="text-[length:var(--fs-14)] font-semibold tabular-nums">
+            {counts.DECISION}<span className="text-muted-foreground text-[length:var(--fs-11)]">Α</span>
             {' · '}
-            {counts.PUBLICATION}<span className="text-muted-foreground text-[11px]">Δ</span>
+            {counts.PUBLICATION}<span className="text-muted-foreground text-[length:var(--fs-11)]">Δ</span>
           </div>
         </div>
       </div>
       {(gemiSyncedAt || gemiOffice || gemiStatus) && (
-        <div className="flex flex-wrap items-center gap-2 rounded-[4px] border border-border bg-muted/40 px-3 py-1.5 text-[11px]">
+        <div className="flex flex-wrap items-center gap-2 rounded-[4px] border border-border bg-muted/40 px-3 py-1.5 text-[length:var(--fs-11)]">
           {gemiStatus && <Badge variant="outline" className="border-emerald-300 text-emerald-700">{gemiStatus}</Badge>}
           {gemiOffice && <span className="text-muted-foreground">ΓΕΜΗ: {gemiOffice}</span>}
           {gemiSyncedAt && <span className="text-muted-foreground ml-auto">Τελευταίος συγχρονισμός: {new Date(gemiSyncedAt).toLocaleString('el-GR')}</span>}
@@ -2471,7 +2471,7 @@ function DocumentsPanel({
             key={f}
             type="button"
             onClick={() => setFilter(f)}
-            className={`text-[11px] rounded-sm px-2 py-1 border transition-colors ${
+            className={`text-[length:var(--fs-11)] rounded-sm px-2 py-1 border transition-colors ${
               filter === f ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:bg-muted'
             }`}
           >
@@ -2482,9 +2482,9 @@ function DocumentsPanel({
         ))}
       </div>
 
-      {loading && <div className="text-[12px] text-muted-foreground">Φόρτωση…</div>}
+      {loading && <div className="text-[length:var(--fs-12)] text-muted-foreground">Φόρτωση…</div>}
       {!loading && filtered.length === 0 && (
-        <div className="rounded-sm border border-dashed px-3 py-6 text-center text-[12px] text-muted-foreground">
+        <div className="rounded-sm border border-dashed px-3 py-6 text-center text-[length:var(--fs-12)] text-muted-foreground">
           Δεν υπάρχουν έγγραφα. Πάτησε το εικονίδιο ΓΕΜΗ στην κεφαλίδα για συγχρονισμό.
         </div>
       )}
@@ -2499,17 +2499,17 @@ function DocumentsPanel({
               </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[12px] font-medium text-foreground truncate">{d.title}</span>
-                  <Badge variant="outline" className="text-[9px]">{d.kind === 'DECISION' ? 'Απόφαση' : d.kind === 'PUBLICATION' ? 'ΥΜΣ' : 'Άλλο'}</Badge>
-                  {d.kak && <span className="text-[10px] text-muted-foreground tabular-nums">ΚΑΚ {d.kak}</span>}
+                  <span className="text-[length:var(--fs-12)] font-medium text-foreground truncate">{d.title}</span>
+                  <Badge variant="outline" className="text-[length:var(--fs-9)]">{d.kind === 'DECISION' ? 'Απόφαση' : d.kind === 'PUBLICATION' ? 'ΥΜΣ' : 'Άλλο'}</Badge>
+                  {d.kak && <span className="text-[length:var(--fs-10)] text-muted-foreground tabular-nums">ΚΑΚ {d.kak}</span>}
                 </div>
-                <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5 flex-wrap">
+                <div className="flex items-center gap-2 text-[length:var(--fs-10)] text-muted-foreground mt-0.5 flex-wrap">
                   {d.assembly && <span>{d.assembly}</span>}
                   {d.dateRegistrated && <span>Κατ.: {new Date(d.dateRegistrated).toLocaleDateString('el-GR')}</span>}
                   {d.dateAnnounced && <span>Αν.: {new Date(d.dateAnnounced).toLocaleDateString('el-GR')}</span>}
                   {d.sizeBytes && <span>{(d.sizeBytes / 1024).toFixed(0)} KB</span>}
                 </div>
-                {d.summary && <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5">{d.summary}</p>}
+                {d.summary && <p className="text-[length:var(--fs-11)] text-muted-foreground line-clamp-2 mt-0.5">{d.summary}</p>}
               </div>
               <div className="flex items-center gap-0.5 shrink-0">
                 {d.publicUrl && (

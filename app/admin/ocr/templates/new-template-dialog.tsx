@@ -59,7 +59,7 @@ export function NewTemplateDialog() {
             <div>
               <Label htmlFor="sl">Slug</Label>
               <Input id="sl" value={slug} onChange={(e) => { setSlug(slugDraft(e.target.value)); setSlugTouched(true); }} className="mt-1 font-mono" autoComplete="off" />
-              <p className="mt-1 text-[10px] text-muted-foreground">Κλειδί του JSON εξόδου. Παράγεται από το όνομα, μπορείς να το αλλάξεις.</p>
+              <p className="mt-1 text-[length:var(--fs-10)] text-muted-foreground">Κλειδί του JSON εξόδου. Παράγεται από το όνομα, μπορείς να το αλλάξεις.</p>
             </div>
             <div>
               <Label htmlFor="dp">Τμήμα / κατηγορία (προαιρετικό)</Label>

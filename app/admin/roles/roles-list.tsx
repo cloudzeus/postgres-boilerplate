@@ -58,12 +58,12 @@ export function RolesList({ items, permissions }: { items: RoleItem[]; permissio
             </span>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-foreground truncate text-[13px]">{role.name}</span>
+                <span className="font-semibold text-foreground truncate text-[length:var(--fs-13)]">{role.name}</span>
                 {role.isSystem && <Badge variant="outline"><FiLock /> System</Badge>}
               </div>
-              {role.description && <div className="text-[12px] text-muted-foreground truncate">{role.description}</div>}
+              {role.description && <div className="text-[length:var(--fs-12)] text-muted-foreground truncate">{role.description}</div>}
             </div>
-            <div className="hidden sm:flex items-center gap-3 text-[12px] text-muted-foreground shrink-0">
+            <div className="hidden sm:flex items-center gap-3 text-[length:var(--fs-12)] text-muted-foreground shrink-0">
               <span className="inline-flex items-center gap-1"><FiUsers className="h-3.5 w-3.5" /> {role.userCount}</span>
               <span className="inline-flex items-center gap-1"><FiKey className="h-3.5 w-3.5" /> {role.permissionCount}</span>
             </div>
@@ -185,8 +185,8 @@ function RolePermissionsEditor({
                   </span>
                   <AccordionTrigger className="hover:no-underline py-2 flex-1 group min-w-0">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">{resource}</span>
-                      <span className="text-[10px] font-mono text-muted-foreground tabular-nums ml-auto mr-2">
+                      <span className="text-[length:var(--fs-11)] font-bold uppercase tracking-wider text-foreground">{resource}</span>
+                      <span className="text-[length:var(--fs-10)] font-mono text-muted-foreground tabular-nums ml-auto mr-2">
                         {sel}/{total}
                       </span>
                     </div>
@@ -205,12 +205,12 @@ function RolePermissionsEditor({
                           className="size-3.5"
                         />
                         <div className="flex-1 min-w-0">
-                          <div className="text-[11px] font-medium text-foreground leading-tight">{p.action}</div>
+                          <div className="text-[length:var(--fs-11)] font-medium text-foreground leading-tight">{p.action}</div>
                           {p.description && (
-                            <div className="text-[10px] text-muted-foreground leading-tight">{p.description}</div>
+                            <div className="text-[length:var(--fs-10)] text-muted-foreground leading-tight">{p.description}</div>
                           )}
                         </div>
-                        <code className="text-[10px] text-muted-foreground/70 font-mono">{p.key}</code>
+                        <code className="text-[length:var(--fs-10)] text-muted-foreground/70 font-mono">{p.key}</code>
                       </label>
                     ))}
                   </div>

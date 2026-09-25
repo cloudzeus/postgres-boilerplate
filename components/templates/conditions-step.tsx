@@ -18,7 +18,7 @@ import { templatesApi, errorMessage } from './api';
 import { useServerDraft } from './use-server-draft';
 
 type Cond = TemplateDto['conditions'][number];
-const sel = 'h-9 rounded-sm border border-input bg-background px-2 text-[12px]';
+const sel = 'h-9 rounded-sm border border-input bg-background px-2 text-[length:var(--fs-12)]';
 
 /** Module scope on purpose: declared inside ConditionsStep it would be a new component
  *  type on every render, remounting the inputs and dropping focus after each keystroke. */
@@ -85,20 +85,20 @@ export function ConditionsStep() {
     <div className="space-y-6">
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <div><h2 className="text-[16px] font-semibold">Conditions</h2><p className="text-[12px] text-muted-foreground">Κανόνες πάνω στα εξαγόμενα πεδία. Όλοι όσοι ισχύουν εφαρμόζουν τις ενέργειές τους.</p></div>
+          <div><h2 className="text-[length:var(--fs-16)] font-semibold">Conditions</h2><p className="text-[length:var(--fs-12)] text-muted-foreground">Κανόνες πάνω στα εξαγόμενα πεδία. Όλοι όσοι ισχύουν εφαρμόζουν τις ενέργειές τους.</p></div>
           {canManage && <div className="flex gap-1"><Button size="sm" variant="secondary" onClick={addRule}><FiPlus className="mr-1 size-3.5" /> Κανόνας</Button><Button size="sm" onClick={saveRules} disabled={!dirtyRules || busy}><FiSave className="mr-1 size-3.5" /> Αποθήκευση</Button></div>}
         </div>
-        {conds.length === 0 && <p className="text-[12px] italic text-muted-foreground">Κανένας κανόνας.</p>}
+        {conds.length === 0 && <p className="text-[length:var(--fs-12)] italic text-muted-foreground">Κανένας κανόνας.</p>}
         {conds.map((c, i) => (
           <div key={c.id || `new-${i}`} className={cn('rounded-md border border-border p-3', !c.isActive && 'opacity-60')}>
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <Input value={c.name} disabled={!canManage} onChange={(e) => setC(i, { name: e.target.value })} className="h-8 max-w-[260px]" />
-              <label className="inline-flex items-center gap-1.5 text-[12px]"><Switch checked={c.isActive} disabled={!canManage} onCheckedChange={(v) => setC(i, { isActive: v })} /> Ενεργός</label>
+              <label className="inline-flex items-center gap-1.5 text-[length:var(--fs-12)]"><Switch checked={c.isActive} disabled={!canManage} onCheckedChange={(v) => setC(i, { isActive: v })} /> Ενεργός</label>
               <select value={c.logic} className={sel} disabled={!canManage} onChange={(e) => setC(i, { logic: e.target.value as 'AND' | 'OR' })}><option value="AND">Όλες οι ρήτρες (AND)</option><option value="OR">Οποιαδήποτε ρήτρα (OR)</option></select>
-              {canManage && <button type="button" onClick={() => setConds((cs) => cs.filter((_, j) => j !== i))} className="ml-auto inline-flex cursor-pointer items-center gap-1 text-[12px] text-dg-red-600 hover:underline"><FiTrash2 className="size-3.5" /> Διαγραφή</button>}
+              {canManage && <button type="button" onClick={() => setConds((cs) => cs.filter((_, j) => j !== i))} className="ml-auto inline-flex cursor-pointer items-center gap-1 text-[length:var(--fs-12)] text-dg-red-600 hover:underline"><FiTrash2 className="size-3.5" /> Διαγραφή</button>}
             </div>
             <div className="space-y-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Αν</p>
+              <p className="text-[length:var(--fs-10)] font-semibold uppercase tracking-wide text-muted-foreground">Αν</p>
               {c.clauses.map((cl, k) => (
                 <div key={k} className="grid grid-cols-[1fr_170px_1fr_28px] items-center gap-2">
                   <select value={cl.fieldKey} className={sel} disabled={!canManage} style={{ borderLeft: `4px solid ${fieldOptions.find((f) => f.key === cl.fieldKey)?.color ?? '#D1D1D1'}` }} onChange={(e) => setC(i, { clauses: c.clauses.map((x, j) => (j === k ? { ...x, fieldKey: e.target.value } : x)) })}>{fieldOptions.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select>
@@ -106,30 +106,30 @@ export function ConditionsStep() {
                   {OPS_WITHOUT_VALUE.includes(cl.op) ? <span /> : <Input value={cl.value ?? ''} disabled={!canManage} placeholder="τιμή" onChange={(e) => setC(i, { clauses: c.clauses.map((x, j) => (j === k ? { ...x, value: e.target.value } : x)) })} />}
                   {canManage && <button type="button" aria-label="Αφαίρεση ρήτρας" onClick={() => setC(i, { clauses: c.clauses.filter((_, j) => j !== k) })} className="grid size-7 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:text-dg-red-600"><FiTrash2 className="size-3.5" /></button>}
                 </div>))}
-              {canManage && <button type="button" onClick={() => setC(i, { clauses: [...c.clauses, { fieldKey: fieldOptions[0]?.key ?? '$total', op: 'notEmpty' } as Clause] })} className="inline-flex cursor-pointer items-center gap-1 text-[12px] text-sisyphus-700 hover:underline"><FiPlus className="size-3" /> Ρήτρα</button>}
-              <p className="pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Τότε</p>
+              {canManage && <button type="button" onClick={() => setC(i, { clauses: [...c.clauses, { fieldKey: fieldOptions[0]?.key ?? '$total', op: 'notEmpty' } as Clause] })} className="inline-flex cursor-pointer items-center gap-1 text-[length:var(--fs-12)] text-sisyphus-700 hover:underline"><FiPlus className="size-3" /> Ρήτρα</button>}
+              <p className="pt-1 text-[length:var(--fs-10)] font-semibold uppercase tracking-wide text-muted-foreground">Τότε</p>
               {c.actions.map((a, k) => <ActionEditor key={k} a={a} fields={dto.fields} mappings={dto.mappings} canManage={canManage} onChange={(na) => setC(i, { actions: c.actions.map((x, j) => (j === k ? na : x)) })} onRemove={() => setC(i, { actions: c.actions.filter((_, j) => j !== k) })} />)}
-              {canManage && <button type="button" onClick={() => setC(i, { actions: [...c.actions, { type: 'FLAG_REVIEW', params: { reason: 'Έλεγχος' } }] })} className="inline-flex cursor-pointer items-center gap-1 text-[12px] text-sisyphus-700 hover:underline"><FiPlus className="size-3" /> Ενέργεια</button>}
+              {canManage && <button type="button" onClick={() => setC(i, { actions: [...c.actions, { type: 'FLAG_REVIEW', params: { reason: 'Έλεγχος' } }] })} className="inline-flex cursor-pointer items-center gap-1 text-[length:var(--fs-12)] text-sisyphus-700 hover:underline"><FiPlus className="size-3" /> Ενέργεια</button>}
             </div>
           </div>))}
       </section>
 
       <section className="space-y-3 border-t border-border pt-4">
-        <h2 className="text-[16px] font-semibold">Λειτουργία</h2>
+        <h2 className="text-[length:var(--fs-16)] font-semibold">Λειτουργία</h2>
         <div className="grid gap-2 sm:grid-cols-3">
           {(Object.keys(MODE_LABEL) as TemplateMode[]).map((m) => { const locked = m === 'AUTO' && !canPost; return (
             <button key={m} type="button" disabled={!canManage || locked} onClick={() => setMode(m)} aria-pressed={mode === m}
               className={cn('cursor-pointer rounded-md border p-3 text-left cx-transition disabled:cursor-not-allowed disabled:opacity-50', mode === m ? 'border-sisyphus-500 bg-sisyphus-50' : 'border-border bg-white hover:border-sisyphus-300')}>
-              <div className="text-[13px] font-semibold">{MODE_LABEL[m]}{locked && <span className="ml-1 text-[10px] font-normal text-muted-foreground">(απαιτεί ocr.post)</span>}</div>
-              <div className="mt-1 text-[11px] text-muted-foreground">{MODE_HELP[m]}</div></button>); })}
+              <div className="text-[length:var(--fs-13)] font-semibold">{MODE_LABEL[m]}{locked && <span className="ml-1 text-[length:var(--fs-10)] font-normal text-muted-foreground">(απαιτεί ocr.post)</span>}</div>
+              <div className="mt-1 text-[length:var(--fs-11)] text-muted-foreground">{MODE_HELP[m]}</div></button>); })}
         </div>
-        <div><label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Emails ειδοποίησης (χωρισμένα με ;)</label><Input value={emails} disabled={!canManage} onChange={(e) => setEmails(e.target.value)} className="mt-1 max-w-lg" placeholder="logistirio@example.gr; admin@example.gr" /></div>
+        <div><label className="text-[length:var(--fs-11)] font-semibold uppercase tracking-wide text-muted-foreground">Emails ειδοποίησης (χωρισμένα με ;)</label><Input value={emails} disabled={!canManage} onChange={(e) => setEmails(e.target.value)} className="mt-1 max-w-lg" placeholder="logistirio@example.gr; admin@example.gr" /></div>
         {canManage && <Button size="sm" onClick={saveMode} disabled={!dirtyMode || busy}><FiSave className="mr-1 size-3.5" /> Αποθήκευση λειτουργίας</Button>}
       </section>
 
       <section className="space-y-2 rounded-md border border-border bg-neutral-4 p-3">
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex-1 text-[12px]"><span className="font-semibold">Κατάσταση:</span> {dto.status === 'ACTIVE' ? 'Ενεργό — εφαρμόζεται αυτόματα σε νέα έγγραφα του προμηθευτή.' : 'Πρόχειρο — δεν εφαρμόζεται. Χρειάζεται δείγμα, πεδίο με περιοχή και mapping.'}</div>
+          <div className="flex-1 text-[length:var(--fs-12)]"><span className="font-semibold">Κατάσταση:</span> {dto.status === 'ACTIVE' ? 'Ενεργό — εφαρμόζεται αυτόματα σε νέα έγγραφα του προμηθευτή.' : 'Πρόχειρο — δεν εφαρμόζεται. Χρειάζεται δείγμα, πεδίο με περιοχή και mapping.'}</div>
           {canManage && (dto.status === 'ACTIVE'
             ? <Button size="sm" variant="secondary" onClick={() => setStatus('DRAFT')} disabled={busy}>Απενεργοποίηση</Button>
             : <Button size="sm" onClick={() => setStatus('ACTIVE')} disabled={busy}><FiZap className="mr-1 size-3.5" /> Ενεργοποίηση</Button>)}
@@ -138,10 +138,10 @@ export function ConditionsStep() {
             δεν το επιβεβαίωσε ποτέ κανείς. */}
         {dto.status !== 'ACTIVE' && (
           gate.ok
-            ? <p className="text-[11px] text-[#047857]">
+            ? <p className="text-[length:var(--fs-11)] text-[#047857]">
                 Πύλη εκπαίδευσης: εντάξει{dto.minTrainingSamples > 0 && ` — ${dto.verifiedSamples} επιβεβαιωμένα δείγματα, βαθμός ${pctText(dto.trainingScore)}`}.
               </p>
-            : <p className="text-[11px] text-[#B45309]">
+            : <p className="text-[length:var(--fs-11)] text-[#B45309]">
                 {activationMessage({ ok: false, error: 'training_gate', reason: gate.reason }, gateInput)}.{' '}
                 <button type="button" onClick={() => goToStep(5)} className="cursor-pointer font-medium underline">Άνοιγμα της εκπαίδευσης</button>
               </p>

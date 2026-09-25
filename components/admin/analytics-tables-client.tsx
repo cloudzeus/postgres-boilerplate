@@ -53,16 +53,16 @@ export function AnalyticsTableClient({
   const columns = React.useMemo<ColumnDef<AnalyticsRecord>[]>(() => [
     {
       accessorKey: 'code', header: 'Κωδικός', size: 140,
-      cell: ({ row }) => <span className="font-mono text-[12px] tabular-nums text-foreground">{row.original.code || '—'}</span>,
+      cell: ({ row }) => <span className="font-mono text-[length:var(--fs-12)] tabular-nums text-foreground">{row.original.code || '—'}</span>,
     },
     {
       accessorKey: 'name', header: 'Περιγραφή', size: 420,
-      cell: ({ row }) => <span className="text-[12px] font-medium text-foreground">{row.original.name || '—'}</span>,
+      cell: ({ row }) => <span className="text-[length:var(--fs-12)] font-medium text-foreground">{row.original.name || '—'}</span>,
     },
     {
       accessorKey: 'sub', header: subHeader, size: 240,
       cell: ({ row }) => (row.original.sub
-        ? <span className="text-[12px] text-muted-foreground">{row.original.sub}</span>
+        ? <span className="text-[length:var(--fs-12)] text-muted-foreground">{row.original.sub}</span>
         : DASH),
     },
   ], [subHeader]);
@@ -76,7 +76,7 @@ export function AnalyticsTableClient({
 
   return (
     <div className="space-y-2">
-      <p className="text-[12px] text-muted-foreground">{hint}</p>
+      <p className="text-[length:var(--fs-12)] text-muted-foreground">{hint}</p>
       <DataTable
         columns={columns}
         data={rows}
@@ -87,7 +87,7 @@ export function AnalyticsTableClient({
         pageSize={50}
       />
       {lastSync && (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[length:var(--fs-11)] text-muted-foreground">
           Τελευταίος συγχρονισμός: {new Date(lastSync).toLocaleString('el-GR')}
         </p>
       )}

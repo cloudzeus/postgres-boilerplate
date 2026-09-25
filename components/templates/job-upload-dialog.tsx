@@ -133,14 +133,14 @@ export function JobUploadDialog({ templateId, templateName, defaultEmails, open,
               <textarea
                 id="job-desc" value={description} maxLength={500} rows={2}
                 onChange={(e) => setDescription(e.target.value)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-400"
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-[length:var(--fs-13)] outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-400"
                 placeholder="Τι είναι αυτή η παρτίδα"
               />
             </div>
             <div className="sm:col-span-2">
               <Label htmlFor="job-mail">Ειδοποίηση σε (προαιρετικό)</Label>
               <Input id="job-mail" value={emails} maxLength={500} onChange={(e) => setEmails(e.target.value)} className="mt-1" placeholder="a@x.gr, b@x.gr" autoComplete="off" />
-              <p className="mt-1 text-[10px] text-muted-foreground">Ένα email μόλις ολοκληρωθεί η εργασία. Κενό = τα emails του προτύπου.</p>
+              <p className="mt-1 text-[length:var(--fs-10)] text-muted-foreground">Ένα email μόλις ολοκληρωθεί η εργασία. Κενό = τα emails του προτύπου.</p>
             </div>
           </div>
 
@@ -150,7 +150,7 @@ export function JobUploadDialog({ templateId, templateName, defaultEmails, open,
             className="rounded-xl border border-dashed border-border bg-muted/20 p-4 text-center"
           >
             <FiUploadCloud className="mx-auto size-6 text-muted-foreground" aria-hidden />
-            <p className="mt-1 text-[12px] text-muted-foreground">Σύρε αρχεία εδώ ή</p>
+            <p className="mt-1 text-[length:var(--fs-12)] text-muted-foreground">Σύρε αρχεία εδώ ή</p>
             <Button type="button" variant="ghost" size="sm" className="mt-1" onClick={() => inputRef.current?.click()} disabled={busy}>
               Επιλογή αρχείων
             </Button>
@@ -158,12 +158,12 @@ export function JobUploadDialog({ templateId, templateName, defaultEmails, open,
               ref={inputRef} type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.webp"
               onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }}
             />
-            <p className="mt-1 text-[10px] text-muted-foreground">PDF, PNG, JPEG, WebP · έως 25 MB το καθένα · έως {MAX_JOB_FILES} αρχεία · έως {MAX_TOTAL_MB} MB συνολικά</p>
+            <p className="mt-1 text-[length:var(--fs-10)] text-muted-foreground">PDF, PNG, JPEG, WebP · έως 25 MB το καθένα · έως {MAX_JOB_FILES} αρχεία · έως {MAX_TOTAL_MB} MB συνολικά</p>
           </div>
 
           {files.length > 0 && (
             <div>
-              <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+              <div className="mb-1 flex items-center justify-between text-[length:var(--fs-11)] text-muted-foreground">
                 <span className={tooMuch ? 'font-medium text-dg-red-600' : undefined}>
                   {files.length} αρχεία · {humanSize(totalBytes)}
                   {tooMuch && ` — πάνω από το όριο των ${MAX_TOTAL_MB} MB ανά εργασία· αφαίρεσε αρχεία ή χώρισέ τα σε δεύτερη εργασία`}
@@ -172,7 +172,7 @@ export function JobUploadDialog({ templateId, templateName, defaultEmails, open,
               </div>
               <ul className="max-h-40 space-y-0.5 overflow-auto rounded-md border border-border p-1.5">
                 {files.map((f, i) => (
-                  <li key={`${f.name}:${f.size}:${i}`} className="flex items-center gap-2 rounded px-1.5 py-0.5 text-[11px] hover:bg-muted/40">
+                  <li key={`${f.name}:${f.size}:${i}`} className="flex items-center gap-2 rounded px-1.5 py-0.5 text-[length:var(--fs-11)] hover:bg-muted/40">
                     <FiFile className="size-3 shrink-0 text-muted-foreground" aria-hidden />
                     <span className="min-w-0 flex-1 truncate">{f.name}</span>
                     <span className="shrink-0 tabular-nums text-muted-foreground">{humanSize(f.size)}</span>

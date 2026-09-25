@@ -29,8 +29,8 @@ export default async function OcrBatchesPage() {
       <OcrFolderUpload />
 
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
-        <table className="w-full text-[13px]">
-          <thead className="bg-muted/80 text-[10px] uppercase tracking-wider text-muted-foreground">
+        <table className="w-full text-[length:var(--fs-13)]">
+          <thead className="bg-muted/80 text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-4 py-2 text-left font-semibold">Φάκελος</th>
               <th className="px-4 py-2 text-left font-semibold w-[120px]">Αρχεία</th>
@@ -55,19 +55,19 @@ export default async function OcrBatchesPage() {
                   </td>
                   <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{total}</td>
                   <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-1.5 text-[11px]">
+                    <div className="flex items-center gap-1.5 text-[length:var(--fs-11)]">
                       {completed > 0 && <span className="rounded-full px-1.5 py-0.5 font-semibold" style={{ background: '#ECFDF5', color: '#047857' }}>{completed} ✓</span>}
                       {processing > 0 && <span className="rounded-full px-1.5 py-0.5 font-semibold" style={{ background: '#EAF2FF', color: '#1D4ED8' }}>{processing} …</span>}
                       {failed > 0 && <span className="rounded-full px-1.5 py-0.5 font-semibold" style={{ background: '#FEF2F2', color: '#B91C1C' }}>{failed} ✕</span>}
                     </div>
                   </td>
-                  <td className="px-4 py-2.5 text-[12px] text-muted-foreground">{b.createdAt.toLocaleString('el-GR')}</td>
+                  <td className="px-4 py-2.5 text-[length:var(--fs-12)] text-muted-foreground">{b.createdAt.toLocaleString('el-GR')}</td>
                   <td className="px-4 py-2.5 text-right"><FiChevronRight className="ml-auto h-4 w-4 text-muted-foreground" /></td>
                 </tr>
               );
             })}
             {batches.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-10 text-center text-[13px] text-muted-foreground">Δεν υπάρχουν φάκελοι ακόμα — ανέβασε τον πρώτο.</td></tr>
+              <tr><td colSpan={5} className="px-4 py-10 text-center text-[length:var(--fs-13)] text-muted-foreground">Δεν υπάρχουν φάκελοι ακόμα — ανέβασε τον πρώτο.</td></tr>
             )}
           </tbody>
         </table>

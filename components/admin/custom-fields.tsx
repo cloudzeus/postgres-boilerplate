@@ -20,7 +20,7 @@ export function CustomValue({ view }: { view: CustomValueView }) {
         {view.text} <span className="text-muted-foreground group-open:hidden">(εμφάνιση)</span>
         <span className="hidden text-muted-foreground group-open:inline">(απόκρυψη)</span>
       </summary>
-      <pre className="mt-1 max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-[11px] leading-snug whitespace-pre-wrap break-words">
+      <pre className="mt-1 max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-[length:var(--fs-11)] leading-snug whitespace-pre-wrap break-words">
         {view.json}
       </pre>
     </details>
@@ -33,14 +33,14 @@ export function CustomFieldsBlock({ data }: { data: Record<string, unknown> | nu
   if (entries.length === 0) return null;
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-card">
-      <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-foreground">
+      <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">
         Ειδικά πεδία
       </header>
       <dl className="grid grid-cols-1 gap-x-3 gap-y-1.5 p-3 sm:grid-cols-2">
         {entries.map((e) => (
           <div key={e.key} className="flex min-w-0 flex-col">
-            <dt className="text-[11px] font-semibold text-muted-foreground">{e.label}</dt>
-            <dd className="min-w-0 text-[12px] text-foreground"><CustomValue view={e.value} /></dd>
+            <dt className="text-[length:var(--fs-11)] font-semibold text-muted-foreground">{e.label}</dt>
+            <dd className="min-w-0 text-[length:var(--fs-12)] text-foreground"><CustomValue view={e.value} /></dd>
           </div>
         ))}
       </dl>

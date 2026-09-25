@@ -169,14 +169,14 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
         <Link href="/admin" className="-m-1.5 flex items-center rounded-md p-1.5" aria-label="DGsoft">
           <img src={BRAND_LOGO_URL} alt="DGsoft" className="h-7 w-auto" />
         </Link>
-        <span className="ml-auto inline-flex items-center gap-1 rounded-sm border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span className="ml-auto inline-flex items-center gap-1 rounded-sm border border-border px-1.5 py-0.5 text-[length:var(--fs-10)] font-medium uppercase tracking-wide text-muted-foreground">
           <FiShield className="size-3" /> Admin
         </span>
       </div>
 
       <div className="border-b border-sidebar-border px-4 py-2.5">
         <p className="cx-eyebrow">Ρόλος</p>
-        <p className="mt-0.5 truncate text-[13px] font-medium text-foreground">{roleName}</p>
+        <p className="mt-0.5 truncate text-[length:var(--fs-13)] font-medium text-foreground">{roleName}</p>
       </div>
 
       <nav className="flex flex-1 flex-col gap-3 overflow-y-auto px-2 py-3">
@@ -209,7 +209,7 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
                       <Link
                         href={item.href}
                         className={cn(
-                          'group/item relative flex h-8 items-center gap-2.5 rounded-sm px-2 text-[13px] font-medium cx-transition',
+                          'group/item relative flex h-8 items-center gap-2.5 rounded-sm px-2 text-[length:var(--fs-13)] font-medium cx-transition',
                           active
                             ? 'bg-[var(--cx-accent-soft)] text-foreground'
                             : 'text-muted-foreground hover:bg-[var(--cx-hover)] hover:text-foreground',
@@ -225,7 +225,7 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
                         <item.icon className={cn('size-3.5', active ? 'text-[var(--cx-accent)]' : 'text-muted-foreground/80')} />
                         <span className="flex-1 truncate">{item.label}</span>
                         {badge !== undefined && badge > 0 && (
-                          <span className="min-w-[18px] rounded-full px-1 text-center text-[10px] font-medium tabular-nums text-muted-foreground ring-1 ring-inset ring-border/70">
+                          <span className="min-w-[18px] rounded-full px-1 text-center text-[length:var(--fs-10)] font-medium tabular-nums text-muted-foreground ring-1 ring-inset ring-border/70">
                             {badge > 99 ? '99+' : badge}
                           </span>
                         )}
@@ -244,12 +244,12 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
           <LocaleSwitcher currentLocale={locale} />
         </div>
         <div className="flex items-center gap-2.5 rounded-sm px-2 py-1.5">
-          <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-muted text-[10px] font-medium text-foreground">
+          <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-muted text-[length:var(--fs-10)] font-medium text-foreground">
             {initials || 'U'}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[12px] font-medium text-foreground">{user.name ?? user.email ?? 'User'}</p>
-            <p className="truncate text-[10px] uppercase tracking-wide text-muted-foreground">{roleName.toLowerCase()}</p>
+            <p className="truncate text-[length:var(--fs-12)] font-medium text-foreground">{user.name ?? user.email ?? 'User'}</p>
+            <p className="truncate text-[length:var(--fs-10)] uppercase tracking-wide text-muted-foreground">{roleName.toLowerCase()}</p>
           </div>
           <Link
             href="/api/auth/signout"
@@ -285,7 +285,7 @@ export function AdminBottomNav() {
             key={item.href}
             href={item.href}
             className={cn(
-              'flex flex-col items-center justify-center gap-0.5 px-1 text-[10px] font-medium cx-transition',
+              'flex flex-col items-center justify-center gap-0.5 px-1 text-[length:var(--fs-10)] font-medium cx-transition',
               active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
             )}
           >

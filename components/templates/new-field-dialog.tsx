@@ -16,7 +16,7 @@ import { slugDraft, slugKey, uniqueKey, type FieldDef, type Region, type Templat
 import type { NewFieldDraft } from './use-run-add-field';
 
 const VALUE_TYPES = Object.keys(VALUE_TYPE_LABEL) as TemplateValueType[];
-const sel = 'mt-1 h-9 w-full rounded-sm border border-input bg-background px-2 text-[13px]';
+const sel = 'mt-1 h-9 w-full rounded-sm border border-input bg-background px-2 text-[length:var(--fs-13)]';
 
 type Props = {
   open: boolean;
@@ -73,9 +73,9 @@ export function NewFieldDialog({ open, onOpenChange, region, takenKeys, busy, on
 
           <div>
             <Label htmlFor="new-field-key">Κλειδί</Label>
-            <Input id="new-field-key" value={key || previewKey} disabled={busy} className="mt-1 font-mono text-[12px]"
+            <Input id="new-field-key" value={key || previewKey} disabled={busy} className="mt-1 font-mono text-[length:var(--fs-12)]"
               placeholder="παράγεται από την ετικέτα" onChange={(e) => setKey(slugDraft(e.target.value))} />
-            <p className="mt-1 text-[10px] text-muted-foreground">Με αυτό το όνομα βγαίνει η τιμή στο JSON και στα mappings.</p>
+            <p className="mt-1 text-[length:var(--fs-10)] text-muted-foreground">Με αυτό το όνομα βγαίνει η τιμή στο JSON και στα mappings.</p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -99,7 +99,7 @@ export function NewFieldDialog({ open, onOpenChange, region, takenKeys, busy, on
               <Label htmlFor="new-field-columns">Στήλες</Label>
               <Input id="new-field-columns" value={columns} disabled={busy} className="mt-1"
                 placeholder="Περιγραφή, Ποσότητα, Αξία" onChange={(e) => setColumns(e.target.value)} />
-              <p className="mt-1 text-[10px] text-muted-foreground">Χωρισμένες με κόμμα — τα κλειδιά τους παράγονται αυτόματα.</p>
+              <p className="mt-1 text-[length:var(--fs-10)] text-muted-foreground">Χωρισμένες με κόμμα — τα κλειδιά τους παράγονται αυτόματα.</p>
             </div>
           )}
 

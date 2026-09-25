@@ -13,7 +13,7 @@ import { buildFlow, layoutFlow, toFlowTemplate, type FlowOrientation, type FlowR
 import { pctText, SCORE_STYLE, scoreTone } from '@/lib/templates/training-view';
 
 type D = Record<string, unknown>;
-const card = 'rounded-md border bg-white px-2.5 py-2 text-[11px] shadow-fluent-2 min-w-[150px] max-w-[170px]';
+const card = 'rounded-md border bg-white px-2.5 py-2 text-[length:var(--fs-11)] shadow-fluent-2 min-w-[150px] max-w-[170px]';
 
 /** Nodes read the reading direction from context so they need no extra props through React Flow. */
 const OrientationContext = React.createContext<FlowOrientation>('vertical');
@@ -38,7 +38,7 @@ function ScoreBadge({ score, ok, total }: { score: number; ok: number; total: nu
   const tone = SCORE_STYLE[scoreTone(score)];
   return (
     <span
-      className="shrink-0 rounded-full px-1.5 text-[9px] font-semibold"
+      className="shrink-0 rounded-full px-1.5 text-[length:var(--fs-9)] font-semibold"
       style={{ backgroundColor: tone.bg, color: tone.fg }}
       title={`Βαθμός εκπαίδευσης ${pctText(score)} — σωστό σε ${ok} από ${total} επιβεβαιωμένα δείγματα`}
     >
@@ -54,12 +54,12 @@ function FieldNode({ data }: NodeProps<Node<D>>) {
   return (
     <div className={`${card} ${data.focused ? 'border-sisyphus-500' : 'border-border'}`} style={{ borderLeft: `4px solid ${color}` }}>
       <Handle type="target" position={h.target} /><Handle type="source" position={h.source} />
-      <div className="flex items-center gap-1.5 font-semibold truncate" style={{ color }}><span className="truncate">{String(data.label)}</span>{status && <span className={`ml-auto shrink-0 rounded-full px-1.5 text-[9px] ${status === 'ok' ? 'bg-[#E8F7F0] text-[#047857]' : 'bg-[#FFF1E6] text-[#C2410C]'}`}>{status === 'ok' ? 'ok' : 'κενό'}</span>}</div>
+      <div className="flex items-center gap-1.5 font-semibold truncate" style={{ color }}><span className="truncate">{String(data.label)}</span>{status && <span className={`ml-auto shrink-0 rounded-full px-1.5 text-[length:var(--fs-9)] ${status === 'ok' ? 'bg-[#E8F7F0] text-[#047857]' : 'bg-[#FFF1E6] text-[#C2410C]'}`}>{status === 'ok' ? 'ok' : 'κενό'}</span>}</div>
       <div className="flex items-center gap-1">
         <span className="text-muted-foreground truncate">{data.kind === 'TABLE' ? 'πίνακας' : 'τιμή'}{data.hasRegion ? ` · σ.${Number(data.page) + 1}` : ' · χωρίς περιοχή'}</span>
         {score != null && <ScoreBadge score={score} ok={Number(data.scoreOk)} total={Number(data.scoreTotal)} />}
       </div>
-      {data.value != null && <div className="mt-0.5 truncate font-mono text-[10px]">{String(data.value)}</div>}
+      {data.value != null && <div className="mt-0.5 truncate font-mono text-[length:var(--fs-10)]">{String(data.value)}</div>}
     </div>);
 }
 function ConditionNode({ data }: NodeProps<Node<D>>) {

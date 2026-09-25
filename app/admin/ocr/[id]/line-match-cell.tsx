@@ -211,21 +211,21 @@ export function LineMatchCell({
       {meta && label ? (
         <span className="flex min-w-0 flex-wrap items-center gap-1">
           <span
-            className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+            className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[length:var(--fs-10)] font-semibold"
             style={{ backgroundColor: meta.bg, color: meta.fg }}
           >
             {meta.icon} {meta.label}
           </span>
-          <span className="min-w-0 truncate text-[12px] text-foreground" title={label}>{label}</span>
+          <span className="min-w-0 truncate text-[length:var(--fs-12)] text-foreground" title={label}>{label}</span>
           {match?.matchedBy && MATCHED_BY[match.matchedBy] && (
-            <span className="shrink-0 text-[10px] text-muted-foreground">· {MATCHED_BY[match.matchedBy]}</span>
+            <span className="shrink-0 text-[length:var(--fs-10)] text-muted-foreground">· {MATCHED_BY[match.matchedBy]}</span>
           )}
         </span>
       ) : (
-        <span className="text-[12px] text-muted-foreground">Χωρίς αντιστοίχιση</span>
+        <span className="text-[length:var(--fs-12)] text-muted-foreground">Χωρίς αντιστοίχιση</span>
       )}
       {shown.length > 0 && (
-        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[length:var(--fs-10)] text-muted-foreground">
           {shown.map(([k, v]) => (
             <span key={k} className="inline-flex min-w-0 items-center gap-1">
               {ANALYTICS_ICON[k]}
@@ -260,7 +260,7 @@ export function LineMatchCell({
           <button
             type="button"
             disabled={busy}
-            className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-input px-2 text-[11px] font-semibold text-foreground outline-none hover:bg-[var(--cx-hover)] focus-visible:ring-2 focus-visible:ring-sisyphus-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-input px-2 text-[length:var(--fs-11)] font-semibold text-foreground outline-none hover:bg-[var(--cx-hover)] focus-visible:ring-2 focus-visible:ring-sisyphus-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? <FiLoader aria-hidden className="size-3 animate-spin motion-reduce:animate-none" />
               : match ? <FiEdit2 aria-hidden className="size-3" /> : <FiLink aria-hidden className="size-3" />}
@@ -285,7 +285,7 @@ export function LineMatchCell({
                   title={fits ? undefined : `Ο προορισμός «${target?.lines}» δεν δέχεται ${KIND_META[k].label.toLowerCase()}.`}
                   onClick={() => { setKind(k); if (k !== 'lineitem') setLineCategory(null); }}
                   className={cn(
-                    'flex flex-1 items-center justify-center gap-1 rounded-md px-1 py-1 text-[11px] font-semibold outline-none',
+                    'flex flex-1 items-center justify-center gap-1 rounded-md px-1 py-1 text-[length:var(--fs-11)] font-semibold outline-none',
                     'cx-transition motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-sisyphus-500',
                     fits ? 'cursor-pointer' : 'cursor-not-allowed opacity-40',
                     kind === k ? 'text-foreground' : 'text-muted-foreground hover:bg-[var(--cx-hover)]',
@@ -310,7 +310,7 @@ export function LineMatchCell({
                 value={lineCategory ?? ''}
                 disabled={busy || lineCategories.length === 0}
                 onChange={(e) => setLineCategory(e.target.value ? Number(e.target.value) : null)}
-                className="mt-1 h-9 w-full cursor-pointer rounded-lg border border-input bg-background px-2.5 text-[13px]"
+                className="mt-1 h-9 w-full cursor-pointer rounded-lg border border-input bg-background px-2.5 text-[length:var(--fs-13)]"
               >
                 <option value="">Όλες οι κατηγορίες</option>
                 {lineCategories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
@@ -345,7 +345,7 @@ export function LineMatchCell({
                 type="button"
                 disabled={busy}
                 onClick={() => { setOpen(false); setCreating(true); }}
-                className="mt-1.5 inline-flex cursor-pointer items-center gap-1 rounded-md border border-sisyphus-500/30 px-2 py-1 text-[11px] font-semibold text-sisyphus-600 outline-none hover:bg-sisyphus-50 focus-visible:ring-2 focus-visible:ring-sisyphus-500 disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-1.5 inline-flex cursor-pointer items-center gap-1 rounded-md border border-sisyphus-500/30 px-2 py-1 text-[length:var(--fs-11)] font-semibold text-sisyphus-600 outline-none hover:bg-sisyphus-50 focus-visible:ring-2 focus-visible:ring-sisyphus-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <FiPlusCircle aria-hidden className="size-3" /> Δημιουργία νέας εγγραφής «{KIND_META[kind].label}»
               </button>

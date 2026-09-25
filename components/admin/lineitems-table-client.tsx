@@ -62,11 +62,11 @@ export function LineItemsTableClient({
   const columns = React.useMemo<ColumnDef<LineItemRecord>[]>(() => [
     {
       accessorKey: 'code', header: 'Κωδικός', size: 140,
-      cell: ({ row }) => <span className="font-mono text-[12px] tabular-nums text-foreground">{row.original.code || '—'}</span>,
+      cell: ({ row }) => <span className="font-mono text-[length:var(--fs-12)] tabular-nums text-foreground">{row.original.code || '—'}</span>,
     },
     {
       accessorKey: 'name', header: 'Περιγραφή', size: 340,
-      cell: ({ row }) => <span className="text-[12px] font-medium text-foreground">{row.original.name || '—'}</span>,
+      cell: ({ row }) => <span className="text-[length:var(--fs-12)] font-medium text-foreground">{row.original.name || '—'}</span>,
     },
     {
       // Ο λογαριασμός ΜΕ το όνομά του στο λογιστικό σχέδιο: ο λογιστής βλέπει εδώ, για όλες τις
@@ -77,7 +77,7 @@ export function LineItemsTableClient({
     {
       accessorKey: 'category', header: 'Κατηγορία δαπάνης', size: 220,
       cell: ({ row }) => (row.original.category
-        ? <span className="text-[12px] text-foreground/80">{row.original.category}</span>
+        ? <span className="text-[length:var(--fs-12)] text-foreground/80">{row.original.category}</span>
         : DASH),
     },
     {
@@ -85,9 +85,9 @@ export function LineItemsTableClient({
       // Μια χρεοπίστωση χωρίς χαρακτηρισμό θα καταχωρίσει αχαρακτήριστη γραμμή: το λέμε ρητά,
       // με εικονίδιο και κείμενο (ποτέ μόνο χρώμα). Η διόρθωση γίνεται στο ίδιο το SoftOne.
       cell: ({ row }) => (row.original.myData
-        ? <span className="text-[12px]" style={{ color: '#047857' }}>{row.original.myData}</span>
+        ? <span className="text-[length:var(--fs-12)]" style={{ color: '#047857' }}>{row.original.myData}</span>
         : (
-          <span className="inline-flex items-center gap-1 text-[12px]" style={{ color: '#B45309' }}>
+          <span className="inline-flex items-center gap-1 text-[length:var(--fs-12)]" style={{ color: '#B45309' }}>
             <FiAlertTriangle className="h-3.5 w-3.5" aria-hidden /> Κανένας
           </span>
         )),
@@ -95,17 +95,17 @@ export function LineItemsTableClient({
     {
       accessorKey: 'vat', header: 'ΦΠΑ', size: 80,
       cell: ({ row }) => (row.original.vat
-        ? <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{row.original.vat}</span>
+        ? <span className="font-mono text-[length:var(--fs-12)] tabular-nums text-muted-foreground">{row.original.vat}</span>
         : DASH),
     },
     {
       accessorKey: 'isActive', header: 'Ενεργή', size: 100,
       cell: ({ row }) => (row.original.isActive ? (
-        <span className="inline-flex items-center gap-1 text-[12px]" style={{ color: '#047857' }}>
+        <span className="inline-flex items-center gap-1 text-[length:var(--fs-12)]" style={{ color: '#047857' }}>
           <FiCheck className="h-3.5 w-3.5" aria-hidden /> Ναι
         </span>
       ) : (
-        <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1 text-[length:var(--fs-12)] text-muted-foreground">
           <FiSlash className="h-3.5 w-3.5" aria-hidden /> Όχι
         </span>
       )),
@@ -121,7 +121,7 @@ export function LineItemsTableClient({
 
   return (
     <div className="space-y-2">
-      <p className="text-[12px] text-muted-foreground">
+      <p className="text-[length:var(--fs-12)] text-muted-foreground">
         Οι χρεοπιστώσεις είναι ό,τι δέχεται μια γραμμή «Ειδικών συναλλαγών» (LINLINES) — εκεί
         καταχωρούνται τα τιμολόγια δαπανών. Ο χαρακτηρισμός myDATA ανήκει στο μητρώο του SoftOne·
         η εφαρμογή τον δείχνει, δεν τον αλλάζει.
@@ -136,7 +136,7 @@ export function LineItemsTableClient({
         pageSize={50}
       />
       {lastSync && (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[length:var(--fs-11)] text-muted-foreground">
           Τελευταίος συγχρονισμός: {new Date(lastSync).toLocaleString('el-GR')}
         </p>
       )}

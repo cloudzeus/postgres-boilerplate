@@ -128,12 +128,12 @@ export function SoftoneResyncProgress({
           const st = state[s.table] ?? 'pending';
           const r = byTable.get(s.table);
           return (
-            <li key={s.table} className="flex items-center justify-between gap-2 text-[12px]">
+            <li key={s.table} className="flex items-center justify-between gap-2 text-[length:var(--fs-12)]">
               <span className="inline-flex min-w-0 items-center gap-2">
                 {ICON[st]}
                 <span className={cn('truncate', st === 'pending' && 'text-muted-foreground')}>{s.label}</span>
               </span>
-              <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+              <span className="shrink-0 font-mono text-[length:var(--fs-11)] tabular-nums text-muted-foreground">
                 {r
                   ? r.ok
                     ? `νέα ${r.created} · ενημ. ${r.updated}${r.skipped ? ` · παράλειψη ${r.skipped}` : ''}`
@@ -148,7 +148,7 @@ export function SoftoneResyncProgress({
       {done && (
         <div
           className={cn(
-            'mt-3 rounded-md border px-2.5 py-2 text-[12px]',
+            'mt-3 rounded-md border px-2.5 py-2 text-[length:var(--fs-12)]',
             failed.length === 0
               ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400'
               : 'border-destructive/30 bg-destructive/5 text-destructive',
@@ -168,7 +168,7 @@ export function SoftoneResyncProgress({
               </ul>
               {onRetryFailed && (
                 <Button
-                  type="button" variant="secondary" size="sm" className="mt-2 h-7 text-[11px]"
+                  type="button" variant="secondary" size="sm" className="mt-2 h-7 text-[length:var(--fs-11)]"
                   disabled={running} onClick={onRetryFailed}
                 >
                   <FiRefreshCw className="h-3 w-3" /> Επανάληψη μόνο για όσους απέτυχαν
@@ -208,13 +208,13 @@ export function SoftoneResyncPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           {title && (
-            <p className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
+            <p className="inline-flex items-center gap-1.5 text-[length:var(--fs-13)] font-semibold text-foreground">
               {variant === 'alert' && <FiAlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />}
               {title}
             </p>
           )}
           {description && (
-            <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{description}</p>
+            <p className="mt-0.5 text-[length:var(--fs-11)] leading-snug text-muted-foreground">{description}</p>
           )}
         </div>
         <Button

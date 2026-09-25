@@ -180,7 +180,7 @@ export function RegionsStep() {
     catch (e) { setTests((t) => ({ ...t, [f.key]: { error: errorMessage(e) } })); }
   };
 
-  if (!dto.sample) return <p className="text-[12px] text-muted-foreground">Ανέβασε πρώτα δείγμα στο βήμα «Δείγμα».</p>;
+  if (!dto.sample) return <p className="text-[length:var(--fs-12)] text-muted-foreground">Ανέβασε πρώτα δείγμα στο βήμα «Δείγμα».</p>;
 
   const saved = fields.filter((f) => f.region && f.region.page === page).map((f) => ({ key: f.key, bbox: f.region!.bbox, color: f.color, active: f.key === focusKey, label: f.label || f.key }));
   // The canvas addresses regions by position in `saved`, the draft by key — translate both ways.
@@ -214,10 +214,10 @@ export function RegionsStep() {
             className="w-full"
           />
         </div>
-        {canManage && <p className="mt-1.5 text-[11px] text-muted-foreground">Σύρε μια περιοχή για μετακίνηση, λαβές για μέγεθος, βέλη/Shift+βέλη για ακρίβεια</p>}
+        {canManage && <p className="mt-1.5 text-[length:var(--fs-11)] text-muted-foreground">Σύρε μια περιοχή για μετακίνηση, λαβές για μέγεθος, βέλη/Shift+βέλη για ακρίβεια</p>}
         <ul className="mt-2 flex flex-wrap gap-1.5">
           {fields.filter((f) => f.region).map((f) => (
-            <li key={f.key}><button type="button" onClick={() => { setFocusKey(f.key); setPage(f.region!.page); }} className={cn('inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px]', f.key === focusKey ? 'border-transparent text-white' : 'border-border bg-white')} style={f.key === focusKey ? { backgroundColor: f.color } : undefined}>
+            <li key={f.key}><button type="button" onClick={() => { setFocusKey(f.key); setPage(f.region!.page); }} className={cn('inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-[length:var(--fs-11)]', f.key === focusKey ? 'border-transparent text-white' : 'border-border bg-white')} style={f.key === focusKey ? { backgroundColor: f.color } : undefined}>
               <span aria-hidden className="size-2 rounded-full" style={{ backgroundColor: f.color }} />{f.label || f.key}<span className="opacity-60">σ.{f.region!.page + 1}</span></button></li>))}
         </ul>
       </div>
@@ -231,17 +231,17 @@ export function RegionsStep() {
           onScan={() => void detectMarks(scanMode, page)} onSave={save}
         />
         <ul className="max-h-[260px] divide-y divide-border overflow-auto rounded-md border border-border">
-          {fields.length === 0 && <li className="p-3 text-[12px] italic text-muted-foreground">Κανένα πεδίο. Πάτησε «Πεδίο».</li>}
+          {fields.length === 0 && <li className="p-3 text-[length:var(--fs-12)] italic text-muted-foreground">Κανένα πεδίο. Πάτησε «Πεδίο».</li>}
           {fields.map((f) => { const t = tests[f.key]; return (
-            <li key={f.key || '__new'} className={cn('flex items-center gap-2 px-2 py-1.5 text-[12px]', f.key === focusKey && 'bg-sisyphus-50')}>
+            <li key={f.key || '__new'} className={cn('flex items-center gap-2 px-2 py-1.5 text-[length:var(--fs-12)]', f.key === focusKey && 'bg-sisyphus-50')}>
               <button type="button" onClick={() => setFocusKey(f.key)} className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left">
                 <span aria-hidden className="size-3 shrink-0 rounded-full" style={{ backgroundColor: f.color }} />
                 <span className="truncate font-medium">{f.label || 'Νέο πεδίο'}</span>
                 {/* A save clears `proposed`, but a server re-sync can repopulate it — `isNew` is the real test. */}
-                {proposed.has(f.key) && isNew(f.key) && <span className="shrink-0 rounded-full px-1.5 text-[10px] font-medium" style={{ backgroundColor: ACCENT.bg, color: ACCENT.fg }}>πρόταση</span>}
-                <span className="shrink-0 text-[10px] text-muted-foreground">{KIND_LABEL[f.kind]}{f.region ? '' : ' · χωρίς περιοχή'}</span>
+                {proposed.has(f.key) && isNew(f.key) && <span className="shrink-0 rounded-full px-1.5 text-[length:var(--fs-10)] font-medium" style={{ backgroundColor: ACCENT.bg, color: ACCENT.fg }}>πρόταση</span>}
+                <span className="shrink-0 text-[length:var(--fs-10)] text-muted-foreground">{KIND_LABEL[f.kind]}{f.region ? '' : ' · χωρίς περιοχή'}</span>
               </button>
-              {t && t !== 'busy' && ('error' in t ? <span className="max-w-[120px] truncate text-[10px] text-dg-red-600" title={t.error}>{t.error}</span> : <span className="max-w-[140px] truncate rounded-sm px-1.5 py-0.5 font-mono text-[10px]" style={{ backgroundColor: f.color + '1A', color: f.color }} title={`${t.raw ?? ''} (${t.source}, ${t.model ?? ''})`}>{String(t.value ?? '∅')}</span>)}
+              {t && t !== 'busy' && ('error' in t ? <span className="max-w-[120px] truncate text-[length:var(--fs-10)] text-dg-red-600" title={t.error}>{t.error}</span> : <span className="max-w-[140px] truncate rounded-sm px-1.5 py-0.5 font-mono text-[length:var(--fs-10)]" style={{ backgroundColor: f.color + '1A', color: f.color }} title={`${t.raw ?? ''} (${t.source}, ${t.model ?? ''})`}>{String(t.value ?? '∅')}</span>)}
               {canManage && <>
                 <button type="button" title="Σχεδίασε περιοχή" aria-label="Σχεδίασε περιοχή" disabled={detecting} onClick={() => { setFocusKey(f.key); setMarking(f.key); }} className={cn('grid size-7 cursor-pointer place-items-center rounded-sm hover:bg-[var(--cx-hover)] disabled:cursor-not-allowed disabled:opacity-40', marking !== f.key && 'text-muted-foreground')} style={marking === f.key ? { color: ACCENT.fg } : undefined}><FiCrosshair className="size-3.5" /></button>
                 <button type="button" title="Δοκιμή ανάγνωσης" aria-label="Δοκιμή ανάγνωσης" disabled={t === 'busy' || detecting} onClick={() => test(f)} className="grid size-7 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:bg-[var(--cx-hover)] disabled:cursor-not-allowed disabled:opacity-40"><FiZap className={cn('size-3.5', t === 'busy' && 'animate-pulse')} /></button>
@@ -254,7 +254,7 @@ export function RegionsStep() {
             <FieldForm field={selected} usedColors={fields.map((f) => f.color)} disabled={!canManage} isNew={isNew(selected.key)}
               keyUnlocked={keyUnlockedFor === originalKey(selected.key)} onUnlockKey={() => setKeyUnlockedFor(originalKey(selected.key))}
               onChange={(f) => update(selected.key, f)} />
-            {selected.region && <p className="mt-2 font-mono text-[10px] text-muted-foreground">σελίδα {selected.region.page + 1} · bbox {selected.region.bbox.map((n) => n.toFixed(3)).join(', ')}</p>}
+            {selected.region && <p className="mt-2 font-mono text-[length:var(--fs-10)] text-muted-foreground">σελίδα {selected.region.page + 1} · bbox {selected.region.bbox.map((n) => n.toFixed(3)).join(', ')}</p>}
           </div>
         )}
       </div>

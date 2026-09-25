@@ -61,8 +61,8 @@ export function SoftoneAfmDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {loading && <div className="py-10 text-center text-[13px] text-muted-foreground">Έλεγχος…</div>}
-        {error && <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-[13px] text-destructive">{error}</div>}
+        {loading && <div className="py-10 text-center text-[length:var(--fs-13)] text-muted-foreground">Έλεγχος…</div>}
+        {error && <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-[length:var(--fs-13)] text-destructive">{error}</div>}
 
         {result && (
           <div className="space-y-3">
@@ -75,7 +75,7 @@ export function SoftoneAfmDialog({
             </div>
 
             {!found && (
-              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-[13px]"
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-[length:var(--fs-13)]"
                 style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}>
                 Δεν βρέθηκε καταχωρημένος στο SoftOne (ούτε ως πελάτης ούτε ως προμηθευτής).
               </div>
@@ -93,7 +93,7 @@ export function SoftoneAfmDialog({
 function StatusPill({ ok, label, icon }: { ok: boolean; label: string; icon: React.ReactNode }) {
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium"
+      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[length:var(--fs-12)] font-medium"
       style={ok
         ? { backgroundColor: '#ECFDF3', borderColor: '#A7F3D0', color: '#047857' }
         : { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB', color: '#6B7280' }}
@@ -108,17 +108,17 @@ function StatusPill({ ok, label, icon }: { ok: boolean; label: string; icon: Rea
 function MatchGroup({ title, rows }: { title: string; rows: Trdr[] }) {
   return (
     <div className="rounded-lg border border-border">
-      <div className="border-b border-border bg-muted/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <div className="border-b border-border bg-muted/40 px-3 py-1.5 text-[length:var(--fs-11)] font-semibold uppercase tracking-wider text-muted-foreground">
         {title}
       </div>
       <div className="divide-y divide-border">
         {rows.map((r) => (
-          <div key={r.trdr} className="px-3 py-2 text-[13px]">
+          <div key={r.trdr} className="px-3 py-2 text-[length:var(--fs-13)]">
             <div className="flex items-baseline gap-2">
-              <span className="font-mono text-[12px] text-muted-foreground">{r.code}</span>
+              <span className="font-mono text-[length:var(--fs-12)] text-muted-foreground">{r.code}</span>
               <span className="font-medium text-foreground">{r.name}</span>
             </div>
-            <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+            <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[length:var(--fs-11)] text-muted-foreground">
               {r.kind && <span className="font-medium text-foreground">{r.kind}</span>}
               {r.doy && <span>ΔΟΥ: {r.doy}</span>}
               {r.city && <span>{r.city}</span>}

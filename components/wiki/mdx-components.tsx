@@ -21,7 +21,7 @@ export function Screenshot({
         <Image src={url} alt={caption ?? ''} fill className="object-contain" sizes="(max-width: 1024px) 100vw, 800px" />
       </div>
       {caption && (
-        <figcaption className="border-t border-border bg-muted/30 px-3 py-2 text-[12px] text-muted-foreground">
+        <figcaption className="border-t border-border bg-muted/30 px-3 py-2 text-[length:var(--fs-12)] text-muted-foreground">
           {caption}
         </figcaption>
       )}
@@ -40,7 +40,7 @@ const calloutStyles: Record<CalloutType, { bg: string; border: string; icon: Rea
 export function Callout({ type = 'info', children }: { type?: CalloutType; children: React.ReactNode }) {
   const s = calloutStyles[type];
   return (
-    <div className={`my-4 flex gap-3 rounded-md border px-3 py-2.5 text-[13px] ${s.bg} ${s.border}`}>
+    <div className={`my-4 flex gap-3 rounded-md border px-3 py-2.5 text-[length:var(--fs-13)] ${s.bg} ${s.border}`}>
       <span className="mt-0.5 shrink-0 [&_svg]:size-4">{s.icon}</span>
       <div className="min-w-0 [&_p]:my-0 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{children}</div>
     </div>
@@ -53,7 +53,7 @@ export function Steps({ children }: { children: React.ReactNode }) {
 
 export function RoleBadge({ role }: { role: string }) {
   return (
-    <span className="inline-flex items-center rounded-sm border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide">
+    <span className="inline-flex items-center rounded-sm border border-border bg-muted px-1.5 py-0.5 text-[length:var(--fs-10)] font-medium uppercase tracking-wide">
       {role}
     </span>
   );

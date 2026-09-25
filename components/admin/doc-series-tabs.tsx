@@ -177,18 +177,18 @@ export function DocSeriesTabs({
       },
       {
         accessorKey: 'code', header: 'Σειρά', size: 84,
-        cell: ({ row }) => <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{row.original.code}</span>,
+        cell: ({ row }) => <span className="font-mono text-[length:var(--fs-12)] tabular-nums text-muted-foreground">{row.original.code}</span>,
       },
       {
         accessorKey: 'abbrev', header: 'Σύντμηση', size: 130,
         cell: ({ row }) => row.original.abbrev
-          ? <span className="inline-flex rounded-sm border border-border bg-neutral-6 px-1.5 py-0.5 font-mono text-[11px] tabular-nums text-foreground">{row.original.abbrev}</span>
+          ? <span className="inline-flex rounded-sm border border-border bg-neutral-6 px-1.5 py-0.5 font-mono text-[length:var(--fs-11)] tabular-nums text-foreground">{row.original.abbrev}</span>
           : DASH,
       },
       {
         accessorKey: 'name', header: 'Περιγραφή', size: 560,
         cell: ({ row }) => (
-          <span className={cn('text-[13px]', row.original.enabled ? 'font-medium text-foreground' : 'text-foreground/80')}>{row.original.name}</span>
+          <span className={cn('text-[length:var(--fs-13)]', row.original.enabled ? 'font-medium text-foreground' : 'text-foreground/80')}>{row.original.name}</span>
         ),
       },
     ];
@@ -207,7 +207,7 @@ export function DocSeriesTabs({
             <button
               type="button"
               onClick={() => navigate({ area: null, tab: String(row.original.sosource) })}
-              className="inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-left text-[12px] text-foreground/80 hover:text-foreground hover:underline"
+              className="inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-left text-[length:var(--fs-12)] text-foreground/80 hover:text-foreground hover:underline"
               title={`Μόνο αυτή η ενότητα (SOSOURCE ${row.original.sosource})`}
             >
               <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: a?.color ?? '#5C5C5C' }} />
@@ -223,7 +223,7 @@ export function DocSeriesTabs({
 
   const toolbar = (
     <div className="flex items-center gap-3">
-      <label className="inline-flex cursor-pointer items-center gap-2 text-[12px] text-foreground/80">
+      <label className="inline-flex cursor-pointer items-center gap-2 text-[length:var(--fs-12)] text-foreground/80">
         <Switch checked={onlyEnabled} onCheckedChange={setOnlyEnabled} aria-label="Μόνο σε χρήση" />
         Μόνο σε χρήση
       </label>
@@ -256,10 +256,10 @@ export function DocSeriesTabs({
               style={active ? { boxShadow: `0 0 0 2px ${a.color}`, backgroundColor: a.soft } : undefined}
             >
               <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: a.color }} />
-              <span className="pl-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: a.color }}>{a.label}</span>
+              <span className="pl-1.5 text-[length:var(--fs-11)] font-semibold uppercase tracking-wide" style={{ color: a.color }}>{a.label}</span>
               <span className="flex items-end justify-between pl-1.5">
-                <span className="text-[20px] font-semibold leading-none tabular-nums text-foreground">{a.count.toLocaleString('el-GR')}</span>
-                <span className="inline-flex items-center gap-1 text-[10px] tabular-nums text-muted-foreground" title="Σε χρήση">
+                <span className="text-[length:var(--fs-20)] font-semibold leading-none tabular-nums text-foreground">{a.count.toLocaleString('el-GR')}</span>
+                <span className="inline-flex items-center gap-1 text-[length:var(--fs-10)] tabular-nums text-muted-foreground" title="Σε χρήση">
                   <FiCheckCircle className="size-3" style={a.enabled ? { color: a.color } : undefined} />
                   {a.enabled}
                 </span>
@@ -276,11 +276,11 @@ export function DocSeriesTabs({
             <Combobox value={comboValue} items={comboItems} onSelect={selectValue} placeholder="Ενότητα…" />
           </div>
           {(activeArea || activeModule != null) && (
-            <button type="button" onClick={() => selectValue('all')} className="text-[12px] text-sisyphus-700 hover:underline">
+            <button type="button" onClick={() => selectValue('all')} className="text-[length:var(--fs-12)] text-sisyphus-700 hover:underline">
               Καθαρισμός φίλτρου
             </button>
           )}
-          <span className="ml-auto text-[11px] text-muted-foreground">
+          <span className="ml-auto text-[length:var(--fs-11)] text-muted-foreground">
             {visible.length.toLocaleString('el-GR')} σειρές{lastSync ? ` · συγχρονισμός ${new Date(lastSync).toLocaleString('el-GR')}` : ''}
           </span>
         </div>
@@ -320,12 +320,12 @@ function PostTargetCell({
   });
 
   if (!rec.enabled) {
-    return <span className="text-[11px] text-muted-foreground/70">—</span>;
+    return <span className="text-[length:var(--fs-11)] text-muted-foreground/70">—</span>;
   }
   // Ενότητα χωρίς υποστηριζόμενο object: το λέμε αντί να προσφέρουμε μια επιλογή που θα έσπαγε.
   if (objectsForSosource(rec.sosource).length === 0 || !effective.supported) {
     return (
-      <span className="text-[11px]" style={{ color: '#B45309' }}>
+      <span className="text-[length:var(--fs-11)]" style={{ color: '#B45309' }}>
         Η ενότητα δεν υποστηρίζεται για καταχώριση
       </span>
     );
@@ -335,12 +335,12 @@ function PostTargetCell({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="inline-flex items-center rounded-sm border border-border bg-neutral-6 px-1.5 py-0.5 text-[11px] text-foreground/80">
+        <span className="inline-flex items-center rounded-sm border border-border bg-neutral-6 px-1.5 py-0.5 text-[length:var(--fs-11)] text-foreground/80">
           {POST_OBJECT_SHORT[effective.object]}
         </span>
         <select
           aria-label={`Πίνακας γραμμών για τη σειρά ${rec.code}`}
-          className="h-7 max-w-[15rem] cursor-pointer rounded-sm border border-border bg-white px-1.5 text-[11px] disabled:cursor-default disabled:opacity-60"
+          className="h-7 max-w-[15rem] cursor-pointer rounded-sm border border-border bg-white px-1.5 text-[length:var(--fs-11)] disabled:cursor-default disabled:opacity-60"
           disabled={!canManage}
           value={rec.postLines && allowed.includes(rec.postLines as PostLineTable) ? rec.postLines : ''}
           onChange={(e) => onLines(rec, e.target.value)}
@@ -351,7 +351,7 @@ function PostTargetCell({
           ))}
         </select>
       </div>
-      <span className="text-[10px] text-muted-foreground">
+      <span className="text-[length:var(--fs-10)] text-muted-foreground">
         {effective.source === 'default' ? 'Προεπιλογή: ' : 'Ρύθμιση: '}
         {POST_OBJECT_SHORT[effective.object]} · {POST_LINES_LABEL[effective.lines]}
       </span>

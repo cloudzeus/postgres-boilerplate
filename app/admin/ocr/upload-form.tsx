@@ -134,8 +134,8 @@ export function OcrUploadForm() {
                 <FiZap className="size-4" />
               </span>
               <span className="min-w-0">
-                <span className="block text-[14px] font-semibold tracking-tight text-foreground">Νέα ανάλυση εγγράφου</span>
-                <span className="block truncate text-[11px] text-muted-foreground">
+                <span className="block text-[length:var(--fs-14)] font-semibold tracking-tight text-foreground">Νέα ανάλυση εγγράφου</span>
+                <span className="block truncate text-[length:var(--fs-11)] text-muted-foreground">
                   {/* Κλειστή: ο χρήστης πρέπει να βλέπει ΜΕ ΤΙ θα τρέξει, χωρίς να την ανοίξει. */}
                   {open
                     ? 'DeepSeek για ψηφιακά PDF · Gemini Vision για εικόνες και σαρωμένα'
@@ -144,7 +144,7 @@ export function OcrUploadForm() {
               </span>
             </span>
             <span className="flex shrink-0 items-center gap-2.5">
-              <span className="hidden text-[10px] font-bold uppercase tracking-wider text-muted-foreground sm:inline">
+              <span className="hidden text-[length:var(--fs-10)] font-bold uppercase tracking-wider text-muted-foreground sm:inline">
                 {open ? 'Σύμπτυξη' : 'Ρυθμίσεις'}
               </span>
               {open ? <FiChevronUp className="size-4 text-muted-foreground" /> : <FiChevronDown className="size-4 text-muted-foreground" />}
@@ -183,7 +183,7 @@ export function OcrUploadForm() {
 
           {/* Mode segmented control */}
           <Field label="PDF Mode">
-            <div className="flex h-9 rounded-md border border-input bg-background p-0.5 text-[12px] font-medium">
+            <div className="flex h-9 rounded-md border border-input bg-background p-0.5 text-[length:var(--fs-12)] font-medium">
               {(['auto', 'digital', 'scanned'] as const).map((m) => (
                 <button
                   key={m}
@@ -214,10 +214,10 @@ export function OcrUploadForm() {
               className="mt-0.5 size-4 accent-[var(--sisyphus-500,#2563eb)]"
             />
             <span>
-              <span className="block text-[13px] font-medium text-foreground">
+              <span className="block text-[length:var(--fs-13)] font-medium text-foreground">
                 Το αρχείο περιέχει πολλά παραστατικά
               </span>
-              <span className="block text-[11px] text-muted-foreground">
+              <span className="block text-[length:var(--fs-11)] text-muted-foreground">
                 Μόνο για PDF, έως {MAX_SPLIT_MB} MB. Θα δεις πρώτα τις σελίδες και θα ορίσεις πού
                 κόβεται κάθε παραστατικό.
               </span>
@@ -259,7 +259,7 @@ export function OcrUploadForm() {
                   {multiDoc ? 'Προετοιμασία σελίδων…' : 'Ανάλυση μέσω AI…'}
                 </p>
                 {open && (
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-[length:var(--fs-11)] text-muted-foreground">
                     Εξαγωγή πεδίων, line items, και σχηματισμός JSON. Διαρκεί 5-25 δευτερόλεπτα.
                   </p>
                 )}
@@ -276,7 +276,7 @@ export function OcrUploadForm() {
                   {multiDoc ? 'Σύρε το PDF εδώ — συνέχεια στον διαχωρισμό' : 'Σύρε αρχείο εδώ ή κάνε κλικ για επιλογή'}
                 </p>
                 {open && (
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-[length:var(--fs-11)] text-muted-foreground">
                     {multiDoc
                       ? `PDF · έως ${MAX_SPLIT_MB} MB`
                       : `PDF, PNG, JPG, WebP, GIF, TIFF, BMP · έως ${MAX_OCR_MB} MB`}
@@ -300,9 +300,9 @@ export function OcrUploadForm() {
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</span>
+      <span className="text-[length:var(--fs-10)] font-bold uppercase tracking-wider text-muted-foreground">{label}</span>
       {children}
-      {hint ? <span className="text-[11px] leading-snug text-muted-foreground">{hint}</span> : null}
+      {hint ? <span className="text-[length:var(--fs-11)] leading-snug text-muted-foreground">{hint}</span> : null}
     </label>
   );
 }

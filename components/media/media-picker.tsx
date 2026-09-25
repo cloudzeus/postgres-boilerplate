@@ -43,7 +43,7 @@ export function MediaPicker({
 
   return (
     <div className={`flex flex-col gap-1.5 ${className ?? ''}`}>
-      {label && <span className="text-[12px] font-semibold text-foreground">{label}</span>}
+      {label && <span className="text-[length:var(--fs-12)] font-semibold text-foreground">{label}</span>}
 
       {value ? (
         <div className="flex items-center gap-2 rounded-md border border-border bg-card p-2">
@@ -56,8 +56,8 @@ export function MediaPicker({
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-medium text-foreground truncate">{value.name}</div>
-            <div className="text-[10px] text-muted-foreground truncate">
+            <div className="text-[length:var(--fs-12)] font-medium text-foreground truncate">{value.name}</div>
+            <div className="text-[length:var(--fs-10)] text-muted-foreground truncate">
               {value.mimeType}
               {value.width && value.height && ` · ${value.width}×${value.height}`}
             </div>

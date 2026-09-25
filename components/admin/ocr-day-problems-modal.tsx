@@ -62,11 +62,11 @@ export function OcrDayProblemsModal({
               >
                 <div className="flex items-center gap-2">
                   <FiAlertTriangle className="size-4 shrink-0" style={{ color: g.meta.tone.fg }} />
-                  <span className="text-[13px] font-semibold" style={{ color: g.meta.tone.fg }}>
+                  <span className="text-[length:var(--fs-13)] font-semibold" style={{ color: g.meta.tone.fg }}>
                     {g.meta.label}
                   </span>
                   <span
-                    className="ml-auto rounded-full border bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
+                    className="ml-auto rounded-full border bg-white/70 px-1.5 py-0.5 text-[length:var(--fs-10)] font-semibold tabular-nums"
                     style={{ color: g.meta.tone.fg, borderColor: g.meta.tone.bd }}
                   >
                     {g.rows.length}
@@ -74,10 +74,10 @@ export function OcrDayProblemsModal({
                 </div>
 
                 {g.meta.problem && (
-                  <p className="mt-1.5 text-[12px] text-foreground/80">{g.meta.problem}</p>
+                  <p className="mt-1.5 text-[length:var(--fs-12)] text-foreground/80">{g.meta.problem}</p>
                 )}
                 {g.meta.solution && (
-                  <p className="mt-1 text-[12px]">
+                  <p className="mt-1 text-[length:var(--fs-12)]">
                     <span className="font-semibold">Λύση: </span>
                     <span className="text-foreground/80">{g.meta.solution}</span>
                   </p>
@@ -85,7 +85,7 @@ export function OcrDayProblemsModal({
 
                 <ul className="mt-2 space-y-0.5">
                   {g.rows.map((r) => (
-                    <li key={r.id} className="truncate text-[11px] font-mono text-foreground/70" title={r.fileName}>
+                    <li key={r.id} className="truncate text-[length:var(--fs-11)] font-mono text-foreground/70" title={r.fileName}>
                       · {r.fileName}
                     </li>
                   ))}

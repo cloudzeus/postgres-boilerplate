@@ -26,14 +26,14 @@ function TableRows({ field, rows }: { field: FieldDef; rows: unknown[] }) {
   const cols = field.columns?.length ? field.columns : null;
   if (!cols) {
     return (
-      <ul className="mt-1 space-y-0.5 rounded border border-border bg-muted/30 p-2 text-[11px]">
+      <ul className="mt-1 space-y-0.5 rounded border border-border bg-muted/30 p-2 text-[length:var(--fs-11)]">
         {rows.map((r, i) => <li key={i} className="truncate font-mono">{typeof r === 'object' ? JSON.stringify(r) : String(r)}</li>)}
       </ul>
     );
   }
   return (
     <div className="mt-1 max-h-56 overflow-auto rounded border border-border">
-      <table className="w-full text-[11px]">
+      <table className="w-full text-[length:var(--fs-11)]">
         <thead className="bg-muted/40 text-left text-muted-foreground">
           <tr>{cols.map((c) => <th key={c.key} className="px-2 py-1 font-medium whitespace-nowrap">{c.label}</th>)}</tr>
         </thead>
@@ -101,7 +101,7 @@ export function RunFieldList({
   }, [draft, onEdit]);
 
   if (run.template.fields.length === 0) {
-    return <p className="rounded-lg border border-border bg-card p-3 text-[12px] text-muted-foreground">Το πρότυπο δεν έχει πεδία.</p>;
+    return <p className="rounded-lg border border-border bg-card p-3 text-[length:var(--fs-12)] text-muted-foreground">Το πρότυπο δεν έχει πεδία.</p>;
   }
 
   return (
@@ -147,12 +147,12 @@ export function RunFieldList({
               <span aria-hidden className="mt-1 size-2.5 shrink-0 rounded-full" style={{ backgroundColor: v?.color ?? f.color }} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                  <span className="text-[12px] font-medium">{f.label}</span>
-                  {f.required && <span className="text-[10px] text-muted-foreground">υποχρεωτικό</span>}
-                  <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">{SOURCE_LABEL[v?.source ?? 'none']}</span>
-                  {v?.page != null && <span className="text-[10px] text-muted-foreground">σ.{v.page + 1}</span>}
+                  <span className="text-[length:var(--fs-12)] font-medium">{f.label}</span>
+                  {f.required && <span className="text-[length:var(--fs-10)] text-muted-foreground">υποχρεωτικό</span>}
+                  <span className="rounded-full bg-muted px-1.5 text-[length:var(--fs-10)] text-muted-foreground">{SOURCE_LABEL[v?.source ?? 'none']}</span>
+                  {v?.page != null && <span className="text-[length:var(--fs-10)] text-muted-foreground">σ.{v.page + 1}</span>}
                   {pendingRegion && (
-                    <span className="rounded-full px-1.5 text-[10px] font-medium" style={{ backgroundColor: '#FDF3E3', color: '#B45309' }}>
+                    <span className="rounded-full px-1.5 text-[length:var(--fs-10)] font-medium" style={{ backgroundColor: '#FDF3E3', color: '#B45309' }}>
                       Νέα περιοχή — Επανάγνωση;
                     </span>
                   )}
@@ -169,13 +169,13 @@ export function RunFieldList({
                       if (e.key === 'Enter') { e.preventDefault(); commit(f.key); }
                       if (e.key === 'Escape') { e.preventDefault(); setEditing(null); }
                     }}
-                    className="mt-1 h-7 text-[12px]"
+                    className="mt-1 h-7 text-[length:var(--fs-12)]"
                   />
                 ) : (
                   <div className="mt-0.5 flex items-start gap-1.5">
                     {/* A re-read rewrites this in place — announce it, or a screen reader user only
                         hears the spinner stop. */}
-                    <span aria-live="polite" className="min-w-0 flex-1 break-words text-[12px]">{formatValue(v?.value ?? null, f.valueType)}</span>
+                    <span aria-live="polite" className="min-w-0 flex-1 break-words text-[length:var(--fs-12)]">{formatValue(v?.value ?? null, f.valueType)}</span>
                     {editable && f.kind === 'SINGLE' && (
                       <button
                         type="button"
@@ -224,7 +224,7 @@ export function RunFieldList({
                 )}
 
                 {v?.raw != null && v.raw !== '' && String(v.value ?? '') !== v.raw && (
-                  <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground" title={v.raw}>raw: {v.raw}</p>
+                  <p className="mt-0.5 truncate font-mono text-[length:var(--fs-10)] text-muted-foreground" title={v.raw}>raw: {v.raw}</p>
                 )}
 
                 {rows && rows.length > 0 && (
@@ -232,7 +232,7 @@ export function RunFieldList({
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setOpen((o) => ({ ...o, [f.key]: !o[f.key] })); }}
-                      className="mt-1 inline-flex cursor-pointer items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                      className="mt-1 inline-flex cursor-pointer items-center gap-1 text-[length:var(--fs-11)] text-muted-foreground hover:text-foreground"
                     >
                       {isOpen ? <FiChevronDown className="size-3" /> : <FiChevronRight className="size-3" />}
                       {isOpen ? 'Απόκρυψη γραμμών' : 'Εμφάνιση γραμμών'}

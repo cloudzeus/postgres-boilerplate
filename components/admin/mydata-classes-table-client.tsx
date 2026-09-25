@@ -55,25 +55,25 @@ export function MyDataClassesTableClient({
   const columns = React.useMemo<ColumnDef<MyDataClassRecord>[]>(() => [
     {
       accessorKey: 'kind', header: 'Λίστα', size: 110,
-      cell: ({ row }) => <span className="text-[12px] text-foreground/80">{KIND_LABEL[row.original.kind]}</span>,
+      cell: ({ row }) => <span className="text-[length:var(--fs-12)] text-foreground/80">{KIND_LABEL[row.original.kind]}</span>,
     },
     {
       accessorKey: 'code', header: 'Κωδικός', size: 90,
-      cell: ({ row }) => <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{row.original.code}</span>,
+      cell: ({ row }) => <span className="font-mono text-[length:var(--fs-12)] tabular-nums text-muted-foreground">{row.original.code}</span>,
     },
     {
       accessorKey: 'name', header: 'Περιγραφή', size: 420,
-      cell: ({ row }) => <span className="text-[12px] font-medium text-foreground">{row.original.name}</span>,
+      cell: ({ row }) => <span className="text-[length:var(--fs-12)] font-medium text-foreground">{row.original.name}</span>,
     },
     {
       accessorKey: 'myDataCode', header: 'Χαρακτηρισμός ΑΑΔΕ', size: 200,
       cell: ({ row }) => (row.original.myDataCode
-        ? <span className="font-mono text-[12px] text-muted-foreground">{row.original.myDataCode}</span>
+        ? <span className="font-mono text-[length:var(--fs-12)] text-muted-foreground">{row.original.myDataCode}</span>
         : DASH),
     },
     {
       accessorKey: 'sotype', header: 'SOTYPE', size: 90,
-      cell: ({ row }) => <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{row.original.sotype}</span>,
+      cell: ({ row }) => <span className="font-mono text-[length:var(--fs-12)] tabular-nums text-muted-foreground">{row.original.sotype}</span>,
     },
   ], []);
 
@@ -86,7 +86,7 @@ export function MyDataClassesTableClient({
 
   return (
     <div className="space-y-2">
-      <p className="text-[12px] text-muted-foreground">
+      <p className="text-[length:var(--fs-12)] text-muted-foreground">
         Λίστες αναφοράς. Ο χαρακτηρισμός μιας γραμμής δεν επιλέγεται εδώ: τον κουβαλά το μητρώο του
         είδους / της υπηρεσίας / της χρεοπίστωσης / του εξόδου στο SoftOne. Αν ένας χαρακτηρισμός
         είναι λάθος, διορθώνεται στο ίδιο το ERP.
@@ -101,7 +101,7 @@ export function MyDataClassesTableClient({
         pageSize={50}
       />
       {lastSync && (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[length:var(--fs-11)] text-muted-foreground">
           Τελευταίος συγχρονισμός: {new Date(lastSync).toLocaleString('el-GR')}
         </p>
       )}

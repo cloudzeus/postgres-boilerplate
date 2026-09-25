@@ -73,8 +73,8 @@ export function OcrSoftoneCorrelation({ docId }: { docId: string }) {
     <div className="rounded-lg border border-border bg-card p-3">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-[13px] font-semibold text-foreground">Συσχέτιση με SoftOne</p>
-          <p className="text-[11px] text-muted-foreground">Ταυτοποίηση γραμμών με είδη/υπηρεσίες (CODE / εργοστασίου / EAN) + τύπος τιμολογίου (DeepSeek).</p>
+          <p className="text-[length:var(--fs-13)] font-semibold text-foreground">Συσχέτιση με SoftOne</p>
+          <p className="text-[length:var(--fs-11)] text-muted-foreground">Ταυτοποίηση γραμμών με είδη/υπηρεσίες (CODE / εργοστασίου / EAN) + τύπος τιμολογίου (DeepSeek).</p>
         </div>
         <Button variant="secondary" size="sm" onClick={run} disabled={busy}>
           <FiLink className="mr-1.5 h-3.5 w-3.5" /> {busy ? 'Ανάλυση…' : 'Συσχέτιση'}
@@ -84,18 +84,18 @@ export function OcrSoftoneCorrelation({ docId }: { docId: string }) {
       {result && (
         <div className="mt-3 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+            <span className="rounded-full border px-2 py-0.5 text-[length:var(--fs-11)] font-semibold"
               style={{ backgroundColor: ts!.bg, color: ts!.fg, borderColor: ts!.bd }}>
               {TYPE_LABEL[result.invoiceType]}
             </span>
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[length:var(--fs-11)] text-muted-foreground">
               Ταυτοποιήθηκαν {result.matchedCount}/{result.totalLines} γραμμές
             </span>
-            {result.reason && <span className="text-[11px] text-muted-foreground italic">— {result.reason}</span>}
+            {result.reason && <span className="text-[length:var(--fs-11)] text-muted-foreground italic">— {result.reason}</span>}
           </div>
 
           <div className="max-h-[40vh] overflow-auto rounded-md border border-border">
-            <table className="w-full text-[12px]">
+            <table className="w-full text-[length:var(--fs-12)]">
               <thead className="sticky top-0 bg-muted/80 backdrop-blur text-muted-foreground">
                 <tr>
                   <th className="px-2.5 py-1.5 text-left font-semibold">Κωδ. γραμμής</th>
@@ -107,7 +107,7 @@ export function OcrSoftoneCorrelation({ docId }: { docId: string }) {
               <tbody>
                 {result.lines.map((l) => (
                   <tr key={l.rowIndex} className="border-t border-border/60">
-                    <td className="px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">{l.lineCode || '—'}</td>
+                    <td className="px-2.5 py-1.5 font-mono text-[length:var(--fs-11)] text-muted-foreground">{l.lineCode || '—'}</td>
                     <td className="px-2.5 py-1.5 align-top">{l.lineName}</td>
                     <td className="px-2.5 py-1.5 align-top">
                       {(() => {
@@ -118,9 +118,9 @@ export function OcrSoftoneCorrelation({ docId }: { docId: string }) {
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span className="cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2">
-                                  <span className="font-mono text-[11px] text-muted-foreground">{m.code}</span>{' '}
+                                  <span className="font-mono text-[length:var(--fs-11)] text-muted-foreground">{m.code}</span>{' '}
                                   <span className="text-foreground">{m.name}</span>{' '}
-                                  <span className="text-[10px] text-muted-foreground">({m.isService ? 'υπηρεσία' : 'είδος'})</span>
+                                  <span className="text-[length:var(--fs-10)] text-muted-foreground">({m.isService ? 'υπηρεσία' : 'είδος'})</span>
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent side="top" align="start" className="max-w-xs">
@@ -166,8 +166,8 @@ function MtrlTooltip({ m }: { m: Match }) {
   return (
     <div className="space-y-1">
       <p className="font-semibold leading-tight">{m.name}</p>
-      <p className="text-[10px] opacity-70">MTRL {m.mtrl} · {m.isService ? 'Υπηρεσία' : 'Είδος'}</p>
-      <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px]">
+      <p className="text-[length:var(--fs-10)] opacity-70">MTRL {m.mtrl} · {m.isService ? 'Υπηρεσία' : 'Είδος'}</p>
+      <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[length:var(--fs-11)]">
         {rows.map(([label, val]) => (
           <React.Fragment key={label}>
             <dt className="opacity-70">{label}</dt>

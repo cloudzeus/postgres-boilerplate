@@ -35,7 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Toaster
           position="top-right"
           toastOptions={{
-            className: '!rounded-xl !border !border-border !bg-card !text-foreground !shadow-pop !text-[13px]',
+            className: '!rounded-xl !border !border-border !bg-card !text-foreground !shadow-pop !text-[length:var(--fs-13)]',
           }}
         />
       </body>

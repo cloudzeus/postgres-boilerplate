@@ -27,7 +27,7 @@ export function LocaleSwitcher({ currentLocale }: { currentLocale: LocaleCode })
 
   return (
     <Select value={currentLocale} onValueChange={change} disabled={pending}>
-      <SelectTrigger className="h-7 w-full text-[12px] gap-1.5">
+      <SelectTrigger className="h-7 w-full text-[length:var(--fs-12)] gap-1.5">
         <FiGlobe className="size-3.5 text-muted-foreground" />
         <SelectValue />
       </SelectTrigger>

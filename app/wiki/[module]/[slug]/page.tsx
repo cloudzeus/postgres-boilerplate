@@ -35,7 +35,7 @@ export default async function WikiPage({ params }: { params: Promise<{ module: s
 
   return (
     <article>
-      <nav className="mb-4 flex items-center gap-1 text-[12px] text-muted-foreground">
+      <nav className="mb-4 flex items-center gap-1 text-[length:var(--fs-12)] text-muted-foreground">
         <Link href="/wiki" className="hover:text-foreground">Οδηγός</Link>
         <FiChevronRight className="size-3" />
         <Link href={`/wiki/${module}`} className="hover:text-foreground">{meta.label}</Link>
@@ -50,23 +50,23 @@ export default async function WikiPage({ params }: { params: Promise<{ module: s
             <Icon className="size-6 text-white" />
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-white/80">{meta.label}</p>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-white lg:text-[28px]">{page.frontmatter.title}</h1>
+            <p className="text-[length:var(--fs-11)] font-medium uppercase tracking-wide text-white/80">{meta.label}</p>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-white lg:text-[length:var(--fs-28)]">{page.frontmatter.title}</h1>
             {page.frontmatter.description && (
-              <p className="mt-2 text-[14px] text-white/90">{page.frontmatter.description}</p>
+              <p className="mt-2 text-[length:var(--fs-14)] text-white/90">{page.frontmatter.description}</p>
             )}
           </div>
         </div>
       </header>
 
       <div
-        className="wiki-content prose prose-base mt-8 max-w-none dark:prose-invert prose-headings:scroll-mt-24 prose-h2:mt-10 prose-h2:mb-3 prose-h2:text-[20px] prose-h2:font-bold prose-h3:mt-7 prose-h3:text-[16px] prose-p:leading-relaxed prose-li:leading-relaxed prose-strong:text-foreground prose-a:text-sisyphus-600 prose-a:no-underline hover:prose-a:underline"
+        className="wiki-content prose prose-base mt-8 max-w-none dark:prose-invert prose-headings:scroll-mt-24 prose-h2:mt-10 prose-h2:mb-3 prose-h2:text-[length:var(--fs-20)] prose-h2:font-bold prose-h3:mt-7 prose-h3:text-[length:var(--fs-16)] prose-p:leading-relaxed prose-li:leading-relaxed prose-strong:text-foreground prose-a:text-sisyphus-600 prose-a:no-underline hover:prose-a:underline"
         dangerouslySetInnerHTML={{ __html: html }}
       />
 
       {page.frontmatter.screenshots.length > 0 && (
         <section className="mt-10">
-          <h2 className="mb-4 text-[18px] font-bold tracking-tight">📸 Στιγμιότυπα</h2>
+          <h2 className="mb-4 text-[length:var(--fs-18)] font-bold tracking-tight">📸 Στιγμιότυπα</h2>
           <div className="grid grid-cols-1 gap-4">
             {page.frontmatter.screenshots.map((s) => (
               <Screenshot key={s.file} src={s.file} caption={s.caption} module={module} page={slug} />
@@ -77,7 +77,7 @@ export default async function WikiPage({ params }: { params: Promise<{ module: s
 
       {related.length > 0 && (
         <section className="mt-10 rounded-xl border border-border bg-card p-5">
-          <h2 className="mb-3 text-[14px] font-semibold uppercase tracking-wide text-muted-foreground">Σχετικά άρθρα</h2>
+          <h2 className="mb-3 text-[length:var(--fs-14)] font-semibold uppercase tracking-wide text-muted-foreground">Σχετικά άρθρα</h2>
           <ul className="space-y-2">
             {related.map((r) => {
               const rm = getModuleMeta(r.frontmatter.module);
@@ -95,8 +95,8 @@ export default async function WikiPage({ params }: { params: Promise<{ module: s
                       <RI className="size-4" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[13.5px] font-medium">{r.frontmatter.title}</span>
-                      <span className="block text-[11.5px] text-muted-foreground">{rm.label}</span>
+                      <span className="block text-[length:var(--fs-13-5)] font-medium">{r.frontmatter.title}</span>
+                      <span className="block text-[length:var(--fs-11-5)] text-muted-foreground">{rm.label}</span>
                     </span>
                     <FiArrowRight className="size-3.5 text-muted-foreground opacity-0 transition group-hover:opacity-100" />
                   </Link>
@@ -115,8 +115,8 @@ export default async function WikiPage({ params }: { params: Promise<{ module: s
           >
             <FiArrowLeft className="mt-1 size-4 text-muted-foreground" />
             <div className="min-w-0">
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Προηγούμενο</p>
-              <p className="mt-0.5 truncate text-[13.5px] font-medium">{prev.frontmatter.title}</p>
+              <p className="text-[length:var(--fs-11)] uppercase tracking-wide text-muted-foreground">Προηγούμενο</p>
+              <p className="mt-0.5 truncate text-[length:var(--fs-13-5)] font-medium">{prev.frontmatter.title}</p>
             </div>
           </Link>
         ) : <span />}
@@ -126,8 +126,8 @@ export default async function WikiPage({ params }: { params: Promise<{ module: s
             className="group flex items-start justify-end gap-3 rounded-xl border border-border bg-card p-4 text-right transition hover:shadow-sm sm:col-start-2"
           >
             <div className="min-w-0">
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Επόμενο</p>
-              <p className="mt-0.5 truncate text-[13.5px] font-medium">{next.frontmatter.title}</p>
+              <p className="text-[length:var(--fs-11)] uppercase tracking-wide text-muted-foreground">Επόμενο</p>
+              <p className="mt-0.5 truncate text-[length:var(--fs-13-5)] font-medium">{next.frontmatter.title}</p>
             </div>
             <FiArrowRight className="mt-1 size-4 text-muted-foreground" />
           </Link>
@@ -135,7 +135,7 @@ export default async function WikiPage({ params }: { params: Promise<{ module: s
       </nav>
 
       {page.frontmatter.updatedAt && (
-        <p className="mt-6 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+        <p className="mt-6 inline-flex items-center gap-1 text-[length:var(--fs-11)] text-muted-foreground">
           <FiClock className="size-3" /> Τελευταία ενημέρωση: {page.frontmatter.updatedAt}
         </p>
       )}

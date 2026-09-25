@@ -57,14 +57,14 @@ export function TestJsonDialog({ open, onOpenChange, result, slug }: { open: boo
           <>
             <ul className="flex flex-wrap gap-1.5">
               {Object.entries(result.fields).map(([k, v]) => (
-                <li key={k} className="inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: v.color, color: v.color }}>
+                <li key={k} className="inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-[length:var(--fs-11)]" style={{ borderColor: v.color, color: v.color }}>
                   <span className="font-mono">{k}</span>
                   <span className="truncate text-foreground">{v.value == null ? '∅' : Array.isArray(v.value) ? `${v.value.length} γραμμές` : String(v.value)}</span>
                 </li>
               ))}
             </ul>
-            {result.errors.length > 0 && <p className="text-[11px] text-dg-red-600">{result.errors.map((e) => `${e.fieldKey}: ${e.message}`).join(' · ')}</p>}
-            <pre ref={preRef} className="max-h-[50vh] overflow-auto rounded-md border border-border bg-neutral-4 p-3 font-mono text-[11px] leading-relaxed">{json}</pre>
+            {result.errors.length > 0 && <p className="text-[length:var(--fs-11)] text-dg-red-600">{result.errors.map((e) => `${e.fieldKey}: ${e.message}`).join(' · ')}</p>}
+            <pre ref={preRef} className="max-h-[50vh] overflow-auto rounded-md border border-border bg-neutral-4 p-3 font-mono text-[length:var(--fs-11)] leading-relaxed">{json}</pre>
             <div className="flex justify-end gap-2">
               <Button variant="secondary" size="sm" onClick={copy}><FiCopy className="mr-1 size-3.5" /> Αντιγραφή</Button>
               <Button size="sm" onClick={download}><FiDownload className="mr-1 size-3.5" /> Λήψη .json</Button>

@@ -104,8 +104,8 @@ export function OcrSplitPreview({ data, onCancel }: { data: SplitPreviewData; on
             <FiScissors className="size-4" />
           </span>
           <div>
-            <h3 className="text-[14px] font-semibold tracking-tight text-foreground">Διαχωρισμός σε παραστατικά</h3>
-            <p className="text-[11px] text-muted-foreground">
+            <h3 className="text-[length:var(--fs-14)] font-semibold tracking-tight text-foreground">Διαχωρισμός σε παραστατικά</h3>
+            <p className="text-[length:var(--fs-11)] text-muted-foreground">
               {data.fileName} · {data.pageCount} σελίδες · {segments.length} παραστατικά
               {' · '}{UPLOAD_DOC_TYPE_LABELS[data.docType]}
             </p>
@@ -122,7 +122,7 @@ export function OcrSplitPreview({ data, onCancel }: { data: SplitPreviewData; on
       </header>
 
       {!data.hasTextLayer && (
-        <p className="flex items-start gap-2 border-b border-border bg-amber-500/10 px-5 py-2.5 text-[12px] text-amber-900 dark:text-amber-200">
+        <p className="flex items-start gap-2 border-b border-border bg-amber-500/10 px-5 py-2.5 text-[length:var(--fs-12)] text-amber-900 dark:text-amber-200">
           <FiAlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span>
             Το PDF είναι σαρωμένο (χωρίς κείμενο), οπότε δεν υπάρχουν ενδείξεις για το πού αλλάζει
@@ -159,7 +159,7 @@ export function OcrSplitPreview({ data, onCancel }: { data: SplitPreviewData; on
                   )}
                 >
                   <FiScissors className="size-4" />
-                  <span className="text-[9px] font-bold uppercase tracking-wider">
+                  <span className="text-[length:var(--fs-9)] font-bold uppercase tracking-wider">
                     {isCut ? 'κοπή' : 'ένωση'}
                   </span>
                 </button>
@@ -180,10 +180,10 @@ export function OcrSplitPreview({ data, onCancel }: { data: SplitPreviewData; on
                   loading="lazy"
                   className="h-[168px] w-full rounded bg-white object-contain"
                 />
-                <figcaption className="mt-1 text-center text-[10px] leading-tight text-muted-foreground">
+                <figcaption className="mt-1 text-center text-[length:var(--fs-10)] leading-tight text-muted-foreground">
                   <span className="font-semibold text-foreground">Σελ. {page.index + 1}</span>
                   {isFirstOfSegment && seg && (
-                    <span className="mt-0.5 block text-[9px] font-bold uppercase leading-tight tracking-wider text-sisyphus-600">
+                    <span className="mt-0.5 block text-[length:var(--fs-9)] font-bold uppercase leading-tight tracking-wider text-sisyphus-600">
                       Παραστατικό {segIndex + 1}, σελ. {seg.from + 1}
                       {seg.to > seg.from ? `-${seg.to + 1}` : ''}
                     </span>
@@ -196,7 +196,7 @@ export function OcrSplitPreview({ data, onCancel }: { data: SplitPreviewData; on
       </div>
 
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-neutral-6/50 px-5 py-3">
-        <p className="text-[12px] text-muted-foreground">
+        <p className="text-[length:var(--fs-12)] text-muted-foreground">
           {phase === 'reading'
             ? `Ανάγνωση ${readDone}/${readTotal}${failed ? ` · ${failed} αποτυχίες` : ''}…`
             : phase === 'splitting'

@@ -17,7 +17,7 @@ export function RunStatusPill({ status, className }: { status: RunStatus; classN
   const s = RUN_STATUS_STYLE[status] ?? RUN_STATUS_STYLE.FAILED;
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${className ?? ''}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[length:var(--fs-11)] font-medium whitespace-nowrap ${className ?? ''}`}
       style={{ backgroundColor: s.bg, color: s.fg }}
     >
       {RUN_STATUS_LABEL[status] ?? status}

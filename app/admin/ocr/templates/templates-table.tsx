@@ -22,7 +22,7 @@ const MODE_STYLE: Record<TemplateRow['mode'], { bg: string; fg: string }> = {
 const STATUS_STYLE = { ACTIVE: { bg: '#E8F7F0', fg: '#047857' }, DRAFT: { bg: '#FDF3E3', fg: '#B45309' } } as const;
 
 const Pill = ({ text, bg, fg }: { text: string; bg: string; fg: string }) => (
-  <span className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: bg, color: fg }}>{text}</span>
+  <span className="inline-flex rounded-full px-2 py-0.5 text-[length:var(--fs-10)] font-semibold" style={{ backgroundColor: bg, color: fg }}>{text}</span>
 );
 
 export function TemplatesTable({ rows, canManage }: { rows: TemplateRow[]; canManage: boolean }) {
@@ -37,26 +37,26 @@ export function TemplatesTable({ rows, canManage }: { rows: TemplateRow[]; canMa
   const columns = React.useMemo<ColumnDef<TemplateRow>[]>(() => [
     { accessorKey: 'name', header: 'Πρότυπο', size: 260, cell: ({ row }) => (
       <div className="min-w-0">
-        <button type="button" onClick={() => router.push(`/admin/ocr/templates/${row.original.id}`)} className="block max-w-full cursor-pointer truncate text-[13px] font-medium text-sisyphus-700 hover:underline">{row.original.name}</button>
-        <div className="truncate font-mono text-[10px] text-muted-foreground">{row.original.slug}</div>
+        <button type="button" onClick={() => router.push(`/admin/ocr/templates/${row.original.id}`)} className="block max-w-full cursor-pointer truncate text-[length:var(--fs-13)] font-medium text-sisyphus-700 hover:underline">{row.original.name}</button>
+        <div className="truncate font-mono text-[length:var(--fs-10)] text-muted-foreground">{row.original.slug}</div>
       </div>) },
     // Hidden by default: the slug and the ΑΦΜ are already printed under their cells, but the
     // global filter only sees accessor columns — without these the search placeholder lies.
-    { accessorKey: 'slug', header: 'Slug', size: 160, enableHiding: true, cell: ({ row }) => <span className="font-mono text-[12px]">{row.original.slug}</span> },
-    { accessorKey: 'department', header: 'Τμήμα', size: 140, cell: ({ row }) => <span className="text-[12px]">{row.original.department || '—'}</span> },
+    { accessorKey: 'slug', header: 'Slug', size: 160, enableHiding: true, cell: ({ row }) => <span className="font-mono text-[length:var(--fs-12)]">{row.original.slug}</span> },
+    { accessorKey: 'department', header: 'Τμήμα', size: 140, cell: ({ row }) => <span className="text-[length:var(--fs-12)]">{row.original.department || '—'}</span> },
     { accessorKey: 'supplierName', header: 'Προμηθευτής', size: 220, cell: ({ row }) => (
       row.original.supplierName || row.original.vatNumber ? (
         <div className="min-w-0">
-          <div className="truncate text-[12px] font-medium">{row.original.supplierName}</div>
-          <div className="font-mono text-[10px] text-muted-foreground">{row.original.vatNumber}</div>
+          <div className="truncate text-[length:var(--fs-12)] font-medium">{row.original.supplierName}</div>
+          <div className="font-mono text-[length:var(--fs-10)] text-muted-foreground">{row.original.vatNumber}</div>
         </div>
-      ) : <span className="text-[12px]">—</span>) },
-    { accessorKey: 'vatNumber', header: 'ΑΦΜ', size: 110, enableHiding: true, cell: ({ row }) => <span className="font-mono text-[12px]">{row.original.vatNumber}</span> },
+      ) : <span className="text-[length:var(--fs-12)]">—</span>) },
+    { accessorKey: 'vatNumber', header: 'ΑΦΜ', size: 110, enableHiding: true, cell: ({ row }) => <span className="font-mono text-[length:var(--fs-12)]">{row.original.vatNumber}</span> },
     { accessorKey: 'mode', header: 'Λειτουργία', size: 120, cell: ({ row }) => <Pill text={MODE_LABEL[row.original.mode]} {...MODE_STYLE[row.original.mode]} /> },
     { accessorKey: 'status', header: 'Κατάσταση', size: 100, cell: ({ row }) => <Pill text={STATUS_LABEL[row.original.status]} {...STATUS_STYLE[row.original.status]} /> },
     { accessorKey: 'fieldsCount', header: 'Πεδία', size: 70, cell: ({ row }) => <span className="tabular-nums">{row.original.fieldsCount}</span> },
     { accessorKey: 'timesUsed', header: 'Χρήσεις', size: 80, cell: ({ row }) => <span className="tabular-nums">{row.original.timesUsed}</span> },
-    { accessorKey: 'updatedAt', header: 'Ενημ.', size: 110, cell: ({ row }) => <span className="text-[11px] text-muted-foreground">{new Date(row.original.updatedAt).toLocaleDateString('el-GR')}</span> },
+    { accessorKey: 'updatedAt', header: 'Ενημ.', size: 110, cell: ({ row }) => <span className="text-[length:var(--fs-11)] text-muted-foreground">{new Date(row.original.updatedAt).toLocaleDateString('el-GR')}</span> },
     { id: 'actions', header: '', size: 48, enableSorting: false, cell: ({ row }) => (
       <DropdownMenu>
         <DropdownMenuTrigger asChild><RowActionsTrigger /></DropdownMenuTrigger>

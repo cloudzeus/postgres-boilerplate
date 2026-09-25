@@ -17,7 +17,7 @@ import { useServerDraft } from './use-server-draft';
 type Mapping = TemplateDto['mappings'][number];
 type Source = { key: string; label: string; color: string; line: boolean };
 
-const sel = 'h-9 w-full rounded-sm border border-input bg-background px-2 text-[12px]';
+const sel = 'h-9 w-full rounded-sm border border-input bg-background px-2 text-[length:var(--fs-12)]';
 const KNOWN_DOCUMENT_KEYS = new Set(DOCUMENT_KEY_GROUPS.flatMap((g) => g.keys.map((k) => k.key)));
 
 /**
@@ -94,23 +94,23 @@ export function MappingStep() {
 
   return (
     <div className="space-y-4">
-      <div><h2 className="text-[16px] font-semibold">Mapping</h2><p className="text-[12px] text-muted-foreground">Πού πηγαίνει κάθε εξαγόμενο πεδίο: στα πεδία του παραστατικού ή σε στήλες Excel. Οι κανόνες μπορούν να αλλάζουν mapping.</p></div>
+      <div><h2 className="text-[length:var(--fs-16)] font-semibold">Mapping</h2><p className="text-[length:var(--fs-12)] text-muted-foreground">Πού πηγαίνει κάθε εξαγόμενο πεδίο: στα πεδία του παραστατικού ή σε στήλες Excel. Οι κανόνες μπορούν να αλλάζουν mapping.</p></div>
       <div className="flex flex-wrap items-center gap-1.5">
         {mappings.map((x, i) => (
-          <button key={x.name || `new-${i}`} type="button" onClick={() => setActive(i)} className={cn('inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[12px] cx-transition', i === active ? 'border-sisyphus-500 bg-sisyphus-50 font-medium text-sisyphus-700' : 'border-border bg-white hover:border-sisyphus-300')}>
-            {x.target === 'EXCEL' ? 'Excel' : 'Παραστατικό'}: {x.name}{x.isDefault && <span className="text-[10px] opacity-70">· προεπιλογή</span>}</button>))}
+          <button key={x.name || `new-${i}`} type="button" onClick={() => setActive(i)} className={cn('inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[length:var(--fs-12)] cx-transition', i === active ? 'border-sisyphus-500 bg-sisyphus-50 font-medium text-sisyphus-700' : 'border-border bg-white hover:border-sisyphus-300')}>
+            {x.target === 'EXCEL' ? 'Excel' : 'Παραστατικό'}: {x.name}{x.isDefault && <span className="text-[length:var(--fs-10)] opacity-70">· προεπιλογή</span>}</button>))}
         {canManage && <><Button size="sm" variant="secondary" onClick={() => addMapping('INVOICE')}><FiPlus className="mr-1 size-3.5" /> Παραστατικό</Button><Button size="sm" variant="secondary" onClick={() => addMapping('EXCEL')}><FiPlus className="mr-1 size-3.5" /> Excel</Button></>}
         {canManage && <Button size="sm" className="ml-auto" onClick={save} disabled={!dirty || busy}><FiSave className="mr-1 size-3.5" /> {busy ? 'Αποθήκευση…' : 'Αποθήκευση'}</Button>}
       </div>
       {m && (
         <div className="rounded-md border border-border p-3">
           <div className="mb-3 grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
-            <div><label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Όνομα</label><Input value={m.name} disabled={!canManage} onChange={(e) => setM({ name: e.target.value })} className="mt-1" /></div>
-            <label className="inline-flex items-center gap-2 text-[12px]"><input type="radio" checked={m.isDefault} disabled={!canManage} onChange={() => setMappings((ms) => ms.map((x, i) => ({ ...x, isDefault: i === active })))} /> Προεπιλογή</label>
+            <div><label className="text-[length:var(--fs-11)] font-semibold uppercase tracking-wide text-muted-foreground">Όνομα</label><Input value={m.name} disabled={!canManage} onChange={(e) => setM({ name: e.target.value })} className="mt-1" /></div>
+            <label className="inline-flex items-center gap-2 text-[length:var(--fs-12)]"><input type="radio" checked={m.isDefault} disabled={!canManage} onChange={() => setMappings((ms) => ms.map((x, i) => ({ ...x, isDefault: i === active })))} /> Προεπιλογή</label>
             {canManage && mappings.length > 1 && <Button variant="ghost" size="sm" onClick={removeMapping} className="text-dg-red-600"><FiTrash2 className="mr-1 size-3.5" /> Αφαίρεση</Button>}
           </div>
-          <table className="w-full text-[12px]">
-            <thead><tr className="text-left text-[10px] uppercase tracking-wide text-muted-foreground"><th className="pb-1">Πεδίο προτύπου</th><th className="pb-1">{m.target === 'EXCEL' ? 'Στήλη Excel' : 'Πεδίο παραστατικού'}</th>{m.target === 'EXCEL' && <th className="w-20 pb-1">Σειρά</th>}<th className="w-8" /></tr></thead>
+          <table className="w-full text-[length:var(--fs-12)]">
+            <thead><tr className="text-left text-[length:var(--fs-10)] uppercase tracking-wide text-muted-foreground"><th className="pb-1">Πεδίο προτύπου</th><th className="pb-1">{m.target === 'EXCEL' ? 'Στήλη Excel' : 'Πεδίο παραστατικού'}</th>{m.target === 'EXCEL' && <th className="w-20 pb-1">Σειρά</th>}<th className="w-8" /></tr></thead>
             <tbody>
               {m.rows.map((r, i) => (
                 <tr key={`${r.fieldKey}-${i}`} className="border-t border-border">
@@ -121,11 +121,11 @@ export function MappingStep() {
                   {m.target === 'EXCEL' && <td className="py-1.5 pr-2"><Input type="number" min={0} value={(r as MappingRowExcel).order} disabled={!canManage} onChange={(e) => setRow(i, { ...r, order: Number(e.target.value) || 0 } as MappingRowExcel)} /></td>}
                   <td className="py-1.5">{canManage && <button type="button" aria-label="Αφαίρεση" onClick={() => delRow(i)} className="grid size-7 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:bg-[var(--cx-hover)] hover:text-dg-red-600"><FiTrash2 className="size-3.5" /></button>}</td>
                 </tr>))}
-              {m.rows.length === 0 && <tr><td colSpan={4} className="py-4 text-center text-[12px] italic text-muted-foreground">Καμία γραμμή.</td></tr>}
+              {m.rows.length === 0 && <tr><td colSpan={4} className="py-4 text-center text-[length:var(--fs-12)] italic text-muted-foreground">Καμία γραμμή.</td></tr>}
             </tbody>
           </table>
           {canManage && <Button size="sm" variant="secondary" className="mt-2" onClick={addRow} disabled={sources.length === 0}><FiPlus className="mr-1 size-3.5" /> Γραμμή</Button>}
-          {m.target === 'INVOICE' && <p className="mt-2 text-[11px] text-muted-foreground">Στήλες πίνακα → «Γραμμές». Απλά πεδία → μια διαδρομή του εγγράφου ή «Ειδικό πεδίο». Ό,τι απλό πεδίο μείνει αχαρτογράφητο αποθηκεύεται αυτόματα στα ειδικά πεδία του εγγράφου.</p>}
+          {m.target === 'INVOICE' && <p className="mt-2 text-[length:var(--fs-11)] text-muted-foreground">Στήλες πίνακα → «Γραμμές». Απλά πεδία → μια διαδρομή του εγγράφου ή «Ειδικό πεδίο». Ό,τι απλό πεδίο μείνει αχαρτογράφητο αποθηκεύεται αυτόματα στα ειδικά πεδία του εγγράφου.</p>}
         </div>
       )}
     </div>

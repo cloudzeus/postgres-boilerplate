@@ -42,7 +42,7 @@ export function TemplatePicker({ templates, issuerVat, value, onChange, disabled
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
       aria-label="Πρότυπο εξαγωγής"
-      className={`h-8 min-w-[14rem] max-w-full cursor-pointer rounded-lg border border-input bg-background px-2 text-[12px] disabled:cursor-not-allowed disabled:opacity-50 ${className ?? ''}`}
+      className={`h-8 min-w-[14rem] max-w-full cursor-pointer rounded-lg border border-input bg-background px-2 text-[length:var(--fs-12)] disabled:cursor-not-allowed disabled:opacity-50 ${className ?? ''}`}
     >
       <option value="">— Επίλεξε πρότυπο —</option>
       {forVat.length > 0 && (

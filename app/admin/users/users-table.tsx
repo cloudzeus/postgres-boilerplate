@@ -56,17 +56,17 @@ export function UsersTable({ rows, roles }: { rows: UserRow[]; roles: RoleOpt[] 
         const initials = (row.original.name || row.original.email).slice(0, 2).toUpperCase();
         return (
           <div className="flex items-center gap-2 min-w-0">
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-semibold shrink-0">
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-[length:var(--fs-10)] font-semibold shrink-0">
               {initials}
             </span>
-            <span className="font-medium text-foreground truncate text-[12px]">{row.original.name || '—'}</span>
+            <span className="font-medium text-foreground truncate text-[length:var(--fs-12)]">{row.original.name || '—'}</span>
           </div>
         );
       },
     },
     {
       accessorKey: 'email', header: 'Email', size: 260,
-      cell: ({ row }) => <span className="text-muted-foreground truncate text-[12px]">{row.original.email}</span>,
+      cell: ({ row }) => <span className="text-muted-foreground truncate text-[length:var(--fs-12)]">{row.original.email}</span>,
     },
     {
       accessorKey: 'roleName', header: 'Ρόλος', size: 140,
@@ -87,7 +87,7 @@ export function UsersTable({ rows, roles }: { rows: UserRow[]; roles: RoleOpt[] 
     {
       accessorKey: 'createdAt', header: 'Δημιουργία', size: 120,
       cell: ({ row }) => (
-        <span className="text-muted-foreground tabular-nums text-[12px]">
+        <span className="text-muted-foreground tabular-nums text-[length:var(--fs-12)]">
           {new Date(row.original.createdAt).toLocaleDateString('el-GR')}
         </span>
       ),
@@ -134,13 +134,13 @@ export function UsersTable({ rows, roles }: { rows: UserRow[]; roles: RoleOpt[] 
         searchPlaceholder="Αναζήτηση χρηστών..."
         enableSelection
         expandable={(u) => (
-          <div className="grid sm:grid-cols-2 gap-4 text-[12px] px-1 py-1">
+          <div className="grid sm:grid-cols-2 gap-4 text-[length:var(--fs-12)] px-1 py-1">
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-0.5">Δημιουργήθηκε</div>
+              <div className="text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground font-semibold mb-0.5">Δημιουργήθηκε</div>
               <div className="text-foreground">{new Date(u.createdAt).toLocaleString('el-GR')}</div>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-0.5">Email επιβεβαιωμένο</div>
+              <div className="text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground font-semibold mb-0.5">Email επιβεβαιωμένο</div>
               <div className="text-foreground">{u.emailVerified ? new Date(u.emailVerified).toLocaleString('el-GR') : '—'}</div>
             </div>
           </div>
@@ -240,7 +240,7 @@ function EditUserDialog({
           </div>
           <label className="flex items-center gap-2 cursor-pointer pt-1">
             <Checkbox checked={isActive} onCheckedChange={(v) => setIsActive(!!v)} />
-            <span className="text-[13px] text-foreground">Ενεργός λογαριασμός</span>
+            <span className="text-[length:var(--fs-13)] text-foreground">Ενεργός λογαριασμός</span>
           </label>
         </div>
         <DialogFooter>
@@ -291,7 +291,7 @@ function PasswordDialog({ user, onClose, onSaved }: { user: UserRow | null; onCl
             <Label htmlFor="pw-confirm">Επιβεβαίωση</Label>
             <Input id="pw-confirm" type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} autoComplete="new-password" />
           </div>
-          <p className="text-[11px] text-muted-foreground">Τουλάχιστον 8 χαρακτήρες. Ο χρήστης θα ενημερωθεί ξεχωριστά.</p>
+          <p className="text-[length:var(--fs-11)] text-muted-foreground">Τουλάχιστον 8 χαρακτήρες. Ο χρήστης θα ενημερωθεί ξεχωριστά.</p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>Άκυρο</Button>

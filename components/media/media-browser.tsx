@@ -111,7 +111,7 @@ export function MediaBrowser({ pickerMode, onPick, acceptImagesOnly }: Props) {
     <div className="space-y-3">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <nav className="flex items-center gap-1 text-[12px] text-muted-foreground flex-1 min-w-0 truncate">
+        <nav className="flex items-center gap-1 text-[length:var(--fs-12)] text-muted-foreground flex-1 min-w-0 truncate">
           <button
             type="button"
             onClick={() => setFolderId(null)}
@@ -188,14 +188,14 @@ export function MediaBrowser({ pickerMode, onPick, acceptImagesOnly }: Props) {
         )}
 
         {loading ? (
-          <div className="p-8 text-center text-[12px] text-muted-foreground">Φόρτωση…</div>
+          <div className="p-8 text-center text-[length:var(--fs-12)] text-muted-foreground">Φόρτωση…</div>
         ) : folders.length === 0 && files.length === 0 ? (
           <div className="p-12 text-center">
             <FiUpload className="size-8 mx-auto text-muted-foreground mb-2" />
-            <p className="text-[13px] text-muted-foreground">
+            <p className="text-[length:var(--fs-13)] text-muted-foreground">
               Σύρε αρχεία εδώ ή πάτα <span className="font-semibold text-foreground">Μεταφόρτωση</span>.
             </p>
-            <p className="text-[11px] text-muted-foreground mt-1">Max 500 MB ανά αρχείο.</p>
+            <p className="text-[length:var(--fs-11)] text-muted-foreground mt-1">Max 500 MB ανά αρχείο.</p>
           </div>
         ) : (
           <div className="p-3 grid gap-2 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
@@ -233,7 +233,7 @@ function FolderTile({ folder, onOpen, onDelete }: { folder: Folder; onOpen: () =
         className="w-full flex flex-col items-center gap-1.5 rounded-lg border border-border bg-card p-3 hover:border-primary hover:bg-accent/40 transition-colors"
       >
         <FiFolder className="size-10 text-primary/80" />
-        <span className="text-[11px] font-medium text-foreground truncate w-full text-center">{folder.name}</span>
+        <span className="text-[length:var(--fs-11)] font-medium text-foreground truncate w-full text-center">{folder.name}</span>
       </button>
       <button
         type="button"
@@ -269,14 +269,14 @@ function FileTile({ file, onDelete, onPick }: { file: MediaFile; onDelete: () =>
             <FiFile className="size-10 text-muted-foreground" />
           )}
           {file.isSvg && (
-            <span className="absolute top-1 left-1 rounded-sm bg-primary/90 text-primary-foreground px-1 py-0.5 text-[9px] font-bold tracking-wide">
+            <span className="absolute top-1 left-1 rounded-sm bg-primary/90 text-primary-foreground px-1 py-0.5 text-[length:var(--fs-9)] font-bold tracking-wide">
               SVG
             </span>
           )}
         </div>
         <div className="p-1.5 text-left">
-          <div className="text-[11px] font-medium text-foreground truncate">{file.name}</div>
-          <div className="text-[10px] text-muted-foreground tabular-nums">
+          <div className="text-[length:var(--fs-11)] font-medium text-foreground truncate">{file.name}</div>
+          <div className="text-[length:var(--fs-10)] text-muted-foreground tabular-nums">
             {fmt(file.size)}
             {file.width && file.height && ` · ${file.width}×${file.height}`}
           </div>

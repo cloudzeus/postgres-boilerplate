@@ -42,7 +42,7 @@ const TYPES: Array<{ sodtype: number; label: string; color: string; soft: string
 const typeOf = (sodtype: number) => TYPES.find((t) => t.sodtype === sodtype) ?? { sodtype, label: `Τύπος ${sodtype}`, color: '#5C5C5C', soft: '#F3F2F1' };
 const DASH = <span className="text-muted-foreground/40">—</span>;
 const muted = (v: string | null, mono = false) =>
-  v ? <span className={cn('text-[12px] text-muted-foreground', mono && 'font-mono tabular-nums')}>{v}</span> : DASH;
+  v ? <span className={cn('text-[length:var(--fs-12)] text-muted-foreground', mono && 'font-mono tabular-nums')}>{v}</span> : DASH;
 const normalizeUrl = (w: string) => (/^https?:\/\//i.test(w) ? w : `https://${w}`);
 
 export function TradersView({
@@ -100,14 +100,14 @@ export function TradersView({
     const cols: ColumnDef<TraderRecord>[] = [
       {
         accessorKey: 'code', header: 'Κωδικός', size: 110,
-        cell: ({ row }) => <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{row.original.code || '—'}</span>,
+        cell: ({ row }) => <span className="font-mono text-[length:var(--fs-12)] tabular-nums text-muted-foreground">{row.original.code || '—'}</span>,
       },
       {
         accessorKey: 'name', header: 'Επωνυμία', size: 300,
         cell: ({ row }) => (
           <div className="min-w-0">
-            <div className="truncate text-[12px] font-medium text-foreground">{row.original.name || '—'}</div>
-            {row.original.profession && <div className="truncate text-[10px] text-muted-foreground">{row.original.profession}</div>}
+            <div className="truncate text-[length:var(--fs-12)] font-medium text-foreground">{row.original.name || '—'}</div>
+            {row.original.profession && <div className="truncate text-[length:var(--fs-10)] text-muted-foreground">{row.original.profession}</div>}
           </div>
         ),
       },
@@ -121,7 +121,7 @@ export function TradersView({
             <button
               type="button"
               onClick={() => selectType(row.original.sodtype)}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-[length:var(--fs-10)] font-semibold"
               style={{ backgroundColor: t.soft, color: t.color, borderColor: t.color + '55' }}
               title={`Μόνο ${t.label}`}
             >
@@ -142,8 +142,8 @@ export function TradersView({
           const sub = [c.zip, c.city].filter(Boolean).join(' ');
           return (
             <div className="min-w-0">
-              <div className="truncate text-[12px] text-foreground">{c.address || '—'}</div>
-              {sub && <div className="truncate text-[10px] text-muted-foreground">{sub}</div>}
+              <div className="truncate text-[length:var(--fs-12)] text-foreground">{c.address || '—'}</div>
+              {sub && <div className="truncate text-[length:var(--fs-10)] text-muted-foreground">{sub}</div>}
             </div>
           );
         },
@@ -154,9 +154,9 @@ export function TradersView({
           const c = row.original;
           if (!c.phone && !c.phone2) return DASH;
           return (
-            <div className="font-mono text-[12px] tabular-nums">
+            <div className="font-mono text-[length:var(--fs-12)] tabular-nums">
               <div>{c.phone || ''}</div>
-              {c.phone2 && <div className="text-[10px] text-muted-foreground">{c.phone2}</div>}
+              {c.phone2 && <div className="text-[length:var(--fs-10)] text-muted-foreground">{c.phone2}</div>}
             </div>
           );
         },
@@ -169,7 +169,7 @@ export function TradersView({
           return (
             <div className="min-w-0">
               {em.slice(0, 2).map((e, i) => (
-                <div key={i} className="truncate text-[12px]">
+                <div key={i} className="truncate text-[length:var(--fs-12)]">
                   <a href={`mailto:${e.trim()}`} className="text-sisyphus-600 hover:underline">{e.trim()}</a>
                 </div>
               ))}
@@ -183,7 +183,7 @@ export function TradersView({
           const w = row.original.webpage;
           if (!w) return DASH;
           return (
-            <a href={normalizeUrl(w)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-sisyphus-600 hover:underline">
+            <a href={normalizeUrl(w)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[length:var(--fs-12)] text-sisyphus-600 hover:underline">
               <FiGlobe className="h-3 w-3 shrink-0" /> <span className="truncate">{w}</span>
             </a>
           );
@@ -215,14 +215,14 @@ export function TradersView({
 
       <div className="rounded-md border border-border bg-white shadow-fluent-2">
         <div className="flex flex-wrap items-center gap-3 border-b border-border bg-neutral-4 px-3 py-2.5">
-          <h2 className="text-[14px] font-semibold text-foreground" style={active ? { color: active.color } : undefined}>
+          <h2 className="text-[length:var(--fs-14)] font-semibold text-foreground" style={active ? { color: active.color } : undefined}>
             {active ? active.label : 'Όλοι οι συναλλασσόμενοι'}
           </h2>
-          <span className="rounded-full bg-sisyphus-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-sisyphus-700">
+          <span className="rounded-full bg-sisyphus-50 px-2 py-0.5 text-[length:var(--fs-11)] font-semibold tabular-nums text-sisyphus-700">
             {visible.length.toLocaleString('el-GR')}
           </span>
           {lastSync && (
-            <span className="ml-auto text-[11px] text-muted-foreground">
+            <span className="ml-auto text-[length:var(--fs-11)] text-muted-foreground">
               Τελευταίος συγχρονισμός: {new Date(lastSync).toLocaleString('el-GR')}
             </span>
           )}
@@ -259,10 +259,10 @@ function Tile({
       style={active ? { boxShadow: `0 0 0 2px ${color}`, backgroundColor: soft } : undefined}
     >
       <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: color }} />
-      <span className="flex items-center gap-1.5 pl-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color }}>
+      <span className="flex items-center gap-1.5 pl-1.5 text-[length:var(--fs-11)] font-semibold uppercase tracking-wide" style={{ color }}>
         {icon && <FiUsers className="size-3" />}{label}
       </span>
-      <span className="pl-1.5 text-[20px] font-semibold leading-none tabular-nums text-foreground">{count.toLocaleString('el-GR')}</span>
+      <span className="pl-1.5 text-[length:var(--fs-20)] font-semibold leading-none tabular-nums text-foreground">{count.toLocaleString('el-GR')}</span>
     </button>
   );
 }

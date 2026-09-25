@@ -45,7 +45,7 @@ const pageOf = (v: FieldValue | undefined): number | null => (v?.bbox ? v.page ?
 function FlagList({ items, color, bg, title }: { items: string[]; color: string; bg: string; title: string }) {
   if (items.length === 0) return null;
   return (
-    <div className="rounded-lg border p-2.5 text-[12px]" style={{ borderColor: `${color}40`, backgroundColor: bg, color }}>
+    <div className="rounded-lg border p-2.5 text-[length:var(--fs-12)]" style={{ borderColor: `${color}40`, backgroundColor: bg, color }}>
       <p className="font-semibold">{title}</p>
       <ul className="mt-1 list-disc space-y-0.5 pl-4">{items.map((m, i) => <li key={i}>{m}</li>)}</ul>
     </div>
@@ -247,8 +247,8 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
             <Button size="sm" variant="secondary" onClick={addField.startMarking} disabled={addField.marking || addField.busy || atColorCap}
               title={atColorCap ? COLOR_CAP_MSG : 'Σημείωσε περιοχή στο έγγραφο για ένα πεδίο που λείπει από το πρότυπο'}><FiPlus /> Νέο πεδίο</Button>
           )}
-          {editableRun && atColorCap && <span className="text-[11px] text-muted-foreground">{COLOR_CAP_MSG}</span>}
-          {addField.marking && <span role="status" className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ backgroundColor: ACCENT.bg, color: ACCENT.fg }}>Σύρε πλαίσιο για το νέο πεδίο · Esc για ακύρωση</span>}
+          {editableRun && atColorCap && <span className="text-[length:var(--fs-11)] text-muted-foreground">{COLOR_CAP_MSG}</span>}
+          {addField.marking && <span role="status" className="rounded-full px-2 py-0.5 text-[length:var(--fs-11)] font-medium" style={{ backgroundColor: ACCENT.bg, color: ACCENT.fg }}>Σύρε πλαίσιο για το νέο πεδίο · Esc για ακύρωση</span>}
           {run && (
             <>
               <a href={templatesApi.runs.outputUrl(docId, run.id, true)} download
@@ -278,7 +278,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
       </div>
 
       {!run ? (
-        <div className="space-y-1 rounded-lg border border-dashed border-border p-4 text-[12px] text-muted-foreground">
+        <div className="space-y-1 rounded-lg border border-dashed border-border p-4 text-[length:var(--fs-12)] text-muted-foreground">
           <p>Δεν έχει τρέξει πρότυπο σε αυτό το έγγραφο.</p>
           {unknownForm && (
             <p style={{ color: '#4338CA' }}>
@@ -293,7 +293,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
           <div className="grid gap-4 lg:grid-cols-2">
             <div>
               {pageCount > 1 && (
-                <div className="mb-2 flex items-center gap-2 text-[12px]">
+                <div className="mb-2 flex items-center gap-2 text-[length:var(--fs-12)]">
                   <button type="button" aria-label="Προηγούμενη σελίδα" className="cursor-pointer rounded border px-2 py-0.5 disabled:cursor-default disabled:opacity-40"
                     disabled={page <= 0} onClick={() => setPage((p) => p - 1)}>←</button>
                   <span>Σελίδα {page + 1} / {pageCount}</span>
@@ -320,7 +320,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
                 />
               </div>
               {canManage && (
-                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                <p className="mt-1.5 text-[length:var(--fs-11)] text-muted-foreground">
                   {addField.marking
                     ? 'Σύρε πλαίσιο πάνω στο έγγραφο για το νέο πεδίο — Esc για ακύρωση.'
                     : editableRun
@@ -341,7 +341,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
           <FlagList items={run.flags.review.filter((m) => !run.flags.blocked.includes(m))} color="#B45309" bg="#FDF3E3" title="Προς έλεγχο" />
 
           {run.matched.length > 0 && (
-            <p className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+            <p className="flex flex-wrap items-center gap-1.5 text-[length:var(--fs-11)] text-muted-foreground">
               Κανόνες που ίσχυσαν:
               {run.matched.map((m) => <span key={m.id} className="rounded-full border border-border bg-background px-2 py-0.5">{m.name}</span>)}
             </p>
@@ -349,7 +349,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
 
           <div>
             <button type="button" onClick={() => setFlowOpen((o) => !o)}
-              className="inline-flex cursor-pointer items-center gap-1 text-[12px] font-medium text-muted-foreground hover:text-foreground">
+              className="inline-flex cursor-pointer items-center gap-1 text-[length:var(--fs-12)] font-medium text-muted-foreground hover:text-foreground">
               {flowOpen ? <FiChevronDown className="size-3.5" /> : <FiChevronRight className="size-3.5" />} Ροή
             </button>
             {flowOpen && (
@@ -363,7 +363,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
           {runs.length > 1 && (
             <div>
               <button type="button" onClick={() => setHistoryOpen((o) => !o)}
-                className="inline-flex cursor-pointer items-center gap-1 text-[12px] font-medium text-muted-foreground hover:text-foreground">
+                className="inline-flex cursor-pointer items-center gap-1 text-[length:var(--fs-12)] font-medium text-muted-foreground hover:text-foreground">
                 {historyOpen ? <FiChevronDown className="size-3.5" /> : <FiChevronRight className="size-3.5" />} Ιστορικό ({runs.length})
               </button>
               {historyOpen && (
@@ -371,7 +371,7 @@ export function RunResult({ docId, fileName, issuerVat, initialRuns, templates, 
                   {runs.map((r) => (
                     <li key={r.id}>
                       <button type="button" onClick={() => { setSelectedId(r.id); clearFocus(); setPage(0); }}
-                        className={`flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-[11px] hover:bg-muted/40 ${r.id === run.id ? 'bg-muted/60' : ''}`}>
+                        className={`flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-[length:var(--fs-11)] hover:bg-muted/40 ${r.id === run.id ? 'bg-muted/60' : ''}`}>
                         <RunStatusPill status={r.status} />
                         <span className="truncate">{r.template.name}</span>
                         <span className="ml-auto shrink-0 text-muted-foreground">{runWhen(r)}</span>

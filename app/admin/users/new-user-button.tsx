@@ -95,7 +95,7 @@ export function NewUserButton({ roles }: { roles: { id: string; name: string }[]
           </div>
           <label className="flex items-center gap-2 cursor-pointer pt-1">
             <Checkbox checked={active} onCheckedChange={(v) => setActive(!!v)} />
-            <span className="text-[13px] text-foreground">Ενεργός λογαριασμός</span>
+            <span className="text-[length:var(--fs-13)] text-foreground">Ενεργός λογαριασμός</span>
           </label>
         </div>
         <DialogFooter>

@@ -104,7 +104,7 @@ export function AiUsageDailyChart({ data, labelEvery }: { data: DailyPoint[]; la
   return (
     <div>
       {/* Legend */}
-      <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[11px] text-muted-foreground">
+      <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[length:var(--fs-11)] text-muted-foreground">
         <span className="inline-flex items-center gap-2">
           <span className="h-2.5 w-3.5 rounded-[2px]" style={{ background: `${COST}33`, boxShadow: `inset 0 -1.5px 0 ${COST}` }} />
           Κόστος/ημέρα · <strong className="font-semibold text-foreground">{fmtEur(totalCost)}</strong>
@@ -166,10 +166,10 @@ export function AiUsageDailyChart({ data, labelEvery }: { data: DailyPoint[]; la
         {/* Tooltip — Fluent elevation */}
         {hover != null && hp && (
           <div
-            className="pointer-events-none absolute top-1 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg border border-border bg-card/95 px-2.5 py-1.5 text-[10px] shadow-pop backdrop-blur-sm"
+            className="pointer-events-none absolute top-1 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg border border-border bg-card/95 px-2.5 py-1.5 text-[length:var(--fs-10)] shadow-pop backdrop-blur-sm"
             style={{ left: `${tooltipLeft}%` }}
           >
-            <div className="mb-1 text-[11px] font-semibold text-foreground">{hp.label}</div>
+            <div className="mb-1 text-[length:var(--fs-11)] font-semibold text-foreground">{hp.label}</div>
             <div className="space-y-0.5">
               <Row color={COST} label="Κόστος" value={fmtEur(hp.costEur)} />
               <Row color={DOCS} label="Έγγραφα" value={String(hp.docs)} />

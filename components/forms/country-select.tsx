@@ -96,7 +96,7 @@ export function CountrySelect({
   return (
     <select
       id={id}
-      className={`h-8 w-full rounded-sm border border-input bg-background px-2 text-[12px] ${className ?? ''}`}
+      className={`h-8 w-full rounded-sm border border-input bg-background px-2 text-[length:var(--fs-12)] ${className ?? ''}`}
       value={value ?? DEFAULT_COUNTRY}
       onChange={(e) => onChange(e.target.value)}
     >

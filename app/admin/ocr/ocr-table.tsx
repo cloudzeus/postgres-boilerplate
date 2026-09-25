@@ -435,7 +435,7 @@ export function OcrTable({
               <span className="truncate font-medium text-foreground hover:underline">{r.fileName}</span>
               {isCopy && (
                 <span
-                  className="inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[length:var(--fs-10)] font-semibold"
                   style={{ backgroundColor: '#FEF3C7', color: '#92400E', borderColor: '#FDE68A' }}
                   title="Το ίδιο τιμολόγιο έχει σαρωθεί ξανά (ίδιο ΜΑΡΚ ΑΑΔΕ ή ίδιος αριθμός + ημερομηνία)"
                 >
@@ -486,19 +486,19 @@ export function OcrTable({
           return (
             <div className="flex flex-col items-start gap-0.5 min-w-[110px]" title={`${r.softoneName ?? ''} (TRDR ${r.softoneTrdr})`}>
               <span
-                className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold"
+                className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[length:var(--fs-10)] font-semibold"
                 style={{ backgroundColor: st.bg, color: st.fg, borderColor: st.bd }}
               >
                 <FiCheck className="size-3" /> {r.softoneKind ?? 'SoftOne'}
               </span>
-              <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{r.softoneCode ?? r.softoneTrdr}</span>
+              <span className="font-mono text-[length:var(--fs-11)] tabular-nums text-muted-foreground">{r.softoneCode ?? r.softoneTrdr}</span>
             </div>
           );
         }
         if (r.softoneChecked) {
           return (
             <span
-              className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] font-medium"
+              className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[length:var(--fs-11)] font-medium"
               style={{ backgroundColor: '#FFF8EE', color: '#92400E', borderColor: '#FCD9A8' }}
               title="Δεν βρέθηκε προμηθευτής με αυτό το ΑΦΜ στο SoftOne"
             >
@@ -521,7 +521,7 @@ export function OcrTable({
           {!anyEnabledSeries && (
             <>
               <span aria-hidden className="text-muted-foreground">·</span>
-              <Link href="/admin/doc-series" className="text-[12px] font-semibold text-sisyphus-600 underline underline-offset-2 cursor-pointer">
+              <Link href="/admin/doc-series" className="text-[length:var(--fs-12)] font-semibold text-sisyphus-600 underline underline-offset-2 cursor-pointer">
                 Ενεργοποίησε σειρές
               </Link>
             </>
@@ -546,16 +546,16 @@ export function OcrTable({
           >
             <span className="flex items-center gap-1.5">
               <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: tone.color }} />
-              <span className="text-[12px] font-semibold text-foreground">{opt?.abbrev ?? r.softoneSeries}</span>
+              <span className="text-[length:var(--fs-12)] font-semibold text-foreground">{opt?.abbrev ?? r.softoneSeries}</span>
               {/* Λέξη + εικονίδιο αντί για σκέτο ποσοστό: το ακριβές % μένει στο title. */}
               {tone.word && (
-                <span aria-hidden className="flex items-center gap-0.5 text-[10px] font-semibold" style={{ color: tone.color }}>
+                <span aria-hidden className="flex items-center gap-0.5 text-[length:var(--fs-10)] font-semibold" style={{ color: tone.color }}>
                   {tone.word === 'σίγουρο' ? <FiCheckCircle className="size-3" /> : <FiAlertTriangle className="size-3" />}
                   {tone.word}
                 </span>
               )}
             </span>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-[length:var(--fs-10)] text-muted-foreground">
               {opt?.family ?? SERIES_SIDE_LABEL[seriesTraderKind(r.seriesSource ?? 1251)]}{manual ? ' · χειροκίνητη' : ''}
             </span>
           </button>
@@ -576,7 +576,7 @@ export function OcrTable({
         if (!st) {
           return r.unknownForm ? (
             <span
-              className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+              className="inline-flex items-center rounded-full px-2 py-0.5 text-[length:var(--fs-11)] font-medium"
               style={{ backgroundColor: '#EEF2FF', color: '#4338CA' }}
               title="Δεν βρέθηκε πρότυπο ούτε από το ΑΦΜ ούτε από τη διάταξη — διάλεξε πρότυπο στην καρτέλα του εγγράφου"
             >
@@ -588,14 +588,14 @@ export function OcrTable({
         }
         return (
           <div className="flex flex-col items-start gap-0.5 min-w-[120px]">
-            <span className="max-w-[150px] truncate text-[12px] font-medium text-foreground" title={r.templateName ?? undefined}>
+            <span className="max-w-[150px] truncate text-[length:var(--fs-12)] font-medium text-foreground" title={r.templateName ?? undefined}>
               {r.templateName ?? '—'}
             </span>
             <span className="flex items-center gap-1">
               <RunStatusPill status={st} />
               {r.blockedCount > 0 && (
                 <span
-                  className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
+                  className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[length:var(--fs-10)] font-bold tabular-nums"
                   style={{ backgroundColor: '#FDE8E8', color: '#B91C1C' }}
                   title={`${r.blockedCount} πεδία μπλοκάρουν την ανάρτηση`}
                 >
@@ -604,7 +604,7 @@ export function OcrTable({
               )}
               {r.reviewCount > 0 && (
                 <span
-                  className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
+                  className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[length:var(--fs-10)] font-bold tabular-nums"
                   style={{ backgroundColor: '#FDF3E3', color: '#B45309' }}
                   title={`${r.reviewCount} πεδία θέλουν έλεγχο`}
                 >
@@ -637,7 +637,7 @@ export function OcrTable({
         if (isProcessing) {
           return (
             <div className="flex flex-col gap-1 min-w-[120px]">
-              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-sisyphus-600">
+              <div className="flex items-center gap-1.5 text-[length:var(--fs-10)] font-semibold uppercase tracking-wide text-sisyphus-600">
                 <span className="inline-block size-1.5 animate-pulse rounded-full bg-sisyphus-500" />
                 Σκανάρισμα HQ…
               </div>
@@ -659,7 +659,7 @@ export function OcrTable({
         return (
           <div className="flex flex-col items-start gap-0.5">
             <Badge variant={POST_VARIANT[r.postStatus] ?? 'outline'}>{r.postStatus}</Badge>
-            {r.postedRef && <span className="font-mono text-[10px] text-muted-foreground">{r.postedRef}</span>}
+            {r.postedRef && <span className="font-mono text-[length:var(--fs-10)] text-muted-foreground">{r.postedRef}</span>}
           </div>
         );
       },
@@ -671,7 +671,7 @@ export function OcrTable({
         const m = reconMeta(row.original);
         return (
           <span
-            className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold"
+            className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[length:var(--fs-10)] font-semibold"
             style={{ backgroundColor: m.tone.bg, color: m.tone.fg, borderColor: m.tone.bd }}
             title={m.problem ?? m.label}
           >
@@ -814,7 +814,7 @@ export function OcrTable({
                   {ctx.collapsed ? <FiChevronRight className="size-3.5" /> : <FiChevronDown className="size-3.5" />}
                 </button>
                 <span className="capitalize">{label}</span>
-                <span className="inline-flex items-center gap-1 rounded-full bg-sisyphus-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sisyphus-600">
+                <span className="inline-flex items-center gap-1 rounded-full bg-sisyphus-500/10 px-2 py-0.5 text-[length:var(--fs-10)] font-semibold uppercase tracking-wide text-sisyphus-600">
                   {count} {count === 1 ? 'σκανάρισμα' : 'σκαναρίσματα'}
                   {unique !== count && <span className="text-muted-foreground">· {unique} μοναδικά</span>}
                 </span>
@@ -822,7 +822,7 @@ export function OcrTable({
                   <button
                     type="button"
                     onClick={() => setProblemsDay({ label, rows: dayRows })}
-                    className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+                    className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[length:var(--fs-10)] font-semibold"
                     style={{ backgroundColor: '#FFF8EE', color: '#92400E', borderColor: '#FCD9A8' }}
                     title="Δες προβλήματα & λύσεις"
                   >
@@ -884,8 +884,8 @@ export function OcrTable({
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <DialogHeader className="shrink-0 border-b border-border px-5 py-3 text-left">
-            <DialogTitle className="truncate text-[14px]">{fullRow?.fileName ?? ''}</DialogTitle>
-            <DialogDescription className="text-[11px]">
+            <DialogTitle className="truncate text-[length:var(--fs-14)]">{fullRow?.fileName ?? ''}</DialogTitle>
+            <DialogDescription className="text-[length:var(--fs-11)]">
               {fullRow
                 ? `${fullRow.issuer ?? 'Άγνωστος εκδότης'}${fullRow.docNumber ? ` · ${fullRow.docNumber}` : ''}`
                   + `${fullRow.itemsTotal ? ` · ${fullRow.itemsTotal} γραμμές` : ''}`

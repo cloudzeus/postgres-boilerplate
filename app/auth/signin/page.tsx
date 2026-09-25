@@ -36,7 +36,7 @@ export default async function SignInPage({
           <label className="flex flex-col gap-1.5">
             <span className="flex items-center justify-between text-xs font-semibold text-foreground">
               Κωδικός
-              <Link href="/auth/lost-password" className="text-[11px] font-medium text-[var(--color-brand-blue)] hover:text-[var(--color-brand-blue-deep)]">
+              <Link href="/auth/lost-password" className="text-[length:var(--fs-11)] font-medium text-[var(--color-brand-blue)] hover:text-[var(--color-brand-blue-deep)]">
                 Ξεχάσατε τον κωδικό;
               </Link>
             </span>

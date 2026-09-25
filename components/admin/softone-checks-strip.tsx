@@ -118,7 +118,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
     <>
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
         {/* Πού πάει — πρώτο, γιατί ΑΥΤΟ ορίζει τι ζητούν τα υπόλοιπα τμήματα. */}
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-muted/30 px-4 py-1.5 text-[11px]">
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-muted/30 px-4 py-1.5 text-[length:var(--fs-11)]">
           <span className="font-semibold uppercase tracking-wider text-muted-foreground">Προορισμός</span>
           {helpHref && (
             <Link href={helpHref} target="_blank" aria-label="Βοήθεια: ολοκλήρωση παραστατικού"
@@ -161,7 +161,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                 <Popover>
                   <PopoverTrigger asChild>
                     <button type="button"
-                      className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-current/20 px-2 py-1 text-[11px] font-semibold hover:bg-current/5">
+                      className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-current/20 px-2 py-1 text-[length:var(--fs-11)] font-semibold hover:bg-current/5">
                       {data.supplier.mismatch ? 'Διόρθωσε' : 'Σύνδεσε'} <FiChevronDown className="size-3" />
                     </button>
                   </PopoverTrigger>
@@ -208,7 +208,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                         χρήστης χρειαζόταν περισσότερο τη δημιουργία, το κουμπί γινόταν άκλικτο. */}
                     {req && (
                       <button type="button" onClick={() => setCreatingTrader(true)}
-                        className="inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-md border border-sisyphus-500/30 px-2 py-1.5 text-[12px] font-semibold text-sisyphus-600 hover:bg-sisyphus-50">
+                        className="inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-md border border-sisyphus-500/30 px-2 py-1.5 text-[length:var(--fs-12)] font-semibold text-sisyphus-600 hover:bg-sisyphus-50">
                         <FiPlusCircle className="size-3.5" /> Δημιουργία {req.labelAcc}
                         {data.supplier.afm ? ` (ΑΦΜ ${data.supplier.afm})` : ''}
                       </button>
@@ -241,7 +241,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
             action={itemsTone === 'warn'
               ? (
                 <button type="button" onClick={() => setOpen((o) => !o)}
-                  className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-current/20 px-2 py-1 text-[11px] font-semibold hover:bg-current/5">
+                  className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-current/20 px-2 py-1 text-[length:var(--fs-11)] font-semibold hover:bg-current/5">
                   Λύσε <FiChevronDown className={cn('size-3 transition-transform', open && 'rotate-180')} />
                 </button>
               )
@@ -265,14 +265,14 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
         {/* Η λίστα των αταίριαστων γραμμών — κάθε μία παραπέμπει στον picker ΤΗΣ. */}
         {open && itemsUnmatched > 0 && (
           <div className="border-t border-border bg-muted/20 p-2">
-            <p className="px-1 pb-1.5 text-[11px] text-muted-foreground">{data.items.reason}</p>
+            <p className="px-1 pb-1.5 text-[length:var(--fs-11)] text-muted-foreground">{data.items.reason}</p>
             <div className="max-h-56 overflow-auto rounded-lg border border-border bg-card">
               {data.items.unmatched.map((l) => (
                 <div key={l.id} className="flex items-center gap-2 border-b border-border/60 px-3 py-2 last:border-0">
-                  <span className="w-[90px] shrink-0 font-mono text-[11px] text-muted-foreground">{l.code || `#${l.rowIndex + 1}`}</span>
-                  <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">{l.name}</span>
+                  <span className="w-[90px] shrink-0 font-mono text-[length:var(--fs-11)] text-muted-foreground">{l.code || `#${l.rowIndex + 1}`}</span>
+                  <span className="min-w-0 flex-1 truncate text-[length:var(--fs-12)] text-foreground">{l.name}</span>
                   <button type="button" onClick={() => emitFocusLine(l.id)}
-                    className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-sisyphus-500/30 px-2 py-1 text-[11px] font-semibold text-sisyphus-600 hover:bg-sisyphus-50"
+                    className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-sisyphus-500/30 px-2 py-1 text-[length:var(--fs-11)] font-semibold text-sisyphus-600 hover:bg-sisyphus-50"
                     title="Άνοιγμα της γραμμής στον πίνακα — εκεί γίνεται η αντιστοίχιση ΚΑΙ η δημιουργία">
                     Άνοιξε τη γραμμή <FiChevronRight className="size-3" />
                   </button>
@@ -283,7 +283,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
         )}
 
         {!needsAction && (
-          <div className="flex items-center gap-1.5 border-t border-border bg-emerald-50/40 px-3 py-1.5 text-[11px] font-medium" style={{ color: '#047857' }}>
+          <div className="flex items-center gap-1.5 border-t border-border bg-emerald-50/40 px-3 py-1.5 text-[length:var(--fs-11)] font-medium" style={{ color: '#047857' }}>
             <FiCheck className="size-3.5" /> Όλοι οι έλεγχοι ΟΚ — έτοιμο για καταχώριση.
           </div>
         )}
@@ -319,12 +319,12 @@ function Segment({
           {icon}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="flex items-center gap-1 text-[length:var(--fs-10)] font-semibold uppercase tracking-wider text-muted-foreground">
             {title}
           </div>
           <div className="flex items-center gap-1.5">
             <StatusIcon className="size-3.5 shrink-0" style={{ color: t.fg }} />
-            <span className="truncate text-[13px] font-medium text-foreground" title={value}>{value}</span>
+            <span className="truncate text-[length:var(--fs-13)] font-medium text-foreground" title={value}>{value}</span>
           </div>
         </div>
       </div>

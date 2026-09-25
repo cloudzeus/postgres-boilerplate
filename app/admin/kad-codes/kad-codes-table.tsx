@@ -16,15 +16,15 @@ export function KadCodesTable({ rows }: { rows: Row[] }) {
   const columns: ColumnDef<Row>[] = [
     {
       accessorKey: 'code', header: 'ΚΑΔ', size: 110,
-      cell: ({ row }) => <span className="font-mono text-[12px] tabular-nums">{row.original.code}</span>,
+      cell: ({ row }) => <span className="font-mono text-[length:var(--fs-12)] tabular-nums">{row.original.code}</span>,
     },
     {
       accessorKey: 'description', header: 'Περιγραφή', size: 520,
-      cell: ({ row }) => <span className="text-[12px] text-foreground">{row.original.description}</span>,
+      cell: ({ row }) => <span className="text-[length:var(--fs-12)] text-foreground">{row.original.description}</span>,
     },
     {
       accessorKey: 'parentCode', header: 'Τμήμα', size: 80,
-      cell: ({ row }) => <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{row.original.parentCode ?? '—'}</span>,
+      cell: ({ row }) => <span className="font-mono text-[length:var(--fs-11)] tabular-nums text-muted-foreground">{row.original.parentCode ?? '—'}</span>,
     },
     {
       accessorKey: 'isActive', header: 'Κατάσταση', size: 110,

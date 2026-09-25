@@ -159,7 +159,7 @@ export function RegistrySearch({
           aria-activedescendant={showList ? `${listId}-${active}` : undefined}
           placeholder={PLACEHOLDER[kind]}
           autoComplete="off"
-          className="h-9 pl-8 pr-8 text-[13px]"
+          className="h-9 pl-8 pr-8 text-[length:var(--fs-13)]"
         />
         {loading && (
           <FiLoader
@@ -191,7 +191,7 @@ export function RegistrySearch({
                   i === active ? 'bg-sisyphus-50' : 'hover:bg-[var(--cx-hover)]',
                 )}
               >
-                <span className="line-clamp-1 text-[13px] font-medium text-foreground">{r.name}</span>
+                <span className="line-clamp-1 text-[length:var(--fs-13)] font-medium text-foreground">{r.name}</span>
                 <span className="text-caption text-muted-foreground">
                   <span className="font-mono">{r.code}</span>
                   {r.sub ? ` · ${r.sub}` : ''}

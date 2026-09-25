@@ -83,7 +83,7 @@ export function ZoomablePreview({
       title="Κύλισε για zoom · σύρε για μετακίνηση · διπλό κλικ για επαναφορά"
     >
       {errored ? (
-        <div className="flex size-full flex-col items-center justify-center gap-2 p-4 text-center text-[12px] text-muted-foreground">
+        <div className="flex size-full flex-col items-center justify-center gap-2 p-4 text-center text-[length:var(--fs-12)] text-muted-foreground">
           <span>Δεν ήταν δυνατή η προεπισκόπηση.</span>
           {fallbackHref && (
             <a href={fallbackHref} target="_blank" rel="noreferrer" className="font-semibold text-sisyphus-600 hover:underline">
@@ -110,14 +110,14 @@ export function ZoomablePreview({
           <button
             type="button"
             onClick={reset}
-            className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-black/65 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm hover:bg-black/80"
+            className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-black/65 px-1.5 py-0.5 text-[length:var(--fs-10)] font-semibold text-white backdrop-blur-sm hover:bg-black/80"
             title="Επαναφορά zoom"
           >
             <FiMaximize className="size-3" /> {Math.round(t.s * 100)}%
           </button>
         )}
         {!zoomed && (
-          <span className="inline-flex items-center gap-1 rounded-md bg-black/45 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+          <span className="inline-flex items-center gap-1 rounded-md bg-black/45 px-1.5 py-0.5 text-[length:var(--fs-10)] font-medium text-white backdrop-blur-sm">
             <FiZoomIn className="size-3" /> Κύλισε για zoom
           </span>
         )}

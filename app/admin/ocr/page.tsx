@@ -200,7 +200,7 @@ function StatTile({ label, value, accent }: { label: string; value: number; acce
   return (
     <div className="relative overflow-hidden rounded-lg border border-border bg-card px-4 py-3 shadow-fluent-2">
       <span className={`absolute left-0 top-0 h-full w-1 ${accentMap[accent]}`} />
-      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-[length:var(--fs-10)] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="mt-0.5 text-title-2 font-bold tabular-nums tracking-tight text-foreground">{value}</p>
     </div>
   );

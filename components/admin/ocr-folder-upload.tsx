@@ -70,8 +70,8 @@ export function OcrFolderUpload() {
     <div className="rounded-xl border border-border bg-card p-5 shadow-card">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-[14px] font-semibold text-foreground">Ανέβασμα φακέλου παραστατικών</h3>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">Επίλεξε έναν φάκελο — όλα τα αρχεία σκανάρονται, ομαδοποιούνται και αντιστοιχίζονται αυτόματα.</p>
+          <h3 className="text-[length:var(--fs-14)] font-semibold text-foreground">Ανέβασμα φακέλου παραστατικών</h3>
+          <p className="mt-0.5 text-[length:var(--fs-12)] text-muted-foreground">Επίλεξε έναν φάκελο — όλα τα αρχεία σκανάρονται, ομαδοποιούνται και αντιστοιχίζονται αυτόματα.</p>
         </div>
         <Button onClick={() => inputRef.current?.click()} disabled={busy}>
           <FiFolder className="mr-1.5 h-4 w-4" /> {busy ? 'Επεξεργασία…' : 'Επιλογή φακέλου'}
@@ -86,7 +86,7 @@ export function OcrFolderUpload() {
 
       {states.length > 0 && (
         <div className="mt-4">
-          <div className="mb-1 flex items-center justify-between text-[12px] text-muted-foreground">
+          <div className="mb-1 flex items-center justify-between text-[length:var(--fs-12)] text-muted-foreground">
             <span>{done}/{states.length} ολοκληρώθηκαν{errors > 0 && ` · ${errors} σφάλματα`}</span>
             <span className="tabular-nums">{pct}%</span>
           </div>
@@ -95,7 +95,7 @@ export function OcrFolderUpload() {
           </div>
           <div className="mt-3 max-h-44 overflow-auto rounded-lg border border-border">
             {states.map((s) => (
-              <div key={s.name} className="flex items-center gap-2 border-b border-border/60 px-3 py-1.5 text-[12px] last:border-0">
+              <div key={s.name} className="flex items-center gap-2 border-b border-border/60 px-3 py-1.5 text-[length:var(--fs-12)] last:border-0">
                 <StatusIcon status={s.status} />
                 <span className="truncate text-foreground">{s.name}</span>
               </div>
@@ -115,7 +115,7 @@ export function OcrFolderUpload() {
           className="mt-4 grid w-full place-items-center rounded-xl border-2 border-dashed border-border py-8 text-muted-foreground transition-colors hover:border-[#0078D4]/40 hover:bg-[#0078D4]/[0.04]"
         >
           <FiUploadCloud className="h-8 w-8 opacity-40" />
-          <span className="mt-2 text-[12px]">Επίλεξε φάκελο με παραστατικά</span>
+          <span className="mt-2 text-[length:var(--fs-12)]">Επίλεξε φάκελο με παραστατικά</span>
         </button>
       )}
     </div>

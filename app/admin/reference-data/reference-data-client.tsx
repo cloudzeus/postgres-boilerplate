@@ -222,16 +222,16 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
           return (
             <div key={s.key} className="rounded-md border border-border p-3 bg-background flex flex-col">
               <div className="flex items-center justify-between mb-1 gap-2">
-                <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">{s.label}</span>
+                <span className="text-[length:var(--fs-10)] uppercase tracking-wider font-semibold text-muted-foreground">{s.label}</span>
                 <span
-                  className="shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold"
+                  className="shrink-0 rounded-full border px-1.5 py-0.5 text-[length:var(--fs-9)] font-semibold"
                   style={{ backgroundColor: st.bg, color: st.fg, borderColor: st.bd }}
                 >
                   {s.source}
                 </span>
               </div>
-              <div className="text-[20px] font-semibold text-foreground tabular-nums">{s.count.toLocaleString('el-GR')}</div>
-              <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
+              <div className="text-[length:var(--fs-20)] font-semibold text-foreground tabular-nums">{s.count.toLocaleString('el-GR')}</div>
+              <div className="text-[length:var(--fs-10)] text-muted-foreground mt-0.5 truncate">
                 {s.lastUpdated ? `Last update: ${new Date(s.lastUpdated).toLocaleDateString('el-GR')}` : 'No timestamp'}
               </div>
 
@@ -241,7 +241,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 flex-1 justify-between px-2 text-[11px]"
+                      className="h-7 flex-1 justify-between px-2 text-[length:var(--fs-11)]"
                       onClick={() => router.push(s.viewHref!)}
                     >
                       Άνοιγμα σελίδας <FiArrowRight className="h-3 w-3" />
@@ -250,7 +250,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 flex-1 justify-between px-2 text-[11px]"
+                      className="h-7 flex-1 justify-between px-2 text-[length:var(--fs-11)]"
                       onClick={() => openModal(s.key)}
                     >
                       Προβολή <FiEye className="h-3 w-3" />
@@ -289,14 +289,14 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
           {/* Header */}
           <DialogHeader className="gap-1 border-b border-border px-5 pt-5 pb-4">
             <div className="flex items-center gap-2">
-              <DialogTitle className="text-[15px]">{modalData?.title ?? 'Μητρώο αναφοράς'}</DialogTitle>
+              <DialogTitle className="text-[length:var(--fs-15)]">{modalData?.title ?? 'Μητρώο αναφοράς'}</DialogTitle>
               {modalData && (
-                <span className="rounded-full bg-sisyphus-50 px-2 py-0.5 text-[11px] font-semibold text-sisyphus-700 tabular-nums">
+                <span className="rounded-full bg-sisyphus-50 px-2 py-0.5 text-[length:var(--fs-11)] font-semibold text-sisyphus-700 tabular-nums">
                   {modalData.rows.length.toLocaleString('el-GR')}
                 </span>
               )}
             </div>
-            <DialogDescription className="text-[12px]">
+            <DialogDescription className="text-[length:var(--fs-12)]">
               {modalLoading ? 'Φόρτωση δεδομένων…' : 'Δεδομένα μητρώου αναφοράς (read-only).'}
             </DialogDescription>
 
@@ -307,7 +307,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
                   value={modalSearch}
                   onChange={(e) => setModalSearch(e.target.value)}
                   placeholder="Αναζήτηση…"
-                  className="h-8 pl-8 text-[12px]"
+                  className="h-8 pl-8 text-[length:var(--fs-12)]"
                 />
               </div>
             )}
@@ -315,7 +315,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
 
           {/* Body */}
           {modalLoading && (
-            <div className="flex flex-1 items-center justify-center py-16 text-[12px] text-muted-foreground">
+            <div className="flex flex-1 items-center justify-center py-16 text-[length:var(--fs-12)] text-muted-foreground">
               Φόρτωση…
             </div>
           )}
@@ -327,13 +327,13 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
               : modalData.rows;
             return (
               <div className="flex-1 overflow-auto">
-                <table className="w-full border-collapse text-[12px]">
+                <table className="w-full border-collapse text-[length:var(--fs-12)]">
                   <thead className="sticky top-0 z-10">
                     <tr className="bg-muted/95 backdrop-blur supports-[backdrop-filter]:bg-muted/80">
                       {modalData.columns.map((c) => (
                         <th
                           key={c.key}
-                          className="border-b border-border px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap"
+                          className="border-b border-border px-3 py-2.5 text-left text-[length:var(--fs-10)] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap"
                         >
                           {c.label}
                         </th>
@@ -348,7 +348,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
                             key={c.key}
                             className={cn(
                               'px-3 py-2 align-top',
-                              ci === 0 && 'font-mono text-[11px] tabular-nums text-muted-foreground',
+                              ci === 0 && 'font-mono text-[length:var(--fs-11)] tabular-nums text-muted-foreground',
                             )}
                           >
                             {String(row[c.key] ?? '') || <span className="text-muted-foreground/40">—</span>}
@@ -372,7 +372,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
 
           {/* Footer count */}
           {modalData && (
-            <div className="border-t border-border bg-muted/30 px-5 py-2.5 text-[11px] text-muted-foreground">
+            <div className="border-t border-border bg-muted/30 px-5 py-2.5 text-[length:var(--fs-11)] text-muted-foreground">
               {modalData.columns.length} στήλες · {modalData.rows.length.toLocaleString('el-GR')} εγγραφές
             </div>
           )}

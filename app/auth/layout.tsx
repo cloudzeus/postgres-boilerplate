@@ -7,7 +7,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <header className="border-b border-border bg-card">
         <div className="mx-auto flex h-16 max-w-[1280px] items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link href="/" className="-m-1.5 flex items-center gap-2 rounded-md p-1.5">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-brand-red)] text-white text-[12px] font-bold">DG</span>
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-brand-red)] text-white text-[length:var(--fs-12)] font-bold">DG</span>
             <span className="font-display text-lg font-bold tracking-tight text-foreground">DGEspa</span>
           </Link>
           <Link

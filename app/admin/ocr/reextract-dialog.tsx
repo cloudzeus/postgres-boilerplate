@@ -39,7 +39,7 @@ export function ReextractDialog({
         </DialogHeader>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+          <span className="text-[length:var(--fs-10)] font-bold uppercase tracking-wider text-muted-foreground">
             Τύπος εγγράφου
           </span>
           <select
@@ -52,7 +52,7 @@ export function ReextractDialog({
             ))}
           </select>
           {docType === 'auto' ? (
-            <span className="text-[11px] leading-snug text-muted-foreground">{AUTO_DOC_TYPE_HINT}</span>
+            <span className="text-[length:var(--fs-11)] leading-snug text-muted-foreground">{AUTO_DOC_TYPE_HINT}</span>
           ) : null}
         </label>
 

@@ -10,7 +10,7 @@ export function LocaleBadge({ code, className }: Props) {
   return (
     <span
       className={cn(
-        'inline-flex h-4 min-w-[26px] items-center justify-center rounded-sm bg-muted text-muted-foreground px-1 text-[9px] font-bold uppercase tracking-wider font-mono leading-none',
+        'inline-flex h-4 min-w-[26px] items-center justify-center rounded-sm bg-muted text-muted-foreground px-1 text-[length:var(--fs-9)] font-bold uppercase tracking-wider font-mono leading-none',
         className,
       )}
       aria-hidden

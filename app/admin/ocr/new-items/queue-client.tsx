@@ -640,7 +640,7 @@ function GroupRow({ group, noSuggestion }: { group: ItemQueueGroup; noSuggestion
   const cat = group.category ? CATEGORY_META[group.category] : UNCLASSIFIED_META;
   return (
     <div className="min-w-0 flex-1 py-0.5">
-      <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-foreground">{group.sample}</p>
+      <p className="line-clamp-2 text-[length:var(--fs-13)] font-semibold leading-snug text-foreground">{group.sample}</p>
       <p className="mt-0.5 truncate text-caption text-muted-foreground">
         {group.supplier ?? (group.afm ? `ΑΦΜ ${group.afm}` : 'Άγνωστος εκδότης')}
       </p>

@@ -66,7 +66,7 @@ export default async function OcrPendingPage() {
         actions={
           <Link
             href="/admin/ocr"
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-[12px] font-medium hover:bg-muted"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-[length:var(--fs-12)] font-medium hover:bg-muted"
           >
             Λίστα OCR <FiArrowRight className="size-3.5" />
           </Link>
@@ -90,7 +90,7 @@ export default async function OcrPendingPage() {
                 style={{ borderColor: g.meta.tone.bd }}
               >
                 <span className="absolute left-0 top-0 h-full w-1" style={{ backgroundColor: g.meta.tone.fg }} />
-                <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: g.meta.tone.fg }}>{g.meta.label}</p>
+                <p className="text-[length:var(--fs-10)] font-bold uppercase tracking-wider" style={{ color: g.meta.tone.fg }}>{g.meta.label}</p>
                 <p className="mt-0.5 text-title-2 font-bold tabular-nums tracking-tight text-foreground">{g.items.length}</p>
               </a>
             ))}
@@ -106,15 +106,15 @@ export default async function OcrPendingPage() {
               >
                 <div className="flex items-center gap-2 px-4 py-2.5" style={{ backgroundColor: g.meta.tone.bg }}>
                   <FiAlertCircle className="size-4" style={{ color: g.meta.tone.fg }} />
-                  <span className="text-[13px] font-semibold" style={{ color: g.meta.tone.fg }}>{g.meta.label}</span>
+                  <span className="text-[length:var(--fs-13)] font-semibold" style={{ color: g.meta.tone.fg }}>{g.meta.label}</span>
                   <span
-                    className="rounded-full border bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
+                    className="rounded-full border bg-white/70 px-1.5 py-0.5 text-[length:var(--fs-10)] font-semibold tabular-nums"
                     style={{ color: g.meta.tone.fg, borderColor: g.meta.tone.bd }}
                   >
                     {g.items.length}
                   </span>
                   {g.meta.solution && (
-                    <span className="ml-2 truncate text-[11px] text-foreground/70">
+                    <span className="ml-2 truncate text-[length:var(--fs-11)] text-foreground/70">
                       <span className="font-semibold">Λύση:</span> {g.meta.solution}
                     </span>
                   )}
@@ -124,11 +124,11 @@ export default async function OcrPendingPage() {
                     <li key={it.id}>
                       <Link
                         href={`/admin/ocr/${it.id}`}
-                        className="flex items-center gap-3 px-4 py-2 text-[12px] hover:bg-muted/50"
+                        className="flex items-center gap-3 px-4 py-2 text-[length:var(--fs-12)] hover:bg-muted/50"
                       >
                         <span className="min-w-0 flex-1 truncate font-medium text-foreground">{it.fileName}</span>
                         <span className="hidden min-w-0 flex-1 truncate text-muted-foreground sm:block">{it.issuer ?? '—'}</span>
-                        <span className="hidden font-mono text-[11px] text-muted-foreground md:block">{it.docNumber ?? '—'}</span>
+                        <span className="hidden font-mono text-[length:var(--fs-11)] text-muted-foreground md:block">{it.docNumber ?? '—'}</span>
                         <span className="shrink-0 tabular-nums text-muted-foreground">
                           {it.createdAt.toLocaleDateString('el-GR')}
                         </span>

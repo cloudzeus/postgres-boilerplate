@@ -214,7 +214,7 @@ export function RegionMarker({
   return (
     <div className={className}>
       {showNav && pageCount > 1 && (
-        <div className="mb-2 flex items-center gap-2 text-[12px]">
+        <div className="mb-2 flex items-center gap-2 text-[length:var(--fs-12)]">
           <button type="button" className="rounded border px-2 py-0.5 disabled:opacity-40"
             disabled={page <= 0} onClick={() => onPageChange?.(page - 1)}>←</button>
           <span>Σελίδα {page + 1} / {pageCount}</span>
@@ -223,12 +223,12 @@ export function RegionMarker({
         </div>
       )}
       {errMsg ? (
-        <div className="space-y-1 rounded border border-dg-red-500/40 bg-dg-red-500/5 p-3 text-[12px] text-dg-red-600 dark:text-dg-red-400">
+        <div className="space-y-1 rounded border border-dg-red-500/40 bg-dg-red-500/5 p-3 text-[length:var(--fs-12)] text-dg-red-600 dark:text-dg-red-400">
           <p className="font-semibold">Δεν ήταν δυνατή η προβολή της εικόνας.</p>
-          <p className="break-all font-mono text-[11px] opacity-80">{errMsg}</p>
+          <p className="break-all font-mono text-[length:var(--fs-11)] opacity-80">{errMsg}</p>
         </div>
       ) : loading ? (
-        <div className="p-3 text-[12px] text-muted-foreground">Φόρτωση…</div>
+        <div className="p-3 text-[length:var(--fs-12)] text-muted-foreground">Φόρτωση…</div>
       ) : objUrl ? (
         <div ref={ref} {...(isMarking ? handlers : {})} className="relative w-full select-none"
           style={{
@@ -276,7 +276,7 @@ export function RegionMarker({
                   touchAction: interactive ? 'none' : undefined,
                 }}>
                 {r.label && (
-                  <span className={`pointer-events-none absolute left-0 rounded-sm px-1 text-[10px] font-medium text-white ${labelBelow ? 'top-full' : '-top-4'}`}
+                  <span className={`pointer-events-none absolute left-0 rounded-sm px-1 text-[length:var(--fs-10)] font-medium text-white ${labelBelow ? 'top-full' : '-top-4'}`}
                     style={{ background: c }}>{r.label}</span>
                 )}
                 {interactive && roomForHandles && HANDLES.map((hd) => (

@@ -23,7 +23,7 @@ export type ItemRecord = {
 
 const DASH = <span className="text-muted-foreground/40">—</span>;
 const mono = (v: string | null) =>
-  v ? <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{v}</span> : DASH;
+  v ? <span className="font-mono text-[length:var(--fs-12)] tabular-nums text-muted-foreground">{v}</span> : DASH;
 
 function fmtPrice(n: number | null) {
   if (n == null || n === 0) return DASH;
@@ -62,14 +62,14 @@ export function ItemsTableClient({
     const base: ColumnDef<ItemRecord>[] = [
       {
         accessorKey: 'code', header: 'Κωδικός', size: 130,
-        cell: ({ row }) => <span className="font-mono text-[12px] tabular-nums text-foreground">{row.original.code || '—'}</span>,
+        cell: ({ row }) => <span className="font-mono text-[length:var(--fs-12)] tabular-nums text-foreground">{row.original.code || '—'}</span>,
       },
       {
         accessorKey: 'name', header: 'Περιγραφή', size: 320,
         cell: ({ row }) => (
           <div className="min-w-0">
-            <div className="font-medium text-foreground text-[12px] truncate">{row.original.name || '—'}</div>
-            {row.original.name2 && <div className="text-[10px] text-muted-foreground truncate">{row.original.name2}</div>}
+            <div className="font-medium text-foreground text-[length:var(--fs-12)] truncate">{row.original.name || '—'}</div>
+            {row.original.name2 && <div className="text-[length:var(--fs-10)] text-muted-foreground truncate">{row.original.name2}</div>}
           </div>
         ),
       },
@@ -107,7 +107,7 @@ export function ItemsTableClient({
         pageSize={50}
       />
       {lastSync && (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[length:var(--fs-11)] text-muted-foreground">
           Τελευταίος συγχρονισμός: {new Date(lastSync).toLocaleString('el-GR')}
         </p>
       )}

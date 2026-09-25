@@ -21,14 +21,14 @@ export function AuditTable({ rows }: { rows: AuditRow[] }) {
     {
       accessorKey: 'createdAt', header: 'Πότε', size: 160,
       cell: ({ row }) => (
-        <span className="text-muted-foreground tabular-nums text-[12px]">
+        <span className="text-muted-foreground tabular-nums text-[length:var(--fs-12)]">
           {new Date(row.original.createdAt).toLocaleString('el-GR')}
         </span>
       ),
     },
     {
       accessorKey: 'userEmail', header: 'Χρήστης', size: 220,
-      cell: ({ row }) => <span className="text-foreground text-[12px] truncate">{row.original.userEmail}</span>,
+      cell: ({ row }) => <span className="text-foreground text-[length:var(--fs-12)] truncate">{row.original.userEmail}</span>,
     },
     {
       accessorKey: 'action', header: 'Ενέργεια', size: 180,
@@ -40,11 +40,11 @@ export function AuditTable({ rows }: { rows: AuditRow[] }) {
     },
     {
       accessorKey: 'resource', header: 'Resource', size: 100,
-      cell: ({ row }) => <span className="text-muted-foreground text-[12px]">{row.original.resource}</span>,
+      cell: ({ row }) => <span className="text-muted-foreground text-[length:var(--fs-12)]">{row.original.resource}</span>,
     },
     {
       accessorKey: 'ip', header: 'IP', size: 120,
-      cell: ({ row }) => <span className="font-mono text-muted-foreground text-[12px]">{row.original.ip}</span>,
+      cell: ({ row }) => <span className="font-mono text-muted-foreground text-[length:var(--fs-12)]">{row.original.ip}</span>,
     },
   ];
 
@@ -54,14 +54,14 @@ export function AuditTable({ rows }: { rows: AuditRow[] }) {
       data={rows}
       searchPlaceholder="Αναζήτηση σε audit..."
       expandable={(r) => (
-        <div className="grid sm:grid-cols-2 gap-3 text-[12px] px-1">
+        <div className="grid sm:grid-cols-2 gap-3 text-[length:var(--fs-12)] px-1">
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-0.5">Resource ID</div>
+            <div className="text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground font-semibold mb-0.5">Resource ID</div>
             <div className="font-mono text-foreground truncate">{r.resourceId || '—'}</div>
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-0.5">Metadata</div>
-            <pre className="font-mono text-[11px] text-foreground bg-muted rounded p-2 overflow-x-auto whitespace-pre-wrap">{r.metadata || '—'}</pre>
+            <div className="text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground font-semibold mb-0.5">Metadata</div>
+            <pre className="font-mono text-[length:var(--fs-11)] text-foreground bg-muted rounded p-2 overflow-x-auto whitespace-pre-wrap">{r.metadata || '—'}</pre>
           </div>
         </div>
       )}

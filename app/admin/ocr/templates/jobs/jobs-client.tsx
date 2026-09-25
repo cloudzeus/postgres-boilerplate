@@ -17,7 +17,7 @@ import { templatesApi, errorMessage, type JobListRow } from '@/components/templa
 const REFRESH_MS = 5000;
 
 export const JobPill = ({ status }: { status: keyof typeof JOB_STATUS_LABEL }) => (
-  <span className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold" style={JOB_STATUS_STYLE[status] && { backgroundColor: JOB_STATUS_STYLE[status].bg, color: JOB_STATUS_STYLE[status].fg }}>
+  <span className="inline-flex rounded-full px-2 py-0.5 text-[length:var(--fs-10)] font-semibold" style={JOB_STATUS_STYLE[status] && { backgroundColor: JOB_STATUS_STYLE[status].bg, color: JOB_STATUS_STYLE[status].fg }}>
     {JOB_STATUS_LABEL[status] ?? status}
   </span>
 );
@@ -33,7 +33,7 @@ export function JobProgressBar({ job }: { job: Pick<JobListRow, 'progress'> }) {
         <div style={{ width: `${donePct}%`, backgroundColor: '#047857' }} />
         <div style={{ width: `${failPct}%`, backgroundColor: '#B91C1C' }} />
       </div>
-      <div className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">
+      <div className="mt-0.5 text-[length:var(--fs-10)] tabular-nums text-muted-foreground">
         {done}/{total}{failed > 0 && <span className="text-dg-red-600"> · {failed} σφάλμα</span>}
       </div>
     </div>
@@ -80,19 +80,19 @@ export function JobsClient({ initial, canManage }: { initial: JobListRow[]; canM
           <FiSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Αναζήτηση (τίτλος, σήμανση, πρότυπο…)" className="pl-8" aria-label="Αναζήτηση εργασιών" />
         </div>
-        {anyActive && <span className="text-[11px] text-muted-foreground">Ανανέωση κάθε 5 δευτ.</span>}
+        {anyActive && <span className="text-[length:var(--fs-11)] text-muted-foreground">Ανανέωση κάθε 5 δευτ.</span>}
       </div>
 
       {shown.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border p-8 text-center text-[13px] text-muted-foreground">
+        <div className="rounded-xl border border-dashed border-border p-8 text-center text-[length:var(--fs-13)] text-muted-foreground">
           {jobs.length === 0
             ? 'Καμία εργασία ακόμη. Άνοιξε ένα πρότυπο και διάλεξε «Σάρωση αρχείων».'
             : 'Καμία εργασία δεν ταιριάζει στην αναζήτηση.'}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-card">
-          <table className="w-full text-[13px]">
-            <thead className="bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+          <table className="w-full text-[length:var(--fs-13)]">
+            <thead className="bg-muted/40 text-left text-[length:var(--fs-11)] uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-3 py-2 font-medium">Εργασία</th>
                 <th className="px-3 py-2 font-medium">Πρότυπο</th>
@@ -108,13 +108,13 @@ export function JobsClient({ initial, canManage }: { initial: JobListRow[]; canM
                   <td className="px-3 py-2">
                     <Link href={`/admin/ocr/templates/jobs/${j.id}`} className="font-medium text-sisyphus-700 hover:underline">{j.title}</Link>
                     {j.reference && (
-                      <span className="ml-1.5 inline-flex rounded px-1.5 py-0.5 font-mono text-[10px]" style={{ backgroundColor: '#F3F2F1', color: '#5C5C5C' }}>{j.reference}</span>
+                      <span className="ml-1.5 inline-flex rounded px-1.5 py-0.5 font-mono text-[length:var(--fs-10)]" style={{ backgroundColor: '#F3F2F1', color: '#5C5C5C' }}>{j.reference}</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">{j.templateName}</td>
                   <td className="px-3 py-2"><JobProgressBar job={j} /></td>
                   <td className="px-3 py-2"><JobPill status={j.status} /></td>
-                  <td className="px-3 py-2 text-[11px] tabular-nums text-muted-foreground">{new Date(j.date).toLocaleDateString('el-GR')}</td>
+                  <td className="px-3 py-2 text-[length:var(--fs-11)] tabular-nums text-muted-foreground">{new Date(j.date).toLocaleDateString('el-GR')}</td>
                   <td className="px-3 py-2">
                     <div className="flex items-center justify-end gap-1">
                       {j.done > 0 && (
@@ -139,9 +139,9 @@ export function JobsClient({ initial, canManage }: { initial: JobListRow[]; canM
         </div>
       )}
 
-      <p className="mt-3 text-[11px] text-muted-foreground">
+      <p className="mt-3 text-[length:var(--fs-11)] text-muted-foreground">
         Οι εργασίες τρέχουν μέσα στον server και συνεχίζουν ακόμη κι αν κλείσεις τη σελίδα.
-        <Button asChild variant="ghost" size="sm" className="ml-1 h-auto px-1 py-0 text-[11px]">
+        <Button asChild variant="ghost" size="sm" className="ml-1 h-auto px-1 py-0 text-[length:var(--fs-11)]">
           <Link href="/admin/ocr/templates">Πρότυπα εξαγωγής</Link>
         </Button>
       </p>

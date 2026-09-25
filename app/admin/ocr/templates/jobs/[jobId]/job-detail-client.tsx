@@ -94,11 +94,11 @@ export function JobDetailClient({ initial, canManage }: { initial: JobDetail; ca
         <JobPill status={job.status} />
         <JobProgressBar job={job} />
         {job.reference && (
-          <div className="text-[12px]"><span className="text-muted-foreground">Σήμανση: </span><span className="font-mono">{job.reference}</span></div>
+          <div className="text-[length:var(--fs-12)]"><span className="text-muted-foreground">Σήμανση: </span><span className="font-mono">{job.reference}</span></div>
         )}
-        <div className="text-[12px]"><span className="text-muted-foreground">Ημερομηνία: </span>{dateText}</div>
+        <div className="text-[length:var(--fs-12)]"><span className="text-muted-foreground">Ημερομηνία: </span>{dateText}</div>
         <div className="ml-auto flex items-center gap-1">
-          {active && <span className="mr-2 text-[11px] text-muted-foreground">Ανανέωση κάθε 2 δευτ.</span>}
+          {active && <span className="mr-2 text-[length:var(--fs-11)] text-muted-foreground">Ανανέωση κάθε 2 δευτ.</span>}
           {job.done > 0 && (
             <Button asChild size="sm" variant="ghost">
               <a href={templatesApi.jobs.excelUrl(job.id)}><FiDownload className="mr-1.5 size-3.5" /> Excel</a>
@@ -113,13 +113,13 @@ export function JobDetailClient({ initial, canManage }: { initial: JobDetail; ca
             <Link href="/admin/ocr/templates/jobs"><FiArrowLeft className="mr-1.5 size-3.5" /> Εργασίες</Link>
           </Button>
         </div>
-        {job.description && <p className="w-full text-[12px] text-muted-foreground">{job.description}</p>}
+        {job.description && <p className="w-full text-[length:var(--fs-12)] text-muted-foreground">{job.description}</p>}
       </div>
 
       <div className={open ? 'grid gap-3 lg:grid-cols-[minmax(0,1fr)_420px]' : ''}>
         <div className="min-w-0 overflow-x-auto rounded-xl border border-border bg-card shadow-card">
-          <table className="w-full text-[12px]">
-            <thead className="bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+          <table className="w-full text-[length:var(--fs-12)]">
+            <thead className="bg-muted/40 text-left text-[length:var(--fs-11)] uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-3 py-2 font-medium">Αρχείο</th>
                 <th className="px-3 py-2 font-medium">Κατάσταση</th>
@@ -141,7 +141,7 @@ export function JobDetailClient({ initial, canManage }: { initial: JobDetail; ca
                   <td className="max-w-[220px] px-3 py-2">
                     <div className="truncate font-medium">{i.fileName}</div>
                     {i.error && (
-                      <div className="flex items-center gap-1 truncate text-[10px] text-dg-red-600" title={i.error}>
+                      <div className="flex items-center gap-1 truncate text-[length:var(--fs-10)] text-dg-red-600" title={i.error}>
                         <FiAlertTriangle className="size-3 shrink-0" aria-hidden /> {i.error}
                       </div>
                     )}
@@ -163,8 +163,8 @@ export function JobDetailClient({ initial, canManage }: { initial: JobDetail; ca
           <aside className="rounded-xl border border-border bg-card p-3 shadow-card">
             <div className="mb-2 flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="truncate text-[13px] font-medium">{open.fileName}</p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="truncate text-[length:var(--fs-13)] font-medium">{open.fileName}</p>
+                <p className="text-[length:var(--fs-11)] text-muted-foreground">
                   {JOB_ITEM_STATUS_LABEL[open.status] ?? open.status}
                   {open.model && ` · ${open.model}`}
                   {open.durationMs != null && ` · ${(open.durationMs / 1000).toFixed(1)} δ`}
@@ -185,7 +185,7 @@ export function JobDetailClient({ initial, canManage }: { initial: JobDetail; ca
               pageLabel={`${open.fileName}, σελίδα ${page + 1}`}
             />
             {open.flags?.review?.length ? (
-              <ul className="mt-2 space-y-0.5 text-[11px] text-amber-700">
+              <ul className="mt-2 space-y-0.5 text-[length:var(--fs-11)] text-amber-700">
                 {open.flags.review.map((r) => <li key={r}>· {r}</li>)}
               </ul>
             ) : null}

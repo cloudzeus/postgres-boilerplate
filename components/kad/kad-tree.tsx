@@ -74,23 +74,23 @@ function KadNode({ node, depth }: { node: KadTreeNodeData; depth: number }) {
 
         <Checkbox onClick={(e) => e.stopPropagation()} />
 
-        <span className="font-mono text-[11px] tabular-nums text-slate-500 w-24 shrink-0">{node.code}</span>
-        <span className="text-[11px] font-medium uppercase truncate text-slate-700">{node.title}</span>
+        <span className="font-mono text-[length:var(--fs-11)] tabular-nums text-slate-500 w-24 shrink-0">{node.code}</span>
+        <span className="text-[length:var(--fs-11)] font-medium uppercase truncate text-slate-700">{node.title}</span>
 
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
           {node.level != null && (
-            <span className={`px-2 py-0.5 rounded text-[11px] font-medium border ${styles.badge}`}>
+            <span className={`px-2 py-0.5 rounded text-[length:var(--fs-11)] font-medium border ${styles.badge}`}>
               {levelLabels[node.level] ?? `L${node.level}`}
             </span>
           )}
-          <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-amber-100 text-amber-800 border border-amber-200">
+          <span className="px-2 py-0.5 rounded text-[length:var(--fs-11)] font-medium bg-amber-100 text-amber-800 border border-amber-200">
             {node.descendants.toLocaleString('el-GR')} ΚΑΔ
           </span>
-          <span className="px-2 py-0.5 rounded text-[11px] text-slate-600 bg-slate-50 border border-slate-200">
+          <span className="px-2 py-0.5 rounded text-[length:var(--fs-11)] text-slate-600 bg-slate-50 border border-slate-200">
             {node.directChildren} άμεσα
           </span>
           {node.sector && (
-            <span className="px-2 py-0.5 rounded text-[11px] text-slate-600 bg-slate-50 border border-slate-200">
+            <span className="px-2 py-0.5 rounded text-[length:var(--fs-11)] text-slate-600 bg-slate-50 border border-slate-200">
               Τομέας {node.sector}
             </span>
           )}

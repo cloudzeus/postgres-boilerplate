@@ -52,12 +52,12 @@ export function SoftoneSearchPanel({
     <div>
       <div className="relative">
         <FiSearch className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input autoFocus={autoFocus} value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} className="h-8 pl-8 text-[12px]" />
+        <Input autoFocus={autoFocus} value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} className="h-8 pl-8 text-[length:var(--fs-12)]" />
       </div>
       <div className="mt-2 max-h-64 overflow-auto">
-        {loading && <p className="px-2 py-3 text-center text-[12px] text-muted-foreground">Αναζήτηση…</p>}
+        {loading && <p className="px-2 py-3 text-center text-[length:var(--fs-12)] text-muted-foreground">Αναζήτηση…</p>}
         {!loading && q.trim().length >= 2 && results.length === 0 && (
-          <p className="px-2 py-3 text-center text-[12px] text-muted-foreground">Κανένα αποτέλεσμα</p>
+          <p className="px-2 py-3 text-center text-[length:var(--fs-12)] text-muted-foreground">Κανένα αποτέλεσμα</p>
         )}
         {results.map((r) => (
           <button
@@ -67,8 +67,8 @@ export function SoftoneSearchPanel({
           >
             <FiCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600 opacity-0 group-hover:opacity-100" />
             <span className="min-w-0">
-              <span className="block truncate text-[12px] font-medium text-foreground">{r.name}</span>
-              <span className="block truncate text-[10px] text-muted-foreground">
+              <span className="block truncate text-[length:var(--fs-12)] font-medium text-foreground">{r.name}</span>
+              <span className="block truncate text-[length:var(--fs-10)] text-muted-foreground">
                 <span className="font-mono">{r.code}</span>{r.sub ? ` · ${r.sub}` : ''}
               </span>
             </span>
@@ -101,7 +101,7 @@ export function SoftoneMatchPicker({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 text-[11px]">
+        <Button variant="outline" size="sm" className="h-7 text-[length:var(--fs-11)]">
           <FiSearch className="mr-1 h-3 w-3" /> {triggerLabel}
         </Button>
       </PopoverTrigger>

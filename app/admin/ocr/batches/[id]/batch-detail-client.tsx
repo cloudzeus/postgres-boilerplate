@@ -91,7 +91,7 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
   return (
     <div className="space-y-4">
       {unread.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-[13px] font-medium text-amber-900 dark:text-amber-200">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-[length:var(--fs-13)] font-medium text-amber-900 dark:text-amber-200">
           <span>
             {unread.length === 1
               ? '1 παραστατικό δεν έχει διαβαστεί ακόμη'
@@ -105,7 +105,7 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
         </div>
       )}
       {kpi.duplicates > 0 && (
-        <div className="flex items-center gap-2 rounded-lg border px-4 py-2.5 text-[13px] font-medium"
+        <div className="flex items-center gap-2 rounded-lg border px-4 py-2.5 text-[length:var(--fs-13)] font-medium"
           style={{ background: '#FEF2F2', borderColor: '#FECACA', color: '#B91C1C' }}>
           ⚠ {kpi.duplicates} {kpi.duplicates === 1 ? 'παραστατικό υπάρχει ήδη' : 'παραστατικά υπάρχουν ήδη'} στο SoftOne — έλεγξε πριν την καταχώριση.
         </div>
@@ -116,7 +116,7 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
         <Kpi label="Προμηθευτές" value={`${kpi.suppliers}/${kpi.total}`} hint="ταυτοποιήθηκαν" accent="#047857" />
         <Kpi label="Γραμμές" value={`${kpi.linesMatched}/${kpi.linesTotal}`} hint="αντιστοιχίστηκαν" accent="#1D4ED8" />
         <div className="rounded-xl border border-border bg-card p-3 shadow-card flex flex-col justify-between">
-          <span className="text-[11px] text-muted-foreground">Αντιστοιχίσεις</span>
+          <span className="text-[length:var(--fs-11)] text-muted-foreground">Αντιστοιχίσεις</span>
           <Button size="sm" onClick={runAll} disabled={running} className="mt-1">
             <FiZap className="mr-1.5 h-3.5 w-3.5" /> {running ? `Εκτέλεση… ${progress}%` : 'Τρέξε όλες'}
           </Button>
@@ -141,7 +141,7 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
         ) : (
           <>
             {/* A disabled button never fires the pointer events a tooltip needs, so the reason is written out. */}
-            <span className="text-[11px] text-muted-foreground">{NO_RUNS_HINT}</span>
+            <span className="text-[length:var(--fs-11)] text-muted-foreground">{NO_RUNS_HINT}</span>
             <Button size="sm" variant="outline" disabled>
               <FiDownload className="mr-1.5 h-3.5 w-3.5" /> Excel προτύπων
             </Button>
@@ -154,8 +154,8 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
 
       {/* Docs table */}
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
-        <table className="w-full text-[13px]">
-          <thead className="bg-muted/80 text-[10px] uppercase tracking-wider text-muted-foreground">
+        <table className="w-full text-[length:var(--fs-13)]">
+          <thead className="bg-muted/80 text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-4 py-2 text-left font-semibold">Αρχείο</th>
               <th className="px-4 py-2 text-left font-semibold w-[110px]">OCR</th>
@@ -172,7 +172,7 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
                 <td className="px-4 py-2.5 max-w-[260px]">
                   <span className="font-medium text-foreground truncate block">{r.fileName}</span>
                   {r.duplicate && (
-                    <span className="mt-0.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                    <span className="mt-0.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[length:var(--fs-10)] font-bold"
                       style={{ background: '#FEF2F2', color: '#B91C1C' }} title={`Υπάρχει ήδη: ${r.duplicateRef ?? ''}`}>
                       ⚠ ΔΙΠΛΟ{r.duplicateRef ? ` · ${r.duplicateRef}` : ''}
                     </span>
@@ -181,12 +181,12 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
                 <td className="px-4 py-2.5">
                   {r.status === 'COMPLETED'
                     ? <span className="inline-flex items-center gap-1 text-emerald-600"><FiCheckCircle className="h-3.5 w-3.5" /> OK</span>
-                    : <span className="text-[12px] text-muted-foreground">{r.status}</span>}
+                    : <span className="text-[length:var(--fs-12)] text-muted-foreground">{r.status}</span>}
                 </td>
                 <td className="px-4 py-2.5">{kindBadge(r.invoiceKind)}</td>
                 <td className="px-4 py-2.5">{supplierCell(r)}</td>
                 <td className="px-4 py-2.5">{templateCell(r)}</td>
-                <td className="px-4 py-2.5 text-[12px] tabular-nums text-muted-foreground">
+                <td className="px-4 py-2.5 text-[length:var(--fs-12)] tabular-nums text-muted-foreground">
                   {r.totalLines > 0 ? `${r.matchedLines}/${r.totalLines}` : '—'}
                 </td>
                 <td className="px-4 py-2.5 text-right">
@@ -198,7 +198,7 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
         </table>
       </div>
 
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[length:var(--fs-11)] text-muted-foreground">
         Όσα δεν βρέθηκαν → <Link href="/admin/ocr/new-items" className="text-[#0078D4] hover:underline">Είδη & έξοδα</Link> για χειροκίνητη ταύτιση.
       </p>
     </div>
@@ -208,9 +208,9 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
 function Kpi({ label, value, hint, accent = 'currentColor' }: { label: string; value: string; hint: string; accent?: string }) {
   return (
     <div className="rounded-xl border border-border bg-card p-3 shadow-card">
-      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="text-[length:var(--fs-11)] text-muted-foreground">{label}</p>
       <p className="text-xl font-bold tabular-nums" style={{ color: accent }}>{value}</p>
-      <p className="text-[10px] text-muted-foreground">{hint}</p>
+      <p className="text-[length:var(--fs-10)] text-muted-foreground">{hint}</p>
     </div>
   );
 }
@@ -224,7 +224,7 @@ function kindBadge(kind: string | null) {
   };
   const s = map[kind] ?? map.mixed;
   return (
-    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: s.bg, color: s.fg }}>
+    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[length:var(--fs-11)] font-semibold" style={{ background: s.bg, color: s.fg }}>
       {s.icon} {s.label}
     </span>
   );
@@ -234,7 +234,7 @@ function templateCell(r: Row) {
   if (!r.templateRunStatus) return <span className="text-muted-foreground/50">—</span>;
   return (
     <div className="flex flex-col items-start gap-0.5">
-      <span className="max-w-[160px] truncate text-[12px] font-medium" title={r.templateName ?? undefined}>
+      <span className="max-w-[160px] truncate text-[length:var(--fs-12)] font-medium" title={r.templateName ?? undefined}>
         {r.templateName ?? '—'}
       </span>
       <RunStatusPill status={r.templateRunStatus} />
@@ -248,10 +248,10 @@ function supplierCell(r: Row) {
       <span className="inline-flex items-center gap-1.5">
         <FiTruck className="h-3.5 w-3.5 text-emerald-600" />
         <span className="truncate">{r.supplierName}</span>
-        <span className="font-mono text-[11px] text-muted-foreground">#{r.supplierCode}</span>
+        <span className="font-mono text-[length:var(--fs-11)] text-muted-foreground">#{r.supplierCode}</span>
       </span>
     );
   }
-  if (r.supplierChecked) return <span className="text-[12px]" style={{ color: '#B45309' }}>Δεν βρέθηκε</span>;
+  if (r.supplierChecked) return <span className="text-[length:var(--fs-12)]" style={{ color: '#B45309' }}>Δεν βρέθηκε</span>;
   return <span className="text-muted-foreground/50">—</span>;
 }

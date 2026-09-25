@@ -48,7 +48,7 @@ export default async function BatchDetailPage({ params }: { params: Promise<{ id
         description={`${rows.length} παραστατικά · δημιουργήθηκε ${batch.createdAt.toLocaleString('el-GR')}`} />
       {batch.sourceKey && (
         // Φάκελος από διαχωρισμό πολυ-παραστατικού PDF: το πρωτότυπο μένει μία αναφορά μακριά.
-        <p className="mb-3 text-[12px] text-muted-foreground">
+        <p className="mb-3 text-[length:var(--fs-12)] text-muted-foreground">
           Προέκυψε από διαχωρισμό του{' '}
           <a href={`/api/admin/ocr/batches/${id}/source`} target="_blank" rel="noreferrer"
             className="font-medium text-sisyphus-600 underline underline-offset-2">

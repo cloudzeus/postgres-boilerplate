@@ -38,7 +38,7 @@ const STATUS_STYLE: Record<string, { bg: string; fg: string }> = {
 function StatusPill({ status }: { status: string }) {
   const s = STATUS_STYLE[status] ?? STATUS_STYLE.PENDING;
   return (
-    <span className="rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ backgroundColor: s.bg, color: s.fg }}>
+    <span className="rounded-full px-1.5 py-0.5 text-[length:var(--fs-10)] font-medium" style={{ backgroundColor: s.bg, color: s.fg }}>
       {SAMPLE_STATUS_LABEL[status] ?? status}
     </span>
   );
@@ -46,11 +46,11 @@ function StatusPill({ status }: { status: string }) {
 
 /** Το chip βαθμού ενός πεδίου ή ενός δείγματος: ποσοστό + «σε πόσα», χρωματισμένο κατά κατώφλι. */
 export function ScoreChip({ score, ok, total, title }: { score: number | null; ok?: number; total?: number; title?: string }) {
-  if (score == null) return <span className="text-[10px] text-muted-foreground">{EMPTY}</span>;
+  if (score == null) return <span className="text-[length:var(--fs-10)] text-muted-foreground">{EMPTY}</span>;
   const tone = SCORE_STYLE[scoreTone(score)];
   return (
     <span
-      className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+      className="rounded-full px-1.5 py-0.5 text-[length:var(--fs-10)] font-semibold"
       style={{ backgroundColor: tone.bg, color: tone.fg }}
       title={title ?? (total != null ? `${ok} από ${total} πεδία` : undefined)}
     >
@@ -82,8 +82,8 @@ export function SampleTable({
 
   return (
     <div className="max-h-[65vh] min-w-0 overflow-auto rounded-xl border border-border bg-card shadow-card">
-      <table className="w-full border-separate border-spacing-0 text-[12px]">
-        <thead className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+      <table className="w-full border-separate border-spacing-0 text-[length:var(--fs-12)]">
+        <thead className="text-left text-[length:var(--fs-11)] uppercase tracking-wide text-muted-foreground">
           <tr>
             <th className={cn('sticky top-0 z-30 border-b border-border bg-muted/95 px-3 py-2 font-medium', STICKY_COL_HEAD)}>Δείγμα</th>
             <th className="sticky top-0 z-20 border-b border-border bg-muted/95 px-3 py-2 font-medium">Κατάσταση</th>
@@ -122,7 +122,7 @@ export function SampleTable({
                     <FiEye className="size-3 shrink-0 text-muted-foreground" aria-hidden />
                     <span className="truncate font-medium">{s.fileName}</span>
                   </button>
-                  {s.isPrimary && <span className="text-[10px] text-muted-foreground">κύριο δείγμα</span>}
+                  {s.isPrimary && <span className="text-[length:var(--fs-10)] text-muted-foreground">κύριο δείγμα</span>}
                 </td>
                 <td className="whitespace-nowrap border-b border-border px-3 py-2"><StatusPill status={s.status} /></td>
                 <td className="whitespace-nowrap border-b border-border px-3 py-2"><ScoreChip score={s.status === 'VERIFIED' ? s.score : null} /></td>
@@ -148,7 +148,7 @@ export function SampleTable({
                             if (e.key === 'Enter') { onDraft(s.id, f.key, (e.target as HTMLInputElement).value); setEditing(null); }
                             if (e.key === 'Escape') { e.stopPropagation(); setEditing(null); }
                           }}
-                          className="h-7 w-[140px] rounded-sm border border-sisyphus-500 px-1.5 text-[12px] outline-none"
+                          className="h-7 w-[140px] rounded-sm border border-sisyphus-500 px-1.5 text-[length:var(--fs-12)] outline-none"
                           aria-label={`${f.label} — ${s.fileName}`}
                         />
                       ) : (

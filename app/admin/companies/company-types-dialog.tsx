@@ -63,11 +63,11 @@ export function CompanyTypesDialog({
                   style={{ background: t.color ?? '#888' }}
                 />
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-medium text-foreground truncate">{t.name}</div>
-                  <div className="text-[10px] text-muted-foreground truncate">{t.key} · {t.count} εταιρίες</div>
+                  <div className="text-[length:var(--fs-13)] font-medium text-foreground truncate">{t.name}</div>
+                  <div className="text-[length:var(--fs-10)] text-muted-foreground truncate">{t.key} · {t.count} εταιρίες</div>
                 </div>
                 {t.isSystem
-                  ? <Badge variant="outline" className="text-[10px]"><FiLock className="mr-1" /> System</Badge>
+                  ? <Badge variant="outline" className="text-[length:var(--fs-10)]"><FiLock className="mr-1" /> System</Badge>
                   : (
                     <Button variant="ghost" size="sm" onClick={() => remove(t)} aria-label="Διαγραφή">
                       <FiTrash2 className="text-destructive" />
@@ -78,22 +78,22 @@ export function CompanyTypesDialog({
           </ul>
 
           <div className="rounded-sm border border-dashed p-3 space-y-2">
-            <div className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">Νέος τύπος</div>
+            <div className="text-[length:var(--fs-10)] uppercase tracking-wider font-semibold text-muted-foreground">Νέος τύπος</div>
             <div className="grid sm:grid-cols-2 gap-2">
               <div className="grid gap-1">
-                <Label htmlFor="t-key" className="text-[11px]">Key (UPPER_SNAKE)</Label>
+                <Label htmlFor="t-key" className="text-[length:var(--fs-11)]">Key (UPPER_SNAKE)</Label>
                 <Input id="t-key" value={draft.key} onChange={(e) => setDraft({ ...draft, key: e.target.value.toUpperCase() })} placeholder="LEAD" />
               </div>
               <div className="grid gap-1">
-                <Label htmlFor="t-name" className="text-[11px]">Όνομα</Label>
+                <Label htmlFor="t-name" className="text-[length:var(--fs-11)]">Όνομα</Label>
                 <Input id="t-name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Lead" />
               </div>
               <div className="grid gap-1">
-                <Label htmlFor="t-plural" className="text-[11px]">Πληθυντικός</Label>
+                <Label htmlFor="t-plural" className="text-[length:var(--fs-11)]">Πληθυντικός</Label>
                 <Input id="t-plural" value={draft.pluralName} onChange={(e) => setDraft({ ...draft, pluralName: e.target.value })} placeholder="Leads" />
               </div>
               <div className="grid gap-1">
-                <Label htmlFor="t-color" className="text-[11px]">Χρώμα</Label>
+                <Label htmlFor="t-color" className="text-[length:var(--fs-11)]">Χρώμα</Label>
                 <Input id="t-color" type="color" value={draft.color} onChange={(e) => setDraft({ ...draft, color: e.target.value })} className="h-8 w-full" />
               </div>
             </div>

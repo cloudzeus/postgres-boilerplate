@@ -37,12 +37,12 @@ export function RunHeader({ run }: { run: RunDto }) {
         <Link href={`/admin/ocr/templates/${run.template.id}`} className="text-sm font-semibold hover:underline">
           {run.template.name}
         </Link>
-        <span className="font-mono text-[11px] text-muted-foreground">{run.template.slug}</span>
+        <span className="font-mono text-[length:var(--fs-11)] text-muted-foreground">{run.template.slug}</span>
         <RunStatusPill status={run.status} />
       </div>
-      <p className="text-[11px] text-muted-foreground">{meta.join(' · ')}</p>
+      <p className="text-[length:var(--fs-11)] text-muted-foreground">{meta.join(' · ')}</p>
       {run.error && (
-        <p className="rounded border px-2 py-1 text-[11px]" style={{ borderColor: '#B91C1C40', backgroundColor: '#FDE8E8', color: '#B91C1C' }}>
+        <p className="rounded border px-2 py-1 text-[length:var(--fs-11)]" style={{ borderColor: '#B91C1C40', backgroundColor: '#FDE8E8', color: '#B91C1C' }}>
           {run.error}
         </p>
       )}

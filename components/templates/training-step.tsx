@@ -175,8 +175,8 @@ export function TrainingStep() {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-[16px] font-semibold">Εκπαίδευση</h2>
-          <p className="text-[12px] text-muted-foreground">
+          <h2 className="text-[length:var(--fs-16)] font-semibold">Εκπαίδευση</h2>
+          <p className="text-[length:var(--fs-12)] text-muted-foreground">
             Ανέβασε δείγματα του ίδιου εντύπου, βάλε το πρότυπο να τα διαβάσει και επιβεβαίωσε τις σωστές τιμές.
             Η συμφωνία των δύο είναι ο βαθμός εκπαίδευσης.{' '}
             <Link href="/wiki/ocr/template-training" className="inline-flex items-center gap-1 text-sisyphus-700 hover:underline">
@@ -186,18 +186,18 @@ export function TrainingStep() {
         </div>
         <div className="flex items-center gap-3 rounded-md border border-border bg-neutral-4 px-3 py-2">
           <div className="text-center">
-            <div className="text-[18px] font-semibold leading-none">{pctText(overall)}</div>
-            <div className="text-[10px] text-muted-foreground">βαθμός</div>
+            <div className="text-[length:var(--fs-18)] font-semibold leading-none">{pctText(overall)}</div>
+            <div className="text-[length:var(--fs-10)] text-muted-foreground">βαθμός</div>
           </div>
           <div className="text-center">
-            <div className="text-[18px] font-semibold leading-none">{verified}</div>
-            <div className="text-[10px] text-muted-foreground">επιβεβαιωμένα</div>
+            <div className="text-[length:var(--fs-18)] font-semibold leading-none">{verified}</div>
+            <div className="text-[length:var(--fs-10)] text-muted-foreground">επιβεβαιωμένα</div>
           </div>
         </div>
       </div>
 
       {/* Η πύλη ενεργοποίησης, με τη γλώσσα που θα δει ο χρήστης αν πατήσει «Ενεργοποίηση». */}
-      <div className={cn('flex items-start gap-2 rounded-md border p-3 text-[12px]',
+      <div className={cn('flex items-start gap-2 rounded-md border p-3 text-[length:var(--fs-12)]',
         gate.ok ? 'border-[#A7E3C8] bg-[#E8F7F0] text-[#065F46]' : 'border-[#F3D9A6] bg-[#FDF3E3] text-[#8A5B0B]')}>
         {gate.ok ? <FiCheckCircle className="mt-0.5 size-4 shrink-0" /> : <FiInfo className="mt-0.5 size-4 shrink-0" />}
         <div>
@@ -214,9 +214,9 @@ export function TrainingStep() {
             <FiPlay className={cn('mr-1.5 size-3.5', reading && 'animate-pulse')} />
             {reading ? 'Διαβάζονται…' : remaining > 0 ? `Συνέχεια ανάγνωσης (${remaining})` : 'Ανάγνωση όλων'}
           </Button>
-          {reading && <span className="text-[11px] text-muted-foreground">Κάθε δείγμα διαβάζεται χωριστά — η λίστα ανανεώνεται μόνη της.</span>}
+          {reading && <span className="text-[length:var(--fs-11)] text-muted-foreground">Κάθε δείγμα διαβάζεται χωριστά — η λίστα ανανεώνεται μόνη της.</span>}
           {!reading && remaining > 0 && (
-            <span className="text-[11px] text-[#B45309]">Απομένουν {remaining} δείγματα — πάτα ξανά για να συνεχίσει.</span>
+            <span className="text-[length:var(--fs-11)] text-[#B45309]">Απομένουν {remaining} δείγματα — πάτα ξανά για να συνεχίσει.</span>
           )}
           {!reading && rows.length > 0 && !rows.some((r) => r.isPrimary) && dto.sample && (
             <Button size="sm" variant="ghost" onClick={adoptPrimary} disabled={uploading}>Χρήση του κύριου δείγματος</Button>
@@ -235,11 +235,11 @@ export function TrainingStep() {
               drag ? 'border-sisyphus-500 bg-sisyphus-50' : 'border-border hover:border-sisyphus-300 hover:bg-neutral-4')}
           >
             <FiUploadCloud className="size-6 text-sisyphus-600" />
-            <p className="text-[13px] font-medium">{uploading ? 'Ανέβασμα…' : 'Σύρε δείγματα εδώ'}</p>
-            <p className="text-[11px] text-muted-foreground">PDF, PNG, JPEG, WebP · έως 25 MB το καθένα</p>
+            <p className="text-[length:var(--fs-13)] font-medium">{uploading ? 'Ανέβασμα…' : 'Σύρε δείγματα εδώ'}</p>
+            <p className="text-[length:var(--fs-11)] text-muted-foreground">PDF, PNG, JPEG, WebP · έως 25 MB το καθένα</p>
           </div>
           {dto.sample && canManage && (
-            <p className="text-[12px] text-muted-foreground">
+            <p className="text-[length:var(--fs-12)] text-muted-foreground">
               Το αρχείο πάνω στο οποίο σχεδίασες τις περιοχές είναι ήδη ένα τέλειο πρώτο δείγμα.{' '}
               <button type="button" onClick={adoptPrimary} disabled={uploading} className="cursor-pointer font-medium text-sisyphus-700 hover:underline">
                 Χρήση του κύριου δείγματος
@@ -258,7 +258,7 @@ export function TrainingStep() {
               busyId={busyId} canManage={canManage}
             />
             {canManage && (
-              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <div className="flex items-center gap-2 text-[length:var(--fs-11)] text-muted-foreground">
                 <Button size="sm" variant="secondary" onClick={() => inputRef.current?.click()} disabled={uploading}>
                   <FiUploadCloud className="mr-1.5 size-3.5" /> {uploading ? 'Ανέβασμα…' : 'Προσθήκη δειγμάτων'}
                 </Button>
@@ -269,7 +269,7 @@ export function TrainingStep() {
 
           {open && (
             <aside className="rounded-xl border border-border bg-card p-3 shadow-card">
-              <p className="mb-2 truncate text-[13px] font-medium">{open.fileName}</p>
+              <p className="mb-2 truncate text-[length:var(--fs-13)] font-medium">{open.fileName}</p>
               <RegionMarker
                 pageImageUrl={(p) => templatesApi.samples.pageImageUrl(dto.id, open.id, p)}
                 pageCount={open.pageCount ?? 1}

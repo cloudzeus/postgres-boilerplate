@@ -541,7 +541,7 @@ export function TraderPanel({
     return (
       <div className="flex flex-wrap items-center gap-1.5">
         <span
-          className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+          className="inline-flex items-center rounded-full px-2 py-0.5 text-[length:var(--fs-11)] font-medium"
           style={{ backgroundColor: '#EAF4FC', color: '#0078D4' }}
         >
           {label}
@@ -857,10 +857,10 @@ export function TraderPanel({
       {/* 1 — Κεφαλίδα */}
       <header className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
-          <h2 className="truncate text-[15px] font-semibold text-foreground">
+          <h2 className="truncate text-[length:var(--fs-15)] font-semibold text-foreground">
             {group.name ?? 'Χωρίς επωνυμία'}
           </h2>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground">
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[length:var(--fs-12)] text-muted-foreground">
             <span className="font-mono tabular-nums text-foreground">ΑΦΜ {group.afm}</span>
             <CopyAfm afm={group.afm} />
             <span aria-hidden>·</span>
@@ -872,7 +872,7 @@ export function TraderPanel({
           </div>
         </div>
         <span
-          className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+          className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[length:var(--fs-11)] font-medium"
           style={{ backgroundColor: kindColor.bg, color: kindColor.fg }}
         >
           {KIND_LABEL[form.kind]}
@@ -883,10 +883,10 @@ export function TraderPanel({
       {isForeign ? (
         <section className="px-4 py-3" aria-label="Στοιχεία VIES">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
+            <h3 className="flex items-center gap-1.5 text-[length:var(--fs-13)] font-semibold text-foreground">
               Μητρώο VIES
               <span
-                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[length:var(--fs-11)] font-medium"
                 style={{ backgroundColor: '#EAF4FC', color: '#0078D4' }}
               >
                 <FiGlobe aria-hidden className="size-3" />
@@ -908,14 +908,14 @@ export function TraderPanel({
             )}
           </div>
 
-          <p className="mb-2 text-[12px] text-muted-foreground">
+          <p className="mb-2 text-[length:var(--fs-12)] text-muted-foreground">
             Δεν γίνεται αναζήτηση στην ΑΑΔΕ — ο εκδότης δεν είναι ελληνικός. Το ΑΦΜ
             κρατά το πρόθεμα της χώρας ({countryLabel(group.country)}).
           </p>
 
           {!viesCountry && (
             <div
-              className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-[12px]"
+              className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-[length:var(--fs-12)]"
               style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}
               role="status"
             >
@@ -926,7 +926,7 @@ export function TraderPanel({
 
           {vies && vies.valid === null && (
             <p
-              className="rounded-lg border px-3 py-2 text-[12px]"
+              className="rounded-lg border px-3 py-2 text-[length:var(--fs-12)]"
               style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}
               role="status"
             >
@@ -936,7 +936,7 @@ export function TraderPanel({
 
           {vies && vies.valid === false && (
             <p
-              className="rounded-lg border px-3 py-2 text-[12px]"
+              className="rounded-lg border px-3 py-2 text-[length:var(--fs-12)]"
               style={{ borderColor: '#F5C2C7', backgroundColor: '#FDF2F2', color: '#A4262C' }}
               role="status"
             >
@@ -946,7 +946,7 @@ export function TraderPanel({
 
           {vies && vies.valid === true && (
             <div className="overflow-hidden rounded-lg border border-border">
-              <div className="grid grid-cols-[88px_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 border-b border-border bg-neutral-4 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+              <div className="grid grid-cols-[88px_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 border-b border-border bg-neutral-4 px-2 py-1 text-[length:var(--fs-11)] font-medium text-muted-foreground">
                 <span>Πεδίο</span><span>OCR</span><span>VIES</span><span className="sr-only">Ενέργεια</span>
               </div>
               <ul className="divide-y divide-border">
@@ -956,7 +956,7 @@ export function TraderPanel({
                 ]).map((r) => (
                   <li
                     key={r.key}
-                    className="grid grid-cols-[88px_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-[12px]"
+                    className="grid grid-cols-[88px_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-[length:var(--fs-12)]"
                   >
                     <span className="text-muted-foreground">{r.label}</span>
                     <span className="truncate text-muted-foreground" title={r.ocr ?? ''}>{r.ocr ?? '—'}</span>
@@ -980,12 +980,12 @@ export function TraderPanel({
       ) : (
       <section className="px-4 py-3" aria-label="Στοιχεία ΑΑΔΕ">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
+          <h3 className="flex items-center gap-1.5 text-[length:var(--fs-13)] font-semibold text-foreground">
             Στοιχεία ΑΑΔΕ
             {/* Το μητρώο λέει ρητά ότι ο ΑΦΜ είναι ανενεργός — χρήσιμο πριν τη δημιουργία. */}
             {aadeState === 'ready' && aade?.isActive === false && (
               <span
-                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[length:var(--fs-11)] font-medium"
                 style={{ backgroundColor: '#FFF8EE', color: '#92400E' }}
               >
                 <FiAlertTriangle aria-hidden className="size-3" /> Ανενεργό στην ΑΑΔΕ
@@ -996,7 +996,7 @@ export function TraderPanel({
             <button
               type="button"
               onClick={applyAll}
-              className="cursor-pointer rounded-sm text-[12px] font-medium text-sisyphus-700 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-sisyphus-500"
+              className="cursor-pointer rounded-sm text-[length:var(--fs-12)] font-medium text-sisyphus-700 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-sisyphus-500"
             >
               Χρήση όλων από ΑΑΔΕ
             </button>
@@ -1014,7 +1014,7 @@ export function TraderPanel({
 
         {aadeState !== 'loading' && aadeState !== 'ready' && (
           <div
-            className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-[12px]"
+            className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-[length:var(--fs-12)]"
             style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}
             role="status"
           >
@@ -1034,14 +1034,14 @@ export function TraderPanel({
 
         {aadeState === 'ready' && (
           <div className="overflow-hidden rounded-lg border border-border">
-            <div className="grid grid-cols-[88px_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 border-b border-border bg-neutral-4 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+            <div className="grid grid-cols-[88px_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 border-b border-border bg-neutral-4 px-2 py-1 text-[length:var(--fs-11)] font-medium text-muted-foreground">
               <span>Πεδίο</span><span>OCR</span><span>ΑΑΔΕ</span><span className="sr-only">Ενέργεια</span>
             </div>
             <ul className="divide-y divide-border">
               {rows.map((r) => (
                 <li
                   key={r.key}
-                  className="grid grid-cols-[88px_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-[12px]"
+                  className="grid grid-cols-[88px_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-[length:var(--fs-12)]"
                 >
                   <span className="text-muted-foreground">{r.label}</span>
                   <span className="truncate text-muted-foreground" title={r.ocr ?? ''}>{r.ocr ?? '—'}</span>
@@ -1065,12 +1065,12 @@ export function TraderPanel({
 
       {/* 2β — Καρτέλες του ΑΦΜ στο SoftOne: τι υπάρχει ήδη και τι λείπει */}
       <section className="px-4 py-3" aria-label="Καρτέλες στο SoftOne">
-        <h3 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <h3 className="mb-2 flex items-center gap-1.5 text-[length:var(--fs-11)] font-semibold uppercase tracking-wider text-muted-foreground">
           <FiCreditCard aria-hidden className="size-3.5" /> Καρτέλες στο SoftOne
         </h3>
 
         {group.cards.length === 0 ? (
-          <p className="flex items-start gap-1.5 rounded-lg bg-neutral-6 px-3 py-2 text-[12px] text-muted-foreground">
+          <p className="flex items-start gap-1.5 rounded-lg bg-neutral-6 px-3 py-2 text-[length:var(--fs-12)] text-muted-foreground">
             <FiInfo aria-hidden className="mt-0.5 size-3.5 shrink-0" />
             Καμία καρτέλα για αυτό το ΑΦΜ — θα δημιουργηθεί η πρώτη.
           </p>
@@ -1079,10 +1079,10 @@ export function TraderPanel({
             {group.cards.map((c) => (
               <li
                 key={c.trdr}
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[12px]"
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[length:var(--fs-12)]"
               >
                 <span
-                  className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                  className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[length:var(--fs-11)] font-medium"
                   style={c.kind
                     ? { backgroundColor: KIND_COLORS[c.kind].bg, color: KIND_COLORS[c.kind].fg }
                     : { backgroundColor: '#EEE', color: '#555' }}
@@ -1102,7 +1102,7 @@ export function TraderPanel({
             {group.missing.map((m) => (
               <li
                 key={m.kind}
-                className="flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-2 text-[12px]"
+                className="flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-2 text-[length:var(--fs-12)]"
                 style={{ borderColor: '#F0C36D', backgroundColor: '#FDF6E7' }}
               >
                 <FiAlertTriangle aria-hidden className="size-3.5 shrink-0" style={{ color: '#B45309' }} />
@@ -1131,7 +1131,7 @@ export function TraderPanel({
         */}
         {addableKinds.length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[length:var(--fs-11)] text-muted-foreground">
               Διαθέσιμοι τύποι για αυτό το ΑΦΜ:
             </span>
             {addableKinds.map((k) => (
@@ -1151,7 +1151,7 @@ export function TraderPanel({
 
         {/* Τα έγγραφα που δεν ξέρουμε πού καταχωρούνται δεν ζητούν συγκεκριμένο τύπο. */}
         {group.unknownSeriesDocs > 0 && (
-          <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+          <p className="mt-2 flex items-start gap-1.5 text-[length:var(--fs-11)] text-muted-foreground">
             <FiInfo aria-hidden className="mt-0.5 size-3 shrink-0" />
             {group.unknownSeriesDocs === 1 ? '1 παραστατικό δεν έχει' : `${group.unknownSeriesDocs} παραστατικά δεν έχουν`}
             {' '}αναγνωρισμένη σειρά: δεν προκύπτει από αυτά ποιος τύπος καρτέλας χρειάζεται.
@@ -1159,7 +1159,7 @@ export function TraderPanel({
         )}
 
         {/* Ο πελάτης (SODTYPE 13) δεν είναι παράλειψη — είναι εκτός εμβέλειας, και το λέμε. */}
-        <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+        <p className="mt-2 flex items-start gap-1.5 text-[length:var(--fs-11)] text-muted-foreground">
           <FiInfo aria-hidden className="mt-0.5 size-3 shrink-0" />
           {/* Ένα `span`, όχι γυμνά text nodes: το `flex` του `p` θα έκανε κάθε κομμάτι
               ξεχωριστό flex item και η πρόταση θα έσπαγε με κενά στη μέση. */}
@@ -1173,7 +1173,7 @@ export function TraderPanel({
       {/* 3 — Φόρμα */}
       <section className="px-4 py-3" aria-label="Στοιχεία συναλλασσομένου">
         <div className="mb-2 flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-medium text-muted-foreground">Τύπος</span>
+          <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Τύπος</span>
           <div
             role="radiogroup"
             aria-label="Τύπος συναλλασσομένου"
@@ -1200,7 +1200,7 @@ export function TraderPanel({
                   ref={(el) => { kindRefs.current[k] = el; }}
                   onClick={() => setForm((f) => ({ ...f, kind: k }))}
                   className={cn(
-                    'inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium outline-none cx-transition',
+                    'inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[length:var(--fs-12)] font-medium outline-none cx-transition',
                     'focus-visible:ring-2 focus-visible:ring-sisyphus-500',
                     active ? 'bg-sisyphus-50 text-sisyphus-700' : 'text-muted-foreground hover:bg-[var(--cx-hover)]',
                   )}
@@ -1215,7 +1215,7 @@ export function TraderPanel({
 
         <div className="grid gap-2.5 sm:grid-cols-2">
           <Field label="Επωνυμία" required error={errorOf('name')} id="tp-name" className="sm:col-span-2">
-            <Input {...bind('name', 'tp-name')} className="h-8 text-[13px]" />
+            <Input {...bind('name', 'tp-name')} className="h-8 text-[length:var(--fs-13)]" />
             <RegistryMark k="name" />
           </Field>
 
@@ -1228,7 +1228,7 @@ export function TraderPanel({
             {/* `readOnly` (όχι `disabled`): το πεδίο μένει εστιάσιμο και αναγνώσιμο από screen reader. */}
             <Input
               id="tp-afm" value={effectiveAfm} readOnly aria-readonly
-              className="h-8 bg-neutral-4 font-mono text-[13px]"
+              className="h-8 bg-neutral-4 font-mono text-[length:var(--fs-13)]"
             />
           </Field>
 
@@ -1239,11 +1239,11 @@ export function TraderPanel({
             hint={codeHint(form.kind, codeSuggestion, codeBusy)}
           >
             <div className="flex items-center gap-2">
-              <Input {...bind('code', 'tp-code')} ref={codeRef} className="h-8 flex-1 font-mono text-[13px]" />
+              <Input {...bind('code', 'tp-code')} ref={codeRef} className="h-8 flex-1 font-mono text-[length:var(--fs-13)]" />
               {/* Ο κωδικός είναι ΠΡΟΤΑΣΗ, όχι κλειδαριά: το chip το λέει, το πεδίο μένει ανοιχτό. */}
               {isProposedCode && (
                 <span
-                  className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                  className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[length:var(--fs-11)] font-medium"
                   style={{ backgroundColor: '#EAF4FC', color: '#0078D4' }}
                 >
                   προτεινόμενος — επόμενος ελεύθερος
@@ -1262,7 +1262,7 @@ export function TraderPanel({
             )}
             {/* Δείγμα από τα ΥΠΑΡΧΟΝΤΑ δεδομένα — δείχνει τη μορφή, δεν την επιβάλλει. */}
             {codeSamples[form.kind].length > 0 && (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[length:var(--fs-11)] text-muted-foreground">
                 Υπάρχοντες κωδικοί {KIND_GENITIVE[form.kind]}:{' '}
                 <span className="font-mono">{codeSamples[form.kind].join(', ')}</span>
               </p>
@@ -1297,12 +1297,12 @@ export function TraderPanel({
               // κωδικός ΑΑΔΕ — ένας πληκτρολογημένος κωδικός θα μπορούσε να είναι ΑΛΛΗ Δ.Ο.Υ.
               <>
                 <Input
-                  id="tp-doy" disabled className="h-8 text-[13px]" placeholder="Μη διαθέσιμο"
+                  id="tp-doy" disabled className="h-8 text-[length:var(--fs-13)]" placeholder="Μη διαθέσιμο"
                   // Μόνο ό,τι έλυσε ο server από την ΑΑΔΕ (επαληθευμένο κλειδί) — ποτέ ελεύθερη τιμή.
                   value={form.irsData && aade?.softoneDoy?.office?.key === form.irsData
                     ? `${aade.softoneDoy.office.name} (${aade.softoneDoy.office.code})` : ''}
                 />
-                <p role="status" className="flex items-start gap-1.5 text-[12px] text-muted-foreground">
+                <p role="status" className="flex items-start gap-1.5 text-[length:var(--fs-12)] text-muted-foreground">
                   <FiInfo aria-hidden className="mt-0.5 size-3.5 shrink-0" />
                   <span>Δεν φορτώθηκε το μητρώο Δ.Ο.Υ. του SoftOne — δοκιμάστε ξανά (ανανέωση σελίδας). Η καρτέλα μπορεί να δημιουργηθεί και χωρίς Δ.Ο.Υ.</span>
                 </p>
@@ -1313,7 +1313,7 @@ export function TraderPanel({
             {!form.irsData && aadeState === 'ready' && aade?.softoneDoy?.note && (
               <p
                 role="status"
-                className="flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-[12px]"
+                className="flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-[length:var(--fs-12)]"
                 style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}
               >
                 <FiAlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0" />
@@ -1327,14 +1327,14 @@ export function TraderPanel({
           )}
 
           <Field label="Επάγγελμα" id="tp-prof" error={errorOf('profession')} className="sm:col-span-2">
-            <Input {...bind('profession', 'tp-prof')} className="h-8 text-[13px]" />
+            <Input {...bind('profession', 'tp-prof')} className="h-8 text-[length:var(--fs-13)]" />
             <RegistryMark k="profession" />
           </Field>
 
           <Field label="Διεύθυνση" id="tp-addr" error={errorOf('address')} className="sm:col-span-2">
             <RegistryMark k="address" />
             <div className="flex items-center gap-2">
-              <Input {...bind('address', 'tp-addr')} className="h-8 flex-1 text-[13px]" />
+              <Input {...bind('address', 'tp-addr')} className="h-8 flex-1 text-[length:var(--fs-13)]" />
               <Button
                 type="button" variant="outline" size="sm"
                 className="h-8 shrink-0 cursor-pointer"
@@ -1351,12 +1351,12 @@ export function TraderPanel({
 
           {/* Οι προτάσεις του geocoder ΔΕΝ γράφονται μόνες τους: ο χρήστης τις εφαρμόζει. */}
           {geoMiss && (
-            <p className="text-[12px] text-muted-foreground sm:col-span-2" role="status">
+            <p className="text-[length:var(--fs-12)] text-muted-foreground sm:col-span-2" role="status">
               Η διεύθυνση δεν αναγνωρίστηκε — συμπλήρωσε χώρα/πόλη/Τ.Κ. χειροκίνητα.
             </p>
           )}
           {geoDown && (
-            <p className="text-[12px] text-amber-700 sm:col-span-2" role="status">
+            <p className="text-[length:var(--fs-12)] text-amber-700 sm:col-span-2" role="status">
               Η υπηρεσία διευθύνσεων δεν απάντησε — δοκίμασε «Νέα αναζήτηση» ή συμπλήρωσε
               χώρα/πόλη/Τ.Κ. χειροκίνητα. Τίποτα δεν αποθηκεύτηκε ως «δεν βρέθηκε».
             </p>
@@ -1364,7 +1364,7 @@ export function TraderPanel({
           {geo && (
             <div className="rounded-lg border border-border sm:col-span-2" role="group" aria-label="Προτάσεις από τη διεύθυνση">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-neutral-4 px-2 py-1">
-                <span className="truncate text-[11px] text-muted-foreground" title={geo.formatted}>
+                <span className="truncate text-[length:var(--fs-11)] text-muted-foreground" title={geo.formatted}>
                   {geo.formatted}
                   {geo.cached && <span className="ml-1 opacity-70">· από τη μνήμη</span>}
                 </span>
@@ -1381,7 +1381,7 @@ export function TraderPanel({
                     if (c) setCoords(c);
                     toast.success('Συμπληρώθηκαν τα στοιχεία της διεύθυνσης');
                   }}
-                  className="shrink-0 cursor-pointer rounded-sm text-[12px] font-medium text-sisyphus-700 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-sisyphus-500"
+                  className="shrink-0 cursor-pointer rounded-sm text-[length:var(--fs-12)] font-medium text-sisyphus-700 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-sisyphus-500"
                 >
                   Εφαρμογή όλων
                 </button>
@@ -1392,7 +1392,7 @@ export function TraderPanel({
                   { key: 'city' as const, label: 'Πόλη', value: geo.city, shown: geo.city },
                   { key: 'zip' as const, label: 'Τ.Κ.', value: geo.zip, shown: geo.zip },
                 ]).map((r) => (
-                  <li key={r.key} className="grid grid-cols-[88px_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-[12px]">
+                  <li key={r.key} className="grid grid-cols-[88px_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-[length:var(--fs-12)]">
                     <span className="text-muted-foreground">{r.label}</span>
                     <span className="truncate text-foreground">{r.shown ?? '—'}</span>
                     <Button
@@ -1408,7 +1408,7 @@ export function TraderPanel({
                 ))}
                 {/* Οι συντεταγμένες μπαίνουν μόνες τους όταν το πεδίο είναι άδειο·
                     η «Εφαρμογή» εδώ χρειάζεται για re-run μετά από αλλαγή διεύθυνσης. */}
-                <li className="grid grid-cols-[88px_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-[12px]">
+                <li className="grid grid-cols-[88px_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-[length:var(--fs-12)]">
                   <span className="text-muted-foreground">Συντεταγμένες</span>
                   <span className="truncate font-mono text-foreground">
                     {formatCoords(validCoords(geo.lat, geo.lng)) || '—'}
@@ -1428,12 +1428,12 @@ export function TraderPanel({
           )}
 
           <Field label="Τ.Κ." id="tp-zip" error={errorOf('zip')}>
-            <Input {...bind('zip', 'tp-zip')} inputMode="numeric" className="h-8 text-[13px]" />
+            <Input {...bind('zip', 'tp-zip')} inputMode="numeric" className="h-8 text-[length:var(--fs-13)]" />
             <RegistryMark k="zip" />
           </Field>
 
           <Field label="Πόλη" id="tp-city" error={errorOf('city')}>
-            <Input {...bind('city', 'tp-city')} className="h-8 text-[13px]" />
+            <Input {...bind('city', 'tp-city')} className="h-8 text-[length:var(--fs-13)]" />
             <RegistryMark k="city" />
           </Field>
 
@@ -1447,7 +1447,7 @@ export function TraderPanel({
               <Input
                 id="tp-coords" readOnly aria-readonly
                 value={formatCoords(coords)} placeholder="—"
-                className="h-8 flex-1 bg-neutral-4 font-mono text-[13px]"
+                className="h-8 flex-1 bg-neutral-4 font-mono text-[length:var(--fs-13)]"
               />
               {coords && (
                 <Button
@@ -1462,18 +1462,18 @@ export function TraderPanel({
           </Field>
 
           <Field label="Τηλέφωνο" id="tp-phone" error={errorOf('phone')}>
-            <Input {...bind('phone', 'tp-phone')} inputMode="tel" className="h-8 text-[13px]" />
+            <Input {...bind('phone', 'tp-phone')} inputMode="tel" className="h-8 text-[length:var(--fs-13)]" />
           </Field>
 
           <Field label="Email" id="tp-email" error={errorOf('email')}>
-            <Input {...bind('email', 'tp-email')} type="email" className="h-8 text-[13px]" />
+            <Input {...bind('email', 'tp-email')} type="email" className="h-8 text-[length:var(--fs-13)]" />
           </Field>
         </div>
       </section>
 
       {/* 4 — Παραστατικά της ομάδας */}
       <section className="px-4 py-3" aria-label="Παραστατικά">
-        <h3 className="mb-1.5 text-[13px] font-semibold text-foreground">
+        <h3 className="mb-1.5 text-[length:var(--fs-13)] font-semibold text-foreground">
           Παραστατικά{' '}
           <span className="font-normal text-muted-foreground">
             ({Math.min(group.docs.length, group.docCount)} από {group.docCount})
@@ -1481,7 +1481,7 @@ export function TraderPanel({
         </h3>
         <ul className="divide-y divide-border rounded-lg border border-border">
           {group.docs.map((d) => (
-            <li key={d.id} className="flex items-center gap-2 px-2 py-1.5 text-[12px]">
+            <li key={d.id} className="flex items-center gap-2 px-2 py-1.5 text-[length:var(--fs-12)]">
               <Link
                 href={`/admin/ocr/${d.id}`}
                 className="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm text-sisyphus-700 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-sisyphus-500"
@@ -1495,7 +1495,7 @@ export function TraderPanel({
             </li>
           ))}
           {group.docs.length === 0 && (
-            <li className="px-2 py-1.5 text-[12px] text-muted-foreground">Κανένα παραστατικό.</li>
+            <li className="px-2 py-1.5 text-[length:var(--fs-12)] text-muted-foreground">Κανένα παραστατικό.</li>
           )}
         </ul>
       </section>
@@ -1505,7 +1505,7 @@ export function TraderPanel({
         {failure && (
           <p
             role="alert"
-            className="flex items-start gap-1.5 rounded-lg border px-3 py-2 text-[12px]"
+            className="flex items-start gap-1.5 rounded-lg border px-3 py-2 text-[length:var(--fs-12)]"
             style={{ borderColor: '#F5C2C7', backgroundColor: '#FDF2F2', color: '#A4262C' }}
           >
             <FiAlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0" /> {failure}
@@ -1526,7 +1526,7 @@ export function TraderPanel({
               πρωτοβουλία («Προσθήκη πιστωτή/χρεώστη»), όχι μόνο όταν κάποιο έγγραφο τον ζητά.
             */}
             {unknownSeriesNotice && (
-              <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+              <p className="flex items-start gap-1.5 text-[length:var(--fs-11)] text-muted-foreground">
                 <FiInfo aria-hidden className="mt-0.5 size-3 shrink-0" />
                 <span>{unknownSeriesNotice}</span>
               </p>
@@ -1571,7 +1571,7 @@ export function TraderPanel({
           </Button>
 
           {!canManage && (
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[length:var(--fs-11)] text-muted-foreground">
               Χρειάζεται δικαίωμα «ocr.categorize».
             </span>
           )}
@@ -1586,7 +1586,7 @@ export function TraderPanel({
               disabled={busy !== null}
               onPick={(hit) => { setShowSearch(false); void link(hit.id, hit.name); }}
             />
-            <p className="mt-1.5 text-[11px] text-muted-foreground">
+            <p className="mt-1.5 text-[length:var(--fs-11)] text-muted-foreground">
               Όλα τα παραστατικά του ΑΦΜ {group.afm} θα συνδεθούν με τον επιλεγμένο συναλλασσόμενο.
             </p>
           </div>
@@ -1594,14 +1594,14 @@ export function TraderPanel({
 
         {ignoring && (
           <div className="rounded-lg border border-border bg-neutral-4 p-2.5">
-            <label htmlFor="tp-reason" className="text-[11px] font-medium text-muted-foreground">
+            <label htmlFor="tp-reason" className="text-[length:var(--fs-11)] font-medium text-muted-foreground">
               Λόγος (προαιρετικό)
             </label>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <Input
                 id="tp-reason" value={reason} autoFocus
                 placeholder="π.χ. ιδιώτης, δεν χρειάζεται καταχώριση"
-                className="h-8 min-w-[200px] flex-1 text-[13px]"
+                className="h-8 min-w-[200px] flex-1 text-[length:var(--fs-13)]"
                 onChange={(e) => setReason(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void ignore(); } }}
               />
@@ -1627,14 +1627,14 @@ export function TraderPanel({
           }}
           className="rounded-lg border border-border"
         >
-          <summary className="cursor-pointer list-none px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-500">
+          <summary className="cursor-pointer list-none px-2.5 py-1.5 text-[length:var(--fs-12)] font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-500">
             Προεπισκόπηση setData
           </summary>
           <div className="border-t border-border px-2.5 py-2">
-            {dryError && <p className="text-[12px] text-danger-500">{dryError}</p>}
-            {!dryError && !dryPayload && <p className="text-[12px] text-muted-foreground">Φόρτωση…</p>}
+            {dryError && <p className="text-[length:var(--fs-12)] text-danger-500">{dryError}</p>}
+            {!dryError && !dryPayload && <p className="text-[length:var(--fs-12)] text-muted-foreground">Φόρτωση…</p>}
             {dryPayload && (
-              <pre className="max-h-56 overflow-auto rounded-md bg-neutral-8 p-2 text-[11px] leading-relaxed">
+              <pre className="max-h-56 overflow-auto rounded-md bg-neutral-8 p-2 text-[length:var(--fs-11)] leading-relaxed">
                 {dryPayload}
               </pre>
             )}
@@ -1678,17 +1678,17 @@ function Field({
   return (
     <div className={cn('grid gap-1', className)} role={plainLabel ? 'group' : undefined} aria-label={plainLabel ? label : undefined}>
       {plainLabel ? (
-        <span className="text-[11px] font-medium text-muted-foreground">{labelNode}</span>
+        <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">{labelNode}</span>
       ) : (
-        <label htmlFor={id} className="text-[11px] font-medium text-muted-foreground">{labelNode}</label>
+        <label htmlFor={id} className="text-[length:var(--fs-11)] font-medium text-muted-foreground">{labelNode}</label>
       )}
       {children}
       {error ? (
-        <p id={`${id}-err`} role="alert" className="flex items-center gap-1 text-[11px] text-danger-500">
+        <p id={`${id}-err`} role="alert" className="flex items-center gap-1 text-[length:var(--fs-11)] text-danger-500">
           <FiAlertTriangle aria-hidden className="size-3" /> {error}
         </p>
       ) : hint ? (
-        <p className="text-[11px] text-muted-foreground">{hint}</p>
+        <p className="text-[length:var(--fs-11)] text-muted-foreground">{hint}</p>
       ) : null}
     </div>
   );
@@ -1710,7 +1710,7 @@ function CopyAfm({ afm }: { afm: string }) {
         }
       }}
       aria-label={`Αντιγραφή ΑΦΜ ${afm}`}
-      className="inline-flex cursor-pointer items-center gap-1 rounded-sm px-1 text-[11px] text-muted-foreground outline-none cx-transition hover:bg-[var(--cx-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-sisyphus-500"
+      className="inline-flex cursor-pointer items-center gap-1 rounded-sm px-1 text-[length:var(--fs-11)] text-muted-foreground outline-none cx-transition hover:bg-[var(--cx-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-sisyphus-500"
     >
       {copied ? <FiCheckCircle aria-hidden className="size-3 text-success-500" /> : <FiCopy aria-hidden className="size-3" />}
       {copied ? 'Αντιγράφηκε' : 'Αντιγραφή'}

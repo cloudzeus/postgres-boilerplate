@@ -55,21 +55,21 @@ export function DetailsStep() {
 
   return (
     <div className="max-w-xl space-y-4">
-      <div><h2 className="text-[16px] font-semibold">Στοιχεία προτύπου</h2><p className="text-[12px] text-muted-foreground">Το πρότυπο είναι ανεξάρτητο. Η σύνδεση με προμηθευτή ή τμήμα είναι προαιρετική.</p></div>
+      <div><h2 className="text-[length:var(--fs-16)] font-semibold">Στοιχεία προτύπου</h2><p className="text-[length:var(--fs-12)] text-muted-foreground">Το πρότυπο είναι ανεξάρτητο. Η σύνδεση με προμηθευτή ή τμήμα είναι προαιρετική.</p></div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2"><Label htmlFor="tn">Όνομα</Label><Input id="tn" value={name} onChange={(e) => setName(e.target.value)} disabled={!canManage} className="mt-1" /></div>
         <div><Label htmlFor="ts">Slug</Label><Input id="ts" value={slug} onChange={(e) => setSlug(slugDraft(e.target.value))} disabled={!canManage || slugLocked} className="mt-1 font-mono" />
-          <p className="mt-1 text-[10px] text-muted-foreground">{slugLocked ? 'Κλειδωμένο — το πρότυπο έχει εκτελέσεις.' : 'Κλειδί του JSON εξόδου.'}</p></div>
+          <p className="mt-1 text-[length:var(--fs-10)] text-muted-foreground">{slugLocked ? 'Κλειδωμένο — το πρότυπο έχει εκτελέσεις.' : 'Κλειδί του JSON εξόδου.'}</p></div>
         <div><Label htmlFor="td">Τμήμα / κατηγορία</Label><Input id="td" value={department} onChange={(e) => setDepartment(e.target.value)} disabled={!canManage} className="mt-1" placeholder="π.χ. Λογιστήριο, Συνεργείο" /></div>
         <div className="sm:col-span-2"><SupplierSearch value={supplier} onChange={pickSupplier} disabled={!canManage} /></div>
         <div><Label htmlFor="tv">ΑΦΜ εκδότη (προαιρετικό)</Label><Input id="tv" value={vat} onChange={(e) => setVat(e.target.value.replace(/\D/g, '').slice(0, 9))} disabled={!canManage} className="mt-1 font-mono" inputMode="numeric" />
-          <p className="mt-1 text-[10px] text-muted-foreground">Με ΑΦΜ, το πρότυπο θα εφαρμόζεται αυτόματα στα έγγραφα του εκδότη μόλις ενεργοποιηθεί η ροή εκτέλεσης.</p></div>
+          <p className="mt-1 text-[length:var(--fs-10)] text-muted-foreground">Με ΑΦΜ, το πρότυπο θα εφαρμόζεται αυτόματα στα έγγραφα του εκδότη μόλις ενεργοποιηθεί η ροή εκτέλεσης.</p></div>
       </div>
 
       <div className="space-y-2 border-t border-border pt-4">
         <div>
-          <h3 className="text-[13px] font-semibold">Πύλη εκπαίδευσης</h3>
-          <p className="text-[11px] text-muted-foreground">
+          <h3 className="text-[length:var(--fs-13)] font-semibold">Πύλη εκπαίδευσης</h3>
+          <p className="text-[length:var(--fs-11)] text-muted-foreground">
             Πόσο εκπαιδευμένο πρέπει να είναι το πρότυπο πριν επιτραπεί η ενεργοποίησή του. Ο βαθμός μετριέται
             στο βήμα «Εκπαίδευση»: ποσοστό των πεδίων που το πρότυπο διάβασε όπως τα επιβεβαίωσε άνθρωπος.
           </p>
@@ -78,12 +78,12 @@ export function DetailsStep() {
           <div>
             <Label htmlFor="tms">Ελάχιστα επιβεβαιωμένα δείγματα</Label>
             <Input id="tms" value={minSamples} onChange={(e) => setMinSamples(e.target.value.replace(/\D/g, '').slice(0, 3))} disabled={!canManage} className="mt-1 font-mono" inputMode="numeric" />
-            <p className="mt-1 text-[10px] text-muted-foreground">0 = χωρίς έλεγχο εκπαίδευσης (το πρότυπο ενεργοποιείται όπως πριν).</p>
+            <p className="mt-1 text-[length:var(--fs-10)] text-muted-foreground">0 = χωρίς έλεγχο εκπαίδευσης (το πρότυπο ενεργοποιείται όπως πριν).</p>
           </div>
           <div>
             <Label htmlFor="tmp">Ελάχιστος βαθμός (%)</Label>
             <Input id="tmp" value={minPct} onChange={(e) => setMinPct(e.target.value.replace(/\D/g, '').slice(0, 3))} disabled={!canManage} className="mt-1 font-mono" inputMode="numeric" />
-            <p className="mt-1 text-[10px] text-muted-foreground">Προεπιλογή 90 % σε 3 δείγματα. Ισχύει μόνο στην ενεργοποίηση, όχι σε κάθε αποθήκευση.</p>
+            <p className="mt-1 text-[length:var(--fs-10)] text-muted-foreground">Προεπιλογή 90 % σε 3 δείγματα. Ισχύει μόνο στην ενεργοποίηση, όχι σε κάθε αποθήκευση.</p>
           </div>
         </div>
       </div>

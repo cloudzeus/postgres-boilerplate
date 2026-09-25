@@ -36,7 +36,7 @@ export function UploadProgress({ items, open, onClose, onCancel }: UploadProgres
           <DialogTitle className="flex items-center gap-2">
             <FiUpload className="text-primary" />
             Μεταφόρτωση αρχείων
-            <span className="ml-auto text-[12px] font-normal text-muted-foreground">
+            <span className="ml-auto text-[length:var(--fs-12)] font-normal text-muted-foreground">
               {done}/{items.length} ολοκληρώθηκαν
               {errored > 0 && <span className="text-destructive"> · {errored} σφάλματα</span>}
             </span>
@@ -48,8 +48,8 @@ export function UploadProgress({ items, open, onClose, onCancel }: UploadProgres
             <div key={item.id} className="rounded-md border border-border bg-card p-2.5">
               <div className="flex items-center gap-2 mb-1.5">
                 <span className="flex-1 min-w-0">
-                  <div className="text-[12px] font-medium text-foreground truncate">{item.file.name}</div>
-                  <div className="text-[10px] text-muted-foreground tabular-nums">
+                  <div className="text-[length:var(--fs-12)] font-medium text-foreground truncate">{item.file.name}</div>
+                  <div className="text-[length:var(--fs-10)] text-muted-foreground tabular-nums">
                     {formatBytes(item.file.size)}
                     {item.status === 'uploading' && ` · ${item.progress}%`}
                   </div>
@@ -80,7 +80,7 @@ export function UploadProgress({ items, open, onClose, onCancel }: UploadProgres
                 />
               </div>
               {item.status === 'error' && item.error && (
-                <div className="mt-1 text-[10px] text-destructive">{item.error}</div>
+                <div className="mt-1 text-[length:var(--fs-10)] text-destructive">{item.error}</div>
               )}
             </div>
           ))}

@@ -20,7 +20,7 @@ export function FieldForm({ field, usedColors, onChange, disabled, isNew, keyUnl
 }) {
   const set = (patch: Partial<FieldDef>) => onChange({ ...field, ...patch });
   const setCol = (i: number, patch: Partial<ColumnDef>) => set({ columns: (field.columns ?? []).map((c, j) => (j === i ? { ...c, ...patch } : c)) });
-  const sel = 'mt-1 h-9 w-full rounded-sm border border-input bg-background px-2 text-[13px]';
+  const sel = 'mt-1 h-9 w-full rounded-sm border border-input bg-background px-2 text-[length:var(--fs-13)]';
 
   return (
     <div className="space-y-3">
@@ -33,15 +33,15 @@ export function FieldForm({ field, usedColors, onChange, disabled, isNew, keyUnl
             set(isNew ? { label, key: field.key && field.key !== slugKey(field.label) ? field.key : slugKey(label) } : { label });
           }} />
           {isNew
-            ? <p className="mt-1 font-mono text-[10px] text-muted-foreground">key: {field.key || '—'}</p>
+            ? <p className="mt-1 font-mono text-[length:var(--fs-10)] text-muted-foreground">key: {field.key || '—'}</p>
             : keyUnlocked
               ? <div className="mt-1">
-                  <Input value={field.key} disabled={disabled} aria-label="Κλειδί πεδίου" className="font-mono text-[12px]" onChange={(e) => set({ key: slugKey(e.target.value) || field.key })} />
-                  <p className="mt-1 text-[10px] text-[#B45309]">Η αλλαγή κλειδιού αφαιρεί αναφορές σε mappings/conditions</p>
+                  <Input value={field.key} disabled={disabled} aria-label="Κλειδί πεδίου" className="font-mono text-[length:var(--fs-12)]" onChange={(e) => set({ key: slugKey(e.target.value) || field.key })} />
+                  <p className="mt-1 text-[length:var(--fs-10)] text-[#B45309]">Η αλλαγή κλειδιού αφαιρεί αναφορές σε mappings/conditions</p>
                 </div>
-              : <p className="mt-1 flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+              : <p className="mt-1 flex items-center gap-2 font-mono text-[length:var(--fs-10)] text-muted-foreground">
                   <span>key: {field.key || '—'}</span>
-                  {!disabled && <button type="button" onClick={onUnlockKey} className="cursor-pointer font-sans text-[10px] text-sisyphus-700 hover:underline">Αλλαγή κλειδιού</button>}
+                  {!disabled && <button type="button" onClick={onUnlockKey} className="cursor-pointer font-sans text-[length:var(--fs-10)] text-sisyphus-700 hover:underline">Αλλαγή κλειδιού</button>}
                 </p>}</div>
         <div><Label>Είδος</Label>
           <select value={field.kind} disabled={disabled} className={sel} onChange={(e) => { const kind = e.target.value as FieldDef['kind']; set({ kind, columns: kind === 'TABLE' ? (field.columns?.length ? field.columns : [{ key: 'col1', label: 'Στήλη 1', valueType: 'TEXT' }]) : null }); }}>
@@ -61,18 +61,18 @@ export function FieldForm({ field, usedColors, onChange, disabled, isNew, keyUnl
               <button key={c} type="button" disabled={disabled || used} title={used ? 'Χρησιμοποιείται' : c} onClick={() => set({ color: c })}
                 className="size-6 cursor-pointer rounded-full border-2 disabled:cursor-not-allowed disabled:opacity-30" style={{ backgroundColor: c, borderColor: field.color === c ? '#1F1F1F' : 'transparent' }} aria-label={`Χρώμα ${c}`} />); })}
           </div></div>
-        <label className="inline-flex items-center gap-2 text-[12px]"><Switch checked={field.required} disabled={disabled} onCheckedChange={(v) => set({ required: v })} /> Υποχρεωτικό</label>
+        <label className="inline-flex items-center gap-2 text-[length:var(--fs-12)]"><Switch checked={field.required} disabled={disabled} onCheckedChange={(v) => set({ required: v })} /> Υποχρεωτικό</label>
       </div>
       {field.kind === 'TABLE' && (
         <div className="rounded-md border border-border bg-neutral-4 p-3">
-          <div className="mb-2 flex items-center justify-between"><span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Στήλες πίνακα</span>
-            {!disabled && <button type="button" onClick={() => set({ columns: [...(field.columns ?? []), { key: `col${(field.columns?.length ?? 0) + 1}`, label: `Στήλη ${(field.columns?.length ?? 0) + 1}`, valueType: 'TEXT' }] })} className="inline-flex cursor-pointer items-center gap-1 text-[12px] text-sisyphus-700 hover:underline"><FiPlus className="size-3" /> Στήλη</button>}</div>
+          <div className="mb-2 flex items-center justify-between"><span className="text-[length:var(--fs-11)] font-semibold uppercase tracking-wide text-muted-foreground">Στήλες πίνακα</span>
+            {!disabled && <button type="button" onClick={() => set({ columns: [...(field.columns ?? []), { key: `col${(field.columns?.length ?? 0) + 1}`, label: `Στήλη ${(field.columns?.length ?? 0) + 1}`, valueType: 'TEXT' }] })} className="inline-flex cursor-pointer items-center gap-1 text-[length:var(--fs-12)] text-sisyphus-700 hover:underline"><FiPlus className="size-3" /> Στήλη</button>}</div>
           <div className="space-y-2">
             {(field.columns ?? []).map((c, i) => (
               <div key={i} className="grid grid-cols-[1fr_1fr_120px_28px] items-center gap-2">
                 <Input value={c.label} disabled={disabled} placeholder="Ετικέτα" onChange={(e) => setCol(i, { label: e.target.value, key: slugKey(e.target.value) || c.key })} />
-                <Input value={c.key} disabled={disabled} placeholder="key" className="font-mono text-[12px]" onChange={(e) => setCol(i, { key: slugKey(e.target.value) || c.key })} />
-                <select value={c.valueType} disabled={disabled} className="h-9 rounded-sm border border-input bg-background px-2 text-[12px]" onChange={(e) => setCol(i, { valueType: e.target.value as TemplateValueType })}>
+                <Input value={c.key} disabled={disabled} placeholder="key" className="font-mono text-[length:var(--fs-12)]" onChange={(e) => setCol(i, { key: slugKey(e.target.value) || c.key })} />
+                <select value={c.valueType} disabled={disabled} className="h-9 rounded-sm border border-input bg-background px-2 text-[length:var(--fs-12)]" onChange={(e) => setCol(i, { valueType: e.target.value as TemplateValueType })}>
                   {VALUE_TYPES.map((v) => <option key={v} value={v}>{VALUE_TYPE_LABEL[v]}</option>)}</select>
                 {!disabled && <button type="button" aria-label="Αφαίρεση στήλης" onClick={() => set({ columns: (field.columns ?? []).filter((_, j) => j !== i) })} className="grid size-7 cursor-pointer place-items-center rounded-sm text-muted-foreground hover:bg-[var(--cx-hover)] hover:text-dg-red-600"><FiX className="size-3.5" /></button>}
               </div>))}

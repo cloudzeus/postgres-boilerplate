@@ -123,7 +123,7 @@ export function TraderSearch({
 
   return (
     <div className={cn('relative', className)} ref={rootRef}>
-      <label htmlFor={id} className="text-[11px] font-medium text-muted-foreground">
+      <label htmlFor={id} className="text-[length:var(--fs-11)] font-medium text-muted-foreground">
         {label}
       </label>
       <div className="relative mt-1">
@@ -143,7 +143,7 @@ export function TraderSearch({
           aria-autocomplete="list"
           aria-activedescendant={showList ? `${listId}-${active}` : undefined}
           placeholder={placeholder}
-          className="h-9 pl-8 pr-8 text-[13px]"
+          className="h-9 pl-8 pr-8 text-[length:var(--fs-13)]"
           onChange={(e) => { setQ(e.target.value); setOpen(true); }}
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -181,7 +181,7 @@ export function TraderSearch({
       </div>
 
       {loading && (
-        <p className="mt-1 text-[11px] text-muted-foreground" role="status">
+        <p className="mt-1 text-[length:var(--fs-11)] text-muted-foreground" role="status">
           Αναζήτηση…
         </p>
       )}
@@ -207,8 +207,8 @@ export function TraderSearch({
                   i === active ? 'bg-sisyphus-50' : 'hover:bg-[var(--cx-hover)]',
                 )}
               >
-                <span className="text-[13px] font-medium text-foreground">{r.name}</span>
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-[length:var(--fs-13)] font-medium text-foreground">{r.name}</span>
+                <span className="text-[length:var(--fs-11)] text-muted-foreground">
                   {[r.code, r.sub].filter(Boolean).join(' · ')}
                 </span>
               </button>
@@ -221,14 +221,14 @@ export function TraderSearch({
         <div
           id={listId}
           role="status"
-          className="absolute z-20 mt-1 flex w-full items-center gap-2 rounded-md border border-border bg-neutral-0 px-3 py-2 text-[12px] text-muted-foreground shadow-fluent-8"
+          className="absolute z-20 mt-1 flex w-full items-center gap-2 rounded-md border border-border bg-neutral-0 px-3 py-2 text-[length:var(--fs-12)] text-muted-foreground shadow-fluent-8"
         >
           <FiAlertTriangle aria-hidden className="size-3.5 shrink-0 text-warning-500" />
           <span>Σφάλμα φόρτωσης</span>
           <button
             type="button"
             onClick={() => { setFailed(false); setReload((n) => n + 1); }}
-            className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] font-medium text-sisyphus-700 outline-none hover:bg-[var(--cx-hover)] focus-visible:ring-2 focus-visible:ring-sisyphus-500"
+            className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-sm px-1.5 py-0.5 text-[length:var(--fs-11)] font-medium text-sisyphus-700 outline-none hover:bg-[var(--cx-hover)] focus-visible:ring-2 focus-visible:ring-sisyphus-500"
           >
             <FiRefreshCw aria-hidden className="size-3" /> Δοκίμασε ξανά
           </button>
@@ -239,7 +239,7 @@ export function TraderSearch({
         <div
           id={listId}
           role="status"
-          className="absolute z-20 mt-1 w-full rounded-md border border-border bg-neutral-0 px-3 py-2 text-[12px] text-muted-foreground shadow-fluent-8"
+          className="absolute z-20 mt-1 w-full rounded-md border border-border bg-neutral-0 px-3 py-2 text-[length:var(--fs-12)] text-muted-foreground shadow-fluent-8"
         >
           Δεν βρέθηκε συναλλασσόμενος.
         </div>

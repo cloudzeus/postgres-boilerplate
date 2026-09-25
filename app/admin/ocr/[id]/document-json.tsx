@@ -50,7 +50,7 @@ const money = (v: number | null | undefined): string =>
 function Chip({ label, value, tone }: { label: string; value: string; tone?: 'ok' | 'warn' }) {
   const color = tone === 'ok' ? '#047857' : tone === 'warn' ? '#B45309' : undefined;
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[11px]">
+    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[length:var(--fs-11)]">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium" style={color ? { color } : undefined}>{value}</span>
     </span>
@@ -61,7 +61,7 @@ function Chip({ label, value, tone }: { label: string; value: string; tone?: 'ok
 function JsonBlock({ value, label }: { value: unknown; label: string }) {
   return (
     <pre aria-label={label} tabIndex={0}
-      className="mt-2 max-h-96 overflow-auto rounded-lg border border-border bg-muted/40 p-3 text-[11px] leading-relaxed">
+      className="mt-2 max-h-96 overflow-auto rounded-lg border border-border bg-muted/40 p-3 text-[length:var(--fs-11)] leading-relaxed">
       {JSON.stringify(value, null, 2)}
     </pre>
   );
@@ -71,7 +71,7 @@ function Disclosure({ open, onToggle, children, label }: { open: boolean; onTogg
   return (
     <div>
       <button type="button" onClick={onToggle} aria-expanded={open}
-        className="inline-flex cursor-pointer items-center gap-1 text-[12px] font-medium text-muted-foreground hover:text-foreground">
+        className="inline-flex cursor-pointer items-center gap-1 text-[length:var(--fs-12)] font-medium text-muted-foreground hover:text-foreground">
         {open ? <FiChevronDown className="size-3.5" /> : <FiChevronRight className="size-3.5" />} {label}
       </button>
       {open && children}
@@ -176,7 +176,7 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
       {loading && <div role="status" aria-live="polite" className="h-16 animate-pulse rounded-lg bg-muted/50" aria-label="Φόρτωση JSON…" />}
 
       {!loading && error && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border p-2.5 text-[12px]" style={{ borderColor: '#B91C1C40', backgroundColor: '#FDE8E8', color: '#B91C1C' }}>
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border p-2.5 text-[length:var(--fs-12)]" style={{ borderColor: '#B91C1C40', backgroundColor: '#FDE8E8', color: '#B91C1C' }}>
           <FiAlertTriangle className="size-4" aria-hidden /> {error}
           <Button size="xs" variant="outline" onClick={() => void load()}><FiRefreshCw /> Δοκιμή ξανά</Button>
         </div>
@@ -205,9 +205,9 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
       {!loading && canPost && preview && (
         <div className="space-y-2 rounded-lg border border-border p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-[13px] font-semibold">Καταχώριση στο SoftOne</h3>
+            <h3 className="text-[length:var(--fs-13)] font-semibold">Καταχώριση στο SoftOne</h3>
             {posted ? (
-              <span className="inline-flex items-center gap-1.5 text-[12px] font-medium" style={{ color: '#047857' }}>
+              <span className="inline-flex items-center gap-1.5 text-[length:var(--fs-12)] font-medium" style={{ color: '#047857' }}>
                 <FiCheckCircle className="size-3.5" aria-hidden />
                 Καταχωρίστηκε{preview.postedRef ? ` · ${preview.postedRef}` : ''}
               </span>
@@ -220,14 +220,14 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
           </div>
 
           {!preview.enabled && !posted && (
-            <p className="text-[12px] text-muted-foreground">
+            <p className="text-[length:var(--fs-12)] text-muted-foreground">
               Η καταχώριση είναι απενεργοποιημένη — αυτό που βλέπετε είναι μόνο προεπισκόπηση
               (Ρυθμίσεις → Διασυνδέσεις → «Καταχώριση παραστατικών στο SoftOne»).
             </p>
           )}
 
           {posted ? null : blocked ? (
-            <div className="rounded-lg border p-2.5 text-[12px]" style={{ borderColor: '#B4530940', backgroundColor: '#FDF3E3', color: '#B45309' }}>
+            <div className="rounded-lg border p-2.5 text-[length:var(--fs-12)]" style={{ borderColor: '#B4530940', backgroundColor: '#FDF3E3', color: '#B45309' }}>
               <p className="font-semibold">Εκκρεμότητες πριν την καταχώριση</p>
               <ul className="mt-1 space-y-0.5">
                 {preview.blockers.map((b, i) => (
@@ -238,13 +238,13 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
               </ul>
             </div>
           ) : (
-            <p className="flex items-center gap-1.5 text-[12px]" style={{ color: '#047857' }}>
+            <p className="flex items-center gap-1.5 text-[length:var(--fs-12)]" style={{ color: '#047857' }}>
               <FiCheckCircle className="size-3.5" aria-hidden /> Το παραστατικό είναι έτοιμο για καταχώριση.
             </p>
           )}
 
           {/* Πού πάει: το πρώτο πράγμα που θέλει να δει ο χρήστης πριν σταλεί οτιδήποτε. */}
-          <div className="rounded-lg border p-2.5 text-[12px]"
+          <div className="rounded-lg border p-2.5 text-[length:var(--fs-12)]"
             style={preview.target.supported ? { borderColor: 'var(--border)', backgroundColor: 'color-mix(in srgb, var(--muted) 40%, transparent)' } : { borderColor: '#B4530940', backgroundColor: '#FDF3E3', color: '#B45309' }}>
             <p className="font-semibold">Προορισμός: {preview.target.label}</p>
             <p className="mt-0.5 text-muted-foreground">
@@ -255,7 +255,7 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
           </div>
 
           {preview.warnings.length > 0 && !posted && (
-            <div className="rounded-lg border p-2.5 text-[12px]" style={{ borderColor: '#B4530930', backgroundColor: '#FFFBF3', color: '#92400E' }}>
+            <div className="rounded-lg border p-2.5 text-[length:var(--fs-12)]" style={{ borderColor: '#B4530930', backgroundColor: '#FFFBF3', color: '#92400E' }}>
               <p className="font-semibold">Παρατηρήσεις (δεν εμποδίζουν)</p>
               <ul className="mt-1 space-y-0.5">
                 {preview.warnings.map((w, i) => (
@@ -267,7 +267,7 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
             </div>
           )}
 
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] sm:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-[length:var(--fs-12)] sm:grid-cols-4">
             <div><dt className="text-muted-foreground">Σειρά καταχώρισης</dt><dd className="font-medium">{preview.summary.series ?? '—'}</dd></div>
             <div><dt className="text-muted-foreground">Προμηθευτής</dt><dd className="font-medium">{preview.summary.trader ?? '—'}{preview.summary.trdr ? ` (${preview.summary.trdr})` : ''}</dd></div>
             <div><dt className="text-muted-foreground">Ημερομηνία</dt><dd className="font-medium">{preview.summary.date ?? '—'}</dd></div>
@@ -276,29 +276,29 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
 
           {/* Η αναφορά του εκδότη ΑΝΑ ΠΕΔΙΟ: ο σαρωμένος αριθμός δεν πάει σε ένα πεδίο, πάει σε τρία. */}
           <div className="rounded-lg border border-border p-2.5">
-            <p className="text-[12px] font-semibold">Αριθμός παραστατικού του προμηθευτή — πού γράφεται</p>
-            <dl className="mt-1.5 grid grid-cols-1 gap-x-4 gap-y-1 text-[12px] sm:grid-cols-3">
+            <p className="text-[length:var(--fs-12)] font-semibold">Αριθμός παραστατικού του προμηθευτή — πού γράφεται</p>
+            <dl className="mt-1.5 grid grid-cols-1 gap-x-4 gap-y-1 text-[length:var(--fs-12)] sm:grid-cols-3">
               <div>
-                <dt className="text-muted-foreground">Παραστατικό <code className="text-[10px]">FINCODE</code></dt>
+                <dt className="text-muted-foreground">Παραστατικό <code className="text-[length:var(--fs-10)]">FINCODE</code></dt>
                 <dd className="font-medium">{preview.summary.reference.fincode ?? '—'}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Φορ/κή σειρά <code className="text-[10px]">TAXSERIES</code></dt>
+                <dt className="text-muted-foreground">Φορ/κή σειρά <code className="text-[length:var(--fs-10)]">TAXSERIES</code></dt>
                 <dd className="font-medium">{preview.summary.reference.taxSeries ?? '—'}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Φορ/κός αριθμός <code className="text-[10px]">TAXSERIESNUM</code></dt>
+                <dt className="text-muted-foreground">Φορ/κός αριθμός <code className="text-[length:var(--fs-10)]">TAXSERIESNUM</code></dt>
                 <dd className="font-medium">{preview.summary.reference.taxSeriesNum ?? '—'}</dd>
               </div>
             </dl>
-            <p className="mt-1.5 text-[11px] text-muted-foreground">
-              Ο «Αριθμός» (<code className="text-[10px]">SERIESNUM</code>) της σειράς μας τον δίνει το SoftOne — δεν τον στέλνουμε.
+            <p className="mt-1.5 text-[length:var(--fs-11)] text-muted-foreground">
+              Ο «Αριθμός» (<code className="text-[length:var(--fs-10)]">SERIESNUM</code>) της σειράς μας τον δίνει το SoftOne — δεν τον στέλνουμε.
             </p>
           </div>
 
           {payloadRows.length > 0 && (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[36rem] text-[12px]">
+              <table className="w-full min-w-[36rem] text-[length:var(--fs-12)]">
                 <caption className="sr-only">Γραμμές που θα σταλούν στο SoftOne</caption>
                 <thead>
                   <tr className="border-b border-border text-left text-muted-foreground">
@@ -341,20 +341,20 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
               ένα «Ύδρευση → Έξοδα εκθέσεων» πριν γίνει λογιστική εγγραφή· την κρίση την κάνει ο άνθρωπος. */}
           {preview.accounts && preview.accounts.lines.length > 0 && (
             <div className="rounded-lg border border-border p-2.5" data-testid="account-check">
-              <p className="flex items-center gap-1 text-[12px] font-semibold">
+              <p className="flex items-center gap-1 text-[length:var(--fs-12)] font-semibold">
                 Λογαριασμοί γενικής λογιστικής
                 <Link href="/wiki/ocr/account-check" target="_blank" aria-label="Βοήθεια: έλεγχος λογαριασμού γενικής" title="Βοήθεια: έλεγχος λογαριασμού γενικής"
                   className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted hover:text-foreground">
                   <FiHelpCircle className="size-3.5" />
                 </Link>
               </p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
+              <p className="mt-0.5 text-[length:var(--fs-11)] text-muted-foreground">
                 Από την καρτέλα κάθε χρεοπίστωσης στο SoftOne. Έλεγξε ότι το όνομα του λογαριασμού ταιριάζει με τη δαπάνη —
                 η εφαρμογή ελέγχει μόνο ότι ο λογαριασμός υπάρχει, όχι ότι είναι ο σωστός.
               </p>
               <ul className="mt-1.5 space-y-1.5">
                 {preview.accounts.lines.map((l) => (
-                  <li key={l.rowIndex} className="text-[12px]">
+                  <li key={l.rowIndex} className="text-[length:var(--fs-12)]">
                     <span className="font-medium">Γραμμή {l.rowIndex + 1}</span>
                     <span className="text-muted-foreground">
                       {' · '}{d?.lines[l.rowIndex]?.name ?? '—'}{l.article ? ` → ${l.article}` : ''}

@@ -116,7 +116,7 @@ export function AadeLookupButton({ initialAfm, onApply, size = 'sm', label = 'Ά
 
           <div className="flex items-end gap-2">
             <div className="flex-1 grid gap-1">
-              <Label htmlFor="aade-afm" className="text-[11px]">ΑΦΜ</Label>
+              <Label htmlFor="aade-afm" className="text-[length:var(--fs-11)]">ΑΦΜ</Label>
               <Input
                 id="aade-afm" value={afm} maxLength={9}
                 onChange={(e) => setAfm(e.target.value.replace(/\D/g, ''))}
@@ -130,7 +130,7 @@ export function AadeLookupButton({ initialAfm, onApply, size = 'sm', label = 'Ά
           </div>
 
           {error && (
-            <div className="flex items-center gap-2 rounded-sm border border-destructive/40 bg-destructive/5 px-3 py-2 text-[12px] text-destructive">
+            <div className="flex items-center gap-2 rounded-sm border border-destructive/40 bg-destructive/5 px-3 py-2 text-[length:var(--fs-12)] text-destructive">
               <FiAlertCircle /> {error}
             </div>
           )}
@@ -139,9 +139,9 @@ export function AadeLookupButton({ initialAfm, onApply, size = 'sm', label = 'Ά
             <div className="space-y-3 rounded-sm border p-3">
               <div className="flex items-start gap-2">
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-semibold text-foreground">{data.mapped.name}</div>
+                  <div className="text-[length:var(--fs-13)] font-semibold text-foreground">{data.mapped.name}</div>
                   {data.mapped.shortName && (
-                    <div className="text-[11px] text-muted-foreground truncate">{data.mapped.shortName}</div>
+                    <div className="text-[length:var(--fs-11)] text-muted-foreground truncate">{data.mapped.shortName}</div>
                   )}
                 </div>
                 <Badge variant="outline" className={data.mapped.isActive ? 'border-emerald-300 text-emerald-700' : 'border-amber-300 text-amber-700'}>
@@ -149,7 +149,7 @@ export function AadeLookupButton({ initialAfm, onApply, size = 'sm', label = 'Ά
                 </Badge>
               </div>
 
-              <dl className="grid sm:grid-cols-2 gap-x-4 gap-y-1.5 text-[12px]">
+              <dl className="grid sm:grid-cols-2 gap-x-4 gap-y-1.5 text-[length:var(--fs-12)]">
                 <Row label="ΑΦΜ">{data.mapped.afm}</Row>
                 <Row label="ΔΟΥ">{data.mapped.doy ? `${data.mapped.doy}${data.mapped.doyCode ? ` (${data.mapped.doyCode})` : ''}` : '—'}</Row>
                 <Row label="Νομική μορφή">{data.mapped.legalForm ?? '—'}</Row>
@@ -159,17 +159,17 @@ export function AadeLookupButton({ initialAfm, onApply, size = 'sm', label = 'Ά
               </dl>
 
               <div>
-                <div className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1">
+                <div className="text-[length:var(--fs-10)] uppercase tracking-wider font-semibold text-muted-foreground mb-1">
                   ΚΑΔ ({data.activities.length})
                 </div>
                 <ul className="max-h-40 overflow-y-auto divide-y divide-border rounded-sm border">
                   {data.activities.map((a) => (
                     <li key={a.code} className="flex items-center gap-2 px-2 py-1">
-                      <span className="font-mono text-[11px] tabular-nums w-20 shrink-0">{a.code}</span>
-                      <span className="flex-1 text-[11px] truncate" title={a.description}>{a.description}</span>
+                      <span className="font-mono text-[length:var(--fs-11)] tabular-nums w-20 shrink-0">{a.code}</span>
+                      <span className="flex-1 text-[length:var(--fs-11)] truncate" title={a.description}>{a.description}</span>
                       <Badge
                         variant="outline"
-                        className={a.kind === 'PRIMARY' ? 'text-[9px] border-emerald-300 text-emerald-700' : 'text-[9px]'}
+                        className={a.kind === 'PRIMARY' ? 'text-[length:var(--fs-9)] border-emerald-300 text-emerald-700' : 'text-[length:var(--fs-9)]'}
                       >
                         {a.kind === 'PRIMARY' ? 'ΚΥΡΙΑ' : 'ΔΕΥΤ.'}
                       </Badge>
@@ -195,7 +195,7 @@ export function AadeLookupButton({ initialAfm, onApply, size = 'sm', label = 'Ά
 function Row({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
   return (
     <div className={wide ? 'sm:col-span-2' : ''}>
-      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</dt>
+      <dt className="text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground">{label}</dt>
       <dd className="text-foreground truncate">{children}</dd>
     </div>
   );

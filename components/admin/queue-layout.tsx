@@ -151,7 +151,7 @@ export function QueueEmpty({ icon, title, hint, action }: QueueEmptyProps) {
       >
         {icon ?? <FiInbox />}
       </span>
-      <p className="text-[13px] font-medium text-foreground">{title}</p>
+      <p className="text-[length:var(--fs-13)] font-medium text-foreground">{title}</p>
       {hint && <p className="max-w-[38ch] text-body-sm text-muted-foreground">{hint}</p>}
       {action && <div className="mt-1">{action}</div>}
     </div>
@@ -309,7 +309,7 @@ export function QueueLayout<T,>({
                       aria-selected={active}
                       onClick={() => onFilter?.(f.key)}
                       className={cn(
-                        'inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[12px] font-medium lg:h-7',
+                        'inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[length:var(--fs-12)] font-medium lg:h-7',
                         'cx-transition motion-reduce:transition-none',
                         'outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-500 focus-visible:ring-offset-1',
                         active
@@ -321,7 +321,7 @@ export function QueueLayout<T,>({
                       {typeof f.count === 'number' && (
                         <span
                           className={cn(
-                            'rounded-full px-1 text-[10px] tabular-nums',
+                            'rounded-full px-1 text-[length:var(--fs-10)] tabular-nums',
                             active ? 'bg-sisyphus-100 text-sisyphus-700' : 'bg-neutral-8 text-muted-foreground',
                           )}
                         >
@@ -415,7 +415,7 @@ export function QueueLayout<T,>({
           <button
             type="button"
             onClick={() => scrollTo(listRef.current)}
-            className="mb-2 inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-[13px] font-medium text-sisyphus-700 outline-none cx-transition motion-reduce:transition-none hover:bg-[var(--cx-hover)] focus-visible:ring-2 focus-visible:ring-sisyphus-500 lg:hidden"
+            className="mb-2 inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-[length:var(--fs-13)] font-medium text-sisyphus-700 outline-none cx-transition motion-reduce:transition-none hover:bg-[var(--cx-hover)] focus-visible:ring-2 focus-visible:ring-sisyphus-500 lg:hidden"
           >
             <FiArrowLeft aria-hidden className="size-4" />
             Πίσω στη λίστα
