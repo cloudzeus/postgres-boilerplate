@@ -96,7 +96,10 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
    * «πρόβλημα προς λύση» — υπάρχει **απόφαση**: σε ποιον λογαριασμό δαπάνης πάει η γραμμή. Ο
    * προορισμός το ξέρει ήδη (`allowedKinds`), οπότε το λέμε με τα λόγια της δουλειάς.
    */
-  const itemsNeed = React.useMemo(() => {
+  const itemsNeed = (() => {
+    // ΟΧΙ `useMemo`: αυτό το σημείο βρίσκεται ΜΕΤΑ από πρόωρο `return`, οπότε ένα hook εδώ είναι
+    // υπό συνθήκη — «Rendered more hooks than during the previous render» και η σελίδα πέφτει.
+    // Ο υπολογισμός είναι τρεις συγκρίσεις· δεν χρειάζεται απομνημόνευση.
     const n = itemsUnmatched;
     const γρ = n === 1 ? '1 γραμμή' : `${n} γραμμές`;
     const kinds = data.items.allowedKinds;
@@ -104,7 +107,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
     if (kinds.length === 1 && kinds[0] === 'expense') return `${γρ} χωρίς έξοδο`;
     if (kinds.length > 0 && !kinds.includes('lineitem')) return `${γρ} χωρίς είδος ή υπηρεσία`;
     return `${γρ} χωρίς αντιστοίχιση`;
-  }, [itemsUnmatched, data.items.allowedKinds]);
+  })();
   const vatMissing = data.vat.missing.length;
   const vatTone: Tone = data.items.total === 0 ? 'idle' : vatMissing === 0 ? 'ok' : 'warn';
 

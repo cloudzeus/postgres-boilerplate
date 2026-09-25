@@ -520,7 +520,7 @@ export function OcrRowDetail({
           aria-hidden={!showPdf}
           className={cn(
             'flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-opacity duration-200',
-            !showPdf && 'pointer-events-none max-lg:hidden lg:border-0 lg:opacity-0',
+            !showPdf && 'pointer-events-none max-lg:hidden lg:h-0 lg:overflow-hidden lg:border-0 lg:opacity-0',
           )}
         >
           <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-2">

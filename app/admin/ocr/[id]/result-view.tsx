@@ -199,9 +199,22 @@ export function OcrResultView({ doc, match }: { doc: DocWithItems; match: LineMa
     );
   }
 
-  const fieldList = doc.docType === 'RECEIPT'
+  /**
+   * ΚΕΝΟ ΠΡΟΑΙΡΕΤΙΚΟ ΠΕΔΙΟ ΔΕΝ ΠΙΑΝΕΙ ΧΩΡΟ. Τηλέφωνο και email εκδότη λείπουν από τα περισσότερα
+   * παραστατικά· δύο άδεια κουτιά σε κάθε καρτέλα σπρώχνουν κάτω τη δουλειά που μετράει. Δεν
+   * συμμετέχουν σε κανέναν έλεγχο καταχώρισης, οπότε η απόκρυψή τους δεν κρύβει εκκρεμότητα.
+   */
+  const OPTIONAL_IF_EMPTY = ['companyPhone', 'companyEmail'];
+  const extracted = (doc.extractedData ?? {}) as Record<string, unknown>;
+  const hasValue = (k: string) => String(extracted[k] ?? '').trim() !== '';
+
+  const fieldListAll = doc.docType === 'RECEIPT'
     ? ['companyName', 'vatNumber', 'documentTypeLabel', 'invoiceNumber', 'date', 'companyPhone', 'companyEmail', 'subtotal', 'vatAmount', 'totalAmount']
-    : ['companyName', 'vatNumber', 'documentTypeLabel', 'companyPhone', 'companyEmail', 'customerName', 'customerVatNumber', 'invoiceNumber', 'date', 'subtotal', 'vatAmount', 'totalAmount'];
+    // ΧΩΡΙΣ ΠΕΛΑΤΗ: ο παραλήπτης είναι ΠΑΝΤΑ η εταιρία που τρέχει την εφαρμογή — δύο πεδία που
+    // δεν αλλάζουν ποτέ και δεν διορθώνει κανείς. (Η ΕΞΑΓΩΓΗ τους μένει: το κανονικό JSON και ο
+    // έλεγχος διπλών τα χρησιμοποιούν· εδώ φεύγει μόνο η οθόνη.)
+    : ['companyName', 'vatNumber', 'documentTypeLabel', 'companyPhone', 'companyEmail', 'invoiceNumber', 'date', 'subtotal', 'vatAmount', 'totalAmount'];
+  const fieldList = fieldListAll.filter((k) => !OPTIONAL_IF_EMPTY.includes(k) || hasValue(k));
 
   const correction = (doc.docType === 'INVOICE' || doc.docType === 'RECEIPT') ? (
     <FieldCorrection
@@ -216,15 +229,9 @@ export function OcrResultView({ doc, match }: { doc: DocWithItems; match: LineMa
   if (doc.docType === 'INVOICE') {
     return (
       <section className="space-y-4">
+        {/* ΧΩΡΙΣ ΔΕΥΤΕΡΗ ΚΑΡΤΗ ΕΚΔΟΤΗ: εκδότης, ΑΦΜ, τύπος, αριθμός, ημερομηνία και σύνολο
+            εμφανίζονταν ΔΥΟ φορές — μία εδώ και μία, επεξεργάσιμα, στη διόρθωση από πάνω. */}
         {correction}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 rounded-xl border border-border bg-card p-4">
-          <Field label="Εκδότης" value={data.companyName} />
-          <Field label="Τύπος" value={data.documentTypeLabel} />
-          <Field label="Αριθμός" value={data.invoiceNumber} mono />
-          <Field label="ΑΦΜ" value={data.vatNumber} mono />
-          <Field label="Ημερομηνία" value={data.date} />
-          <Field label="Σύνολο" value={fmtMoney(data.totalAmount)} accent />
-        </div>
 
         <LinesTable doc={doc} data={data} match={match} />
 

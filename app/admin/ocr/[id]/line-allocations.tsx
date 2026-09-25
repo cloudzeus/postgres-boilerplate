@@ -36,6 +36,8 @@ export interface AllocationRow {
 interface Hit { id: number; code: string; name: string; sub?: string }
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+/** Ποσό σε ευρώ για τα τσιπ του χειρόγραφου — σύντομο, με ελληνικό διαχωριστή. */
+const eur = (n: number) => `${n.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 const fmt = (n: number) => n.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const CELL =
@@ -203,15 +205,44 @@ export function LineAllocations({
   const [hint, setHint] = React.useState<
     { registryMtrl: number; code: string; name: string; timesUsed: number; sameIssuer: boolean } | null
   >(null);
+  /**
+   * ΤΟ ΣΠΑΣΙΜΟ ΠΟΥ ΕΓΡΑΨΕ Ο ΛΟΓΙΣΤΗΣ ΜΕ ΤΟ ΣΤΥΛΟ. Το διαβάζαμε ήδη και δεν το έδειχνε κανείς.
+   * Όταν κάθε κομμάτι λύνεται σε λογαριασμό, εφαρμόζεται με ένα κλικ· αλλιώς ΤΟ ΔΕΙΧΝΟΥΜΕ
+   * ούτως ή άλλως — «ο λογιστής το έσπασε σε 6» είναι πληροφορία, ακόμη κι αν δεν μπορούμε να
+   * την περάσουμε αυτόματα (τα κέντρα κόστους δεν χωράνε ακόμη στον επιμερισμό).
+   */
+  const [hw, setHw] = React.useState<
+    { applicable: boolean;
+      parts: { label: string; amount: number; percent: number; registryMtrl: number; code: string; name: string }[];
+      unresolved: { label: string; amount: number | null; accountLike: boolean }[] } | null
+  >(null);
   React.useEffect(() => {
-    if (!canManage || rows.length > 0 || kind === 'SXACCOUNT') { setHint(null); return; }
+    // ΤΟ ΧΕΙΡΟΓΡΑΦΟ ΔΕΝ ΕΞΑΡΤΑΤΑΙ ΑΠΟ ΤΟΝ ΚΟΣΜΟ. Ο φύλακας `kind === 'SXACCOUNT'` υπάρχει για τη
+    // ΜΝΗΜΗ, που καλύπτει μόνο χρεοπιστώσεις — αλλά έκοβε και το χειρόγραφο, δηλαδή ακριβώς στα
+    // απλογραφικά (Cosmote, 1261) όπου ο λογιστής έχει γράψει το σπάσιμο με το χέρι.
+    if (!canManage || rows.length > 0) { setHint(null); setHw(null); return; }
     let ignore = false;
     fetch(`/api/admin/ocr/line-allocations/suggest?lineId=${encodeURIComponent(lineId)}`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!ignore) setHint(d?.suggestion ?? null); })
-      .catch(() => { if (!ignore) setHint(null); });
+      .then((d) => {
+        if (ignore) return;
+        setHint(kind === 'SXACCOUNT' ? null : (d?.suggestion ?? null));
+        setHw(d?.handwritten ?? null);
+      })
+      .catch(() => { if (!ignore) { setHint(null); setHw(null); } });
     return () => { ignore = true; };
   }, [lineId, canManage, rows.length, kind]);
+
+  /** Περνά ΟΛΟΚΛΗΡΟ το χειρόγραφο σχήμα — όχι ένα κομμάτι. */
+  function applyHandwritten() {
+    if (!hw?.applicable) return;
+    setDirty(true);
+    setRows(hw.parts.map((p, i) => ({
+      order: i, registryMtrl: p.registryMtrl, kind,
+      accountCode: p.code, accountName: p.name,
+      percent: p.percent, amount: p.amount,
+    })));
+  }
 
   function applyHint() {
     if (!hint) return;
@@ -316,7 +347,7 @@ export function LineAllocations({
       <td colSpan={colSpan} className="px-3 py-2">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-sisyphus-700 dark:text-sisyphus-300">
+            <span className="text-[length:var(--fs-12)] font-extrabold uppercase tracking-wide text-sisyphus-800 dark:text-sisyphus-200">
               Λογαριασμός δαπάνης {rows.length > 1 ? `— επιμερισμός σε ${rows.length}` : ''}
             </span>
             {canManage && (
@@ -324,7 +355,7 @@ export function LineAllocations({
                 <button
                   type="button" onClick={addRow} disabled={busy || lineTotal == null}
                   title={lineTotal == null ? 'Η γραμμή δεν έχει σύνολο' : undefined}
-                  className="inline-flex items-center gap-1 rounded-md border border-sisyphus-500/40 bg-sisyphus-500/10 px-2 py-1 text-[length:var(--fs-11)] font-semibold text-sisyphus-700 transition hover:bg-sisyphus-500/20 disabled:opacity-50 dark:text-sisyphus-300"
+                  className="inline-flex items-center gap-1 rounded bg-sisyphus-500 px-2.5 py-1 text-[length:var(--fs-12)] font-semibold text-white shadow-fluent-2 transition hover:bg-sisyphus-600 disabled:opacity-50"
                 >
                   <FiPlus className="size-3" /> Προσθήκη λογαριασμού
                 </button>
@@ -339,6 +370,42 @@ export function LineAllocations({
               </div>
             )}
           </div>
+
+          {/* ── ΧΕΙΡΟΓΡΑΦΟ: πρώτο, γιατί είναι η απόφαση που ΗΔΗ πήρε ο λογιστής ──── */}
+          {hw && rows.length === 0 && (
+            <div className="rounded-md border border-sisyphus-500/40 bg-sisyphus-500/10 px-2 py-1.5 shadow-fluent-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1 text-[length:var(--fs-11)] font-semibold text-sisyphus-700 dark:text-sisyphus-300">
+                  <FiZap aria-hidden className="size-3 text-sisyphus-600" /> Χειρόγραφο στο παραστατικό
+                  {hw.parts.length + hw.unresolved.length > 1 && ` — ${hw.parts.length + hw.unresolved.length} κομμάτια`}
+                </span>
+                {hw.applicable && canManage && (
+                  <button type="button" onClick={applyHandwritten}
+                    className="shrink-0 rounded bg-sisyphus-500 px-2 py-0.5 text-[length:var(--fs-11)] font-semibold text-white transition hover:bg-sisyphus-600">
+                    Χρήση
+                  </button>
+                )}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[length:var(--fs-11)] text-foreground">
+                {hw.parts.map((p, i) => (
+                  <span key={`r${i}`}><span className="font-mono">{p.code}</span> {eur(p.amount)}</span>
+                ))}
+                {hw.unresolved.map((p, i) => (
+                  <span key={`u${i}`} className="text-muted-foreground">{p.label}{p.amount != null ? ` ${eur(p.amount)}` : ''}</span>
+                ))}
+              </div>
+              {!hw.applicable && (
+                /* ΛΕΜΕ ΓΙΑΤΙ. Ένα «δεν γίνεται» χωρίς αιτία μοιάζει με σφάλμα της εφαρμογής. */
+                <p className="mt-1 text-[length:var(--fs-11)] text-muted-foreground">
+                  {hw.unresolved.every((p) => p.accountLike)
+                    ? 'Οι λογαριασμοί διαβάστηκαν σωστά αλλά δεν υπάρχουν στο μητρώο αυτής της εγκατάστασης — θα αντιστοιχιστούν μόλις συγχρονιστεί το λογιστικό σχέδιο.'
+                    : hw.parts.length === 0
+                      ? 'Ο επιμερισμός είναι σε κέντρα κόστους ή συντελεστές ΦΠΑ, όχι σε λογαριασμούς — δεν χωράει ακόμη στον επιμερισμό.'
+                      : 'Μέρος των κομματιών δεν αντιστοιχεί σε λογαριασμό του μητρώου — η μερική εφαρμογή θα έχανε ποσά.'}
+                </p>
+              )}
+            </div>
+          )}
 
           {hint && rows.length === 0 && (
             <button
