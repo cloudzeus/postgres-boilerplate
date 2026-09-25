@@ -8,6 +8,7 @@ import {
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { AadeVerifyPanel } from '@/components/admin/aade-verify-panel';
 import { TraderSearch } from '@/components/admin/trader-search';
 import { CreateTraderDialog } from '@/components/admin/create-trader-dialog';
 import { VatMapFix } from '@/components/admin/vat-map-fix';
@@ -225,6 +226,10 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                         η λίστα αποτελεσμάτων της αναζήτησης είναι absolute και σκέπαζε ένα κουμπί
                         που βρισκόταν από κάτω — δηλαδή ακριβώς όταν δεν βρισκόταν καρτέλα και ο
                         χρήστης χρειαζόταν περισσότερο τη δημιουργία, το κουμπί γινόταν άκλικτο. */}
+                    {/* ΕΞΑΚΡΙΒΩΣΗ ΠΡΙΝ ΤΗ ΔΗΜΙΟΥΡΓΙΑ. Μέχρι τώρα, για να δεις τι λέει η ΑΑΔΕ για
+                        έναν ΑΦΜ έπρεπε να ΞΕΚΙΝΗΣΕΙΣ να φτιάχνεις καρτέλα. Τώρα κοιτάς πρώτα —
+                        και βλέπεις σε ποιο πεδίο του SoftOne κάθεται το κάθε στοιχείο. */}
+                    {data.supplier.afm && <AadeVerifyPanel afm={data.supplier.afm} />}
                     {req && (
                       <button type="button" onClick={() => setCreatingTrader(true)}
                         className="inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-md border border-sisyphus-500/30 px-2 py-1.5 text-[length:var(--fs-12)] font-semibold text-sisyphus-600 hover:bg-sisyphus-50">
