@@ -39,6 +39,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         select: {
           id: true, rowIndex: true, code: true, name: true, vatRate: true,
           softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true,
+          // Ο ΕΠΙΜΕΡΙΣΜΟΣ σε λογαριασμούς είναι κι αυτός αντιστοίχιση — η γραμμή ξέρει πού πάει,
+          // απλώς σε περισσότερους από έναν προορισμούς.
+          allocations: { select: { id: true }, take: 1 },
         },
       },
     },
@@ -48,8 +51,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const ed = (doc.extractedData ?? {}) as Record<string, unknown>;
   // Αντιστοιχισμένη = έχει είδος/υπηρεσία (MTRL), ΕΞΟΔΟ (EXPN) ή ΧΡΕΟΠΙΣΤΩΣΗ (LIN) — ίδιος
   // κανόνας με το `refreshDocTallies` και με την ουρά «Είδη & έξοδα».
+  // «Χωρίς αντιστοίχιση» = η γραμμή δεν ξέρει πού πάει. Μια γραμμή με ΕΠΙΜΕΡΙΣΜΟ ξέρει — και
+  // μάλιστα ακριβέστερα από μια μονή αντιστοίχιση. Όσο η λωρίδα μετρούσε μόνο τις τρεις παλιές
+  // στήλες, έλεγε «1 χωρίς αντιστοίχιση · Λύσε» πάνω από μια δαπάνη που ο χρήστης μόλις είχε
+  // επιμερίσει σωστά — και τον έστελνε να «λύσει» κάτι που δεν ήταν χαλασμένο.
   const unmatched = doc.items.filter(
-    (i) => i.softoneMtrl == null && i.softoneExpn == null && i.softoneLinMtrl == null,
+    (i) => i.softoneMtrl == null && i.softoneExpn == null && i.softoneLinMtrl == null
+      && i.allocations.length === 0,
   );
 
   const ref = { seriesSource: doc.seriesSource, softoneSeries: doc.softoneSeries };

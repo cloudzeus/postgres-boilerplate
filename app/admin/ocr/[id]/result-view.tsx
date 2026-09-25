@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Prisma } from '@prisma/client';
 import { FieldCorrection } from './field-correction';
+import { LineAllocations, type AllocationRow } from './line-allocations';
 import { LineMatchCell, type LineAnalyticsState } from './line-match-cell';
 import { matchKindOf, type LineCategoryOption, type LineMatch } from './line-match-kind';
 import { CustomFieldsBlock, LineCustomFields, hasLineCustomFields } from '@/components/admin/custom-fields';
@@ -10,7 +11,7 @@ import type { PostingTarget } from '@/lib/ocr/posting-target';
 import type { AccountCheckLine } from '@/lib/ocr/account-check';
 import { AccountLine } from '@/components/admin/account-line';
 
-type DocWithItems = Prisma.OcrDocumentGetPayload<{ include: { items: true } }>;
+type DocWithItems = Prisma.OcrDocumentGetPayload<{ include: { items: { include: { allocations: true } } } }>;
 
 /** Τι μπορεί να κάνει ο χρήστης στη στήλη «SoftOne» του πίνακα γραμμών. */
 export interface LineMatchOptions {
@@ -156,9 +157,24 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
                     )}
                   </td>
                 </tr>
+                <LineAllocations
+                  key={`${it.id}-alloc`}
+                  lineId={it.id}
+                  lineTotal={it.total == null ? null : Number(it.total)}
+                  canManage={match.canManage}
+                  colSpan={8}
+                  /* Ο κόσμος τον ορίζει η ΣΕΙΡΑ: `SXDOCLINES` = απλογραφικά (λογαριασμοί
+                     εσόδων/εξόδων), οτιδήποτε άλλο = χρεοπιστώσεις των διπλογραφικών. */
+                  kind={match.target?.lines === 'SXDOCLINES' ? 'SXACCOUNT' : 'LINEITEM'}
+                  initial={(it.allocations ?? []).map((a): AllocationRow => ({
+                    order: a.order, registryMtrl: a.registryMtrl,
+                    kind: a.kind === 'SXACCOUNT' ? 'SXACCOUNT' : 'LINEITEM', accountCode: a.accountCode,
+                    percent: Number(a.percent), amount: Number(a.amount),
+                  }))}
+                />
                 {hasLineCustomFields(lineCf) && (
                   <tr key={`${it.id}-cf`} className="bg-muted/20">
-                    <td colSpan={8} className="px-3 py-1.5 text-[11px] text-muted-foreground">
+                    <td colSpan={8} className="px-3 py-1.5 text-[length:var(--fs-11)] text-muted-foreground">
                       <LineCustomFields cf={lineCf} />
                     </td>
                   </tr>
@@ -266,7 +282,7 @@ export function OcrResultView({ doc, match }: { doc: DocWithItems; match: LineMa
 
       {data.fullText && (
         <div className="rounded-xl border border-border bg-card p-4 space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Verbatim</p>
+          <p className="text-[length:var(--fs-11)] font-semibold uppercase tracking-wide text-muted-foreground">Verbatim</p>
           <textarea
             readOnly
             value={data.fullText}
@@ -286,7 +302,7 @@ function BankAccounts({ accounts }: { accounts: any }) {
   if (list.length === 0) return null;
   return (
     <div className="rounded-xl border border-border bg-card p-4 space-y-2">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <p className="text-[length:var(--fs-11)] font-semibold uppercase tracking-wide text-muted-foreground">
         Τραπεζικοί λογαριασμοί εκδότη
       </p>
       <ul className="space-y-1">

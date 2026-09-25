@@ -33,7 +33,14 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
   const { id } = await params;
   const doc = await prisma.ocrDocument.findUnique({
     where: { id },
-    include: { items: { orderBy: { rowIndex: 'asc' } } },
+    include: {
+      items: {
+        orderBy: { rowIndex: 'asc' },
+        // Ο επιμερισμός ταξιδεύει ΜΑΖΙ με τη γραμμή: ο πίνακας τον δείχνει ως επιπλέον γραμμές
+        // κάτω από τη δική της, οπότε ένα δεύτερο ερώτημα ανά γραμμή θα ήταν N+1 χωρίς λόγο.
+        include: { allocations: { orderBy: { order: 'asc' } } },
+      },
+    },
   });
   if (!doc) notFound();
 

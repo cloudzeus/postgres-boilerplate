@@ -203,7 +203,7 @@ describe('defaultPostingTarget', () => {
   });
 
   it('άγνωστη ενότητα → ΔΕΝ υποστηρίζεται (δεν μαντεύουμε object)', () => {
-    expect(defaultPostingTarget({ sosource: 1261 })).toMatchObject({ supported: false });
+    expect(defaultPostingTarget({ sosource: 1351 })).toMatchObject({ supported: false });
     expect(defaultPostingTarget({ sosource: null })).toMatchObject({ supported: false });
   });
 
@@ -212,7 +212,7 @@ describe('defaultPostingTarget', () => {
     expect(objectsForSosource(1253)).toEqual(['LINSUPDOC']);
     expect(objectsForSosource(1553)).toEqual(['LINDEBDOC']);
     expect(objectsForSosource(1653)).toEqual(['LINCREDOC']);
-    expect(objectsForSosource(1261)).toEqual([]);
+    expect(objectsForSosource(1351)).toEqual([]);
   });
 
   it('τα πάγια ΔΕΝ προσφέρονται (λείπουν WHOUSE/ASSDEPR και μητρώο παγίων)', () => {
@@ -244,7 +244,7 @@ describe('resolvePostingTarget', () => {
   });
 
   it('μη υποστηριζόμενη ενότητα μένει μη υποστηριζόμενη ό,τι κι αν ρυθμιστεί', () => {
-    expect(resolvePostingTarget({ sosource: 1261, postObject: 'PURDOC', postLines: 'ITELINES' }))
+    expect(resolvePostingTarget({ sosource: 1351, postObject: 'PURDOC', postLines: 'ITELINES' }))
       .toMatchObject({ supported: false });
   });
 
@@ -395,8 +395,8 @@ describe('postingBlockers — σειρά και συναλλασσόμενος',
   });
 
   it('ενότητα χωρίς υποστηριζόμενο object → series_module_unsupported', () => {
-    const c = ctx({ target: defaultPostingTarget({ sosource: 1261 }) });
-    expect(postingBlockers(doc(), postingDoc({ seriesSource: 1261 }), c)).toContain('series_module_unsupported');
+    const c = ctx({ target: defaultPostingTarget({ sosource: 1351 }) });
+    expect(postingBlockers(doc(), postingDoc({ seriesSource: 1351 }), c)).toContain('series_module_unsupported');
   });
 
   // Το read-back ΔΕΝ μπορεί να το πιάσει: συγκρίνει το TRDR με ό,τι στείλαμε.
@@ -575,5 +575,95 @@ describe('αναφορά εκδότη στην κεφαλίδα — και στ�
     const header = payload.DATA.PURDOC?.[0];
     expect(header).toMatchObject({ FINCODE: 'INV.239124', TAXSERIESNUM: 'INV.239124' });
     expect(header).not.toHaveProperty('TAXSERIES');
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* ΕΠΙΜΕΡΙΣΜΟΣ γραμμής σε πολλούς λογαριασμούς                         */
+/* ------------------------------------------------------------------ */
+
+/** Σειρά πιστωτών: ό,τι φεύγει, φεύγει ως `LINLINES` — ο μόνος πίνακας που δέχεται χρεοπίστωση. */
+const CREDITORS: PostingTarget = defaultPostingTarget({ sosource: 1653, name: 'Τιμολόγιο Δαπανών' });
+
+const oneLineDoc = (): DocumentJson => ({
+  ...doc(),
+  totals: { net: 1055, discount: null, vatAmount: 253.2, withholding: null, fees: null, total: 1308.2, payable: 1308.2 },
+  lines: [{
+    code: null, name: 'ΜΙΣΘΟΔΟΣΙΑ ΙΟΥΛΙΟΥ', unit: null, quantity: 1, unitPrice: 1055, discount: 0,
+    net: 1055, vatRate: 24, vatAmount: 253.2, total: 1308.2, custom: {},
+  }],
+});
+
+const splitCtx = (over: Partial<PurdocContext> = {}): PurdocContext => ({
+  target: CREDITORS,
+  series: 1001,
+  trdr: 45,
+  lines: [{
+    rowIndex: 0,
+    allocations: [
+      { registryMtrl: 3308, mtrType: 1, amount: 351.63, percent: 33.33, label: '64.02.06.0099 — Φιλοξενία' },
+      { registryMtrl: 2946, mtrType: 1, amount: 703.37, percent: 66.67, label: '64.01.00.0000 — Ταξίδια' },
+    ],
+  }],
+  vatIdByRate: { 24: 1 },
+  ...over,
+});
+
+describe('επιμερισμός → γραμμές LINLINES', () => {
+  const linesOf = (c: PurdocContext = splitCtx()) =>
+    (buildPurdocPayload(oneLineDoc(), c).DATA as any).LINLINES as any[];
+
+  it('ΜΙΑ γραμμή παραστατικού γίνεται N γραμμές, μία ανά λογαριασμό', () => {
+    const lin = linesOf();
+    expect(lin).toHaveLength(2);
+    expect(lin.map((r) => r.MTRL)).toEqual([3308, 2946]);
+    expect(lin.map((r) => r.NETLINEVAL)).toEqual([351.63, 703.37]);
+  });
+
+  it('τα ποσά των γραμμών αθροίζουν ΑΚΡΙΒΩΣ στο καθαρό της αρχικής', () => {
+    const sum = Math.round(linesOf().reduce((t, r) => t + r.NETLINEVAL, 0) * 100) / 100;
+    expect(sum).toBe(1055);
+  });
+
+  it('ποσότητα 1 και τιμή = το ποσό: μοιράζεται η ΑΞΙΑ, όχι τα τεμάχια', () => {
+    expect(linesOf()[0]).toMatchObject({ QTY1: 1, PRICE: 351.63, DISC1PRC: 0, MTRTYPE: 1 });
+  });
+
+  it('το σχόλιο κουβαλά το ποσοστό — αλλιώς η γραμμή στο ERP είναι ανεξήγητη', () => {
+    const lin = linesOf();
+    expect(lin[0].COMMENTS).toContain('33,33%');
+    expect(lin[1].COMMENTS).toContain('66,67%');
+  });
+
+  it('οι αριθμοί γραμμής είναι συνεχόμενοι', () => {
+    const lin = linesOf();
+    expect(lin[1].LINENUM - lin[0].LINENUM).toBe(1);
+  });
+
+  it('ο ΦΠΑ της αρχικής γραμμής περνά σε ΚΑΘΕ κομμάτι', () => {
+    expect(linesOf().every((r) => r.VAT === 1)).toBe(true);
+  });
+});
+
+describe('επιμερισμός → έλεγχοι πριν την καταχώριση', () => {
+  const creditorDoc = () => postingDoc({ softoneSeries: '1001', seriesSource: 1653, traderSodtype: 16, softoneTrdr: 45 });
+
+  it('επιμερισμένη γραμμή ΔΕΝ είναι «χωρίς αντιστοίχιση»', () => {
+    expect(postingBlockers(oneLineDoc(), creditorDoc(), splitCtx())).not.toContain('unmatched_lines');
+  });
+
+  it('χρεοπίστωση επιμερισμού χωρίς MTRTYPE μπλοκάρει', () => {
+    const c = splitCtx();
+    c.lines[0].allocations![1].mtrType = null;
+    expect(postingBlockers(oneLineDoc(), creditorDoc(), c)).toContain('lines_no_mtrtype');
+  });
+
+  it('επιμερισμός σε σειρά που ΔΕΝ στέλνει LINLINES δεν πέφτει σιωπηλά', () => {
+    const c = splitCtx({ target: PURCHASE });
+    const codes = postingBlockers(oneLineDoc(), postingDoc(), c);
+    expect(codes.length).toBeGreaterThan(0);
+    const data = buildPurdocPayload(oneLineDoc(), c).DATA as any;
+    expect(data.ITELINES ?? []).toHaveLength(0);
+    expect(data.SRVLINES ?? []).toHaveLength(0);
   });
 });

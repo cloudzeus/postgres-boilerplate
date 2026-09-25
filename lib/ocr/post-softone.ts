@@ -56,6 +56,7 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   lines_need_expn: 'Ο πίνακας «Έξοδα» (EXPANAL) δέχεται μόνο έξοδα — υπάρχει γραμμή αντιστοιχισμένη σε είδος, υπηρεσία ή χρεοπίστωση',
   lines_need_lineitem: 'Οι «Ειδικές συναλλαγές» (LINLINES) δέχονται μόνο ΧΡΕΟΠΙΣΤΩΣΕΙΣ — υπάρχει γραμμή αντιστοιχισμένη σε είδος, υπηρεσία ή έξοδο',
   lines_lineitem_unsupported: 'Η σειρά καταχωρεί σε παραστατικό αγορών, που δεν έχει γραμμές χρεοπίστωσης — άλλαξε τον πίνακα γραμμών σε «Ειδικές συναλλαγές» ή αντιστοίχισε τη γραμμή σε είδος/υπηρεσία/έξοδο',
+  lines_sxdoc_unsupported: 'Η σειρά ανήκει στα «Παραστατικά εξόδων» (απλογραφικά βιβλία). Το μητρώο λογαριασμών εσόδων/εξόδων έχει συγχρονιστεί, αλλά η ΚΑΤΑΧΩΡΙΣΗ σε αυτή την ενότητα δεν έχει υλοποιηθεί ακόμη — διάλεξε σειρά άλλης ενότητας ή περίμενε την υποστήριξη',
   lines_no_mtrtype: 'Χρεοπίστωση χωρίς «Τύπο» (MTRTYPE) στο μητρώο — συγχρόνισε ξανά τις χρεοπιστώσεις',
   series_unknown: 'Η σειρά του παραστατικού δεν υπάρχει (ή δεν είναι σε χρήση) στο μητρώο σειρών — διάλεξε σειρά από τη λίστα ή συγχρόνισε τις σειρές',
   series_module_unsupported: 'Η ενότητα της σειράς δεν υποστηρίζεται για καταχώριση — επίλεξε σειρά αγορών (1251), προμηθευτών (1253), χρεωστών (1553) ή πιστωτών (1653)',
@@ -212,6 +213,8 @@ async function gather(id: string): Promise<Gathered> {
       select: {
         rowIndex: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneIsService: true,
         softoneCostCntr: true, softonePrjc: true, softonePrjcStage: true,
+        // Ο επιμερισμός σε πολλούς λογαριασμούς — όταν υπάρχει, ΥΠΕΡΙΣΧΥΕΙ της μονής αντιστοίχισης.
+        allocations: { orderBy: { order: 'asc' }, select: { registryMtrl: true, amount: true, percent: true } },
       },
     }),
     // Η σειρά ΔΕΝ είναι διακοσμητική: δύο ενεργές εγγραφές με τον ίδιο συντελεστή (π.χ. κανονικό /
@@ -236,7 +239,13 @@ async function gather(id: string): Promise<Gathered> {
   // Ο ΧΑΡΑΚΤΗΡΙΣΜΟΣ myDATA και το MTRTYPE της χρεοπίστωσης ζουν στα μητρώα, όχι στη γραμμή.
   // Τα διαβάζουμε μαζικά για όσους κωδικούς ταίριαξαν — μία ερώτηση ανά μητρώο, όχι ανά γραμμή.
   const mtrls = items.map((i) => i.softoneMtrl).filter((v): v is number => v != null);
-  const lins = items.map((i) => i.softoneLinMtrl).filter((v): v is number => v != null);
+  // ΚΑΙ οι χρεοπιστώσεις των επιμερισμών: το `MTRTYPE` τους το απαιτεί η γραμμή `LINLINES`
+  // ακριβώς όπως και της μονής αντιστοίχισης. Χωρίς αυτό, μια επιμερισμένη γραμμή θα έφευγε με
+  // `MTRTYPE 0` και το ERP θα την απέρριπτε — ή, χειρότερα, θα τη δεχόταν λάθος.
+  const lins = [...new Set([
+    ...items.map((i) => i.softoneLinMtrl).filter((v): v is number => v != null),
+    ...items.flatMap((i) => (i.allocations ?? []).map((a) => a.registryMtrl)),
+  ])];
   const expns = items.map((i) => i.softoneExpn).filter((v): v is number => v != null);
   const [itemRows, linRows, expenseRows] = await Promise.all([
     mtrls.length
@@ -295,6 +304,21 @@ async function gather(id: string): Promise<Gathered> {
       // Χρεοπίστωση που δεν βρέθηκε στον καθρέφτη, ή που δεν έχει ξανασυγχρονιστεί από τότε που
       // προστέθηκε το πεδίο: ο λογαριασμός της είναι ΑΓΝΩΣΤΟΣ, όχι κενός.
       linAcnmskKnown: Boolean(lin?.acnmskSyncedAt),
+      // Ο επιμερισμός, εμπλουτισμένος με ό,τι ζητά η γραμμή `LINLINES` από το μητρώο.
+      ...((i.allocations ?? []).length
+        ? {
+          allocations: (i.allocations ?? []).map((a) => {
+            const reg = linById.get(a.registryMtrl);
+            return {
+              registryMtrl: a.registryMtrl,
+              mtrType: reg?.mtrType ?? null,
+              amount: Number(a.amount),
+              percent: Number(a.percent),
+              label: reg ? `${reg.code} — ${reg.name}` : null,
+            };
+          }),
+        }
+        : {}),
       // Ο ΦΠΑ από το ΙΔΙΟ σημείο που τον διαβάζει το payload (`document.lines[rowIndex]`).
       vatRate: vatRateOf(document.lines[i.rowIndex]?.vatRate),
       isService: i.softoneIsService,

@@ -57,6 +57,23 @@ export type PurdocLineCtx = {
   costCntr?: number | null;
   prjc?: number | null;
   prjcStage?: number | null;
+  /**
+   * ΕΠΙΜΕΡΙΣΜΟΣ σε πολλούς λογαριασμούς. Όταν υπάρχει, ΥΠΕΡΙΣΧΥΕΙ της μονής αντιστοίχισης: η μία
+   * γραμμή του παραστατικού γίνεται **N γραμμές `LINLINES`**, μία ανά λογαριασμό.
+   *
+   * Γιατί N γραμμές και όχι μία με πολλούς λογαριασμούς: η γραμμή `LINLINES` κουβαλά ΕΝΑ `MTRL`
+   * και ΕΝΑ ποσό — το ERP δεν εκφράζει τίποτε άλλο (το `EXPANAL` δεν έχει καν πεδίο λογαριασμού).
+   */
+  allocations?: {
+    registryMtrl: number;
+    /** `MTRTYPE` της χρεοπίστωσης· η γραμμή `LINLINES` το απαιτεί. */
+    mtrType?: number | null;
+    /** Το ποσό που αναλογεί — αθροίζει στο σύνολο της γραμμής (υπολογισμένο στον server). */
+    amount: number;
+    percent: number;
+    /** «κωδικός — περιγραφή», για τα μηνύματα των ελέγχων. */
+    label?: string | null;
+  }[];
 };
 
 export type PurdocContext = {
@@ -115,7 +132,7 @@ export type PurdocLinLine = {
   COSTCNTR?: number; PRJC?: number; PRJCSTAGE?: number;
 };
 
-export type PostingObjectName = 'PURDOC' | 'LINSUPDOC' | 'LINCREDOC' | 'LINDEBDOC';
+export type PostingObjectName = 'PURDOC' | 'LINSUPDOC' | 'LINCREDOC' | 'LINDEBDOC' | 'SXDOCSEX';
 
 export type PostingPayload = {
   OBJECT: PostingObjectName;
@@ -167,6 +184,7 @@ export type BlockerCode =
   | 'lines_need_expn'
   | 'lines_need_lineitem'
   | 'lines_lineitem_unsupported'
+  | 'lines_sxdoc_unsupported'
   | 'lines_no_mtrtype'
   | 'series_unknown'
   | 'series_module_unsupported'
@@ -346,13 +364,25 @@ const autoTableFor = (m: PurdocLineCtx): 'ITELINES' | 'SRVLINES' | 'EXPANAL' | n
  * αυτόν εδώ, που κρίνει ό,τι γράφτηκε. Πριν, η ισοδυναμία ζούσε μόνο σε σχόλιο.
  */
 export function lineFits(table: PostLineTable, m: PurdocLineCtx): boolean {
+  // Ο επιμερισμός γίνεται ΠΑΝΤΑ χρεοπιστώσεις, άρα χωράει μόνο σε `LINLINES`. Σε σειρά που
+  // στέλνει είδη ή έξοδα δεν εκφράζεται — και το λέμε δυνατά αντί να πέσει σιωπηλά.
+  if (hasAllocations(m)) return table === 'LINLINES';
   switch (table) {
     case 'ITELINES': case 'SRVLINES': return m.mtrl != null;
     case 'EXPANAL': return m.expn != null;
     case 'LINLINES': return m.lin != null;
     case 'AUTO': return autoTableFor(m) != null;
+    // ΑΠΛΟΓΡΑΦΙΚΑ (ενότητα 1261 → `SXDOCSEX`): οι γραμμές δείχνουν σε λογαριασμούς εσόδων/εξόδων
+    // και ο μεταφραστής τους ΔΕΝ έχει γραφτεί ακόμη. Επιστρέφουμε `false` ΕΠΙΤΗΔΕΣ: έτσι κάθε
+    // τέτοια γραμμή γίνεται ΕΜΠΟΔΙΟ (`mismatchCode`) αντί να εκπεμφθεί κενό payload και να
+    // «καταχωρηθεί» ένα παραστατικό χωρίς γραμμές. Σιωπηλή απώλεια είναι το χειρότερο σενάριο.
+    case 'SXDOCLINES': return false;
   }
 }
+
+/** Έχει η γραμμή επιμερισμό; Μία και μόνη πηγή αλήθειας για payload ΚΑΙ ελέγχους. */
+export const hasAllocations = (m: PurdocLineCtx | undefined | null): boolean =>
+  (m?.allocations?.length ?? 0) > 0;
 
 /**
  * Χτίζει το payload του `setData` για τον στόχο της σειράς. ΔΕΝ κρίνει αν επιτρέπεται η
@@ -396,6 +426,30 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
     if (!target || !lineFits(target, match)) return;
 
     if (target === 'LINLINES') {
+      // ΕΠΙΜΕΡΙΣΜΟΣ: η μία γραμμή του παραστατικού γίνεται N γραμμές, μία ανά λογαριασμό.
+      // Ποσότητα 1 και τιμή = το ποσό του κομματιού: το «πόσα τεμάχια» της αρχικής γραμμής δεν
+      // επιμερίζεται (δεν αγοράσαμε 0,4 τεμάχια) — αυτό που μοιράζεται είναι η ΑΞΙΑ.
+      if (hasAllocations(match)) {
+        for (const a of match.allocations!) {
+          const row: PurdocLinLine = {
+            LINENUM: FIRST_LINENUM + linLines.length,
+            MTRL: a.registryMtrl,
+            MTRTYPE: num(a.mtrType, 0),
+            QTY1: 1,
+            PRICE: a.amount,
+            DISC1PRC: 0,
+            NETLINEVAL: a.amount,
+            ...analyticsOf(match),
+          };
+          if (vat != null) row.VAT = vat;
+          // Το σχόλιο κουβαλά και το ποσοστό: στο ERP η γραμμή θα φαίνεται μόνη της, και χωρίς
+          // αυτό κανείς δεν καταλαβαίνει γιατί το ποσό δεν είναι το τυπωμένο του παραστατικού.
+          const share = `${String(a.percent).replace('.', ',')}%`;
+          row.COMMENTS = name ? `${name} · ${share}` : share;
+          linLines.push(row);
+        }
+        return;
+      }
       const row: PurdocLinLine = {
         LINENUM: FIRST_LINENUM + linLines.length,
         MTRL: match.lin as number,
@@ -422,6 +476,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
       });
       return;
     }
+    if (target === 'SXDOCLINES') return; // δεν φτάνει ποτέ εδώ (το `lineFits` το έκοψε) — για τον τύπο
     const bucket = items[target];
     const row: PurdocItemLine = {
       LINENUM: FIRST_LINENUM + bucket.length,
@@ -483,6 +538,8 @@ const mismatchCode = (table: PostLineTable): BlockerCode => {
     case 'EXPANAL': return 'lines_need_expn';
     case 'AUTO': return 'lines_lineitem_unsupported';
     case 'ITELINES': case 'SRVLINES': return 'lines_need_mtrl';
+    // Απλογραφικά: ο μεταφραστής δεν υπάρχει ακόμη, οπότε ΚΑΘΕ γραμμή είναι «δεν χωράει».
+    case 'SXDOCLINES': return 'lines_sxdoc_unsupported';
   }
 };
 
@@ -528,14 +585,27 @@ export function postingBlockers(
     out.push('no_lines');
   } else {
     const matched = document.lines.map((_, i) => byRow.get(i));
-    const unmatched = matched.some((m) => !m || (m.mtrl == null && m.expn == null && m.lin == null));
+    // Ο ΕΠΙΜΕΡΙΣΜΟΣ μετράει ως αντιστοίχιση: η γραμμή ΞΕΡΕΙ πού πάει — σε περισσότερους από έναν
+    // λογαριασμούς. Χωρίς αυτό, μια πλήρως επιμερισμένη γραμμή εμφανιζόταν «χωρίς αντιστοίχιση».
+    const unmatched = matched.some(
+      (m) => !m || (m.mtrl == null && m.expn == null && m.lin == null && !hasAllocations(m)),
+    );
     if (unmatched) out.push('unmatched_lines');
     // Αντιστοιχισμένη γραμμή που δεν εκφράζεται στον πίνακα της σειράς: ΔΕΝ τη ρίχνουμε σιωπηλά
     // και δεν εφευρίσκουμε κωδικό — το λέμε δυνατά (π.χ. έξοδο EXPN σε σειρά που στέλνει LINLINES).
-    const misfit = matched.some((m) => m && (m.mtrl != null || m.expn != null || m.lin != null) && !lineFits(table, m));
+    // Ο ΕΠΙΜΕΡΙΣΜΟΣ μετράει κι εδώ. Χωρίς αυτόν, μια επιμερισμένη γραμμή σε σειρά που ΔΕΝ στέλνει
+    // `LINLINES` δεν ήταν ούτε «αναντιστοίχιστη» (έχει επιμερισμό) ούτε «εκτός πίνακα» (τα
+    // mtrl/expn/lin της είναι κενά) — άρα ΚΑΝΕΝΑ εμπόδιο, και ταυτόχρονα το payload δεν έβγαζε
+    // καμία γραμμή: η δαπάνη εξαφανιζόταν σιωπηλά. Ακριβώς αυτό που ο έλεγχος υπάρχει να αποτρέψει.
+    const misfit = matched.some(
+      (m) => m && (m.mtrl != null || m.expn != null || m.lin != null || hasAllocations(m)) && !lineFits(table, m),
+    );
     if (misfit) out.push(mismatchCode(table));
     // Η γραμμή LINLINES απαιτεί MTRTYPE· λείπει όταν το μητρώο χρεοπιστώσεων δεν το συγχρόνισε.
-    if (table === 'LINLINES' && matched.some((m) => m?.lin != null && m.linMtrType == null)) {
+    if (table === 'LINLINES' && matched.some(
+      (m) => (m?.lin != null && !hasAllocations(m) && m.linMtrType == null)
+        || (m?.allocations?.some((a) => a.mtrType == null) ?? false),
+    )) {
       out.push('lines_no_mtrtype');
     }
     const missingVat = document.lines.some((line) => vatIdFor(line.vatRate, ctx.vatIdByRate) == null);
