@@ -39,14 +39,29 @@ export async function GET(req: Request) {
   // ΤΟ ΧΕΙΡΟΓΡΑΦΟ ΥΠΟΛΟΓΙΖΕΤΑΙ ΠΡΩΤΑ και επιστρέφεται ΠΑΝΤΑ: οι έξοδοι «δεν βρέθηκε κανόνας»
   // παρακάτω δεν επιτρέπεται να το κρύψουν — είναι ανεξάρτητη πηγή από τη μνήμη.
   const total = line.total == null ? null : Number(line.total);
+  /**
+   * ΕΝΑΣ ΛΟΓΑΡΙΑΣΜΟΣ ΕΙΝΑΙ ΚΙ ΑΥΤΟΣ ΣΧΗΜΑ — στο 100 %. Τα περισσότερα χαρτιά δεν έχουν επιμερισμό:
+   * έχουν ΕΝΑΝ λογαριασμό γραμμένο με στυλό πάνω δεξιά. Αν κοιτούσαμε μόνο το `allocations`, όλα
+   * αυτά έμεναν αόρατα — δηλαδή η συνηθέστερη μορφή χειρόγραφου δεν θα φαινόταν ποτέ.
+   */
+  const single = (() => {
+    const h = (line.document?.document as { handwritten?: { glAccount?: unknown } } | null)?.handwritten;
+    const raw = String(h?.glAccount ?? '').trim();
+    // Πολλοί λογαριασμοί σε ένα πεδίο (π.χ. εκτελωνιστής): τότε ΔΕΝ ξέρουμε τα ποσά, οπότε
+    // τους δείχνουμε αλλά δεν τους εφαρμόζουμε.
+    return raw && !raw.includes(',') ? raw : null;
+  })();
   const parts = asHandwritten(line.document?.document);
+  if (parts.length === 0 && single) parts.push({ label: single, amount: total });
   const resolved: { label: string; amount: number; percent: number; registryMtrl: number; code: string; name: string }[] = [];
   // `accountLike` = η ετικέτα ΕΙΝΑΙ κωδικός λογαριασμού αλλά δεν βρέθηκε στο μητρώο ΑΥΤΗΣ της
   // εγκατάστασης. Ριζικά διαφορετικό από «είναι κέντρο κόστους»: το πρώτο λύνεται μόλις
   // συγχρονιστεί το σχέδιο του πελάτη, το δεύτερο θέλει νέα διάσταση στον επιμερισμό.
   const unresolved: (HandwrittenPart & { accountLike: boolean })[] = [];
   for (const p of parts) {
-    const code = p.label.replace(/\s+/g, '');
+    // Τελεία στο ΤΕΛΟΣ είναι στίξη του χειρογράφου, όχι μέρος του κωδικού: το «61.03.07.027.023.»
+    // δεν έβρισκε το «61.03.07.027.023» για έναν χαρακτήρα.
+    const code = p.label.replace(/\s+/g, '').replace(/\.+$/, '');
     const accountLike = looksLikeAccount(code);
     if (!accountLike || p.amount == null || !total) { unresolved.push({ ...p, accountLike }); continue; }
     const hit = await prisma.softoneLineItem.findFirst({
