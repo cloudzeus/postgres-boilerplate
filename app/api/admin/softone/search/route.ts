@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { matchesQuery } from '@/lib/ocr/search-match';
 import { prisma } from '@/lib/db';
 import { requireAnyPermission } from '@/lib/rbac';
 import { ISSUER_SODTYPES } from '@/lib/softone';
@@ -14,6 +15,7 @@ import { SXACCOUNT_MTRTYPE } from '@/lib/softone';
 // `suppliers` and `traders` are the same query (SODTYPE 12 προμηθευτές + 16 πιστωτές + 15
 // χρεώστες — ό,τι μπορεί να εκδώσει παραστατικό προς εμάς); the queue pages call it `traders`
 // because a creditor or a debtor is not a supplier.
+
 export async function GET(req: Request) {
   await requireAnyPermission('ocr.read', 'metadata.read', 'metadata.manage');
   const sp = new URL(req.url).searchParams;
@@ -74,7 +76,6 @@ export async function GET(req: Request) {
       where: {
         isActive: true,
         ...(onlyTrader ? { trdr } : {}),
-        OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q } }],
       },
       take: 25, orderBy: { name: 'asc' },
       select: { prjc: true, code: true, name: true, trdr: true },
@@ -106,7 +107,6 @@ export async function GET(req: Request) {
     const rows = await prisma.softoneAccount.findMany({
       where: {
         isActive: true, postable: true,
-        OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q } }],
       },
       take: 25, orderBy: { code: 'asc' },
       select: { acnt: true, code: true, name: true, grade: true },
@@ -126,16 +126,12 @@ export async function GET(req: Request) {
     const rows = await prisma.softoneSxAccount.findMany({
       where: {
         isActive: true, mtrType: SXACCOUNT_MTRTYPE.expense,
-        ...(q.length >= 2
-          ? { OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q } }] }
-          : {}),
       },
-      take: q.length < 2 ? 500 : 25,
       orderBy: { code: 'asc' },
       select: { mtrl: true, code: true, name: true, vat: true, myDataCode: true },
     });
     return NextResponse.json({
-      results: rows.map((r) => ({
+      results: rows.filter((r) => matchesQuery(q, r.code, r.name)).slice(0, q.length < 2 ? 500 : 25).map((r) => ({
         id: r.mtrl, code: r.code, name: r.name, vat: r.vat ?? null,
         sub: ['λογαριασμός εξόδων', r.vat && `ΦΠΑ ${r.vat}`].filter(Boolean).join(' · '),
       })),
@@ -149,28 +145,29 @@ export async function GET(req: Request) {
       where: {
         isActive: true,
         ...(Number.isFinite(category) && category > 0 ? { mtrCategory: category } : {}),
-        OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q } }],
       },
       // Φυλλομέτρηση: ΟΛΕΣ, με σειρά ΚΩΔΙΚΟΥ — ο κωδικός είναι ο λογαριασμός, οπότε η αριθμητική
       // σειρά ομαδοποιεί μόνη της (61.xx αμοιβές, 62.xx παροχές, 64.xx διάφορα έξοδα).
       // Αναζήτηση: οι 25 καλύτερες κατά περιγραφή.
-      take: q.length < 2 ? 500 : 25,
-      orderBy: q.length < 2 ? { code: 'asc' } : { name: 'asc' },
+      // ΧΩΡΙΣ `take` εδώ: το φιλτράρισμα γίνεται μετά, στη μνήμη, ώστε να αγνοεί τόνους και
+      // τελείες. Το μητρώο είναι μικρό· η περικοπή μπαίνει στο τέλος.
+      orderBy: { code: 'asc' },
       select: {
         mtrl: true, code: true, name: true, vat: true, mtrCategory: true,
         classType: true, classCategory: true, myDataCode: true,
       },
     });
+    const hits = rows.filter((r) => matchesQuery(q, r.code, r.name)).slice(0, q.length < 2 ? 500 : 25);
     const label = await classificationLabeller();
-    const categories = rows.length
+    const categories = hits.length
       ? await prisma.softoneLineCategory.findMany({
-          where: { mtrCategory: { in: rows.map((r) => r.mtrCategory).filter((v): v is number => v != null) } },
+          where: { mtrCategory: { in: hits.map((r) => r.mtrCategory).filter((v): v is number => v != null) } },
           select: { mtrCategory: true, name: true },
         })
       : [];
     const catName = new Map(categories.map((c) => [c.mtrCategory, c.name]));
     return NextResponse.json({
-      results: rows.map((r) => {
+      results: hits.map((r) => {
         const cls = label(r);
         return {
           id: r.mtrl, code: r.code, name: r.name, isService: false, vat: r.vat ?? null,
@@ -187,7 +184,6 @@ export async function GET(req: Request) {
     const rows = await prisma.softoneExpense.findMany({
       where: {
         isActive: true,
-        OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q } }],
       },
       take: 25, orderBy: { name: 'asc' },
       select: { expn: true, code: true, name: true, vat: true, classTypeX: true, classCategoryX: true },
