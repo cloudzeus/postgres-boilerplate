@@ -198,6 +198,26 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
 
       {completed && <SoftoneChecksStrip docId={doc.id} helpHref={checksHelpHref} />}
 
+      <OcrResultView
+        doc={doc}
+        match={{
+          canManage,
+          lineCategories: lineCategories.map((c) => ({ id: c.mtrCategory, label: c.name || c.code })),
+          analyticsLabels: {
+            costCntr: byId(ccRows, (r) => r.costcntr),
+            prjc: byId(pjRows, (r) => r.prjc),
+            prjcStage: byId(psRows, (r) => r.prjcStage),
+          },
+          trdr: doc.softoneTrdr ?? null,
+          lineAccounts,
+          target: postingTarget,
+        }}
+      />
+
+      {/* ΜΕΤΑ ΤΗ ΔΟΥΛΕΙΑ, ΟΧΙ ΠΡΙΝ. Το πρότυπο και το JSON (μαζί με την καταχώριση) κάθονταν
+          ΠΑΝΩ από τα πεδία και τις γραμμές: ο χρήστης κυλούσε πάνω από μια ολόκληρη οθόνη
+          αναφοράς για να φτάσει στη δουλειά, και μετά ξανά πάνω για να καταχωρίσει. Η σειρά
+          ακολουθεί τη ροή: διόρθωσε → αντιστοίχισε γραμμές → στείλε. */}
       {completed && (
         <RunResult
           docId={doc.id}
@@ -215,21 +235,6 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
 
       {completed && <DocumentJsonCard docId={doc.id} canPost={canPost} />}
 
-      <OcrResultView
-        doc={doc}
-        match={{
-          canManage,
-          lineCategories: lineCategories.map((c) => ({ id: c.mtrCategory, label: c.name || c.code })),
-          analyticsLabels: {
-            costCntr: byId(ccRows, (r) => r.costcntr),
-            prjc: byId(pjRows, (r) => r.prjc),
-            prjcStage: byId(psRows, (r) => r.prjcStage),
-          },
-          trdr: doc.softoneTrdr ?? null,
-          lineAccounts,
-          target: postingTarget,
-        }}
-      />
     </div>
   );
 }
