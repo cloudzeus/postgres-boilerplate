@@ -3,7 +3,7 @@
 import * as React from 'react';
 import {
   FiAlertOctagon, FiAlertTriangle, FiCheck, FiChevronDown, FiChevronRight, FiCopy, FiLoader,
-  FiPercent, FiPlusCircle, FiBox, FiUser, FiHelpCircle,
+  FiPercent, FiPlusCircle, FiBox, FiUser, FiHelpCircle, FiCheckCircle,
 } from 'react-icons/fi';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -161,15 +161,10 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
           )}
         </div>
 
-        <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-x lg:grid-cols-4 lg:divide-y-0">
-          <Segment
-            tone={dupTone}
-            icon={dupTone === 'danger' ? <FiAlertOctagon /> : <FiCopy />}
-            title="Διπλό"
-            value={!data.duplicate.checked ? 'Δεν ελέγχθηκε'
-              : data.duplicate.exists ? `Υπάρχει ήδη${data.duplicate.ref ? ` · ${data.duplicate.ref}` : ''}` : 'Δεν υπάρχει διπλό'}
-          />
-
+        <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+          {/* ΤΟ «ΔΙΠΛΟ» ΔΕΝ ΖΕΙ ΕΔΩ. «Δεν ελέγχθηκε» είναι κατάσταση εργαλείου, όχι εκκρεμότητα
+              του χρήστη — και έπιανε το ένα τέταρτο της λωρίδας λέγοντας ακριβώς τίποτα. Ο
+              έλεγχος διπλοτύπου γίνεται τη στιγμή της καταχώρισης, όπου και μετράει. */}
           {/* ── Καρτέλα συναλλασσομένου, του ΤΥΠΟΥ που ζητά η σειρά ───────────── */}
           <Segment
             tone={supTone}
@@ -257,8 +252,8 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
               : undefined}
           />
 
-          {/* ── Γραμμές: ΜΟΝΟ παραπομπή, κανένας δεύτερος δημιουργός ───────────── */}
-          <Segment
+          {/* ── Γραμμές: φαίνονται ΜΟΝΟ όταν ζητούν κάτι ─────────────────────── */}
+          {itemsTone !== 'ok' && <Segment
             tone={itemsTone}
             icon={<FiBox />}
             title="Γραμμές"
@@ -272,10 +267,10 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                 </button>
               )
               : undefined}
-          />
+          />}
 
-          {/* ── ΦΠΑ: το `no_vat_category` ως κάτι που λύνεται ──────────────────── */}
-          <Segment
+          {/* ── ΦΠΑ: φαίνεται ΜΟΝΟ όταν λείπει κωδικός ────────────────────────── */}
+          {vatTone !== 'ok' && <Segment
             tone={vatTone}
             icon={<FiPercent />}
             title="ΦΠΑ"
@@ -285,8 +280,17 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
             action={vatTone === 'warn'
               ? <VatMapFix docId={docId} missing={data.vat.missing} onFixed={() => { void load(); emitDocLinesChanged(docId); }} />
               : undefined}
-          />
+          />}
         </div>
+
+        {/* ΟΣΑ ΕΙΝΑΙ ΕΝΤΑΞΕΙ, ΣΕ ΜΙΑ ΓΡΑΜΜΗ. Ένα ολόκληρο τμήμα που λέει «όλα καλά» είναι θόρυβος·
+            η επιβεβαίωση όμως χρειάζεται, γιατί η σιωπή δεν ξεχωρίζει από το «δεν ελέγχθηκε». */}
+        {(itemsTone === 'ok' || vatTone === 'ok') && (
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-border px-4 py-1.5 text-[length:var(--fs-11)] text-emerald-700 dark:text-emerald-400">
+            {itemsTone === 'ok' && <span className="inline-flex items-center gap-1"><FiCheckCircle className="size-3" aria-hidden /> Γραμμές αντιστοιχισμένες ({data.items.total})</span>}
+            {vatTone === 'ok' && <span className="inline-flex items-center gap-1"><FiCheckCircle className="size-3" aria-hidden /> ΦΠΑ με κωδικούς</span>}
+          </p>
+        )}
 
         {/* Η λίστα των αταίριαστων γραμμών — κάθε μία παραπέμπει στον picker ΤΗΣ. */}
         {open && itemsUnmatched > 0 && (

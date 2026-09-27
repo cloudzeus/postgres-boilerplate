@@ -85,6 +85,13 @@ function Disclosure({ open, onToggle, children, label }: { open: boolean; onTogg
  * Σε λίστα όμως τριών-τεσσάρων εμποδίων γίνονται παράγραφος. Κόβουμε στην ΕΜΦΑΝΙΣΗ, στο πρώτο
  * «—» ή στην πρώτη τελεία, και κρατάμε το πλήρες κείμενο σε tooltip. Καμία απώλεια πληροφορίας.
  */
+/** Το χρώμα του προθαλάμου ακολουθεί το ΑΠΟΤΕΛΕΣΜΑ: καθαρό, διπλό, ή «δεν ξέρω». */
+const cnDup = (status: 'clear' | 'duplicate' | 'unknown') =>
+  `rounded-lg border p-2.5 text-[length:var(--fs-12)] ${
+    status === 'duplicate' ? 'border-dg-red-500/40 bg-dg-red-500/5 text-dg-red-700'
+      : status === 'clear' ? 'border-emerald-500/40 bg-emerald-500/5 text-emerald-800 dark:text-emerald-300'
+        : 'border-amber-500/40 bg-amber-500/5 text-amber-800 dark:text-amber-300'}`;
+
 const shortMsg = (m: string): { head: string; hasMore: boolean } => {
   const dash = m.indexOf(' — ');
   const cut = dash > 0 ? dash : (m.indexOf('. ') > 0 ? m.indexOf('. ') + 1 : -1);
@@ -137,6 +144,28 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
     }
   }, [envelope]);
 
+  /**
+   * ΕΛΕΓΧΟΣ ΔΙΠΛΟΤΥΠΟΥ ΠΡΙΝ ΤΗΝ ΑΠΟΣΤΟΛΗ.
+   *
+   * Δεν είναι διακοσμητικό βήμα: ο έλεγχος στη σάρωση γινόταν χωρίς συναλλασσόμενο (δεν είχε
+   * βρεθεί ακόμη), άρα δεν γινόταν ποτέ πραγματικά. Εδώ τρέχει με την καρτέλα δεμένη, λίγο πριν
+   * φύγει το παραστατικό — και το αποτέλεσμα ΔΕΝ είναι δυαδικό: «δεν μπόρεσα να κρίνω» δεν
+   * βαφτίζεται «καθαρό», γιατί τότε ο χρήστης στέλνει με ψεύτικη σιγουριά.
+   */
+  const [dup, setDup] = React.useState<{ status: 'clear' | 'duplicate' | 'unknown'; message: string; ref?: string | null } | null>(null);
+  const [dupBusy, setDupBusy] = React.useState(false);
+
+  const runDuplicateCheck = React.useCallback(async () => {
+    setDupBusy(true);
+    try {
+      const r = await fetch(`/api/admin/ocr/${docId}/duplicate-check`, { method: 'POST' });
+      const d = await r.json().catch(() => null);
+      setDup(d?.status ? d : { status: 'unknown', message: 'Ο έλεγχος δεν απάντησε.' });
+    } catch {
+      setDup({ status: 'unknown', message: 'Σφάλμα δικτύου στον έλεγχο διπλοτύπου.' });
+    } finally { setDupBusy(false); }
+  }, [docId]);
+
   const doPost = React.useCallback(async () => {
     setPosting(true);
     try {
@@ -144,6 +173,7 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.message ?? body.error ?? `Σφάλμα ${res.status}`);
       toast.success(`Καταχωρίστηκε στο SoftOne (${body.ref})`);
+      setDup(null);
       await load();
     } catch (e) {
       toast.error((e as Error).message);
@@ -221,12 +251,32 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
                 Καταχωρίστηκε{preview.postedRef ? ` · ${preview.postedRef}` : ''}
               </span>
             ) : (
-              <Button size="sm" variant="secondary" onClick={doPost} disabled={posting || blocked || !preview.enabled}
-                title={!preview.enabled ? 'Απενεργοποιημένη στις Ρυθμίσεις' : blocked ? 'Υπάρχουν εκκρεμότητες' : 'Αποστολή στο SoftOne'}>
-                <FiUploadCloud /> {posting ? 'Καταχώριση…' : 'Καταχώριση'}
+              <Button size="sm" variant="secondary" onClick={() => void runDuplicateCheck()} disabled={posting || dupBusy || blocked || !preview.enabled}
+                title={!preview.enabled ? 'Απενεργοποιημένη στις Ρυθμίσεις' : blocked ? 'Μένουν βήματα πριν την καταχώριση' : 'Έλεγχος διπλοτύπου και αποστολή'}>
+                <FiUploadCloud /> {dupBusy ? 'Έλεγχος διπλοτύπου…' : posting ? 'Καταχώριση…' : 'Καταχώριση'}
               </Button>
             )}
           </div>
+
+          {/* Ο ΠΡΟΘΑΛΑΜΟΣ: τι βρήκε ο έλεγχος, και η ΡΗΤΗ απόφαση του χρήστη. */}
+          {dup && !posted && (
+            <div className={cnDup(dup.status)}>
+              <p className="font-semibold">
+                {dup.status === 'duplicate' ? 'Έλεγχος διπλοτύπου — βρέθηκε ήδη'
+                  : dup.status === 'clear' ? 'Έλεγχος διπλοτύπου — καθαρό'
+                    : 'Έλεγχος διπλοτύπου — αναπάντητος'}
+              </p>
+              <p className="mt-0.5">{dup.message}</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <Button size="sm" variant={dup.status === 'clear' ? 'default' : 'secondary'}
+                  onClick={doPost} disabled={posting}>
+                  <FiUploadCloud /> {posting ? 'Καταχώριση…'
+                    : dup.status === 'clear' ? 'Αποστολή στο SoftOne' : 'Αποστολή παρ’ όλα αυτά'}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setDup(null)} disabled={posting}>Άκυρο</Button>
+              </div>
+            </div>
+          )}
 
           {!preview.enabled && !posted && (
             <p className="text-[length:var(--fs-12)] text-muted-foreground">
