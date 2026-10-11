@@ -4,7 +4,7 @@ import { applySetFields, baseOcrSnapshot, buildReviewFlags, canPost, crossCheckO
 
 const blankDoc = (): DocumentJson => emptyDocument('invoice');
 const line = (over: Partial<DocumentLine> = {}): DocumentLine =>
-  ({ code: null, name: null, unit: null, quantity: null, unitPrice: null, discount: null, net: null, vatRate: null, vatAmount: null, total: null, custom: {}, ...over });
+  ({ code: null, name: null, unit: null, quantity: null, unitPrice: null, discount: null, net: null, vatRate: null, vatAmount: null, total: null, serials: [], custom: {}, ...over });
 const withLines = (lines: DocumentLine[]): DocumentJson => ({ ...blankDoc(), lines });
 import type { FieldDef, FieldValue } from '../schema';
 

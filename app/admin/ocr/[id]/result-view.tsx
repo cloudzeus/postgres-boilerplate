@@ -1,3 +1,5 @@
+import { SerialChips } from '@/components/admin/serial-chips';
+import { extractSerials } from '@/lib/ocr/serials';
 import * as React from 'react';
 import { Prisma } from '@prisma/client';
 import { FieldCorrection } from './field-correction';
@@ -125,6 +127,9 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
             <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">Δεν εξήχθησαν γραμμές.</td></tr>
           ) : doc.items.map((it, idx) => {
             const line = (data.items?.[idx] ?? {}) as any;
+            // Σειριακοί: από το κανονικό JSON, αλλιώς από την ίδια την περιγραφή (παλιά παραστατικά).
+            const canon = ((doc.document as any)?.lines?.[it.rowIndex] ?? null) as { serials?: string[] } | null;
+            const serials = canon?.serials?.length ? canon.serials : extractSerials(it.name);
             const lineCf = (line.customFields ?? null) as Record<string, unknown> | null;
             return (
               <React.Fragment key={it.id}>
@@ -133,6 +138,7 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
                   <td className="px-3 py-2.5">
                     <span className="mr-1.5 inline-flex size-4 items-center justify-center rounded bg-muted text-[length:var(--fs-10)] font-bold tabular-nums text-muted-foreground">{idx + 1}</span>
                     <span className="text-[length:var(--fs-12)] font-semibold text-foreground">{it.name}</span>
+                    <SerialChips serials={serials} />
                   </td>
                   <td className="px-3 py-2 text-right text-[length:var(--fs-12)]">{fmtNum(it.quantity)}</td>
                   <td className="px-3 py-2 text-[length:var(--fs-12)] text-muted-foreground">{(line.unit ?? '') || '—'}</td>

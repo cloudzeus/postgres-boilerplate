@@ -1,12 +1,14 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { FiArrowLeft, FiDownload } from 'react-icons/fi';
+import { FiArrowLeft, FiDownload, FiChevronRight } from 'react-icons/fi';
 import { prisma } from '@/lib/db';
 import { requirePermission, hasPermission } from '@/lib/rbac';
 import { Badge } from '@/components/ui/badge';
 import { OcrResultView } from './result-view';
 import { DeleteButton } from './delete-button';
 import { DocumentJsonCard } from './document-json';
+import { DocActionBar } from '@/components/admin/doc-action-bar';
+import { loadSeriesOptions } from '@/lib/ocr/series-options';
 import { SoftoneChecksStrip } from '@/components/admin/softone-checks-strip';
 import { RunResult } from '@/components/templates/run-result';
 import type { RunDto } from '@/components/templates/api';
@@ -90,6 +92,11 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
   // Only a COMPLETED document shows the run card, so only a COMPLETED document pays for its data —
   // a failed or still-processing upload would fetch runs and every template for nothing.
   const completed = doc.status === 'COMPLETED';
+  // Ίδιος loader με τη λίστα: η σελίδα του παραστατικού δεν είχε ΚΑΘΟΛΟΥ επιλογέα σειράς.
+  const seriesOptions = completed ? await loadSeriesOptions([doc]) : [];
+  const STATUS_LABEL: Record<string, string> = {
+    COMPLETED: 'Ολοκληρώθηκε', FAILED: 'Απέτυχε', PENDING: 'Σε αναμονή', PROCESSING: 'Σε επεξεργασία',
+  };
   const [runRows, templateRows] = completed
     ? await Promise.all([
       prisma.templateRun.findMany({ where: { documentId: id }, orderBy: { createdAt: 'desc' }, take: 20, include: RUN_INCLUDE }),
@@ -164,29 +171,30 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
                 doc.pdfSource, doc.durationMs ? `${doc.durationMs} ms` : null, doc.model,
               ].filter(Boolean).join(' · ')}
             >{doc.fileName}</h1>
+            {/* ΜΟΝΟ ό,τι χρειάζεται ο λογιστής: ΤΙ παραστατικό είναι. Η ενότητα, το ποσοστό βεβαιότητας
+                και η αιτιολογία του ταξινομητή («τύπος «DEBIT NOTE» → ΤΙΜ · εκδότης άγνωστος ·
+                επιλογή μοντέλου») είναι διάγνωση του συστήματος — μένουν στο tooltip, δεν κλέβουν
+                σειρά από τη δουλειά. */}
             {doc.softoneSeries && (
               <p
-                className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground"
+                className="mt-1 flex flex-wrap items-center gap-1.5 text-[length:var(--fs-12)] text-muted-foreground"
+                title={[
+                  series?.family, manualSeries ? 'χειροκίνητη επιλογή'
+                    : doc.seriesConfidence != null ? `βεβαιότητα ${Math.round(doc.seriesConfidence * 100)}%` : null,
+                  manualSeries ? null : doc.seriesReason,
+                ].filter(Boolean).join(' · ')}
                 aria-label={`Τύπος παραστατικού ${series?.abbrev ?? doc.softoneSeries}, ${manualSeries ? 'χειροκίνητη επιλογή' : (doc.seriesConfidence ?? 0) >= 0.8 ? 'σίγουρο' : 'να ελεγχθεί'}`}
               >
                 <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: seriesTone }} />
                 <span className="font-semibold text-foreground">
-                  Τύπος: {series?.abbrev ?? doc.softoneSeries}{series?.name ? ` — ${series.name}` : ''}
+                  {series?.abbrev ?? doc.softoneSeries}{series?.name ? ` — ${series.name}` : ''}
                 </span>
-                {series?.family && <span>· {series.family}</span>}
-                {manualSeries
-                  ? <span>· χειροκίνητη επιλογή</span>
-                  : (
-                    <>
-                      {doc.seriesConfidence != null && <span>· {Math.round(doc.seriesConfidence * 100)} %</span>}
-                      {doc.seriesReason && <span>· {doc.seriesReason}</span>}
-                    </>
-                  )}
+                {!manualSeries && (doc.seriesConfidence ?? 0) < 0.8 && <span>· να ελεγχθεί</span>}
               </p>
             )}
           </div>
           <Badge variant={doc.status === 'COMPLETED' ? 'default' : doc.status === 'FAILED' ? 'destructive' : 'secondary'}>
-            {doc.status}
+            {STATUS_LABEL[doc.status] ?? doc.status}
           </Badge>
         </div>
         {doc.errorMessage && (
@@ -218,7 +226,32 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
           ΠΑΝΩ από τα πεδία και τις γραμμές: ο χρήστης κυλούσε πάνω από μια ολόκληρη οθόνη
           αναφοράς για να φτάσει στη δουλειά, και μετά ξανά πάνω για να καταχωρίσει. Η σειρά
           ακολουθεί τη ροή: διόρθωσε → αντιστοίχισε γραμμές → στείλε. */}
-      {completed && (
+      {/* ΤΟ ΠΡΟΤΥΠΟ ΕΙΝΑΙ ΕΡΓΑΛΕΙΟ, ΟΧΙ ΔΟΥΛΕΙΑ. Χωρίς εκτέλεση, η κάρτα «Δεν έχει τρέξει πρότυπο ·
+          άγνωστο έντυπο» κρατούσε μια ολόκληρη ενότητα για να πει «τίποτα». Κλειστή μέχρι να χρειαστεί. */}
+      {completed && runs.length === 0 && (
+        <details className="group rounded-xl border border-border bg-card">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-3 text-[length:var(--fs-13)] font-semibold text-foreground">
+            <FiChevronRight className="size-3.5 transition-transform duration-200 group-open:rotate-90" aria-hidden />
+            Πρότυπο εξαγωγής
+            <span className="font-normal text-muted-foreground">— δεν χρησιμοποιήθηκε</span>
+          </summary>
+          <div className="border-t border-border p-3">
+            <RunResult
+              docId={doc.id}
+              fileName={doc.fileName}
+              issuerVat={typeof issuerVat === 'string' ? issuerVat : null}
+              initialRuns={runs}
+              templates={templates}
+              canManage={canManage}
+              canPost={canPost}
+              postStatus={doc.postStatus}
+              unknownForm={(doc.reviewFlags as { unknownForm?: boolean } | null)?.unknownForm === true}
+              helpHref={helpHref}
+            />
+          </div>
+        </details>
+      )}
+      {completed && runs.length > 0 && (
         <RunResult
           docId={doc.id}
           fileName={doc.fileName}
@@ -233,7 +266,19 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
         />
       )}
 
-      {completed && <DocumentJsonCard docId={doc.id} canPost={canPost} />}
+      {completed && <DocumentJsonCard docId={doc.id} canPost={canPost} showPosting={false} />}
+
+      {/* Η ΣΤΑΘΕΡΗ ΜΠΑΡΑ: σειρά, κατηγορία, εμπόδια, καταχώριση — ίδια λογική με τη λίστα. */}
+      {completed && (
+        <DocActionBar
+          docId={doc.id}
+          series={seriesOptions}
+          initialSeriesKey={doc.softoneSeries ? `${doc.seriesSource ?? 1251}:${doc.softoneSeries}` : ''}
+          initialCategory={doc.category ?? null}
+          canEdit={canManage}
+          canPost={canPost}
+        />
+      )}
 
     </div>
   );

@@ -21,8 +21,8 @@ const doc = (over: Partial<DocumentJson> = {}): DocumentJson => ({
   totals: { net: 200, discount: null, vatAmount: 48, withholding: null, fees: null, total: 248, payable: 248 },
   digital: { mark: '400001', uid: 'ABC', authCode: null, provider: null, qr: null },
   lines: [
-    { code: 'A1', name: 'Είδος Α', unit: null, quantity: 2, unitPrice: 50, discount: 0, net: 100, vatRate: 24, vatAmount: 24, total: 124, custom: {} },
-    { code: 'B2', name: 'Υπηρεσία Β', unit: null, quantity: 1, unitPrice: 100, discount: 0, net: 100, vatRate: 24, vatAmount: 24, total: 124, custom: {} },
+    { code: 'A1', name: 'Είδος Α', unit: null, quantity: 2, unitPrice: 50, discount: 0, net: 100, vatRate: 24, vatAmount: 24, total: 124, serials: [], custom: {} },
+    { code: 'B2', name: 'Υπηρεσία Β', unit: null, quantity: 1, unitPrice: 100, discount: 0, net: 100, vatRate: 24, vatAmount: 24, total: 124, serials: [], custom: {} },
   ],
   ...over,
 });
@@ -423,7 +423,7 @@ describe('postingWarnings', () => {
     const withCodes = (rows: [code: string, name: string][]): DocumentJson => doc({
       lines: rows.map(([code, name]) => ({
         code, name, unit: null, quantity: 1, unitPrice: 100, discount: 0,
-        net: 100, vatRate: 24, vatAmount: 24, total: 124, custom: {},
+        net: 100, vatRate: 24, vatAmount: 24, total: 124, serials: [], custom: {},
       })),
     });
     const matchedTo = (...mtrls: number[]) =>
@@ -677,7 +677,7 @@ const oneLineDoc = (): DocumentJson => ({
   totals: { net: 1055, discount: null, vatAmount: 253.2, withholding: null, fees: null, total: 1308.2, payable: 1308.2 },
   lines: [{
     code: null, name: 'ΜΙΣΘΟΔΟΣΙΑ ΙΟΥΛΙΟΥ', unit: null, quantity: 1, unitPrice: 1055, discount: 0,
-    net: 1055, vatRate: 24, vatAmount: 253.2, total: 1308.2, custom: {},
+    net: 1055, vatRate: 24, vatAmount: 253.2, total: 1308.2, serials: [], custom: {},
   }],
 });
 
@@ -752,5 +752,18 @@ describe('επιμερισμός → έλεγχοι πριν την καταχώ
     const data = buildPurdocPayload(oneLineDoc(), c).DATA as any;
     expect(data.ITELINES ?? []).toHaveLength(0);
     expect(data.SRVLINES ?? []).toHaveLength(0);
+  });
+});
+
+describe('σειριακοί στα σχόλια της γραμμής', () => {
+  it('μπαίνουν όσοι ΔΕΝ γράφονται ήδη στην περιγραφή — ποτέ διπλοί', () => {
+    const base = doc();
+    const d = { ...base, lines: [
+      { ...base.lines[0], name: 'Αναβάθμιση IRIS SN: DMV1', serials: ['DMV1', 'DMV2'] },
+      ...base.lines.slice(1),
+    ] };
+    const p = buildPurdocPayload(d, ctx());
+    const row = [...(p.DATA.ITELINES ?? []), ...(p.DATA.SRVLINES ?? [])].find((r) => String(r.COMMENTS).includes('IRIS'));
+    expect(row?.COMMENTS).toBe('Αναβάθμιση IRIS SN: DMV1 · S/N: DMV2');
   });
 });

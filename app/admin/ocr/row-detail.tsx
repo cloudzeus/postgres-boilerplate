@@ -6,6 +6,9 @@ import { toast } from 'sonner';
 import { FiSend, FiSave, FiExternalLink, FiAlertCircle, FiPlus, FiTrash2, FiRotateCcw, FiCheck, FiPlusCircle, FiMaximize2, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { CreateRegistryEntryModal } from '@/components/admin/create-registry-entry-modal';
 import { cn } from '@/lib/utils';
+import { SerialChips } from '@/components/admin/serial-chips';
+import { extractSerials } from '@/lib/ocr/serials';
+import { DOC_CATEGORY_OPTIONS } from '@/lib/ocr/doc-category';
 import { reconcileInvoice, analyzeLine } from '@/lib/ocr/invoice-math';
 import { toLineItems, EMPTY_LINE, type LineItem } from '@/lib/ocr/line-items';
 import { docTypeOf } from '@/lib/ocr/canonical';
@@ -96,16 +99,8 @@ const FIELD_SPECS: Record<string, FieldSpec[]> = {
   ],
 };
 
-const CATEGORY_OPTIONS = [
-  { value: 'EXPENSE', label: 'Έξοδο' },
-  { value: 'INVOICE_IN', label: 'Τιμολόγιο αγοράς' },
-  { value: 'INVOICE_OUT', label: 'Τιμολόγιο πώλησης' },
-  { value: 'RECEIPT', label: 'Απόδειξη' },
-  { value: 'CREDIT_NOTE', label: 'Πιστωτικό' },
-  { value: 'PAYROLL', label: 'Μισθοδοσία' },
-  { value: 'TAX', label: 'Φόρος' },
-  { value: 'OTHER', label: 'Άλλο' },
-];
+// Κοινές με τη σελίδα του παραστατικού — `lib/ocr/doc-category.ts`.
+const CATEGORY_OPTIONS = DOC_CATEGORY_OPTIONS;
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -704,7 +699,11 @@ export function OcrRowDetail({
                         <React.Fragment key={i}>
                         <tr className={cn('hover:bg-sisyphus-500/5', !la.consistent ? 'bg-amber-500/5' : 'odd:bg-muted/20')}>
                           <td className="px-1.5 py-1"><CellInput value={it.code} onChange={(v) => setLine(i, 'code', v)} disabled={ro} className="font-mono" /></td>
-                          <td className="px-1.5 py-1"><CellInput value={it.name} onChange={(v) => setLine(i, 'name', v)} disabled={ro} /></td>
+                          <td className="px-1.5 py-1">
+                            <CellInput value={it.name} onChange={(v) => setLine(i, 'name', v)} disabled={ro} />
+                            {/* Ζωντανά από το κείμενο: διορθώνεις τον σειριακό, αλλάζει και η ετικέτα. */}
+                            <SerialChips serials={extractSerials(it.name)} />
+                          </td>
                           <td className="px-1.5 py-1"><CellInput value={it.unit} onChange={(v) => setLine(i, 'unit', v)} disabled={ro} /></td>
                           <td className="px-1.5 py-1"><CellInput value={it.quantity} onChange={(v) => setLine(i, 'quantity', v)} disabled={ro} numeric align="right" /></td>
                           <td className="px-1.5 py-1"><CellInput value={it.price} onChange={(v) => setLine(i, 'price', v)} disabled={ro} numeric align="right" /></td>

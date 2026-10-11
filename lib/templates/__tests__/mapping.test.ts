@@ -64,7 +64,7 @@ describe('projectToDocument', () => {
   });
 
   it('skips unknown keys and keeps the existing lines when no line mapping ran', () => {
-    const existing = doc({ lines: [{ code: null, name: 'old', unit: null, quantity: null, unitPrice: null, discount: null, net: null, vatRate: null, vatAmount: null, total: null, custom: {} }] });
+    const existing = doc({ lines: [{ code: null, name: 'old', unit: null, quantity: null, unitPrice: null, discount: null, net: null, vatRate: null, vatAmount: null, total: null, serials: [], custom: {} }] });
     const out = projectToDocument({ x: fv(null), y: fv('v') }, [{ fieldKey: 'x', invoiceKey: 'type.number' }, { fieldKey: 'y', invoiceKey: 'nope' }], existing);
     expect(out).toBe(existing);
     // Same array reference → the caller knows the OcrInvoiceItem rows need not be rebuilt.
@@ -72,7 +72,7 @@ describe('projectToDocument', () => {
   });
 
   it('keeps the existing lines when the mapped table value is missing', () => {
-    const existing = doc({ lines: [{ code: 'A', name: 'old', unit: null, quantity: null, unitPrice: null, discount: null, net: null, vatRate: null, vatAmount: null, total: null, custom: {} }] });
+    const existing = doc({ lines: [{ code: 'A', name: 'old', unit: null, quantity: null, unitPrice: null, discount: null, net: null, vatRate: null, vatAmount: null, total: null, serials: [], custom: {} }] });
     const out = projectToDocument({}, [{ fieldKey: 'lines.code', invoiceKey: 'lines.code' }], existing);
     expect(out.lines).toBe(existing.lines);
   });

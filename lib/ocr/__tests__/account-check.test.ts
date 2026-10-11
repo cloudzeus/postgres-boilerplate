@@ -241,7 +241,7 @@ const doc = (): DocumentJson => ({
   date: '2026-09-01',
   type: { label: 'ΤΙΜΟΛΟΓΙΟ', series: 'Α', number: '1', myDataType: null },
   totals: { net: 100, discount: null, vatAmount: 24, withholding: null, fees: null, total: 124, payable: 124 },
-  lines: [{ code: null, name: 'Ύδρευση', unit: null, quantity: 1, unitPrice: 100, discount: 0, net: 100, vatRate: 24, vatAmount: 24, total: 124, custom: {} }],
+  lines: [{ code: null, name: 'Ύδρευση', unit: null, quantity: 1, unitPrice: 100, discount: 0, net: 100, vatRate: 24, vatAmount: 24, total: 124, serials: [], custom: {} }],
 });
 
 const postingDoc = {

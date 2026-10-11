@@ -1,8 +1,8 @@
 // app/admin/ocr/[id]/field-correction.tsx
 'use client';
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
-import { Button } from '@/lib/design-system';
+import { FiChevronLeft, FiChevronRight, FiCrosshair, FiSave } from 'react-icons/fi';
+import { toast } from 'sonner';
 import { useMarquee, type NormBox } from './use-marquee';
 
 const FIELD_LABELS: Record<string, string> = {
@@ -33,9 +33,10 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
   initialData: Record<string, any>; fields: string[];
 }) {
   const [data, setData] = useState<Record<string, any>>(initialData ?? {});
+  const [base, setBase] = useState<string>(() => JSON.stringify(initialData ?? {}));
+  const dirty = JSON.stringify(data) !== base;
   const [activeField, setActiveField] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState<string | null>(null);
   const page = 0; // single-page marquee for v1
 
   const onComplete = useMemo(() => async (box: NormBox) => {
@@ -75,7 +76,8 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
       const res = await fetch(`/api/admin/ocr/${docId}`, { method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ extractedData: data, items: Array.isArray(data.items) ? data.items : undefined }) });
-      setSaved(res.ok ? 'Οι διορθώσεις αποθηκεύτηκαν.' : 'Σφάλμα αποθήκευσης.');
+      if (res.ok) { setBase(JSON.stringify(data)); toast.success('Οι διορθώσεις αποθηκεύτηκαν.'); }
+      else toast.error('Σφάλμα αποθήκευσης.');
     } finally { setBusy(false); }
   }
 
@@ -136,20 +138,24 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
           if (keys.length === 0) return null;
           return (
             <section key={g.title} className="grid gap-x-3 px-3 py-2 sm:grid-cols-[6.5rem_1fr]">
-              <h3 className="pt-1.5 text-[length:var(--fs-11)] font-extrabold uppercase tracking-wider text-muted-foreground">
+              <h3 className="pt-1 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground sm:pt-6">
                 {g.title}
               </h3>
-              <div className={`grid gap-x-3 gap-y-1 ${showDoc ? 'sm:grid-cols-2' : 'sm:grid-cols-3 2xl:grid-cols-4'}`}>
+              {/* ΧΩΡΙΣ ΚΕΝΑ ΚΕΛΙΑ: flex-wrap όπου κάθε πεδίο ΜΕΓΑΛΩΝΕΙ για να γεμίσει τη σειρά του. Το
+                  πλέγμα 2 στηλών άφηνε την «Ημερομηνία» και το «Σύνολο» μόνα τους με μισή σειρά κενή —
+                  το ίδιο λάθος που διορθώθηκε στη λίστα. Τα πεδία που εμφανίζονται αλλάζουν ανά
+                  παραστατικό, οπότε σταθερά πλάτη δεν θα έκλειναν ποτέ σωστά. */}
+              <div className="flex flex-wrap gap-x-3 gap-y-2">
                 {keys.map((f) => (
-                  <div key={f} className={`flex items-center gap-1 rounded px-1 ${activeField === f ? 'ring-2 ring-sisyphus-500' : ''}`}>
+                  <div key={f} className={`flex min-w-[10rem] flex-1 basis-[11rem] items-end gap-1 rounded ${activeField === f ? 'ring-2 ring-sisyphus-500 ring-offset-2' : ''}`}>
                     {/* Ετικέτα ΠΑΝΩ από το πεδίο αλλά μικροσκοπική και κολλητά: μένει ορατή
                         (δεν γίνεται placeholder) χωρίς να κοστίζει δική της σειρά 14px. */}
                     <label className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-[length:var(--fs-10)] leading-tight text-muted-foreground">{FIELD_LABELS[f] ?? f}</span>
+                      <span className={LABEL}>{FIELD_LABELS[f] ?? f}</span>
                       <input
                         value={data[f] ?? ''}
                         onChange={(e) => setData((d) => ({ ...d, [f]: e.target.value }))}
-                        className="h-7 w-full rounded border border-border bg-neutral-4 px-1.5 text-[length:var(--fs-12)] focus:border-sisyphus-500 focus:bg-card focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25"
+                        className={INPUT}
                       />
                     </label>
                     <button
@@ -157,8 +163,8 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
                       aria-label={`Μαρκάρισμα περιοχής για ${FIELD_LABELS[f] ?? f}`}
                       title={`Μαρκάρισμα περιοχής στο παραστατικό για «${FIELD_LABELS[f] ?? f}»`}
                       onClick={() => setActiveField((cur) => (cur === f ? null : f))}
-                      className={`mt-3 inline-flex size-6 shrink-0 items-center justify-center rounded text-[length:var(--fs-11)] transition ${activeField === f ? 'bg-sisyphus-500 text-white' : 'text-muted-foreground hover:bg-muted'}`}
-                    >◎</button>
+                      className={`inline-flex size-8 shrink-0 items-center justify-center rounded-md border transition ${activeField === f ? 'border-sisyphus-500 bg-sisyphus-500 text-white' : 'border-input text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+                    ><FiCrosshair className="size-3.5" aria-hidden /></button>
                   </div>
                 ))}
               </div>
@@ -171,14 +177,14 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
           if (rest.length === 0) return null;
           return (
             <section className="grid gap-x-3 px-3 py-2 sm:grid-cols-[6.5rem_1fr]">
-              <h3 className="pt-1.5 text-[length:var(--fs-11)] font-extrabold uppercase tracking-wider text-muted-foreground">Λοιπά</h3>
-              <div className={`grid gap-x-3 gap-y-1 ${showDoc ? 'sm:grid-cols-2' : 'sm:grid-cols-3 2xl:grid-cols-4'}`}>
+              <h3 className="pt-1 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground sm:pt-6">Λοιπά</h3>
+              <div className="flex flex-wrap gap-x-3 gap-y-2">
                 {rest.map((f) => (
-                  <label key={f} className="flex min-w-0 flex-col px-1">
-                    <span className="truncate text-[length:var(--fs-10)] leading-tight text-muted-foreground">{FIELD_LABELS[f] ?? f}</span>
+                  <label key={f} className="flex min-w-[10rem] flex-1 basis-[11rem] flex-col gap-0.5">
+                    <span className={LABEL}>{FIELD_LABELS[f] ?? f}</span>
                     <input value={data[f] ?? ''}
                       onChange={(e) => setData((d) => ({ ...d, [f]: e.target.value }))}
-                      className="h-7 w-full rounded border border-border bg-neutral-4 px-1.5 text-[length:var(--fs-12)] focus:border-sisyphus-500 focus:bg-card focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25" />
+                      className={INPUT} />
                   </label>
                 ))}
               </div>
@@ -187,12 +193,21 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
         })()}
         </div>
 
-        <div className="flex gap-2 pt-1">
-          <Button variant="primary" onClick={saveCorrections} isLoading={busy}>Αποθήκευση διορθώσεων</Button>
+        {/* Συμπαγές μπλε όταν υπάρχει αλλαγή, ΟΥΔΕΤΕΡΟ όταν δεν υπάρχει — ποτέ ξεθωριασμένο χρώμα. */}
+        <div className="flex justify-end pt-2">
+          <button type="button" onClick={saveCorrections} disabled={busy || !dirty}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-sisyphus-500 px-3.5 text-[length:var(--fs-12)] font-semibold text-white shadow-sm transition hover:bg-sisyphus-600 active:bg-sisyphus-700 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none">
+            <FiSave className="size-3.5" /> {busy ? 'Αποθήκευση…' : dirty ? 'Αποθήκευση διορθώσεων' : 'Χωρίς αλλαγές'}
+          </button>
         </div>
-        {saved && <p className="text-sm text-green-600">{saved}</p>}
       </div>
     </div>
     </>
   );
 }
+
+/** Ίδιο μέγεθος ετικέτας και πεδίου με τη λίστα (`row-detail.tsx`): μία εμφάνιση φόρμας σε όλη την εφαρμογή. */
+const LABEL = 'truncate text-[length:var(--fs-11)] font-semibold text-muted-foreground';
+const INPUT =
+  'h-8 w-full rounded-md border border-input bg-background px-2 text-[length:var(--fs-12)] text-foreground ' +
+  'transition focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25';

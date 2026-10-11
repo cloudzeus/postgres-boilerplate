@@ -387,7 +387,7 @@ export function LineAllocations({
                 <button
                   type="button" onClick={addRow} disabled={busy || lineTotal == null}
                   title={lineTotal == null ? 'Η γραμμή δεν έχει σύνολο' : undefined}
-                  className="inline-flex items-center gap-1 rounded bg-sisyphus-500 px-2.5 py-1 text-[length:var(--fs-12)] font-semibold text-white shadow-fluent-2 transition hover:bg-sisyphus-600 disabled:opacity-50"
+                  className="inline-flex h-6 items-center gap-1 rounded-md border border-sisyphus-500/40 px-2 text-[length:var(--fs-11)] font-semibold text-sisyphus-700 transition hover:bg-sisyphus-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-sisyphus-300"
                 >
                   <FiPlus className="size-3" /> Προσθήκη γραμμής επιμερισμού
                 </button>

@@ -10,6 +10,7 @@ import { SoftoneAfmDialog } from '@/components/admin/softone-afm-dialog';
 import { OcrDayProblemsModal } from '@/components/admin/ocr-day-problems-modal';
 import { DataTable } from '@/components/ui/data-table';
 import { cn } from '@/lib/utils';
+import { extractSerials } from '@/lib/ocr/serials';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -509,7 +510,8 @@ export function OcrTable({
     {
       id: 'doc',
       size: 105,
-      accessorFn: (r: OcrRow) => [r.docNumber, r.docDate].filter(Boolean).join(' '),
+      // ΚΑΙ οι σειριακοί: η αναζήτηση «DMV24000146» βρίσκει το τιμολόγιο που αφορά αυτή τη μηχανή.
+      accessorFn: (r: OcrRow) => [r.docNumber, r.docDate, ...rowSerials(r)].filter(Boolean).join(' '),
       header: 'Παραστατικό',
       cell: ({ row }) => {
         const r = row.original;
@@ -517,6 +519,11 @@ export function OcrTable({
           <div className="flex min-w-0 flex-col leading-tight">
             <span className="font-mono text-xs">{r.docNumber ?? '-'}</span>
             {r.docDate && <span className="text-[length:var(--fs-10)] text-muted-foreground">{r.docDate}</span>}
+            {rowSerials(r).length > 0 && (
+              <span className="text-[length:var(--fs-10)] text-muted-foreground" title={rowSerials(r).join(', ')}>
+                S/N · {rowSerials(r).length}
+              </span>
+            )}
           </div>
         );
       },
@@ -996,4 +1003,10 @@ export function OcrTable({
       />
     </>
   );
+}
+
+/** Οι σειριακοί όλων των γραμμών ενός παραστατικού (από την περιγραφή τους — `lib/ocr/serials.ts`). */
+function rowSerials(r: OcrRow): string[] {
+  const items = ((r.extractedData as { items?: { name?: string | null }[] } | null)?.items) ?? [];
+  return [...new Set(items.flatMap((i) => extractSerials(i?.name)))];
 }

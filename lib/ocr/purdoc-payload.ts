@@ -491,7 +491,13 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
     const match = byRow.get(i);
     if (!match) return;
     const vat = vatIdFor(line.vatRate, ctx.vatIdByRate);
-    const name = text(line.name);
+    // ΣΕΙΡΙΑΚΟΙ ΣΤΑ ΣΧΟΛΙΑ ΤΗΣ ΓΡΑΜΜΗΣ. Ο πίνακας `SNLINES` του SoftOne δέχεται μόνο είδη ΑΠΟΘΗΚΗΣ με
+    // παρακολούθηση σειριακών· οι σειριακοί που βλέπουμε (ταμειακές μηχανές πελατών σε τιμολόγια
+    // αναβάθμισης) δεν είναι απόθεμα. Το σχόλιο της γραμμής είναι ο σωστός χώρος — και μπαίνουν μόνο
+    // όσοι ΔΕΝ γράφονται ήδη στην περιγραφή, για να μη διπλασιαστούν.
+    const baseName = text(line.name);
+    const extra = (line.serials ?? []).filter((sn) => !(baseName ?? '').includes(sn));
+    const name = extra.length ? `${baseName ? `${baseName} · ` : ''}S/N: ${extra.join(', ')}` : baseName;
     const target = table === 'AUTO' ? autoTableFor(match) : table;
     if (!target || !lineFits(target, match)) return;
 

@@ -10,7 +10,7 @@ const fields = [
 
 const blank = (): DocumentJson => emptyDocument('invoice');
 const line = (over: Partial<DocumentLine> = {}): DocumentLine =>
-  ({ code: null, name: null, unit: null, quantity: null, unitPrice: null, discount: null, net: null, vatRate: null, vatAmount: null, total: null, custom: {}, ...over });
+  ({ code: null, name: null, unit: null, quantity: null, unitPrice: null, discount: null, net: null, vatRate: null, vatAmount: null, total: null, serials: [], custom: {}, ...over });
 
 const input = (over: Partial<SheetInput> = {}): SheetInput => ({
   templateSlug: 'a', templateName: 'A', file: 'f1.pdf', fields, excelRows: null, values: {}, document: blank(), ...over,

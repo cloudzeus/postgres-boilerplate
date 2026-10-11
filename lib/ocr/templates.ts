@@ -94,7 +94,8 @@ export const TEMPLATE_SCHEMAS: Record<DocType, TemplateSchema> = {
       "net": number,            // ΚΑΘΑΡΗ ΑΞΙΑ of the line — BEFORE VAT
       "vatRate": number,        // ΦΠΑ % for the line (e.g. 24)
       "vatAmount": number,      // VAT amount of the line
-      "total": number           // net + vatAmount
+      "total": number,          // net + vatAmount
+      "serials": ["string"]     // SERIAL NUMBERS printed for THIS line (S/N, Serial No, Σ/Ν), exactly as printed; [] if none
     }
   ],
   "totals": {

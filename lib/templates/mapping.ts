@@ -7,7 +7,7 @@ type Json = Record<string, unknown>;
 /** Μια άδεια γραμμή — κάθε πεδίο δηλωμένο, ώστε ο compiler να πιάσει ένα πεδίο που θα προστεθεί αύριο. */
 const blankLine = (): DocumentLine => ({
   code: null, name: null, unit: null, quantity: null, unitPrice: null,
-  discount: null, net: null, vatRate: null, vatAmount: null, total: null, custom: {},
+  discount: null, net: null, vatRate: null, vatAmount: null, total: null, serials: [], custom: {},
 });
 
 const isBlank = (v: FieldValue['value']) => v == null || (typeof v === 'string' && v.trim() === '');

@@ -8,6 +8,7 @@
 // Τα σημερινά flat κλειδιά (`OcrDocument.extractedData`) δεν φεύγουν: παράγονται από το έγγραφο με
 // `toLegacy` ώστε λίστα / row-detail / ουρές / doc-type / softone-match να συνεχίσουν να δουλεύουν
 // αμετάβλητα, και διαβάζονται πίσω με `fromLegacy` για τα έγγραφα που γράφτηκαν πριν από το plan 5.
+import { extractSerials } from '@/lib/ocr/serials';
 import { z } from 'zod';
 import { normalizeAfm } from '@/lib/ocr/validate';
 import { reconcileInvoice } from '@/lib/ocr/invoice-math';
@@ -151,7 +152,13 @@ const Party = nobj(z.object({
 
 const Line = z.object({
   code: nstr, name: nstr, unit: nstr, quantity: nnum, unitPrice: nnum, discount: nnum,
-  net: nnum, vatRate: nnum, vatAmount: nnum, total: nnum, custom: customRecord,
+  net: nnum, vatRate: nnum, vatAmount: nnum, total: nnum,
+  /**
+   * Σειριακοί αριθμοί (S/N) της γραμμής. Ζούσαν θαμμένοι στην περιγραφή και δεν φαίνονταν πουθενά.
+   * Αν το μοντέλο δεν τους δώσει, τους βγάζει το `normalizeDocument` από το κείμενο (`lib/ocr/serials.ts`).
+   */
+  serials: strArray,
+  custom: customRecord,
 });
 
 export const DocumentSchema = z.object({
@@ -616,6 +623,8 @@ export function normalizeDocument(raw: unknown): DocumentJson {
     date: normalizeDate(doc.date),
     dueDate: normalizeDate(doc.dueDate),
     issuer: { ...doc.issuer, vat: afm(doc.issuer.vat) },
+    // Σειριακοί: ό,τι έδωσε το μοντέλο, αλλιώς ό,τι γράφει η ίδια η περιγραφή της γραμμής.
+    lines: doc.lines.map((l) => (l.serials.length ? l : { ...l, serials: extractSerials(l.name) })),
     recipient: { ...doc.recipient, vat: afm(doc.recipient.vat) },
     references: {
       ...doc.references,

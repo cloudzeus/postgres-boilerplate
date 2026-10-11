@@ -98,7 +98,14 @@ const shortMsg = (m: string): { head: string; hasMore: boolean } => {
   return cut > 0 ? { head: m.slice(0, cut).trim(), hasMore: true } : { head: m, hasMore: false };
 };
 
-export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: boolean }) {
+export function DocumentJsonCard({ docId, canPost, showPosting = true }: {
+  docId: string; canPost: boolean;
+  /**
+   * `false` όταν η σελίδα έχει τη σταθερή μπάρα ενεργειών (`DocActionBar`): η καταχώριση ζει εκεί.
+   * Δύο κουμπιά «Καταχώριση» στην ίδια σελίδα, με διαφορετικούς ελέγχους, θα ήταν σίγουρη σύγχυση.
+   */
+  showPosting?: boolean;
+}) {
   const [envelope, setEnvelope] = React.useState<DocumentEnvelope | null>(null);
   const [preview, setPreview] = React.useState<Preview | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -241,7 +248,7 @@ export function DocumentJsonCard({ docId, canPost }: { docId: string; canPost: b
         </>
       )}
 
-      {!loading && canPost && preview && (
+      {!loading && canPost && showPosting && preview && (
         <div className="space-y-2 rounded-lg border border-border p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-[length:var(--fs-13)] font-semibold">Καταχώριση στο SoftOne</h3>
