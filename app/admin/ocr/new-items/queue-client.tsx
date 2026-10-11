@@ -33,7 +33,11 @@ const AI_BATCH = 20;
 const CATEGORY_STORAGE_KEY = 'ocr.newItems.lineCategory';
 
 /** Ό,τι επιστρέφουν και οι τρεις ενέργειες της ουράς. */
-interface ActionResult { linesUpdated: number; name?: string | null; code?: string | null }
+interface ActionResult {
+  linesUpdated: number; name?: string | null; code?: string | null;
+  /** Λογαριασμός κοινής ωφέλειας: κανόνας ανά είδος χρέωσης + πόσες ΑΛΛΕΣ γραμμές συμπληρώθηκαν. */
+  utility?: { label: string; propagated: number } | null;
+}
 
 /** Το «θυμάται» μήνυμα του toast: ο κανόνας είναι ανά εκδότη ή γενικός. */
 function memoryNote(g: ItemQueueGroup): string {
@@ -285,13 +289,19 @@ export function NewItemsClient({
       if (!d) return;
       toast.success(
         `${d.linesUpdated === 1 ? 'Αντιστοιχίστηκε' : 'Αντιστοιχίστηκαν'} ${lineLabel(d.linesUpdated)} → ${d.name}`,
-        { description: memoryNote(g) },
+        {
+          description: d.utility
+            ? `Κανόνας «${d.utility.label}» για κάθε λογαριασμό αυτού του είδους.${d.utility.propagated > 0 ? ` Συμπληρώθηκαν ήδη ${d.utility.propagated} ακόμη γραμμές.` : ''}`
+            : memoryNote(g),
+        },
       );
       retire(g.key);
+      // Η μνήμη είδους χρέωσης γέμισε γραμμές ΑΛΛΩΝ ομάδων: η ουρά πρέπει να ξαναδιαβαστεί.
+      if (d.utility?.propagated) router.refresh();
     } finally {
       setBusy(false);
     }
-  }, [selected, busy, canManage, retire, analyticsFor]);
+  }, [selected, busy, canManage, retire, analyticsFor, router]);
 
   /**
    * Δημιουργία νέας εγγραφής μητρώου. Το **409 `code_taken`** ΔΕΝ είναι γενική αποτυχία: δεν

@@ -12,6 +12,8 @@ import { commonLineKind, defaultLineKind } from '@/lib/ocr/resolution-plan';
 import type { PostingTarget } from '@/lib/ocr/posting-target';
 import type { AccountCheckLine } from '@/lib/ocr/account-check';
 import { AccountLine } from '@/components/admin/account-line';
+import { UtilityChargeChip } from '@/components/admin/utility-bill-card';
+import type { UtilityCharge } from '@/lib/ocr/utility-bills';
 
 type DocWithItems = Prisma.OcrDocumentGetPayload<{ include: { items: { include: { allocations: true } } } }>;
 
@@ -39,6 +41,8 @@ export interface LineMatchOptions {
    * picker πρότεινε «Είδος» και σε παραστατικά που δέχονται μόνο χρεοπιστώσεις.
    */
   target: PostingTarget | null;
+  /** Λογαριασμός κοινής ωφέλειας: το είδος χρέωσης κάθε γραμμής, με τη σειρά των `items`. */
+  utilityCharges?: (UtilityCharge | null)[];
 }
 
 /**
@@ -138,6 +142,7 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
                   <td className="px-3 py-2.5">
                     <span className="mr-1.5 inline-flex size-4 items-center justify-center rounded bg-muted text-[length:var(--fs-10)] font-bold tabular-nums text-muted-foreground">{idx + 1}</span>
                     <span className="text-[length:var(--fs-12)] font-semibold text-foreground">{it.name}</span>
+                    <UtilityChargeChip charge={match.utilityCharges?.[idx] ?? null} />
                     <SerialChips serials={serials} />
                   </td>
                   <td className="px-3 py-2 text-right text-[length:var(--fs-12)]">{fmtNum(it.quantity)}</td>

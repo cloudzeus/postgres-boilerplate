@@ -6,7 +6,7 @@
 // χωρίς· η μία με ταξινόμηση σειράς, η άλλη όχι.
 import { prisma } from '@/lib/db';
 import { extractDocument, type PdfSource } from '@/lib/ocr/extract';
-import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
+import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck, applyUtilityCategory } from '@/lib/ocr/softone-match';
 import { ensureOcrThumbnail } from '@/lib/ocr/thumbnail';
 import { saveDocumentJson } from '@/lib/ocr/document';
 import { docTypeFromKind } from '@/lib/ocr/canonical';
@@ -78,6 +78,9 @@ export async function extractAndPersist(input: ExtractAndPersistInput): Promise<
 
   // Auto-match invoice lines to SoftOne items (cheap local lookup; manual matches preserved).
   await matchDocItems(documentId).catch(() => null);
+
+  // Λογαριασμός ρεύματος/νερού/τηλεφώνου/μίσθωσης: η κατηγορία είναι πάντα «Έξοδο». Best-effort.
+  await applyUtilityCategory(documentId).catch(() => null);
 
   // PURDOC duplicate check (supplier + αριθμός παραστατικού + ημ/νία). Best-effort.
   if (softone.softoneTrdr) {

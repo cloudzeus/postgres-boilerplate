@@ -3,6 +3,17 @@ import { SODTYPE_LABEL, softoneFindTraderByAfm, softoneCheckPurchaseDoc } from '
 import { requiredTraderKind } from '@/lib/ocr/required-trader-kind';
 import { normalizeLineText } from '@/lib/ocr/line-match';
 import { documentReference } from '@/lib/ocr/purdoc-payload';
+import { classifyUtilityCharge, detectUtility, utilityInputFromDocument, utilityMemoryKey } from '@/lib/ocr/utility-bills';
+
+/** Η αναγνώριση λογαριασμού πάνω στις ΓΡΑΜΜΕΣ της βάσης (όχι του JSON) — αυτές αντιστοιχίζονται. */
+export function detectUtilityForItems(
+  document: unknown,
+  afm: string | null | undefined,
+  items: { name: string; vatRate?: unknown; total?: unknown }[],
+) {
+  const input = utilityInputFromDocument(document, afm, items);
+  return input ? detectUtility(input) : null;
+}
 
 /**
  * Έλεγχος διπλοεγγραφής για ένα σαρωμένο έγγραφο: προμηθευτής + αναφορά εκδότη + ημερομηνία.
@@ -121,6 +132,21 @@ const NO_MATCH: LineMatchUpdate = {
 };
 
 /**
+ * Λογαριασμός κοινής ωφέλειας ή μίσθωσης οχημάτων ⇒ κατηγορία «Έξοδο», ΜΟΝΟ αν δεν έχει ήδη
+ * κατηγορία (η επιλογή του χρήστη δεν αλλάζει ποτέ). Η κατηγορία είναι εμπόδιο καταχώρισης
+ * (`no_category`), και εδώ η απάντηση δεν χρειάζεται άνθρωπο.
+ */
+export async function applyUtilityCategory(docId: string): Promise<boolean> {
+  const d = await prisma.ocrDocument.findUnique({
+    where: { id: docId },
+    select: { category: true, issuerAfm: true, document: true, items: { select: { name: true, vatRate: true, total: true } } },
+  });
+  if (!d || d.category || !detectUtilityForItems(d.document, d.issuerAfm, d.items)) return false;
+  await prisma.ocrDocument.update({ where: { id: docId }, data: { category: 'EXPENSE' } });
+  return true;
+}
+
+/**
  * Matches a document's invoice lines against the local SoftOne registries and
  * persists the match per line. Two passes, cheap (no AI) — safe to run on every scan:
  *
@@ -136,7 +162,10 @@ const NO_MATCH: LineMatchUpdate = {
 export async function matchDocItems(docId: string): Promise<{ matched: number; total: number }> {
   const items = await prisma.ocrInvoiceItem.findMany({
     where: { documentId: docId },
-    select: { id: true, code: true, name: true, softoneMatchedBy: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true },
+    select: {
+      id: true, code: true, name: true, vatRate: true, total: true,
+      softoneMatchedBy: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true,
+    },
   });
   if (items.length === 0) {
     await writeDocTally(docId, 0, 0);
@@ -156,7 +185,7 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
   const byCode1 = new Map(sItems.filter((m) => m.code1).map((m) => [m.code1!, m]));
 
   const updates = new Map<string, LineMatchUpdate>();
-  const unmatched: { id: string; pattern: string }[] = [];
+  const unmatched: { id: string; pattern: string; utilityKey: string | null }[] = [];
   let matched = 0;
 
   // ── 1. Πέρασμα κωδικού ──────────────────────────────────────────────
@@ -186,7 +215,7 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     }
     updates.set(it.id, { ...NO_MATCH });
     const pattern = normalizeLineText(it.name);
-    if (pattern) unmatched.push({ id: it.id, pattern });
+    if (pattern) unmatched.push({ id: it.id, pattern, utilityKey: null });
   }
 
   // ── 2. Πέρασμα μνήμης (LineMatchRule) ───────────────────────────────
@@ -195,9 +224,24 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     // που γράφει η μνήμη (ουρά «Είδη & έξοδα» και σελίδα παραστατικού). Η παλιά παραγωγή από το
     // JSON με `replace(/\D+/g,'')` έκοβε το πρόθεμα χώρας, οπότε κανόνας ξένου εκδότη
     // (`DE144960040`) δεν μπορούσε ΠΟΤΕ να βρεθεί.
-    const doc = await prisma.ocrDocument.findUnique({ where: { id: docId }, select: { issuerAfm: true } });
+    const doc = await prisma.ocrDocument.findUnique({ where: { id: docId }, select: { issuerAfm: true, document: true } });
     const afm = doc?.issuerAfm ?? '';
-    const patterns = Array.from(new Set(unmatched.map((u) => u.pattern)));
+
+    // Λογαριασμός ρεύματος/νερού/τηλεφώνου: κάθε γραμμή παίρνει ΚΑΙ το σταθερό κλειδί του είδους
+    // χρέωσης της (`@utility:electricity:consumption`), γιατί το κείμενό της αλλάζει κάθε μήνα.
+    const utility = detectUtilityForItems(doc?.document, afm, items);
+    if (utility) {
+      const byId = new Map(items.map((it) => [it.id, it]));
+      for (const u of unmatched) {
+        const it = byId.get(u.id)!;
+        const charge = classifyUtilityCharge(utility.kind, {
+          name: it.name, vatRate: it.vatRate == null ? null : Number(it.vatRate), amount: it.total == null ? null : Number(it.total),
+        });
+        u.utilityKey = charge ? utilityMemoryKey(utility.kind, charge) : null;
+      }
+    }
+
+    const patterns = Array.from(new Set(unmatched.flatMap((u) => (u.utilityKey ? [u.pattern, u.utilityKey] : [u.pattern]))));
     const rules = await prisma.lineMatchRule.findMany({
       where: { pattern: { in: patterns }, afm: { in: afm ? [afm, ''] : [''] } },
       select: {
@@ -207,12 +251,14 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     });
 
     if (rules.length > 0) {
-      // Ο κανόνας του εκδότη υπερισχύει του γενικού.
-      const byPattern = new Map<string, (typeof rules)[number]>();
-      for (const r of rules) {
-        const cur = byPattern.get(r.pattern);
-        if (!cur || (cur.afm === '' && r.afm !== '')) byPattern.set(r.pattern, r);
-      }
+      // Σειρά προτίμησης: κείμενο του εκδότη → είδος χρέωσης του εκδότη → γενικό κείμενο → γενικό
+      // είδος χρέωσης. Ο εκδότης κερδίζει πάντα· το ακριβές κείμενο κερδίζει το είδος χρέωσης.
+      const byKey = new Map(rules.map((r) => [`${r.afm}|${r.pattern}`, r]));
+      const ruleFor = (u: (typeof unmatched)[number]) =>
+        (afm ? byKey.get(`${afm}|${u.pattern}`) : undefined)
+        ?? (afm && u.utilityKey ? byKey.get(`${afm}|${u.utilityKey}`) : undefined)
+        ?? byKey.get(`|${u.pattern}`)
+        ?? (u.utilityKey ? byKey.get(`|${u.utilityKey}`) : undefined);
       const mtrls = Array.from(new Set(rules.map((r) => r.mtrl).filter((v): v is number => v != null)));
       const expns = Array.from(new Set(rules.map((r) => r.expn).filter((v): v is number => v != null)));
       const lins = Array.from(new Set(rules.map((r) => r.lin).filter((v): v is number => v != null)));
@@ -233,7 +279,7 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
 
       const usage = new Map<string, number>();
       for (const u of unmatched) {
-        const r = byPattern.get(u.pattern);
+        const r = ruleFor(u);
         if (!r) continue;
         let data: LineMatchUpdate | null = null;
         if (r.mtrl != null) {

@@ -164,10 +164,14 @@ export function LineMatchCell({
         });
         // Έξοδο ⇒ EXPANAL: ο server δεν κράτησε αναλυτική, οπότε ούτε η οθόνη τη δείχνει.
         if (picked === 'expense') setAnalytics({ costCntr: EMPTY, prjc: EMPTY, prjcStage: EMPTY });
+        // Λογαριασμός κοινής ωφέλειας: η απόφαση μαθεύτηκε ανά ΕΙΔΟΣ ΧΡΕΩΣΗΣ, όχι ανά κείμενο.
+        const utility = d.utility as { label: string; propagated: number } | null | undefined;
         toast.success(`Αντιστοιχίστηκε: ${name}`, {
-          description: d.remembered === false
-            ? undefined
-            : 'Θα συμπληρωθεί μόνη της στην ίδια περιγραφή του ίδιου εκδότη.',
+          description: utility
+            ? `Κανόνας «${utility.label}»: θα εφαρμόζεται σε κάθε λογαριασμό αυτού του είδους.${utility.propagated > 0 ? ` Συμπληρώθηκαν ήδη ${utility.propagated} ακόμη γραμμές.` : ''}`
+            : d.remembered === false
+              ? undefined
+              : 'Θα συμπληρωθεί μόνη της στην ίδια περιγραφή του ίδιου εκδότη.',
         });
       },
     );

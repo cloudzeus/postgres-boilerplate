@@ -1,5 +1,6 @@
 'use client';
 
+import { UTILITY_KIND_LABEL, type UtilityKind } from '@/lib/ocr/utility-bills';
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -68,6 +69,8 @@ export interface OcrRow {
   templateRunStatus: RunStatus | null;
   reviewCount: number;
   blockedCount: number;
+  /** Λογαριασμός κοινής ωφέλειας / μίσθωσης οχημάτων (`lib/ocr/utility-bills.ts`) — `null` = όχι. */
+  utility?: { kind: UtilityKind; provider: string | null } | null;
   /** §14.7 — κανένα πρότυπο δεν αναγνώρισε αυτό το έντυπο· περιμένει χειροκίνητη επιλογή. */
   unknownForm: boolean;
 }
@@ -500,6 +503,11 @@ export function OcrTable({
         return (
           <div className="flex min-w-0 flex-col leading-tight">
             <span className="truncate">{r.issuer ?? <span className="text-muted-foreground">-</span>}</span>
+            {r.utility && (
+              <span className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-full bg-sisyphus-500/[0.08] px-1.5 py-px text-[length:var(--fs-10)] font-semibold text-sisyphus-700">
+                Λογαριασμός · {UTILITY_KIND_LABEL[r.utility.kind]}
+              </span>
+            )}
             {r.vatNumber && (
               <span className="font-mono text-[length:var(--fs-10)] text-muted-foreground">ΑΦΜ {r.vatNumber}</span>
             )}

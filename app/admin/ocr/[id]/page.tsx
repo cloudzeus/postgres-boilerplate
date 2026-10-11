@@ -19,6 +19,8 @@ import { canAccessWikiPage } from '@/lib/wiki/access';
 import type { WikiRoleKey } from '@/lib/wiki/types';
 import { lineAccountsFor } from '@/lib/ocr/account-chart';
 import { postingTargetsForSeries, seriesKey } from '@/lib/ocr/required-trader-kind';
+import { analyzeUtility, utilityInputFromDocument } from '@/lib/ocr/utility-bills';
+import { UtilityBillCard } from '@/components/admin/utility-bill-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -144,6 +146,14 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
     : null;
   const helpHref = completed ? helpHrefFor('template-runs', (user.role.key as WikiRoleKey | undefined) ?? null) : null;
 
+  // Λογαριασμός ρεύματος/νερού/αερίου/τηλεφώνου/μίσθωσης οχημάτων: αναγνώριση από ΑΦΜ, όνομα και
+  // περιεχόμενο, πάνω στις ΓΡΑΜΜΕΣ της βάσης (με τη σειρά του πίνακα).
+  const utilityInput = completed ? utilityInputFromDocument(doc.document, doc.issuerAfm, items) : null;
+  const utility = utilityInput ? analyzeUtility(utilityInput) : null;
+  const utilityHelpHref = utility ? helpHrefFor('utility-bills', (user.role.key as WikiRoleKey | undefined) ?? null) : null;
+  const docPeriod = ((doc.document ?? null) as { references?: { period?: { from: string | null; to: string | null } | null } } | null)
+    ?.references?.period ?? null;
+
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between">
@@ -206,6 +216,19 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
 
       {completed && <SoftoneChecksStrip docId={doc.id} helpHref={checksHelpHref} />}
 
+      {utility && (
+        <UtilityBillCard
+          analysis={utility}
+          period={docPeriod}
+          helpHref={utilityHelpHref}
+          lines={items.map((it) => ({
+            amount: it.total == null ? null : Number(it.total),
+            target: it.softoneCode || it.softoneName ? [it.softoneCode, it.softoneName].filter(Boolean).join(' — ') : null,
+            matchedBy: it.softoneMatchedBy,
+          }))}
+        />
+      )}
+
       <OcrResultView
         doc={doc}
         match={{
@@ -219,6 +242,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
           trdr: doc.softoneTrdr ?? null,
           lineAccounts,
           target: postingTarget,
+          utilityCharges: utility ? utility.lines.map((l) => l.charge) : undefined,
         }}
       />
 

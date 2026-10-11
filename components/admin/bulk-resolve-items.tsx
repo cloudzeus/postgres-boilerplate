@@ -108,7 +108,9 @@ function Modal({ groups, vats, units, onClose }: { groups: ItemPlanInput[]; vats
         }),
       });
       const d = await res.json().catch(() => ({}));
-      return res.ok ? { s: 'done', msg: `Αντιστοιχίστηκε · ${d.linesUpdated ?? r.lineCount} γραμμ.` } : { s: 'error', msg: d.message ?? `HTTP ${res.status}` };
+      return res.ok
+        ? { s: 'done', msg: `Αντιστοιχίστηκε · ${d.linesUpdated ?? r.lineCount} γραμμ.${d.utility?.propagated ? ` · +${d.utility.propagated} από κανόνα «${d.utility.label}»` : ''}` }
+        : { s: 'error', msg: d.message ?? `HTTP ${res.status}` };
     }
     if (r.action === 'create' && r.kind && creatableKind(r.kind)) {
       const qs = new URLSearchParams({ kind: r.kind });

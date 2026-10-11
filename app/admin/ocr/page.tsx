@@ -1,4 +1,5 @@
 import { FiFileText } from 'react-icons/fi';
+import { detectUtility, utilityInputFromDocument } from '@/lib/ocr/utility-bills';
 import { prisma } from '@/lib/db';
 import { requirePermission, hasPermission } from '@/lib/rbac';
 import { PageHeader } from '@/components/admin/page-header';
@@ -24,6 +25,8 @@ export default async function AdminOcrPage() {
         createdAt: true, completedAt: true,
         thumbUrl: true,
         extractedData: true,
+        // Μόνο για την αναγνώριση λογαριασμού κοινής ωφέλειας — δεν φεύγει προς τον browser.
+        document: true, issuerAfm: true,
         errorMessage: true,
         softoneTrdr: true, softoneCode: true, softoneName: true, softoneKind: true, softoneChecked: true,
         softoneDocExists: true,
@@ -86,6 +89,11 @@ export default async function AdminOcrPage() {
       reviewCount: Array.isArray(rf?.review) ? rf.review.length : 0,
       blockedCount: Array.isArray(rf?.blocked) ? rf.blocked.length : 0,
       unknownForm: rf?.unknownForm === true,
+      utility: (() => {
+        const input = utilityInputFromDocument(d.document, d.issuerAfm);
+        const u = input ? detectUtility(input) : null;
+        return u ? { kind: u.kind, provider: u.provider } : null;
+      })(),
     };
   });
 

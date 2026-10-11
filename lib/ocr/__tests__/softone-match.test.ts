@@ -8,6 +8,7 @@ const { db } = vi.hoisted(() => ({
     ocrDocument: { findUnique: vi.fn(), update: vi.fn() },
     softoneItem: { findMany: vi.fn() },
     softoneExpense: { findMany: vi.fn() },
+    softoneLineItem: { findMany: vi.fn() },
     softoneTrader: { findUnique: vi.fn(), findFirst: vi.fn() },
     purchaseDocType: { findUnique: vi.fn(), findMany: vi.fn() },
     softoneDocSeries: { findUnique: vi.fn(), findMany: vi.fn() },
@@ -295,5 +296,58 @@ describe('refreshDocTallies — ο ΕΠΙΜΕΡΙΣΜΟΣ μετράει ως α
     ]);
     await expect(refreshDocTallies(['d1'])).resolves.toBeUndefined();
     expect(tallyOf('d1')).toMatchObject({ itemsTotal: 1, itemsMatched: 1 });
+  });
+});
+
+describe('matchDocItems — μνήμη είδους χρέωσης (λογαριασμοί κοινής ωφέλειας)', () => {
+  const HERON_DOC = {
+    issuerAfm: '099810593',
+    document: { issuer: { name: 'ΗΡΩΝ ΕΝΕΡΓΕΙΑΚΗ Α.Ε', vat: '099810593' }, type: { label: 'ΕΚΚΑΘΑΡΙΣΤΙΚΟΣ' } },
+  };
+
+  it('νέο κείμενο του ίδιου είδους χρέωσης βρίσκει τον ΓΕΝΙΚΟ κανόνα του είδους', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue(HERON_DOC);
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { id: 'l1', code: null, name: 'Χρεώσεις Προμήθειας Ρεύματος', vatRate: 6, total: 57212.91, softoneMatchedBy: null },
+      { id: 'l2', code: null, name: 'Τέλος υπέρ ΕΡΤ', vatRate: 0, total: 3.06, softoneMatchedBy: null },
+    ]);
+    db.lineMatchRule.findMany.mockResolvedValue([
+      { id: 'r1', afm: '', pattern: '@utility:electricity:consumption', mtrl: null, expn: null, lin: 7400, isService: false, costCntr: 5, prjc: null, prjcStage: null },
+    ]);
+    db.softoneLineItem.findMany.mockResolvedValue([{ mtrl: 7400, code: '6408', name: 'Ηλεκτρικό ρεύμα' }]);
+
+    const r = await matchDocItems('doc1');
+
+    // Το ερώτημα ζητά ΚΑΙ τα κλειδιά είδους χρέωσης, όχι μόνο τα κείμενα.
+    const asked = db.lineMatchRule.findMany.mock.calls[0][0].where.pattern.in as string[];
+    expect(asked).toEqual(expect.arrayContaining(['@utility:electricity:consumption', '@utility:electricity:ert']));
+    expect(r).toEqual({ matched: 1, total: 2 });
+    expect(updateFor('l1')).toMatchObject({ softoneLinMtrl: 7400, softoneCode: '6408', softoneMatchedBy: 'memory', softoneCostCntr: 5 });
+    expect(updateFor('l2')).toMatchObject({ softoneLinMtrl: null, softoneMatchedBy: null });
+  });
+
+  it('ο κανόνας ΚΕΙΜΕΝΟΥ του εκδότη υπερισχύει του κανόνα είδους χρέωσης', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue(HERON_DOC);
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { id: 'l1', code: null, name: 'Ρυθμιζόμενες Χρεώσεις', vatRate: 6, total: 10289.12, softoneMatchedBy: null },
+    ]);
+    db.lineMatchRule.findMany.mockResolvedValue([
+      { id: 'r1', afm: '099810593', pattern: '@utility:electricity:consumption', mtrl: null, expn: null, lin: 7400, isService: false, costCntr: null, prjc: null, prjcStage: null },
+      { id: 'r2', afm: '099810593', pattern: 'ρυθμιζομενες χρεωσεις', mtrl: null, expn: null, lin: 7401, isService: false, costCntr: null, prjc: null, prjcStage: null },
+    ]);
+    db.softoneLineItem.findMany.mockResolvedValue([]);
+
+    await matchDocItems('doc1');
+    expect(updateFor('l1')).toMatchObject({ softoneLinMtrl: 7401 });
+  });
+
+  it('συνηθισμένο τιμολόγιο: κανένα κλειδί είδους χρέωσης', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ issuerAfm: '094073495', document: { issuer: { name: 'SOL HELLAS' } } });
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { id: 'l1', code: null, name: 'Διοξείδιο του άνθρακα', vatRate: 24, total: 50, softoneMatchedBy: null },
+    ]);
+    await matchDocItems('doc1');
+    const asked = db.lineMatchRule.findMany.mock.calls[0][0].where.pattern.in as string[];
+    expect(asked.some((p) => p.startsWith('@utility:'))).toBe(false);
   });
 });

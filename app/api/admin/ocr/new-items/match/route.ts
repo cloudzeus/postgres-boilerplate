@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       action: 'ocr.line.match', resource: 'ocr_line_group', resourceId: `${b.afm}|${b.pattern}`,
       metadata: { mtrl: r.mtrl, expn: r.expn, lin: r.lin, code: r.code, name: r.name, linesUpdated: r.linesUpdated, ...r.analytics },
     }).catch(() => null);
-    return NextResponse.json({ ok: true, linesUpdated: r.linesUpdated, mtrl: r.mtrl, expn: r.expn, lin: r.lin, code: r.code, name: r.name });
+    return NextResponse.json({ ok: true, linesUpdated: r.linesUpdated, mtrl: r.mtrl, expn: r.expn, lin: r.lin, code: r.code, name: r.name, utility: r.utility ?? null });
   } catch (e) {
     if (e instanceof QueueError) {
       return NextResponse.json({ error: e.code, message: e.message }, { status: e.status });

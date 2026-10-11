@@ -3,7 +3,8 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { normalizeAfm, vatCountry } from '@/lib/ocr/validate';
 import { splitGluedAddress } from '@/lib/ocr/address';
-import { refreshDocTallies } from '@/lib/ocr/softone-match';
+import { refreshDocTallies, matchDocItems, detectUtilityForItems } from '@/lib/ocr/softone-match';
+import { classifyUtilityCharge, utilityMemoryKey, UTILITY_CHARGE_LABEL, UTILITY_KIND_LABEL } from '@/lib/ocr/utility-bills';
 import { loadDocumentJson, saveDocumentJson } from '@/lib/ocr/document';
 import { setPath } from '@/lib/ocr/canonical';
 import { SODTYPE_LABEL, TRADER_KIND_SODTYPE, type TraderKind } from '@/lib/softone';
@@ -1107,6 +1108,8 @@ export interface GroupMatchResult {
   code: string | null;
   name: string | null;
   analytics: LineAnalytics;
+  /** Λογαριασμός κοινής ωφέλειας: τι έμαθε η μνήμη είδους χρέωσης (`null` = δεν ήταν λογαριασμός). */
+  utility?: UtilityLearned | null;
 }
 
 /** Ένας στόχος αντιστοίχισης λυμένος πάνω στο τοπικό μητρώο — κωδικός, περιγραφή, φύση. */
@@ -1203,6 +1206,106 @@ export async function rememberLineMatch(input: {
   });
 }
 
+/** Τι έμαθε η μνήμη από μια απόφαση πάνω σε γραμμή λογαριασμού κοινής ωφέλειας. */
+export interface UtilityLearned {
+  /** «Ρεύμα · Κατανάλωση & πάγια» */
+  label: string;
+  /** Γραμμές (αυτού και άλλων παραστατικών) που συμπληρώθηκαν αυτόματα με την ίδια απόφαση. */
+  propagated: number;
+}
+
+/** Πόσα παραστατικά το πολύ ξανακοιτάζει μία απόφαση — η μνήμη είναι τοπική, αλλά όχι απεριόριστη. */
+const UTILITY_PROPAGATE_LIMIT = 300;
+
+/**
+ * Η ΜΝΗΜΗ ΕΙΔΟΥΣ ΧΡΕΩΣΗΣ. Αν η γραμμή ανήκει σε λογαριασμό ρεύματος/νερού/αερίου/τηλεφώνου/
+ * μίσθωσης οχημάτων, η ίδια απόφαση γράφεται και με το σταθερό κλειδί του είδους χρέωσης:
+ *  • για τον ΕΚΔΟΤΗ (μαζί με την αναλυτική) — ο επόμενος λογαριασμός του ίδιου παρόχου,
+ *  • ΓΕΝΙΚΑ (χωρίς αναλυτική) — ο πρώτος λογαριασμός ΑΛΛΟΥ παρόχου του ίδιου είδους.
+ * Μετά ξανατρέχει το πέρασμα μνήμης στα ανοιχτά λογαριασμούς του ίδιου είδους, ώστε η απόφαση να
+ * φανεί αμέσως παντού (και στις υπόλοιπες γραμμές του ΙΔΙΟΥ παραστατικού, π.χ. πέντε «ΥΔΡΕΥΣΗ»).
+ * Χειροκίνητες και παραλειμμένες γραμμές δεν αγγίζονται ποτέ (`matchDocItems`).
+ */
+export async function rememberUtilityMatch(input: {
+  lineId: string;
+  match: ResolvedMatch;
+  analytics: LineAnalytics;
+  userId?: string | null;
+}): Promise<UtilityLearned | null> {
+  const line = await prisma.ocrInvoiceItem.findUnique({
+    where: { id: input.lineId },
+    select: {
+      name: true, vatRate: true, total: true,
+      document: { select: { issuerAfm: true, document: true, items: { select: { name: true, vatRate: true, total: true } } } },
+    },
+  });
+  if (!line) return null;
+  const afm = line.document.issuerAfm ?? '';
+  const utility = detectUtilityForItems(line.document.document, afm, line.document.items);
+  if (!utility) return null;
+  const charge = classifyUtilityCharge(utility.kind, {
+    name: line.name, vatRate: line.vatRate == null ? null : Number(line.vatRate), amount: line.total == null ? null : Number(line.total),
+  });
+  if (!charge) return null;
+
+  const pattern = utilityMemoryKey(utility.kind, charge);
+  const { mtrl, expn, lin, isService } = input.match;
+  const target = { mtrl, expn, lin, isService, targetSource: 'manual' };
+  if (afm) {
+    await prisma.lineMatchRule.upsert({
+      where: { afm_pattern: { afm, pattern } },
+      update: { ...target, ...input.analytics, timesUsed: { increment: 1 } },
+      create: { afm, pattern, ...target, ...input.analytics, createdById: input.userId ?? null },
+    });
+  }
+  // Ο γενικός κανόνας ΔΕΝ κρατά αναλυτική: το κέντρο κόστους ενός παρόχου (π.χ. η παροχή του
+  // εργοστασίου) δεν είναι σωστή πρόταση για τον λογαριασμό άλλου παρόχου.
+  await prisma.lineMatchRule.upsert({
+    where: { afm_pattern: { afm: '', pattern } },
+    update: { ...target, timesUsed: { increment: 1 } },
+    create: { afm: '', pattern, ...target, createdById: input.userId ?? null },
+  });
+
+  const propagated = await propagateUtilityMemory(utility.kind);
+  return { label: `${UTILITY_KIND_LABEL[utility.kind]} · ${UTILITY_CHARGE_LABEL[charge]}`, propagated };
+}
+
+const isMatched = (i: { softoneMtrl: number | null; softoneExpn: number | null; softoneLinMtrl: number | null }) =>
+  i.softoneMtrl != null || i.softoneExpn != null || i.softoneLinMtrl != null;
+
+/**
+ * Ξανατρέχει το πέρασμα μνήμης στα ΑΚΑΤΑΧΩΡΙΣΤΑ παραστατικά με αταίριαστες γραμμές που είναι
+ * λογαριασμοί του ίδιου είδους. Επιστρέφει πόσες γραμμές συμπληρώθηκαν.
+ */
+export async function propagateUtilityMemory(kind: string): Promise<number> {
+  const docs = await prisma.ocrDocument.findMany({
+    where: {
+      status: 'COMPLETED',
+      postStatus: { not: 'POSTED' },
+      items: {
+        some: {
+          softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null,
+          OR: [{ softoneMatchedBy: null }, { softoneMatchedBy: { notIn: ['manual', 'skipped'] } }],
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: UTILITY_PROPAGATE_LIMIT,
+    select: {
+      id: true, issuerAfm: true, document: true,
+      items: { select: { name: true, vatRate: true, total: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true } },
+    },
+  });
+  let filled = 0;
+  for (const d of docs) {
+    if (detectUtilityForItems(d.document, d.issuerAfm, d.items)?.kind !== kind) continue;
+    const before = d.items.filter(isMatched).length;
+    const after = await matchDocItems(d.id).catch(() => null);
+    if (after) filled += Math.max(0, after.matched - before);
+  }
+  return filled;
+}
+
 /**
  * Η μνήμη μιας αλλαγής ΜΟΝΟ αναλυτικής. Τρεις απαγορεύσεις, ανεξάρτητα από το ποιος διάλεξε τον
  * στόχο της γραμμής (άνθρωπος ή αυτόματη αντιστοίχιση):
@@ -1274,9 +1377,10 @@ export async function applyMatchToGroup(input: {
 
   // Ο χρήστης διάλεξε ΡΗΤΑ αυτόν τον στόχο στην ουρά.
   await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId });
+  const utility = await rememberUtilityMatch({ lineId: lineIds[0], match, analytics, userId: input.userId }).catch(() => null);
 
   await refreshDocTallies(docIds);
-  return { linesUpdated: lineIds.length, docIds, mtrl, expn, lin, code, name, analytics };
+  return { linesUpdated: lineIds.length, docIds, mtrl, expn, lin, code, name, analytics, utility };
 }
 
 /** Το αποτέλεσμα μιας αντιστοίχισης ΜΙΑΣ γραμμής, από τη σελίδα του παραστατικού. */
@@ -1289,6 +1393,7 @@ export interface LineMatchResult extends ResolvedMatch {
   /** `false` όταν το κείμενο της γραμμής κανονικοποιείται σε κενό (δεν υπάρχει κλειδί μνήμης). */
   remembered: boolean;
   analytics: LineAnalytics;
+  utility: UtilityLearned | null;
 }
 
 /**
@@ -1333,9 +1438,10 @@ export async function applyMatchToLine(input: {
 
   // Ο χρήστης διάλεξε ΡΗΤΑ αυτόν τον στόχο στη σελίδα του παραστατικού.
   if (pattern) await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId });
+  const utility = await rememberUtilityMatch({ lineId, match, analytics, userId: input.userId }).catch(() => null);
 
   await refreshDocTallies([line.documentId]);
-  return { ...match, lineId, docId: line.documentId, afm, pattern, remembered: !!pattern, analytics };
+  return { ...match, lineId, docId: line.documentId, afm, pattern, remembered: !!pattern, analytics, utility };
 }
 
 /**

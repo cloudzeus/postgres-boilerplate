@@ -17,7 +17,7 @@ const { db, rbac, bunny, ocr, sm, tpl, dt, thumb, writer, ex } = vi.hoisted(() =
   rbac: { requirePermission: vi.fn() },
   bunny: { bunnyUploadPrivate: vi.fn(), bunnyDownload: vi.fn(), bunnyDelete: vi.fn() },
   ocr: { extractDocument: vi.fn() },
-  sm: { buildSoftoneMatch: vi.fn(), matchDocItems: vi.fn(), buildDuplicateCheck: vi.fn() },
+  sm: { buildSoftoneMatch: vi.fn(), matchDocItems: vi.fn(), buildDuplicateCheck: vi.fn(), applyUtilityCategory: vi.fn().mockResolvedValue(false) },
   tpl: { runMatchingTemplate: vi.fn() },
   dt: { classifyDocument: vi.fn() },
   thumb: { ensureOcrThumbnail: vi.fn() },
