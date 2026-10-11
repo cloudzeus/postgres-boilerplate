@@ -62,16 +62,20 @@ function bridge<O, N>(old: O[], fresh: N[], oldId: (o: O) => number, oldKey: (o:
   };
 }
 
+// ΜΟΝΟ ΕΝΕΡΓΕΣ. Οι συγχρονισμοί αυτών των μητρώων ΑΠΕΝΕΡΓΟΠΟΙΟΥΝ ό,τι λείπει αντί να το σβήνουν, άρα
+// μετά την αλλαγή εγκατάστασης ο καθρέφτης κρατά και τις εγγραφές της ΠΑΛΙΑΣ ως ανενεργές. Η πρώτη
+// εκτέλεση (2026-10-11) τις μέτρησε ως «ίδιες» και κράτησε 7 συνδέσεις σε χρεοπιστώσεις του kolleris
+// που δεν υπάρχουν στο Demo S1 — το πρώτο δοκιμαστικό ανέβασμα θα έστελνε ανύπαρκτα MTRL.
 // ── Νέοι καθρέφτες ────────────────────────────────────────────────────────────────────────
 const [nTraders, nItems, nLines, nSx, nExp, nCc, nPrj, nStg, nSeries] = await Promise.all([
   prisma.softoneTrader.findMany({ select: { trdr: true, afm: true, code: true, name: true, sodtype: true, kind: true } }),
   prisma.softoneItem.findMany({ select: { mtrl: true, code: true, name: true, isService: true } }),
-  prisma.softoneLineItem.findMany({ select: { mtrl: true, code: true, name: true } }),
-  prisma.softoneSxAccount.findMany({ select: { mtrl: true, code: true, name: true } }),
-  prisma.softoneExpense.findMany({ select: { expn: true, code: true, name: true } }),
-  prisma.softoneCostCenter.findMany({ select: { costcntr: true, code: true } }),
-  prisma.softoneProject.findMany({ select: { prjc: true, code: true } }),
-  prisma.softoneProjectStage.findMany({ select: { prjcStage: true, code: true } }),
+  prisma.softoneLineItem.findMany({ where: { isActive: true }, select: { mtrl: true, code: true, name: true } }),
+  prisma.softoneSxAccount.findMany({ where: { isActive: true }, select: { mtrl: true, code: true, name: true } }),
+  prisma.softoneExpense.findMany({ where: { isActive: true }, select: { expn: true, code: true, name: true } }),
+  prisma.softoneCostCenter.findMany({ where: { isActive: true }, select: { costcntr: true, code: true } }),
+  prisma.softoneProject.findMany({ where: { isActive: true }, select: { prjc: true, code: true } }),
+  prisma.softoneProjectStage.findMany({ where: { isActive: true }, select: { prjcStage: true, code: true } }),
   prisma.softoneDocSeries.findMany({ select: { sosource: true, code: true, isActive: true } }),
 ]);
 const M = B.mirrors;

@@ -115,8 +115,16 @@ export type PurdocHeader = {
   TAXSERIESNUM?: string;
   COMPANY?: number;
   COMMENTS?: string;
-  MYDATAMARK?: string;
-  MYDATAUID?: string;
+  /**
+   * Ο ΜΑΡΚ και το UID του παραστατικού στο myDATA.
+   *
+   * ΟΧΙ `MYDATAMARK` / `MYDATAUID`: αυτά είναι ΥΠΟΛΟΓΙΖΟΜΕΝΑ πεδία (μόνο ανάγνωση) και το SoftOne
+   * τα αγνοεί σιωπηλά. Μετρημένο στο πρώτο δοκιμαστικό ανέβασμα στο Demo S1 (FINDOC 115570):
+   * στάλθηκε ΜΑΡΚ 400013385031216, η ανάγνωση δεν τον βρήκε πουθενά. Τα αποθηκευμένα πεδία είναι
+   * τα `SomyDataMARK` / `SomyDataUID` — ίδια σε PURDOC και στα τρία LIN*DOC.
+   */
+  SomyDataMARK?: string;
+  SomyDataUID?: string;
 };
 
 /** Γραμμή ειδών/υπηρεσιών (DB MTRLINES) σε PURDOC. */
@@ -205,7 +213,9 @@ export type BlockerCode =
   | 'account_missing'
   | 'account_not_in_chart'
   | 'account_is_mask'
-  | 'account_not_postable';
+  | 'account_not_postable'
+  // Η γραμμή δείχνει σε χρεοπίστωση/έξοδο που ΔΕΝ υπάρχει στην τωρινή εγκατάσταση (βλ. `post-softone.ts`).
+  | 'registry_not_in_installation';
 
 /** Μη-αποτρεπτικές παρατηρήσεις: φαίνονται στην προεπισκόπηση, δεν κλειδώνουν το κουμπί. */
 export type WarningCode =
@@ -469,9 +479,9 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
   const comments = text(ctx.comments);
   if (comments) header.COMMENTS = comments;
   const mark = text(document.digital.mark);
-  if (mark) header.MYDATAMARK = mark;
+  if (mark) header.SomyDataMARK = mark;
   const uid = text(document.digital.uid);
-  if (uid) header.MYDATAUID = uid;
+  if (uid) header.SomyDataUID = uid;
 
   const items: Record<'ITELINES' | 'SRVLINES', PurdocItemLine[]> = { ITELINES: [], SRVLINES: [] };
   const expenses: PurdocExpenseLine[] = [];

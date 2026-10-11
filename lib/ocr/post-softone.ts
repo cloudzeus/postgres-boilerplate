@@ -64,6 +64,7 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   lines_no_mtrtype: 'Χρεοπίστωση χωρίς «Τύπο» (MTRTYPE) στο μητρώο — συγχρόνισε ξανά τις χρεοπιστώσεις',
   series_unknown: 'Η σειρά του παραστατικού δεν υπάρχει (ή δεν είναι σε χρήση) στο μητρώο σειρών — διάλεξε σειρά από τη λίστα ή συγχρόνισε τις σειρές',
   series_module_unsupported: 'Η ενότητα της σειράς δεν υποστηρίζεται για καταχώριση — επίλεξε σειρά αγορών (1251), προμηθευτών (1253), χρεωστών (1553) ή πιστωτών (1653)',
+  registry_not_in_installation: 'Γραμμή δείχνει σε χρεοπίστωση ή έξοδο που δεν υπάρχει στην τωρινή εγκατάσταση SoftOne (απομεινάρι προηγούμενης σύνδεσης) — αντιστοίχισέ τη ξανά',
   trader_kind_mismatch: 'Ο συναλλασσόμενος δεν είναι του τύπου που δέχεται το παραστατικό — άλλαξέ τον από «Νέοι συναλλασσόμενοι» ή διάλεξε άλλη σειρά',
   account_missing: 'Χρεοπίστωση χωρίς λογαριασμό γενικής λογιστικής — η λογιστική εγγραφή δεν θα είχε πού να πάει',
   account_not_in_chart: 'Ο λογαριασμός γενικής της χρεοπίστωσης δεν υπάρχει στο λογιστικό σχέδιο του SoftOne',
@@ -219,7 +220,7 @@ async function gather(id: string): Promise<Gathered> {
         rowIndex: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneIsService: true,
         softoneCostCntr: true, softonePrjc: true, softonePrjcStage: true,
         // Ο επιμερισμός σε πολλούς λογαριασμούς — όταν υπάρχει, ΥΠΕΡΙΣΧΥΕΙ της μονής αντιστοίχισης.
-        allocations: { orderBy: { order: 'asc' }, select: { registryMtrl: true, amount: true, percent: true } },
+        allocations: { orderBy: { order: 'asc' }, select: { registryMtrl: true, amount: true, percent: true, kind: true } },
       },
     }),
     // Η σειρά ΔΕΝ είναι διακοσμητική: δύο ενεργές εγγραφές με τον ίδιο συντελεστή (π.χ. κανονικό /
@@ -261,14 +262,14 @@ async function gather(id: string): Promise<Gathered> {
           where: { mtrl: { in: lins } },
           select: {
             mtrl: true, code: true, name: true, mtrType: true, classType: true, classCategory: true, myDataCode: true,
-            acnmsk: true, acnmskSyncedAt: true,
+            acnmsk: true, acnmskSyncedAt: true, isActive: true,
           },
         })
       : Promise.resolve([]),
     expns.length
       ? prisma.softoneExpense.findMany({
           where: { expn: { in: expns } },
-          select: { expn: true, classTypeX: true, classCategoryX: true },
+          select: { expn: true, classTypeX: true, classCategoryX: true, isActive: true },
         })
       : Promise.resolve([]),
   ]);
@@ -361,6 +362,19 @@ async function gather(id: string): Promise<Gathered> {
     seriesEnabled: seriesTarget.enabled,
     traderSodtype: traderRow?.sodtype ?? null,
   }, ctx, accounts);
+
+  // ΜΗΤΡΩΟ ΠΟΥ ΔΕΝ ΥΠΑΡΧΕΙ ΣΤΗΝ ΤΩΡΙΝΗ ΕΓΚΑΤΑΣΤΑΣΗ. Οι χρεοπιστώσεις και τα έξοδα συγχρονίζονται
+  // ΟΛΟΚΛΗΡΑ και ό,τι λείπει από το ERP γίνεται `isActive: false` — δεν σβήνεται. Μετά από αλλαγή
+  // λογαριασμού SoftOne, ο καθρέφτης κρατούσε 522 ανενεργές χρεοπιστώσεις της ΠΑΛΙΑΣ εγκατάστασης
+  // και αυτός ο έλεγχος τις έβρισκε «κανονικά»: το energa θα έφευγε με MTRL 3214/2945 που δεν
+  // υπάρχουν στο Demo S1. Ανενεργή ή απούσα ⇒ ΕΜΠΟΔΙΟ. (Τα ΕΙΔΗ δεν κρίνονται έτσι: ο καθρέφτης
+  // τους είναι υποσύνολο, άρα η απουσία εκεί δεν αποδεικνύει τίποτα.)
+  const foreign = items.some((i) =>
+    (i.softoneLinMtrl != null && linById.get(i.softoneLinMtrl)?.isActive !== true)
+    // Μόνο επιμερισμοί σε ΧΡΕΟΠΙΣΤΩΣΗ: οι SXACCOUNT δείχνουν σε λογαριασμούς εσόδων/εξόδων, άλλο μητρώο.
+    || (i.allocations ?? []).some((a) => a.kind !== 'SXACCOUNT' && linById.get(a.registryMtrl)?.isActive !== true)
+    || (i.softoneExpn != null && expenseById.get(i.softoneExpn)?.isActive !== true));
+  if (foreign && !blockers.includes('registry_not_in_installation')) blockers.push('registry_not_in_installation');
 
   return {
     doc, document, ctx, blockers,

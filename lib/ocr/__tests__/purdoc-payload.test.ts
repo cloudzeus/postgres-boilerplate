@@ -74,8 +74,8 @@ describe('buildPurdocPayload', () => {
           TAXSERIES: 'ΤΠΥ',
           TAXSERIESNUM: '17',
           COMMENTS: 'OCR',
-          MYDATAMARK: '400001',
-          MYDATAUID: 'ABC',
+          SomyDataMARK: '400001',
+          SomyDataUID: 'ABC',
         }],
         ITELINES: [{ LINENUM: 9000001, MTRL: 555, QTY1: 2, PRICE: 50, VAT: 1, COMMENTS: 'Είδος Α' }],
         SRVLINES: [{ LINENUM: 9000001, MTRL: 666, QTY1: 1, PRICE: 100, VAT: 1, COMMENTS: 'Υπηρεσία Β' }],
@@ -91,7 +91,7 @@ describe('buildPurdocPayload', () => {
     const payload = buildPurdocPayload(d, ctx({ lines: [{ rowIndex: 0, mtrl: 555, expn: null, isService: false }] }));
     expect(payload.DATA.SRVLINES).toBeUndefined();
     expect(payload.DATA.EXPANAL).toBeUndefined();
-    expect(payload.DATA.PURDOC?.[0]).not.toHaveProperty('MYDATAMARK');
+    expect(payload.DATA.PURDOC?.[0]).not.toHaveProperty('SomyDataMARK');
     expect(payload.DATA.PURDOC?.[0]).not.toHaveProperty('COMMENTS');
   });
 
@@ -344,7 +344,7 @@ describe('buildPurdocPayload — LINLINES', () => {
     expect(deb.OBJECT).toBe('LINDEBDOC');
     expect(deb.DATA.LINDEBDOC?.[0]).toMatchObject({
       SERIES: 7001, TRNDATE: '2026-03-14', TRDR: 12345, FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17',
-      MYDATAMARK: '400001', MYDATAUID: 'ABC',
+      SomyDataMARK: '400001', SomyDataUID: 'ABC',
     });
     // Το SODTYPE είναι read-only με default στο SoftOne — ΔΕΝ το στέλνουμε ποτέ.
     expect(deb.DATA.LINDEBDOC?.[0]).not.toHaveProperty('SODTYPE');

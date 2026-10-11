@@ -101,7 +101,7 @@ describe('postingPreview (dry-run)', () => {
     ]);
     db.softoneItem.findMany.mockResolvedValue([]);
     db.softoneLineItem.findMany.mockResolvedValue([
-      { mtrl: 777, mtrType: 1, classType: 5, classCategory: 2, myDataCode: '7' },
+      { mtrl: 777, mtrType: 1, classType: 5, classCategory: 2, myDataCode: '7', isActive: true },
     ]);
 
     const preview = await postingPreview('d1');
@@ -118,6 +118,25 @@ describe('postingPreview (dry-run)', () => {
     expect(preview.warnings.map((w) => w.code)).toContain('mydata_from_master');
   });
 
+  // ΑΛΛΑΓΗ ΕΓΚΑΤΑΣΤΑΣΗΣ: η χρεοπίστωση υπάρχει στον καθρέφτη, αλλά ΑΝΕΝΕΡΓΗ — απομεινάρι της
+  // προηγούμενης σύνδεσης. Πραγματικό: το energa θα έφευγε στο Demo S1 με MTRL 3214/2945 του kolleris.
+  it.each([
+    ['ανενεργή χρεοπίστωση (άλλης εγκατάστασης)', [{ mtrl: 777, mtrType: 1, classType: 5, classCategory: 2, myDataCode: '7', isActive: false }]],
+    ['χρεοπίστωση που λείπει εντελώς από τον καθρέφτη', []],
+  ])('%s ⇒ εμπόδιο registry_not_in_installation', async (_label, rows) => {
+    db.ocrDocument.findUnique.mockResolvedValue({ ...READY_DOC, softoneSeries: '1001', seriesSource: 1653 });
+    db.softoneDocSeries.findUnique.mockResolvedValue({ name: 'Τιμολόγιο Δαπανών (Λήψη)', section: '1001', postObject: null, postLines: null, enabled: true });
+    db.softoneTrader.findUnique.mockResolvedValue({ sodtype: 16 });
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { rowIndex: 0, softoneMtrl: null, softoneExpn: null, softoneLinMtrl: 777, softoneIsService: null },
+    ]);
+    db.softoneItem.findMany.mockResolvedValue([]);
+    db.softoneLineItem.findMany.mockResolvedValue(rows);
+
+    const preview = await postingPreview('d1');
+    expect(preview.blockers.map((b) => b.code)).toContain('registry_not_in_installation');
+  });
+
   // Ο τρίτος αδελφός. Ό,τι ισχύει για πιστωτές ισχύει απαράλλακτα για χρεώστες — και ο dry-run
   // ΔΕΝ μιλάει στο SoftOne ούτε γράφει `postStatus`, όσο «έτοιμο» κι αν είναι το έγγραφο.
   it('σειρά χρεωστών (1553) → LINDEBDOC / LINLINES, χωρίς ΚΑΜΙΑ κλήση SoftOne', async () => {
@@ -130,7 +149,7 @@ describe('postingPreview (dry-run)', () => {
     ]);
     db.softoneItem.findMany.mockResolvedValue([]);
     db.softoneLineItem.findMany.mockResolvedValue([
-      { mtrl: 777, mtrType: 1, classType: 5, classCategory: 2, myDataCode: 'category2_5' },
+      { mtrl: 777, mtrType: 1, classType: 5, classCategory: 2, myDataCode: 'category2_5', isActive: true },
     ]);
 
     const preview = await postingPreview('d1');
@@ -159,7 +178,7 @@ describe('postingPreview (dry-run)', () => {
       { rowIndex: 0, softoneMtrl: null, softoneExpn: 91, softoneLinMtrl: null, softoneIsService: null },
     ]);
     db.softoneItem.findMany.mockResolvedValue([]);
-    db.softoneExpense.findMany.mockResolvedValue([{ expn: 91, classTypeX: null, classCategoryX: null }]);
+    db.softoneExpense.findMany.mockResolvedValue([{ expn: 91, classTypeX: null, classCategoryX: null, isActive: true }]);
 
     const preview = await postingPreview('d1');
     expect(preview.blockers.map((b) => b.code)).toContain('lines_need_lineitem');
@@ -205,7 +224,7 @@ describe('postingPreview (dry-run)', () => {
       { rowIndex: 0, softoneMtrl: null, softoneExpn: null, softoneLinMtrl: 777, softoneIsService: null },
     ]);
     db.softoneItem.findMany.mockResolvedValue([]);
-    db.softoneLineItem.findMany.mockResolvedValue([{ mtrl: 777, mtrType: 0, classType: 1, classCategory: 1, myDataCode: 'x' }]);
+    db.softoneLineItem.findMany.mockResolvedValue([{ mtrl: 777, mtrType: 0, classType: 1, classCategory: 1, myDataCode: 'x', isActive: true }]);
 
     const preview = await postingPreview('d1');
     expect(preview.blockers.map((b) => b.code)).toContain('trader_kind_mismatch');
@@ -247,7 +266,7 @@ describe('postingPreview (dry-run)', () => {
       ]);
       db.softoneItem.findMany.mockResolvedValue([]);
       db.softoneLineItem.findMany.mockResolvedValue([
-        { mtrl: 777, code: 'ΠΡΜ', name: 'Προμήθειες', mtrType: 1, classType: 5, classCategory: 2, myDataCode: '7', acnmsk, acnmskSyncedAt: syncedAt },
+        { mtrl: 777, code: 'ΠΡΜ', name: 'Προμήθειες', mtrType: 1, classType: 5, classCategory: 2, myDataCode: '7', acnmsk, acnmskSyncedAt: syncedAt, isActive: true },
       ]);
     };
 
@@ -511,7 +530,7 @@ describe('postDocumentToSoftone', () => {
       { rowIndex: 0, softoneMtrl: null, softoneExpn: null, softoneLinMtrl: 777, softoneIsService: null },
     ]);
     db.softoneItem.findMany.mockResolvedValue([]);
-    db.softoneLineItem.findMany.mockResolvedValue([{ mtrl: 777, mtrType: 1, classType: 1, classCategory: 1, myDataCode: 'x' }]);
+    db.softoneLineItem.findMany.mockResolvedValue([{ mtrl: 777, mtrType: 1, classType: 1, classCategory: 1, myDataCode: 'x', isActive: true }]);
     softone.softoneCall.mockResolvedValue({ success: true, id: 4242 });
     softone.softoneGetData.mockResolvedValue({ LINCREDOC: [{ FINDOC: '4242', FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17', SERIESNUM: '48', TRDR: '12345' }] });
 
@@ -531,7 +550,7 @@ describe('postDocumentToSoftone', () => {
       { rowIndex: 0, softoneMtrl: null, softoneExpn: null, softoneLinMtrl: 777, softoneIsService: null },
     ]);
     db.softoneItem.findMany.mockResolvedValue([]);
-    db.softoneLineItem.findMany.mockResolvedValue([{ mtrl: 777, mtrType: 1, classType: 1, classCategory: 1, myDataCode: 'x' }]);
+    db.softoneLineItem.findMany.mockResolvedValue([{ mtrl: 777, mtrType: 1, classType: 1, classCategory: 1, myDataCode: 'x', isActive: true }]);
     softone.softoneCall.mockResolvedValue({ success: true, id: 5151 });
     softone.softoneGetData.mockResolvedValue({ LINDEBDOC: [{ FINDOC: '5151', FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17', SERIESNUM: '48', TRDR: '12345' }] });
 
@@ -552,7 +571,7 @@ describe('postDocumentToSoftone', () => {
       { rowIndex: 0, softoneMtrl: null, softoneExpn: null, softoneLinMtrl: 777, softoneIsService: null },
     ]);
     db.softoneItem.findMany.mockResolvedValue([]);
-    db.softoneLineItem.findMany.mockResolvedValue([{ mtrl: 777, mtrType: 1, classType: 1, classCategory: 1, myDataCode: 'x' }]);
+    db.softoneLineItem.findMany.mockResolvedValue([{ mtrl: 777, mtrType: 1, classType: 1, classCategory: 1, myDataCode: 'x', isActive: true }]);
 
     const err = await postDocumentToSoftone('d1').catch((e) => e);
 

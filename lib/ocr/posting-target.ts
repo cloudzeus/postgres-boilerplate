@@ -10,7 +10,7 @@
 //   • LINCREDOC «Ειδικές συναλλαγές πιστωτών»   → LINLINES (DB MTRLINES)
 //   • LINDEBDOC «Ειδικές συναλλαγές χρεωστών»   → LINLINES (DB MTRLINES)
 // Και τα τέσσερα μοιράζονται την ίδια κεφαλίδα (DB FINDOC): SERIES, TRNDATE, TRDR, FINCODE,
-// COMMENTS, MYDATAMARK, MYDATAUID. Το SODTYPE των LIN*DOC είναι read-only με default
+// COMMENTS, SomyDataMARK, SomyDataUID (τα MYDATAMARK/MYDATAUID είναι υπολογιζόμενα — αγνοούνται). Το SODTYPE των LIN*DOC είναι read-only με default
 // (12 προμηθευτές / 16 πιστωτές / 15 χρεώστες), άρα ΔΕΝ το στέλνουμε.
 //
 // ΠΟΙΑ σειρά πάει πού είναι ρύθμιση ΕΓΚΑΤΑΣΤΑΣΗΣ, όχι κανόνας του SoftOne: εδώ ζουν μόνο οι
