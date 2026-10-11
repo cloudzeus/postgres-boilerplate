@@ -8,8 +8,8 @@
 //     που ταιριάζουν, ώστε ο χρήστης να ξέρει σε ποιον να βασίσει τη νέα χρεοπίστωση.
 //  3. Ολόκληρο το σχέδιο, από τον καθρέφτη.
 //
-// ΚΑΜΙΑ εγγραφή εδώ. Ο λογαριασμός γενικής ανοίγει ΜΟΝΟ στο SoftOne: το object ACNT κρατά όλο το
-// σχέδιο σε μία εγγραφή και ένα setData από εδώ θα μπορούσε να το αντικαταστήσει ολόκληρο.
+// ΚΑΜΙΑ εγγραφή εδώ — μόνο ανάγνωση. Το άνοιγμα λογαριασμού ζει στο `lib/softone-sync/gl-account-create.ts`
+// (object ACNTGL, μία εγγραφή· ΠΟΤΕ το ACNT, που κρατά όλο το σχέδιο σε μία εγγραφή).
 import 'server-only';
 import { prisma } from '@/lib/db';
 import { checkAccounts, type AccountStatus } from './account-check';
@@ -32,6 +32,8 @@ export interface MissingAccount {
   parent: { code: string; name: string } | null;
   /** Πρόταση ονόματος για το SoftOne — από τον γονικό και την κατάληξη ΦΠΑ. */
   proposedName: string | null;
+  /** Ο ΦΠΑ που κωδικοποιεί η κατάληξη (…0024 → 24) — για το άνοιγμα του λογαριασμού. */
+  vatRate: number | null;
   message: string;
 }
 
@@ -49,7 +51,7 @@ export interface UtilityGap {
    * Ο λογαριασμός που ΛΕΙΠΕΙ για αυτόν τον ΦΠΑ, όταν οι προτάσεις έχουν αδέλφια με άλλους
    * συντελεστές αλλά όχι με τον σωστό (π.χ. 62.02.00.0013 όταν υπάρχουν μόνο 0009/0019).
    */
-  toOpen: { code: string; name: string | null } | null;
+  toOpen: { code: string; name: string | null; vatRate: number | null } | null;
 }
 
 export interface ChartRow {
@@ -116,6 +118,7 @@ export async function loadMissingAccounts(): Promise<{ chartSynced: boolean; row
       account: l.account, status: l.status, article: l.article, lines: 0, docs: [], docIds: new Set<string>(),
       parent: l.parent ? { code: l.parent.code, name: l.parent.name } : null,
       proposedName: l.status === 'not_in_chart' && l.account ? proposeAccountName(l.account, l.parent?.name ?? null) : null,
+      vatRate: l.account ? vatOfSuffix(l.account) : null,
       message: l.message,
     };
     g.lines++;
@@ -202,7 +205,7 @@ export async function loadUtilityGaps(): Promise<UtilityGap[]> {
     if (vatRate != null && withVat && !all.some((a) => vatOfSuffix(a.code) === vatRate)) {
       const parent = withVat.code.replace(/\.\d+$/, '');
       const code = `${parent}.00${String(vatRate).padStart(2, '0')}`;
-      if (!existing.has(code)) toOpen = { code, name: proposeAccountName(code, withVat.name) };
+      if (!existing.has(code)) toOpen = { code, name: proposeAccountName(code, withVat.name), vatRate };
     }
     return { ...g, suggestions, vatRate, toOpen };
   }).sort((a, b) => b.lines - a.lines);

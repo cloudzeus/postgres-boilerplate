@@ -4,7 +4,8 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { FiCopy, FiRefreshCw, FiSearch, FiAlertTriangle, FiCheckCircle, FiExternalLink } from 'react-icons/fi';
+import { FiCopy, FiRefreshCw, FiSearch, FiAlertTriangle, FiCheckCircle, FiExternalLink, FiPlus } from 'react-icons/fi';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { BTN_GHOST, BTN_PRIMARY } from '@/components/admin/bulk-ui';
 import type { ChartRow, MissingAccount, UtilityGap } from '@/lib/ocr/accounts-overview';
 import type { AccountStatus } from '@/lib/ocr/account-check';
@@ -34,6 +35,99 @@ function DocLinks({ docs }: { docs: { id: string; fileName: string }[] }) {
   );
 }
 
+type OpenRequest = { code: string; name: string; vatRate: number | null };
+type Plan = {
+  code: string; name: string;
+  parent: { code: string; name: string };
+  template: { code: string; name: string };
+  vat: { rate: number; code: string } | null;
+  vatAccount: { code: string; name: string } | null;
+};
+
+/**
+ * Άνοιγμα λογαριασμού στο SoftOne σε δύο βήματα: πρώτα η εφαρμογή δείχνει ΤΙ θα σταλεί (πρότυπο,
+ * ΦΠΑ, λογαριασμός ΦΠΑ), και μόνο μετά από ρητό «Άνοιγμα» φεύγει η εγγραφή.
+ */
+function OpenAccountDialog({ req, onClose, onDone }: { req: OpenRequest | null; onClose: () => void; onDone: () => void }) {
+  const [name, setName] = React.useState('');
+  const [plan, setPlan] = React.useState<Plan | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  // Η περιγραφή της τελευταίας προεπισκόπησης: χωρίς αλλαγή, η απομάκρυνση από το πεδίο δεν ξανατρέχει
+  // προεπισκόπηση (που θα απενεργοποιούσε το κουμπί ακριβώς τη στιγμή του κλικ).
+  const previewed = React.useRef('');
+
+  React.useEffect(() => {
+    if (!req) return;
+    setName(req.name); setPlan(null); setError(null); previewed.current = '';
+    void preview(req.name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [req]);
+
+  async function call(body: object) {
+    const res = await fetch('/api/admin/softone/accounts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: req!.code, name, vatRate: req!.vatRate, ...body }),
+    });
+    return { ok: res.ok, d: await res.json().catch(() => ({})) };
+  }
+  async function preview(n = name) {
+    if (!req || !n.trim() || n === previewed.current) return;
+    previewed.current = n;
+    setBusy(true);
+    try {
+      const res = await fetch('/api/admin/softone/accounts', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: req.code, name: n, vatRate: req.vatRate, dryRun: true }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) { setPlan(d); setError(null); } else { setPlan(null); setError(d.message ?? 'Η προεπισκόπηση απέτυχε.'); }
+    } finally { setBusy(false); }
+  }
+  async function create() {
+    setBusy(true);
+    try {
+      const { ok, d } = await call({});
+      if (!ok) { setError(d.message ?? 'Η δημιουργία απέτυχε.'); return; }
+      toast.success(`Ο λογαριασμός ${d.code} άνοιξε στο SoftOne και επαληθεύτηκε.`);
+      onDone();
+    } catch {
+      setError('Σφάλμα δικτύου — έλεγξε στο SoftOne αν δημιουργήθηκε πριν ξαναπροσπαθήσεις.');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <Dialog open={!!req} onOpenChange={(o) => { if (!o && !busy) onClose(); }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Άνοιγμα λογαριασμού στο SoftOne</DialogTitle>
+          <DialogDescription className="font-mono">{req?.code}</DialogDescription>
+        </DialogHeader>
+        <label className="block space-y-1">
+          <span className="text-[length:var(--fs-12)] font-semibold text-foreground">Περιγραφή</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => void preview()}
+            className="h-10 w-full rounded-md border border-input bg-background px-3 text-[length:var(--fs-14)]" />
+        </label>
+        {plan && (
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 rounded-md border border-border bg-muted/30 p-3 text-[length:var(--fs-12)]">
+            <dt className="text-muted-foreground">Κάτω από</dt><dd><span className="font-mono">{plan.parent.code}</span> {plan.parent.name}</dd>
+            <dt className="text-muted-foreground">Ρυθμίσεις από</dt><dd><span className="font-mono">{plan.template.code}</span> {plan.template.name}</dd>
+            <dt className="text-muted-foreground">ΦΠΑ</dt><dd>{plan.vat ? `${plan.vat.rate}% (κωδ. ${plan.vat.code})` : 'Χωρίς ΦΠΑ'}</dd>
+            {plan.vatAccount && <><dt className="text-muted-foreground">Λογ. ΦΠΑ</dt><dd><span className="font-mono">{plan.vatAccount.code}</span> {plan.vatAccount.name}</dd></>}
+          </dl>
+        )}
+        {error && <p role="alert" className="rounded-md border border-amber-500/40 bg-amber-500/[0.06] px-3 py-2 text-[length:var(--fs-12)] text-foreground">{error}</p>}
+        <DialogFooter className="mx-0 mb-0">
+          <button type="button" className={BTN_GHOST} onClick={onClose} disabled={busy}>Άκυρο</button>
+          <button type="button" className={BTN_PRIMARY} onClick={create} disabled={busy || !plan}>
+            {busy ? 'Περιμένε…' : 'Άνοιγμα στο SoftOne'}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function AccountsClient({
   missing, chartSynced, gaps, chart, syncedAt, canSync,
 }: {
@@ -48,6 +142,12 @@ export function AccountsClient({
   const [syncing, setSyncing] = React.useState(false);
   const [q, setQ] = React.useState('');
   const [onlyPostable, setOnlyPostable] = React.useState(false);
+  const [openReq, setOpenReq] = React.useState<OpenRequest | null>(null);
+  const openBtn = (r: OpenRequest) => canSync && (
+    <button type="button" className={`${BTN_PRIMARY} mt-1`} onClick={() => setOpenReq(r)}>
+      <FiPlus className="size-3.5" aria-hidden /> Άνοιγμα στο SoftOne
+    </button>
+  );
 
   const sync = async () => {
     setSyncing(true);
@@ -89,11 +189,12 @@ export function AccountsClient({
 
   return (
     <div className="space-y-5">
+      <OpenAccountDialog req={openReq} onClose={() => setOpenReq(null)} onDone={() => { setOpenReq(null); router.refresh(); }} />
       <p className="rounded-lg border border-sisyphus-500/25 bg-sisyphus-500/[0.06] px-4 py-3 text-[length:var(--fs-13)] text-foreground">
-        Οι <strong>λογαριασμοί γενικής</strong> ανοίγουν στο SoftOne (Γενική λογιστική → Λογαριασμοί) και έρχονται εδώ με τον
-        <strong> συγχρονισμό</strong>. Η εφαρμογή δεν γράφει στο λογιστικό σχέδιο: το SoftOne το κρατά ως μία εγγραφή και μια αλλαγή
-        από έξω θα μπορούσε να το αντικαταστήσει ολόκληρο. Οι <strong>χρεοπιστώσεις</strong> δημιουργούνται κανονικά από την εφαρμογή,
-        μέσα από τη γραμμή του παραστατικού.
+        Ο λογαριασμός που λείπει ανοίγει με <strong>«Άνοιγμα στο SoftOne»</strong>: παίρνει τις ρυθμίσεις του διπλανού λογαριασμού
+        της ίδιας ομάδας, τον σωστό ΦΠΑ και τον λογαριασμό ΦΠΑ εισροών του ίδιου συντελεστή. Πριν φύγει βλέπεις τι θα σταλεί,
+        και μετά η εφαρμογή ελέγχει ότι το σχέδιο απέκτησε ακριβώς έναν λογαριασμό. Οι <strong>χρεοπιστώσεις</strong> δημιουργούνται
+        από τη γραμμή του παραστατικού.
       </p>
 
       {/* 1. ΤΙ ΛΕΙΠΕΙ */}
@@ -141,9 +242,12 @@ export function AccountsClient({
                   {m.article && <p className="text-muted-foreground">Χρεοπίστωση: <span className="text-foreground">{m.article}</span></p>}
                   <div className="text-muted-foreground"><DocLinks docs={m.docs} /></div>
                 </div>
-                <p className="text-[length:var(--fs-12)] tabular-nums text-muted-foreground md:text-right">
-                  {m.lines} γραμμ{m.lines === 1 ? 'ή' : 'ές'} · {m.docs.length} παραστ.
-                </p>
+                <div className="flex flex-col items-start gap-1 md:items-end">
+                  <p className="text-[length:var(--fs-12)] tabular-nums text-muted-foreground md:text-right">
+                    {m.lines} γραμμ{m.lines === 1 ? 'ή' : 'ές'} · {m.docs.length} παραστ.
+                  </p>
+                  {m.status === 'not_in_chart' && m.account && openBtn({ code: m.account, name: m.proposedName ?? '', vatRate: m.vatRate })}
+                </div>
               </li>
             ))}
           </ul>
@@ -173,6 +277,7 @@ export function AccountsClient({
                       {g.toOpen.name && <span>· {g.toOpen.name}</span>}
                     </p>
                   )}
+                  {g.toOpen && openBtn({ code: g.toOpen.code, name: g.toOpen.name ?? '', vatRate: g.toOpen.vatRate })}
                   {g.suggestions.length > 0 ? (
                     <ul className="flex flex-wrap gap-1.5" aria-label="Λογαριασμοί του σχεδίου που ταιριάζουν">
                       {g.suggestions.map((s) => (
