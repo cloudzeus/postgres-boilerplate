@@ -414,7 +414,12 @@ export function DataTable<TData, TValue>({
             ξέρει ποιον κινεί, χάνει τη θέση του, και το ποντίκι αλλάζει στόχο ανάλογα με το πού
             βρίσκεται. Η κεφαλίδα μένει `sticky` — πλέον κολλάει στο ΠΑΝΩ ΜΕΡΟΣ ΤΗΣ ΟΘΟΝΗΣ, που
             είναι και το σωστό για μακριές λίστες. */}
-        <div ref={widthRef} className="min-h-0 flex-1">
+        {/* `overflow-x-auto` ως ΔΙΧΤΥ ΑΣΦΑΛΕΙΑΣ, όχι ως σχεδίαση: ο κανόνας «ένας scroller»
+            αφορά τον ΚΑΘΕΤΟ. Οριζόντια, αν το `responsiveHide` δεν προλάβει να χωρέσει τον
+            πίνακα (π.χ. πολύ στενό δοχείο), η εναλλακτική ήταν το `overflow-hidden` της κάρτας
+            να ΚΟΒΕΙ στήλες αθόρυβα — μετρημένο στα 768: πίνακας 780px σε δοχείο 671px, με
+            δεδομένα απρόσιτα και χωρίς καν scrollbar. Καλύτερα ορατό scroll παρά χαμένη στήλη. */}
+        <div ref={widthRef} className="min-h-0 flex-1 overflow-x-auto">
           {/* `width: 100%` ΚΑΙ `minWidth` από το άθροισμα: όταν κρύβονται στήλες ο πίνακας
               ΑΠΛΩΝΕΤΑΙ αντί να αφήσει κενό δεξιά, ενώ ποτέ δεν συμπιέζεται κάτω από το άθροισμα
               των στηλών του. Η ελαστική στήλη (`growColumnId`) δεν δηλώνει πλάτος, οπότε σε
@@ -492,7 +497,7 @@ export function DataTable<TData, TValue>({
                           <tr className="border-y border-sisyphus-500/25 bg-sisyphus-500/10 dark:bg-sisyphus-500/20">
                             <td
                               colSpan={row.getVisibleCells().length}
-                              className="h-9 px-2.5 text-[length:var(--fs-11)] font-semibold text-foreground"
+                              className="h-[calc(var(--row-h)+0.25rem)] px-[var(--row-px)] text-[length:var(--fs-11)] font-semibold text-foreground"
                             >
                               {groupBy.renderHeader(key, groupRows?.get(key) ?? [], {
                                 collapsed: isCollapsed,
@@ -518,7 +523,7 @@ export function DataTable<TData, TValue>({
                             key={cell.id}
                             style={cell.column.id === growColumnId ? undefined : { width: rem(cell.column.getSize()) }}
                             className={cn(
-                              'h-8 px-2.5 text-[length:var(--fs-12)] text-foreground',
+                              'h-[var(--row-h)] px-[var(--row-px)] text-[length:var(--fs-12)] text-foreground',
                               isActions ? 'overflow-visible text-center' : 'truncate',
                             )}
                           >

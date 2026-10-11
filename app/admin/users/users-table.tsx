@@ -129,6 +129,13 @@ export function UsersTable({ rows, roles }: { rows: UserRow[]; roles: RoleOpt[] 
   return (
     <>
       <DataTable
+        /* Σειρά θυσίας στηλών όταν στενεύει ο πίνακας — βλ. κανόνα «οριζόντιο scroll
+           = απόκρυψη στηλών» στο dg-design-system. Το «Στήλες» υπερισχύει. */
+        growColumnId="email"
+        responsiveHide={[
+          { id: 'createdAt', minWidth: 980 },
+          { id: 'emailVerified', minWidth: 880 },
+        ]}
         columns={columns}
         data={rows}
         searchPlaceholder="Αναζήτηση χρηστών..."

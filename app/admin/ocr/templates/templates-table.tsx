@@ -75,6 +75,17 @@ export function TemplatesTable({ rows, canManage }: { rows: TemplateRow[]; canMa
   return (
     <>
       <DataTable
+        /* Σειρά θυσίας στηλών όταν στενεύει ο πίνακας — βλ. κανόνα «οριζόντιο scroll
+           = απόκρυψη στηλών» στο dg-design-system. Το «Στήλες» υπερισχύει. */
+        growColumnId="name"
+        responsiveHide={[
+          { id: 'slug', minWidth: 1320 },
+          { id: 'timesUsed', minWidth: 1180 },
+          { id: 'fieldsCount', minWidth: 1100 },
+          { id: 'updatedAt', minWidth: 1000 },
+          { id: 'department', minWidth: 900 },
+          { id: 'mode', minWidth: 800 },
+        ]}
         columns={columns}
         data={rows}
         filterAllColumns

@@ -867,6 +867,9 @@ export function OcrTable({
            περισσότερο από κάθε επιπλέον pixel. */
         growColumnId="issuer"
         responsiveHide={[
+          /* Σε tablet το όνομα αρχείου είναι το λιγότερο χρήσιμο: ο λογιστής αναγνωρίζει το
+             παραστατικό από εκδότη + αριθμό + ποσό, όχι από το «SKM_C25826092511480.pdf». */
+          { id: 'fileName', minWidth: 860 },
           { id: 'thumb', minWidth: 900 },
           { id: 'series', minWidth: 1020 },
           { id: 'softone', minWidth: 1150 },

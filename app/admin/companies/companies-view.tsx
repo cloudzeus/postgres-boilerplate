@@ -400,6 +400,16 @@ export function CompaniesView({
       </div>
 
       <DataTable
+        /* Σειρά θυσίας στηλών όταν στενεύει ο πίνακας — βλ. κανόνα «οριζόντιο scroll
+           = απόκρυψη στηλών» στο dg-design-system. Το «Στήλες» υπερισχύει. */
+        growColumnId="name"
+        responsiveHide={[
+          { id: 'employeeCount', minWidth: 1300 },
+          { id: 'branchCount', minWidth: 1180 },
+          { id: 'city', minWidth: 1080 },
+          { id: 'phone', minWidth: 960 },
+          { id: 'email', minWidth: 840 },
+        ]}
         columns={columns}
         data={filteredRows}
         searchPlaceholder="Αναζήτηση εταιριών..."
