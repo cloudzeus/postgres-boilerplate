@@ -7,10 +7,12 @@ import { parseAfmParam, vatCountry } from '@/lib/ocr/validate';
 import { applyVatPrefix } from '@/lib/ocr/vat-prefix';
 import { applyTraderToDocs, TRADER_KIND_LABEL } from '@/lib/ocr/queues';
 import {
-  buildTraderPayload, softoneCreateTrader, softoneFetchCountries, softoneIrsDataError, softoneNextTraderCode,
+  buildTraderPayload, softoneFetchCountries, softoneIrsDataError, softoneNextTraderCode,
   matchCountryId, isMissingCodeError, isDuplicateCodeError, clearTraderCodeCache,
-  TRADER_KIND_SODTYPE, type SoftoneCountry,
+  SoftoneTransportError, SoftoneConfigError, TRADER_KIND_SODTYPE, type SoftoneCountry,
 } from '@/lib/softone';
+import { createTraderInSoftone } from '@/lib/ocr/create-trader';
+import { enqueueAndSend } from '@/lib/softone-sync/outbox';
 import { traderCodeMaskKey } from '@/lib/trader-code';
 import { getSetting } from '@/lib/settings';
 import { staleDoyCodeError } from '@/lib/tax-office';
@@ -104,31 +106,37 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
     });
   }
 
-  let trdr: number;
-  let code: string;
+  // ────────────────────────────────────────────────────────────────────────────────────
+  // ΑΝ ΠΕΣΕΙ Η ΣΥΝΔΕΣΗ, Η ΔΟΥΛΕΙΑ ΔΕΝ ΧΑΝΕΤΑΙ.
+  //
+  // Μέχρι τώρα κάθε αποτυχία κατέληγε σε ένα 502 με τεχνικό κείμενο, και ο χρήστης έπρεπε να
+  // θυμάται μόνος του τι είχε μείνει στη μέση. Τώρα η δημιουργία περνά από την ουρά: αν το ERP
+  // δεν απαντά, η εργασία μένει σε σειρά και φεύγει μόνη της στην επανασύνδεση.
+  //
+  // Το `idempotencyKey` είναι ΑΦΜ + τύπος: δεύτερο πάτημα στο ίδιο πρόσωπο δεν γεννά δεύτερη
+  // εργασία, όσες φορές κι αν το πατήσει κανείς όσο είναι κάτω η σύνδεση.
+  // ────────────────────────────────────────────────────────────────────────────────────
+  const job = { afm, kind: b.kind, input, actor: { id: u.id, email: u.email } };
   try {
-    // Ένας δρόμος για κάθε τύπο: το `kind` διαλέγει το object (SUPPLIER/CREDITOR/DEBTOR) και το
-    // ίδιο το `softoneCreateTrader` επιβεβαιώνει με read-back ότι το SODTYPE που έγραψε το SoftOne
-    // είναι αυτό που αντιστοιχεί στο object — αλλιώς πετάει.
-    ({ trdr, code } = await softoneCreateTrader(b.kind, input, countries));
+    const r = await createTraderInSoftone(job);
+    return NextResponse.json({ ...r, warnings: [...new Set([...warnings, ...r.warnings])] });
   } catch (e) {
     const message = (e as Error).message;
-    // Η εγκατάσταση απαιτεί κωδικό για αυτόν τον τύπο: δεν είναι «σφάλμα SoftOne»
-    // για γενικό banner — είναι σφάλμα ΠΕΔΙΟΥ. Ο καλών το κολλά πάνω στο «Κωδικός»
-    // με ΑΥΤΟΥΣΙΟ το μήνυμα του ERP.
+
+    // Η εγκατάσταση απαιτεί κωδικό για αυτόν τον τύπο: δεν είναι «σφάλμα SoftOne» για γενικό
+    // banner — είναι σφάλμα ΠΕΔΙΟΥ. Ο καλών το κολλά πάνω στο «Κωδικός» με ΑΥΤΟΥΣΙΟ το μήνυμα.
     if (isMissingCodeError(message)) {
-      // Ίδια φροντίδα με το 409 παρακάτω: η πρόταση πρέπει να βγει από ΦΡΕΣΚΑ
-      // δεδομένα. Χωρίς αυτό, η cached λίστα κωδικών (60s) μπορεί να προτείνει
-      // κωδικό που πιάστηκε στο μεσοδιάστημα — και μάλιστα με `stale: false`.
+      // Η πρόταση πρέπει να βγει από ΦΡΕΣΚΑ δεδομένα: η cached λίστα κωδικών (60s) μπορεί να
+      // προτείνει κωδικό που πιάστηκε στο μεσοδιάστημα — και μάλιστα με `stale: false`.
       clearTraderCodeCache(b.kind);
       return NextResponse.json(
         { error: 'code_required', field: 'code', kind: b.kind, message, suggestion: await suggest(b.kind) },
         { status: 422 },
       );
     }
-    // Ο κωδικός πιάστηκε στο μεσοδιάστημα (άλλος χρήστης / άλλη καρτέλα). ΔΕΝ
-    // ξαναδοκιμάζουμε σε βρόχο — μια δεύτερη προσπάθεια κινδυνεύει να δημιουργήσει
-    // διπλή εγγραφή. Επιστρέφουμε τον ΝΕΟ επόμενο ελεύθερο και αποφασίζει ο χρήστης.
+    // Ο κωδικός πιάστηκε στο μεσοδιάστημα (άλλος χρήστης / άλλη καρτέλα). ΔΕΝ ξαναδοκιμάζουμε σε
+    // βρόχο — μια δεύτερη προσπάθεια κινδυνεύει να δημιουργήσει διπλή εγγραφή. Επιστρέφουμε τον
+    // ΝΕΟ επόμενο ελεύθερο και αποφασίζει ο χρήστης.
     if (isDuplicateCodeError(message)) {
       clearTraderCodeCache(b.kind);
       return NextResponse.json(
@@ -136,32 +144,37 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
         { status: 409 },
       );
     }
+
+    // ΜΟΝΟ αποτυχία ΜΕΤΑΦΟΡΑΣ μπαίνει σε ουρά — και μόνο όταν ξέρουμε ότι ΔΕΝ εκτελέστηκε τίποτα.
+    // «Ίσως εκτελέστηκε» δεν μπαίνει σε αυτόματη επανάληψη ποτέ: θα έφτιαχνε διπλή καρτέλα.
+    const transport = e instanceof SoftoneConfigError
+      || (e instanceof SoftoneTransportError && e.phase === 'not_sent');
+    if (transport) {
+      const queued = await enqueueAndSend({
+        kind: 'trader.create',
+        label: `${TRADER_KIND_LABEL[b.kind]} ${b.name} (${vatId})`,
+        service: 'setData',
+        payload: job as unknown as Record<string, unknown>,
+        idempotencyKey: `trader.create:${vatId}:${b.kind}`,
+        userId: u.id,
+      });
+      if (queued.status === 'sent') {
+        return NextResponse.json({ ...(queued.result as object), queuedFirst: true });
+      }
+      return NextResponse.json({
+        error: 'queued', queued: true, outboxId: queued.id, message,
+        userMessage: `Το SoftOne δεν απαντά, αλλά η δουλειά ΔΕΝ χάθηκε: ο ${TRADER_KIND_LABEL[b.kind].toLowerCase()} «${b.name}» μπήκε σε σειρά και θα δημιουργηθεί αυτόματα μόλις επανέλθει η σύνδεση.`,
+      }, { status: 202 });
+    }
+
+    if (e instanceof SoftoneTransportError) {
+      return NextResponse.json({
+        error: 'softone_unknown', message,
+        userMessage: `${message} Έλεγξε στο SoftOne αν δημιουργήθηκε η καρτέλα πριν ξαναπροσπαθήσεις.`,
+      }, { status: 502 });
+    }
     return NextResponse.json({ error: 'softone_error', message }, { status: 502 });
   }
-
-  const kind = TRADER_KIND_LABEL[b.kind];
-  const sodtype = TRADER_KIND_SODTYPE[b.kind];
-  // Καθρέφτης: ο νέος συναλλασσόμενος γίνεται αμέσως αναζητήσιμος/αντιστοιχίσιμος.
-  // Τηλέφωνο/email γράφονται και στο SoftOne (PHONE01/EMAIL) και εδώ.
-  const mirror = {
-    code, name: b.name, afm: vatId, sodtype, kind, isActive: true,
-    doy: b.irsData ?? null, profession: b.profession ?? null,
-    address: b.address ?? null, zip: b.zip ?? null, city: b.city ?? null,
-    phone: b.phone ?? null, email: b.email ?? null,
-  };
-  await prisma.softoneTrader.upsert({ where: { trdr }, update: mirror, create: { trdr, ...mirror } }).catch(() => null);
-
-  // Το `afm` του path είναι το ΤΡΕΧΟΝ κλειδί της ομάδας· το `vatId` είναι η τελική
-  // μορφή. Αν διαφέρουν, τα έγγραφα ξαναγράφονται με τη νέα τιμή.
-  const docsUpdated = await applyTraderToDocs(afm, { trdr, code, name: b.name, kind, sodtype }, { vatId });
-
-  await logAudit({
-    userId: u.id, userEmail: u.email,
-    action: 'ocr.trader.create', resource: 'softone_trader', resourceId: String(trdr),
-    metadata: { afm, vatId, kind: b.kind, code, name: b.name, country, docsUpdated, warnings },
-  }).catch(() => null);
-
-  return NextResponse.json({ ok: true, trdr, code, name: b.name, afm: vatId, kind, country, docsUpdated, warnings });
 }
 
 /**

@@ -14,6 +14,7 @@
 import 'server-only';
 import { prisma } from '@/lib/db';
 import { setSetting } from '@/lib/settings';
+import { stampMirror } from './connection';
 import { logAudit } from '@/lib/audit';
 import {
   SoftoneConfigError,
@@ -1051,6 +1052,9 @@ export async function resyncAllSoftone(
       const t0 = Date.now();
       try {
         const r = await step.run(actor);
+        // ΣΦΡΑΓΙΔΑ ΕΓΚΑΤΑΣΤΑΣΗΣ. Χωρίς αυτήν ο καθρέφτης δεν ξέρει ΑΠΟ ΠΟΥ ήρθε, και μια
+        // αλλαγή λογαριασμού SoftOne άφηνε πίσω της ids άλλης εγκατάστασης να φαίνονται έγκυρα.
+        await stampMirror(step.table, r.total).catch(() => {});
         results.push({
           table: step.table, label: step.label, ok: true,
           created: r.created, updated: r.updated, skipped: r.skipped,
