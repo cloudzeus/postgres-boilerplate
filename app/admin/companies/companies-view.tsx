@@ -736,7 +736,8 @@ function CompanyDialog({
             [&_select]:!text-[length:var(--fs-12)] [&_select]:!h-8
             [&_label]:!text-[length:var(--fs-11)] [&_label]:!font-medium"
         >
-          <nav className="w-[210px] shrink-0 border-r border-border bg-muted/30 p-2 flex flex-col gap-0.5 overflow-y-auto">
+          {/* ΧΩΡΙΣ scroller: πλαϊνό μενού. */}
+          <nav className="w-[210px] shrink-0 border-r border-border bg-muted/30 p-2 flex flex-col gap-0.5">
             {sections.map((s) => {
               const active = activeSection === s.id;
               return (
@@ -760,7 +761,8 @@ function CompanyDialog({
             })}
           </nav>
 
-          <div className="flex-1 min-w-0 overflow-y-auto">
+          {/* ΧΩΡΙΣ scroller: κυλάει η σελίδα, όχι το πάνελ. */}
+          <div className="flex-1 min-w-0">
             {activeSection === 'general' && <div className="p-5 space-y-5">
               <SectionBlock title="Τύποι εταιρίας" hint="Επίλεξε όλους τους τύπους που εφαρμόζονται (π.χ. Πελάτης + Προμηθευτής).">
                 <div className="flex flex-wrap gap-1.5">

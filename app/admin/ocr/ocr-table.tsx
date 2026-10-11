@@ -855,6 +855,18 @@ export function OcrTable({
         searchKey="fileName"
         searchPlaceholder="Αναζήτηση εγγράφου…"
         persistKey="admin.ocr.table.v2"
+        /**
+         * ΑΝΤΙ ΓΙΑ ΟΡΙΖΟΝΤΙΟ SCROLL. Μετρημένο: οι στήλες αθροίζουν 1017px, ενώ στα 1280 με
+         * ανοιχτό sidebar (244px) και `p-6` μένουν 988px. Σειρά θυσίας από τη λιγότερο προς την
+         * περισσότερο κρίσιμη για τη ΔΟΥΛΕΙΑ: η μικρογραφία είναι διακόσμηση, η σειρά και ο
+         * κωδικός SoftOne είναι τεχνικά στοιχεία, ενώ εκδότης / παραστατικό / κατάσταση / σύνολο
+         * είναι αυτά που διαβάζει ο λογιστής. Το «Στήλες» επαναφέρει ό,τι θέλει ο χρήστης.
+         */
+        responsiveHide={[
+          { id: 'thumb', minWidth: 900 },
+          { id: 'series', minWidth: 1020 },
+          { id: 'softone', minWidth: 1150 },
+        ]}
         enableSelection
         groupBy={{
           getKey: (r) => localDayKey(r.createdAt),

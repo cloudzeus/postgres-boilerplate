@@ -154,7 +154,10 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
   }, [path]);
   const toggleGroup = (label: string) => {
     setOpen((o) => {
-      const next = { ...o, [label]: o[label] === false };
+      // `undefined` σημαίνει «αυτόματο» (ανοιχτό αν είσαι μέσα). Το πρώτο κλικ πρέπει να
+      // αντιστρέψει ό,τι ΒΛΕΠΕΙ ο χρήστης, όχι ό,τι λέει το αποθηκευμένο.
+      const showing = o[label] ?? NAV_GROUPS.find((g) => g.label === label)?.items.some(isActive) ?? false;
+      const next = { ...o, [label]: !showing };
       try { localStorage.setItem(OPEN_GROUPS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
       return next;
     });
@@ -223,11 +226,19 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
         <p className="mt-0.5 truncate text-[length:var(--fs-13)] font-medium text-foreground">{roleName}</p>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-3 overflow-y-auto px-2 py-3">
+      {/* ΧΩΡΙΣ `overflow-y-auto`: κανόνας του design system — το πλαϊνό μενού δεν κυλάει ποτέ. */}
+      <nav className="flex flex-1 flex-col gap-3 px-2 py-3">
         {NAV_GROUPS.map((group) => {
           const visible = group.items.filter(allowedItem);
           if (visible.length === 0) return null;
-          const expanded = open[group.label] !== false;
+          /**
+           * ΑΝΟΙΧΤΗ ΜΟΝΟ Η ΕΝΕΡΓΗ ΟΜΑΔΑ (εκτός αν ο χρήστης είπε αλλιώς).
+           *
+           * Πριν: όλες ανοιχτές εξ ορισμού → ~1150px περιεχόμενο σε 800px οθόνη → scroller μέσα
+           * στο μενού. Ένα μενού που κυλάει κρύβει τον προορισμό που ψάχνεις και παλεύει με το
+           * scroll της σελίδας. Τώρα το μενού ΧΩΡΑΕΙ, και η επιλογή του χρήστη υπερισχύει.
+           */
+          const expanded = open[group.label] ?? group.items.some(isActive);
           const groupId = `nav-group-${group.label.replace(/\s+/g, '-')}`;
           return (
             <div key={group.label}>

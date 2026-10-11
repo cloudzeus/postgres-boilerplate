@@ -53,7 +53,8 @@ export function WikiSidebar({ modules }: { modules: WikiModule[] }) {
         </div>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-2 py-3">
+      {/* ΧΩΡΙΣ scroller: κανόνας του design system — τα πλαϊνά μενού δεν κυλούν. */}
+      <nav className="flex flex-1 flex-col gap-1 px-2 py-3">
         {filtered.length === 0 && (
           <p className="px-2 text-[length:var(--fs-12)] text-muted-foreground">Δεν βρέθηκαν σελίδες.</p>
         )}

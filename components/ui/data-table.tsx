@@ -63,6 +63,18 @@ export interface DataTableProps<TData, TValue> {
   toolbar?: React.ReactNode;
   enableSelection?: boolean;
   initialColumnVisibility?: VisibilityState;
+  /**
+   * ΠΡΟΟΔΕΥΤΙΚΗ ΑΠΟΚΡΥΨΗ ΑΝΤΙ ΓΙΑ ΟΡΙΖΟΝΤΙΟ SCROLL.
+   *
+   * Μετρημένο στη λίστα OCR: οι στήλες αθροίζουν 1017px, ενώ στα 1280 με ανοιχτό sidebar (244px)
+   * και `p-6` μένουν 988px — έλλειμμα 29px, δηλαδή scroller. Ο χρήστης δεν ξέρει ποιον scroller
+   * κινεί και χάνει τη στήλη που κοιτούσε.
+   *
+   * Κάθε εγγραφή λέει «κρύψε αυτή τη στήλη όταν ο ΠΙΝΑΚΑΣ είναι στενότερος από `minWidth`».
+   * Μετράμε τον ΔΙΚΟ ΜΑΣ χώρο, όχι το viewport: το sidebar ανοίγει και κλείνει ανεξάρτητα, και
+   * ένα media query δεν το βλέπει.
+   */
+  responsiveHide?: { id: string; minWidth: number }[];
   /** When set, column visibility + order are persisted to localStorage under this key. */
   persistKey?: string;
   className?: string;
@@ -70,6 +82,10 @@ export interface DataTableProps<TData, TValue> {
    * Stretch the table card to the bottom of the viewport (rows scroll inside, header
    * sticky, pagination pinned). Default true; pass false for tables embedded in
    * dialogs or below other content.
+   */
+  /**
+   * ΠΑΡΩΧΗΜΕΝΟ από τον κανόνα «ένας κάθετος scroller». Έδινε στην κάρτα σταθερό ύψος ώστε να
+   * κυλούν οι γραμμές ΜΕΣΑ της· πλέον κυλάει η σελίδα. Μένει `false` ώστε να μη σπάσει καλών.
    */
   fullHeight?: boolean;
   /**
@@ -102,8 +118,9 @@ export function DataTable<TData, TValue>({
   toolbar,
   enableSelection = false,
   initialColumnVisibility,
+  responsiveHide,
   persistKey,
-  fullHeight = true,
+  fullHeight = false,
   className,
   groupBy,
 }: DataTableProps<TData, TValue>) {
@@ -134,6 +151,35 @@ export function DataTable<TData, TValue>({
   );
   const [columnOrder, setColumnOrder] = React.useState<ColumnOrderState>([]);
   const [hydrated, setHydrated] = React.useState(false);
+
+  /**
+   * Το πλάτος του ΙΔΙΟΥ του πίνακα, όχι του παραθύρου. `ResizeObserver` ώστε να αντιδρά και στο
+   * μάζεμα του sidebar, που κανένα media query δεν πιάνει.
+   */
+  const widthRef = React.useRef<HTMLDivElement | null>(null);
+  const [availWidth, setAvailWidth] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    const el = widthRef.current;
+    if (!el || !responsiveHide?.length) return;
+    const ro = new ResizeObserver(([e]) => setAvailWidth(e.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [responsiveHide]);
+
+  /**
+   * Η ΕΠΙΛΟΓΗ ΤΟΥ ΧΡΗΣΤΗ ΝΙΚΑΕΙ. Η αυτόματη απόκρυψη ισχύει μόνο για στήλες που ΔΕΝ έχει αγγίξει
+   * ο χρήστης — αλλιώς το «Στήλες» θα ήταν ψεύτικο κουμπί που το σύστημα αναιρεί στο επόμενο
+   * resize.
+   */
+  const effectiveVisibility = React.useMemo(() => {
+    if (!responsiveHide?.length || availWidth == null) return columnVisibility;
+    const out: VisibilityState = { ...columnVisibility };
+    for (const r of responsiveHide) {
+      if (Object.prototype.hasOwnProperty.call(columnVisibility, r.id)) continue;
+      if (availWidth < r.minWidth) out[r.id] = false;
+    }
+    return out;
+  }, [columnVisibility, responsiveHide, availWidth]);
 
   React.useEffect(() => {
     if (visibilityKey) {
@@ -224,7 +270,7 @@ export function DataTable<TData, TValue>({
   const table = useReactTable({
     data,
     columns: enrichedColumns,
-    state: { sorting, columnFilters, columnVisibility, columnSizing, columnOrder, rowSelection, expanded, globalFilter },
+    state: { sorting, columnFilters, columnVisibility: effectiveVisibility, columnSizing, columnOrder, rowSelection, expanded, globalFilter },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
@@ -351,10 +397,15 @@ export function DataTable<TData, TValue>({
       {/* Table */}
       <div
         ref={cardRef}
-        style={minHeight ? { height: minHeight } : undefined}
+        /* ΧΩΡΙΣ σταθερό ύψος: έδινε στην κάρτα δικό της scroll. Μεγαλώνει όσο χρειάζεται. */
         className="relative flex flex-col rounded-lg border border-border dark:border-border bg-white dark:bg-card shadow-fluent-2 overflow-hidden"
       >
-        <div className="min-h-0 flex-1 overflow-auto">
+        {/* ΧΩΡΙΣ ΔΙΚΟ ΤΟΥ SCROLLER. Κανόνας του design system: ΕΝΑΣ κάθετος scroller σε όλη την
+            εφαρμογή — ο κεντρικός της σελίδας. Δύο ένθετοι scrollers σημαίνουν ότι ο χρήστης δεν
+            ξέρει ποιον κινεί, χάνει τη θέση του, και το ποντίκι αλλάζει στόχο ανάλογα με το πού
+            βρίσκεται. Η κεφαλίδα μένει `sticky` — πλέον κολλάει στο ΠΑΝΩ ΜΕΡΟΣ ΤΗΣ ΟΘΟΝΗΣ, που
+            είναι και το σωστό για μακριές λίστες. */}
+        <div ref={widthRef} className="min-h-0 flex-1">
           <table className="w-full text-[length:var(--fs-12)]" style={{ tableLayout: 'fixed', width: table.getTotalSize() }}>
             <thead className="sticky top-0 z-10 bg-neutral-4 dark:bg-muted shadow-[inset_0_-1px_0_0_var(--border)]">
               {table.getHeaderGroups().map((headerGroup) => (
