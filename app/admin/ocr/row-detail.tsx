@@ -6,7 +6,6 @@ import { toast } from 'sonner';
 import { FiSend, FiSave, FiExternalLink, FiAlertCircle, FiPlus, FiTrash2, FiRotateCcw, FiCheck, FiPlusCircle, FiMaximize2, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { CreateRegistryEntryModal } from '@/components/admin/create-registry-entry-modal';
 import { cn } from '@/lib/utils';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { reconcileInvoice, analyzeLine } from '@/lib/ocr/invoice-math';
 import { toLineItems, EMPTY_LINE, type LineItem } from '@/lib/ocr/line-items';
 import { docTypeOf } from '@/lib/ocr/canonical';
@@ -25,46 +24,75 @@ import { type OcrRow, type SeriesOption } from './ocr-table';
 /* ------------------------------------------------------------------ */
 
 type Group = 'issuer' | 'meta' | 'totals' | 'main';
-interface FieldSpec { key: string; label: string; required?: boolean; numeric?: boolean; wide?: boolean; textarea?: boolean; group?: Group }
+
+/**
+ * `span` = ΠΟΣΑ ΔΩΔΕΚΑΤΑ πιάνει το πεδίο στη γραμμή του.
+ *
+ * Πριν υπήρχε μόνο `wide` (= «δύο στήλες») πάνω σε πλέγμα τριών στηλών. Αποτέλεσμα: η
+ * «Διεύθυνση» έπιανε 2/3 και το τρίτο κελί έμενε ΚΕΝΟ· το ίδιο και η «Δραστηριότητα». Δύο
+ * ολόκληρα κενά κελιά σε μια κάρτα επτά πεδίων. Με ρητά δωδέκατα κάθε σειρά αθροίζει ΑΚΡΙΒΩΣ
+ * 12 και δεν περισσεύει τίποτα — το πλάτος το ορίζει το περιεχόμενο (ΑΦΜ στενό, επωνυμία φαρδιά),
+ * όχι η τύχη της σειράς.
+ */
+interface FieldSpec { key: string; label: string; required?: boolean; numeric?: boolean; span?: number; textarea?: boolean; group?: Group }
+
+/**
+ * Στατικές κλάσεις, ΟΧΙ δυναμικές (`lg:col-span-${n}`): ο JIT του Tailwind σαρώνει κείμενο και
+ * ό,τι φτιάχνεται με interpolation δεν παράγεται ποτέ — το πλέγμα θα κατέρρεε σιωπηλά.
+ * Στο `sm` υπάρχουν μόνο δύο πλάτη (μισό / ολόκληρο), γιατί σε 640px τα δωδέκατα είναι ψίχουλα.
+ */
+const SPAN_CLS: Record<number, string> = {
+  3:  'col-span-full sm:col-span-3 lg:col-span-3',
+  4:  'col-span-full sm:col-span-3 lg:col-span-4',
+  5:  'col-span-full sm:col-span-3 lg:col-span-5',
+  6:  'col-span-full sm:col-span-6 lg:col-span-6',
+  7:  'col-span-full sm:col-span-6 lg:col-span-7',
+  12: 'col-span-full',
+};
+/** Το πλέγμα που διαβάζουν οι παραπάνω κλάσεις. Ένα σημείο, για να μη διαφωνήσουν ποτέ. */
+const GRID_CLS = 'grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-6 lg:grid-cols-12';
 
 const FIELD_SPECS: Record<string, FieldSpec[]> = {
+  // Σειρά ΑΝΑΓΝΩΣΗΣ τιμολογίου: πρώτα ΤΙ είναι το χαρτί (αριθμός/ημερομηνία), μετά ΠΟΙΟΣ το
+  // έκοψε. Κάθε σειρά αθροίζει 12.
   INVOICE: [
-    { key: 'companyName',        label: 'Επωνυμία',     required: true, wide: true, group: 'issuer' },
-    { key: 'vatNumber',          label: 'ΑΦΜ',          required: true, group: 'issuer' },
-    { key: 'companyDoy',         label: 'ΔΟΥ',          group: 'issuer' },
-    { key: 'companyPhone',       label: 'Τηλέφωνο',     group: 'issuer' },
-    { key: 'companyEmail',       label: 'Email',        group: 'issuer' },
-    { key: 'companyAddress',     label: 'Διεύθυνση',    wide: true, group: 'issuer' },
-    { key: 'companyProfession',  label: 'Δραστηριότητα', wide: true, group: 'issuer' },
+    { key: 'invoiceNumber',      label: 'Αρ. Τιμολογίου', required: true, span: 4, group: 'meta' },
+    { key: 'date',               label: 'Ημερομηνία',   required: true, span: 4, group: 'meta' },
+    { key: 'aadeMark',           label: 'ΜΑΡΚ ΑΑΔΕ',    span: 4, group: 'meta' },
+
+    { key: 'companyName',        label: 'Επωνυμία',     required: true, span: 6, group: 'issuer' },
+    { key: 'vatNumber',          label: 'ΑΦΜ',          required: true, span: 3, group: 'issuer' },
+    { key: 'companyDoy',         label: 'ΔΟΥ',          span: 3, group: 'issuer' },
+    { key: 'companyAddress',     label: 'Διεύθυνση',    span: 7, group: 'issuer' },
+    { key: 'companyProfession',  label: 'Δραστηριότητα', span: 5, group: 'issuer' },
+    { key: 'companyPhone',       label: 'Τηλέφωνο',     span: 5, group: 'issuer' },
+    { key: 'companyEmail',       label: 'Email',        span: 7, group: 'issuer' },
     // Ο ΛΗΠΤΗΣ δεν είναι πεδίο φόρμας: είναι πάντα η εταιρεία που τρέχει την εφαρμογή.
     // Τα `customer*` εξακολουθούν να εξάγονται και να αποθηκεύονται — απλώς δεν ζητούνται εδώ.
-    { key: 'invoiceNumber',      label: 'Αρ. Τιμολογίου', required: true, group: 'meta' },
-    { key: 'date',               label: 'Ημερομηνία',   required: true, group: 'meta' },
-    { key: 'aadeMark',           label: 'ΜΑΡΚ ΑΑΔΕ',    group: 'meta' },
     { key: 'subtotal',           label: 'Καθαρή αξία',  required: true, numeric: true, group: 'totals' },
     { key: 'vatAmount',          label: 'ΦΠΑ',          required: true, numeric: true, group: 'totals' },
     { key: 'totalAmount',        label: 'Γενικό Σύνολο', required: true, numeric: true, group: 'totals' },
   ],
   RECEIPT: [
-    { key: 'companyName',    label: 'Κατάστημα / Εκδότης', required: true, wide: true, group: 'main' },
-    { key: 'vatNumber',      label: 'ΑΦΜ',          required: true, group: 'main' },
-    { key: 'companyDoy',     label: 'ΔΟΥ',          group: 'main' },
-    { key: 'companyAddress', label: 'Διεύθυνση',    wide: true, group: 'main' },
-    { key: 'companyPhone',   label: 'Τηλέφωνο',     group: 'main' },
-    { key: 'companyEmail',   label: 'Email',        group: 'main' },
-    { key: 'invoiceNumber',  label: 'Αρ. Αποδείξεως', required: true, group: 'main' },
-    { key: 'date',           label: 'Ημερομηνία',   required: true, group: 'main' },
-    { key: 'time',           label: 'Ώρα',          group: 'main' },
-    { key: 'itemsCount',     label: 'Πλήθος ειδών', numeric: true, group: 'main' },
+    { key: 'companyName',    label: 'Κατάστημα / Εκδότης', required: true, span: 6, group: 'main' },
+    { key: 'vatNumber',      label: 'ΑΦΜ',          required: true, span: 3, group: 'main' },
+    { key: 'companyDoy',     label: 'ΔΟΥ',          span: 3, group: 'main' },
+    { key: 'companyAddress', label: 'Διεύθυνση',    span: 7, group: 'main' },
+    { key: 'companyPhone',   label: 'Τηλέφωνο',     span: 5, group: 'main' },
+    { key: 'companyEmail',   label: 'Email',        span: 5, group: 'main' },
+    { key: 'invoiceNumber',  label: 'Αρ. Αποδείξεως', required: true, span: 4, group: 'main' },
+    { key: 'date',           label: 'Ημερομηνία',   required: true, span: 3, group: 'main' },
+    { key: 'time',           label: 'Ώρα',          span: 6, group: 'main' },
+    { key: 'itemsCount',     label: 'Πλήθος ειδών', numeric: true, span: 6, group: 'main' },
     { key: 'subtotal',       label: 'Καθαρή αξία',  numeric: true, group: 'totals' },
     { key: 'vatAmount',      label: 'ΦΠΑ',          numeric: true, group: 'totals' },
     { key: 'totalAmount',    label: 'Σύνολο',       required: true, numeric: true, group: 'totals' },
   ],
   GENERAL_TEXT: [
-    { key: 'title',    label: 'Τίτλος',    required: true, wide: true, group: 'main' },
-    { key: 'summary',  label: 'Περίληψη',  wide: true, textarea: true, group: 'main' },
-    { key: 'keywords', label: 'Keywords (χωρισμένα με κόμμα)', wide: true, group: 'main' },
-    { key: 'fullText', label: 'Verbatim',  wide: true, textarea: true, group: 'main' },
+    { key: 'title',    label: 'Τίτλος',    required: true, span: 12, group: 'main' },
+    { key: 'summary',  label: 'Περίληψη',  span: 12, textarea: true, group: 'main' },
+    { key: 'keywords', label: 'Keywords (χωρισμένα με κόμμα)', span: 12, group: 'main' },
+    { key: 'fullText', label: 'Verbatim',  span: 12, textarea: true, group: 'main' },
   ],
 };
 
@@ -141,6 +169,43 @@ function CheckRow({ ok, label, got, exp }: { ok: boolean | null | undefined; lab
       </span>
       <span className="font-mono tabular-nums">{got}{ok === false ? ` ≠ ${exp}` : ''}</span>
     </div>
+  );
+}
+
+/**
+ * Η ΜΟΝΑΔΙΚΗ κεφαλίδα ενότητας της καρτέλας.
+ *
+ * Πριν κάθε ενότητα έγραφε τη δική της `<header>` με ελαφρώς διαφορετικές κλάσεις (άλλη
+ * απόχρωση, άλλο padding, άλλο περίγραμμα) — πέντε παραλλαγές του ίδιου πράγματος στην ίδια
+ * οθόνη. Μία συνάρτηση, μία εμφάνιση: `accent` μόνο εκεί που χρειάζεται έμφαση.
+ */
+function Section({
+  title, accent, right, children, className,
+}: {
+  title: string; accent?: boolean; right?: React.ReactNode; children: React.ReactNode; className?: string;
+}) {
+  return (
+    <section className={cn('overflow-hidden rounded-lg border bg-card', accent ? 'border-sisyphus-500/40' : 'border-border', className)}>
+      <header className={cn(
+        'flex min-h-[1.75rem] items-center justify-between gap-2 border-b px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide',
+        accent ? 'border-sisyphus-500/30 bg-sisyphus-500/10 text-sisyphus-700 dark:text-sisyphus-300' : 'border-border bg-muted/50 text-foreground',
+      )}>
+        <span className="truncate">{title}</span>
+        {right}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+/** Σήμα «λείπουν ν υποχρεωτικά» — αριθμός ΚΑΙ εικονίδιο, ποτέ μόνο χρώμα. */
+function MissingBadge({ n }: { n: number }) {
+  if (n <= 0) return null;
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-[length:var(--fs-10)] font-bold normal-case text-amber-700 dark:text-amber-300">
+      <FiAlertCircle className="size-3" aria-hidden />
+      {n} υποχρεωτικ{n === 1 ? 'ό' : 'ά'}
+    </span>
   );
 }
 
@@ -232,7 +297,6 @@ export function OcrRowDetail({
     [seriesOptions, initialSeriesKey],
   );
 
-  const missing = specs.filter((s) => s.required && !String(form[s.key] ?? '').trim());
   const fileUrl = `/api/admin/ocr/${row.id}/file`;
   const isPdf = row.mimeType === 'application/pdf';
 
@@ -407,7 +471,7 @@ export function OcrRowDetail({
   const field = (s: FieldSpec) => {
     const invalid = s.required && !String(form[s.key] ?? '').trim();
     return (
-      <label key={s.key} className={cn('flex flex-col gap-0.5', s.wide && 'sm:col-span-2')}>
+      <label key={s.key} className={cn('flex min-w-0 flex-col gap-0.5', SPAN_CLS[s.span ?? 12] ?? SPAN_CLS[12])}>
         <span className={LABEL_CLS}>{s.label}{s.required && <span className="ml-0.5 text-dg-red-500">*</span>}</span>
         {s.textarea ? (
           <textarea rows={s.key === 'fullText' ? 8 : 2} disabled={ro}
@@ -422,9 +486,12 @@ export function OcrRowDetail({
     );
   };
   const byGroup = (g: Group) => specs.filter((s) => s.group === g);
+  /** Πόσα υποχρεωτικά λείπουν ΣΕ ΑΥΤΗ την ενότητα — το σήμα μπαίνει στη δική της κεφαλίδα,
+      όχι σε μια καρτέλα μακριά από τα πεδία που φταίνε. */
+  const missingIn = (g: Group) => byGroup(g).filter((s) => s.required && !String(form[s.key] ?? '').trim()).length;
 
   const totalsBox = byGroup('totals').length > 0 ? (
-    <div className="ml-auto w-full max-w-md overflow-hidden rounded-lg border border-border bg-card">
+    <div className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-card">
       <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">
         Σύνολα
       </header>
@@ -564,88 +631,62 @@ export function OcrRowDetail({
             αυτό, το sticky λύνεται σωστά πάνω στον πραγματικό scroller και η μπάρα μένει πάντα
             ορατή. Οι στρογγυλές γωνίες που έκοβε το overflow τις κρατούν τώρα τα ίδια τα άκρα. */}
         <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card shadow-sm">
-          <Tabs defaultValue="fields" className="flex min-h-0 flex-1 flex-col">
-            <div className="rounded-t-xl border-b border-border bg-muted/30 px-3 pt-2.5">
-              <TabsList>
-                <TabsTrigger value="fields" className="text-[length:var(--fs-12)]">
-                  Πεδία
-                  {missing.length > 0 && (
-                    <span className="ml-1.5 inline-flex h-4 min-w-[18px] items-center justify-center rounded-full bg-amber-500/20 px-1 text-[length:var(--fs-10)] font-bold text-amber-700 dark:text-amber-300">
-                      {missing.length}
-                    </span>
-                  )}
-                </TabsTrigger>
-                {showLines && <TabsTrigger value="items" className="text-[length:var(--fs-12)]">Γραμμές ({items.length})</TabsTrigger>}
-                <TabsTrigger value="json" className="text-[length:var(--fs-12)]">JSON</TabsTrigger>
-              </TabsList>
-            </div>
+          {/* ΕΝΑ ΣΥΝΕΧΕΣ ΦΥΛΛΟ, ΟΧΙ ΚΑΡΤΕΛΕΣ.
+              Οι τρεις καρτέλες (Πεδία / Γραμμές / JSON) έσπαγαν ΕΝΑ παραστατικό σε τρία κομμάτια
+              που δεν μπορούσες να δεις μαζί: για να συγκρίνεις το «Γενικό Σύνολο» με το άθροισμα
+              των γραμμών έπρεπε να αλλάξεις καρτέλα και να το θυμάσαι. Τώρα η καρτέλα διαβάζεται
+              όπως το ίδιο το χαρτί, από πάνω προς τα κάτω: ΤΙ είναι → ΠΟΙΟΣ το έκοψε → ΤΙ λέει →
+              ΠΟΣΟ κάνει. */}
+          <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
+            {isInvoice ? (
+              <>
+                {/* Ο αριθμός και η ημερομηνία ΠΑΝΩ από τον εκδότη — έτσι είναι και το χαρτί. */}
+                <Section title="Παραστατικό" right={<MissingBadge n={missingIn('meta')} />}>
+                  <div className={cn(GRID_CLS, 'p-3')}>{byGroup('meta').map(field)}</div>
+                </Section>
+                {/* Εκδότης — ΜΟΝΟΣ του. Ο λήπτης είναι ΠΑΝΤΑ η εταιρεία που τρέχει την εφαρμογή
+                    (το σύστημα καταχωρεί μόνο εισερχόμενα), οπότε μια κάρτα «Πελάτης» ζητούσε από
+                    τον χρήστη να επιβεβαιώνει τον ίδιο του τον εαυτό — και δύο από τα πεδία της
+                    ήταν υποχρεωτικά, άρα κουβαλούσε και μόνιμο σήμα «λείπουν πεδία». Τα δεδομένα
+                    του λήπτη ΕΞΑΚΟΛΟΥΘΟΥΝ να εξάγονται και να αποθηκεύονται: πάνω τους στηρίζεται
+                    η διάκριση τιμολογίου/απόδειξης (`lib/ocr/canonical.ts`) και ο εντοπισμός
+                    αντιστροφής εκδότη/λήπτη στη λίστα. */}
+                <Section title="Εκδότης" accent right={<MissingBadge n={missingIn('issuer')} />}>
+                  <div className={cn(GRID_CLS, 'p-3')}>{byGroup('issuer').map(field)}</div>
+                </Section>
+              </>
+            ) : (
+              <Section title="Στοιχεία" accent right={<MissingBadge n={missingIn('main')} />}>
+                <div className={cn(GRID_CLS, 'p-3')}>{byGroup('main').map(field)}</div>
+              </Section>
+            )}
 
-            {/* ---------- Πεδία: invoice-styled ---------- */}
-            {/* ΧΩΡΙΣ δικό του scroll: το ανοιγμένο πλαίσιο δείχνει ΟΛΟ το περιεχόμενο και μεγαλώνει
-                όσο χρειάζεται — κυλάει η σελίδα. Τρία επίπεδα scroll (σελίδα → πλαίσιο →
-                καρτέλα) έκαναν αδύνατο να ξέρεις τι κινείς. */}
-            <TabsContent value="fields" className="p-3">
-              {isInvoice ? (
-                <div className="space-y-3">
-                  {/* Εκδότης — ΜΟΝΟΣ του. Ο λήπτης είναι ΠΑΝΤΑ η εταιρεία που τρέχει την
-                      εφαρμογή (το σύστημα καταχωρεί μόνο εισερχόμενα), οπότε μια κάρτα «Πελάτης»
-                      ζητούσε από τον χρήστη να επιβεβαιώνει τον ίδιο του τον εαυτό — και δύο από
-                      τα πεδία της ήταν υποχρεωτικά, άρα κουβαλούσε και μόνιμο σήμα «λείπουν πεδία».
-                      Τα δεδομένα του λήπτη ΕΞΑΚΟΛΟΥΘΟΥΝ να εξάγονται και να αποθηκεύονται: πάνω
-                      τους στηρίζεται η διάκριση τιμολογίου/απόδειξης (`lib/ocr/canonical.ts`) και
-                      ο εντοπισμός αντιστροφής εκδότη/λήπτη στη λίστα. */}
-                  <section className="overflow-hidden rounded-lg border border-sisyphus-500/40 bg-card">
-                    <header className="border-b border-sisyphus-500/30 bg-sisyphus-500/10 px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-sisyphus-700 dark:text-sisyphus-300">
-                      Εκδότης
-                    </header>
-                    <div className="grid grid-cols-1 gap-x-3 gap-y-1.5 p-3 sm:grid-cols-2 lg:grid-cols-3">{byGroup('issuer').map(field)}</div>
-                  </section>
-
-                  {/* Meta strip */}
-                  <div className="grid grid-cols-1 gap-x-3 gap-y-1.5 rounded-lg border border-border bg-muted/40 p-3 sm:grid-cols-3">
-                    {byGroup('meta').map(field)}
-                  </div>
-
-                  {/* Totals box (label left / amount right, 2 decimals, sum check) */}
-                  {totalsBox}
-                  <CustomFieldsBlock data={data} />
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
-                    {specs.filter((s) => s.group !== 'totals').map(field)}
-                  </div>
-                  {totalsBox}
-                  <CustomFieldsBlock data={data} />
-                </div>
-              )}
-            </TabsContent>
+            <CustomFieldsBlock data={data} />
 
             {/* ---------- Γραμμές ---------- */}
             {showLines && (
-              <TabsContent value="items" className="p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">Γραμμές <span className="text-foreground">({items.length})</span></span>
-                  {!ro && (
-                    <button type="button" onClick={addLine}
-                      className="inline-flex items-center gap-1 rounded-md border border-sisyphus-500/40 bg-sisyphus-500/10 px-2 py-1 text-[length:var(--fs-11)] font-semibold text-sisyphus-700 transition hover:bg-sisyphus-500/20 dark:text-sisyphus-300">
-                      <FiPlus className="size-3.5" /> Προσθήκη γραμμής
-                    </button>
-                  )}
-                </div>
-                <div className="overflow-x-auto rounded-lg border border-border">
-                  <table className="w-full min-w-[760px]">
+              <Section
+                title={`Γραμμές (${items.length})`}
+                right={!ro && (
+                  <button type="button" onClick={addLine}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-sisyphus-500/40 bg-sisyphus-500/10 px-2 py-0.5 text-[length:var(--fs-11)] font-semibold normal-case text-sisyphus-700 transition hover:bg-sisyphus-500/20 dark:text-sisyphus-300">
+                    <FiPlus className="size-3.5" /> Προσθήκη γραμμής
+                  </button>
+                )}
+              >
+                <div className="w-full">
+                  <table className="w-full table-fixed">
                     <thead className="border-b border-border bg-sisyphus-500/10 text-left text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-sisyphus-700 dark:text-sisyphus-300">
                       <tr>
                         <th className="px-3 py-1.5">Κωδ.</th>
                         <th className="px-3 py-1.5">Περιγραφή</th>
-                        <th className="w-[80px] px-3 py-1.5">Μονάδα</th>
-                        <th className="w-[86px] px-3 py-1.5 text-right">Ποσ.</th>
-                        <th className="w-[110px] px-3 py-1.5 text-right">Τιμή</th>
-                        <th className="w-[96px] px-3 py-1.5 text-right">Έκπτ.</th>
-                        <th className="w-[78px] px-3 py-1.5 text-right">ΦΠΑ %</th>
-                        <th className="w-[118px] px-3 py-1.5 text-right">Σύνολο</th>
-                        {!ro && <th className="w-[40px] px-2 py-1.5" />}
+                        <th className="w-[5rem] px-3 py-1.5">Μονάδα</th>
+                        <th className="w-[5.375rem] px-3 py-1.5 text-right">Ποσ.</th>
+                        <th className="w-[6.875rem] px-3 py-1.5 text-right">Τιμή</th>
+                        <th className="w-[6rem] px-3 py-1.5 text-right">Έκπτ.</th>
+                        <th className="w-[4.875rem] px-3 py-1.5 text-right">ΦΠΑ %</th>
+                        <th className="w-[7.375rem] px-3 py-1.5 text-right">Σύνολο</th>
+                        {!ro && <th className="w-[4.5rem] px-2 py-1.5" />}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -724,53 +765,69 @@ export function OcrRowDetail({
                     </tfoot>
                   </table>
                 </div>
-                {/* Reconciliation: lines→net, VAT per rate (multi-VAT), grand total */}
-                <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                  {recon.vatGroups.length > 0 && (
-                    <div className="overflow-hidden rounded-lg border border-border">
-                      <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">
-                        ΦΠΑ ανά συντελεστή{recon.hasMultipleRates && <span className="ml-1.5 font-semibold text-sisyphus-600">• πολλαπλά</span>}
-                      </header>
-                      <table className="w-full text-[length:var(--fs-12)]">
-                        <thead className="text-left text-[length:var(--fs-11)] text-muted-foreground">
-                          <tr><th className="px-3 py-1 font-semibold">Συντ/στής</th><th className="px-3 py-1 text-right font-semibold">Καθαρή</th><th className="px-3 py-1 text-right font-semibold">ΦΠΑ</th></tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                          {recon.vatGroups.map((g) => (
-                            <tr key={g.rate}>
-                              <td className="px-3 py-1 tabular-nums">{g.rate}%</td>
-                              <td className="px-3 py-1 text-right tabular-nums">{fmtMoney(g.net)}</td>
-                              <td className="px-3 py-1 text-right tabular-nums">{fmtMoney(g.vat)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot className="border-t border-border bg-muted/30 font-semibold">
-                          <tr><td className="px-3 py-1">Σύνολο ΦΠΑ (υπολ.)</td><td /><td className="px-3 py-1 text-right tabular-nums">{fmtMoney(recon.vatComputed)}</td></tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  )}
-                  <div className="space-y-1.5">
-                    <CheckRow ok={recon.linesVsSubtotal?.ok ?? null} label="Άθροισμα γραμμών = Καθαρή αξία"
-                      got={fmtMoney(recon.sumNet)} exp={recon.subtotal != null ? fmtMoney(recon.subtotal) : '—'} />
-                    <CheckRow ok={recon.vatOk} label="Υπολ. ΦΠΑ = δηλωμένο ΦΠΑ"
-                      got={fmtMoney(recon.vatComputed)} exp={recon.vatField != null ? fmtMoney(recon.vatField) : '—'} />
-                    <CheckRow ok={recon.totalOk} label="Καθαρή + ΦΠΑ = Γενικό Σύνολο"
-                      got={recon.totalComputed != null ? fmtMoney(recon.totalComputed) : '—'} exp={recon.totalField != null ? fmtMoney(recon.totalField) : '—'} />
-                  </div>
-                </div>
-              </TabsContent>
+              </Section>
             )}
 
+            {/* ---------- ΣΥΝΟΛΑ & ΣΥΜΦΩΝΙΑ, ΔΙΠΛΑ-ΔΙΠΛΑ ----------
+                Τα «Σύνολα» στέκονταν μόνα τους στοιχισμένα δεξιά (`ml-auto max-w-md`): μισή σειρά
+                ΚΕΝΗ σε κάθε παραστατικό. Και οι τρεις έλεγχοι συμφωνίας ήταν κρυμμένοι στην
+                καρτέλα «Γραμμές» — δηλαδή ο αριθμός και ο έλεγχός του δεν φαίνονταν ποτέ μαζί.
+                Τώρα το κενό γεμίζει με αυτό ακριβώς που ελέγχει τα σύνολα. */}
+            <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-2">
+              <div className="space-y-3">
+                {recon.vatGroups.length > 0 && (
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">
+                      ΦΠΑ ανά συντελεστή{recon.hasMultipleRates && <span className="ml-1.5 font-semibold text-sisyphus-600">• πολλαπλά</span>}
+                    </header>
+                    <table className="w-full text-[length:var(--fs-12)]">
+                      <thead className="text-left text-[length:var(--fs-11)] text-muted-foreground">
+                        <tr><th className="px-3 py-1 font-semibold">Συντ/στής</th><th className="px-3 py-1 text-right font-semibold">Καθαρή</th><th className="px-3 py-1 text-right font-semibold">ΦΠΑ</th></tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {recon.vatGroups.map((g) => (
+                          <tr key={g.rate}>
+                            <td className="px-3 py-1 tabular-nums">{g.rate}%</td>
+                            <td className="px-3 py-1 text-right tabular-nums">{fmtMoney(g.net)}</td>
+                            <td className="px-3 py-1 text-right tabular-nums">{fmtMoney(g.vat)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="border-t border-border bg-muted/30 font-semibold">
+                        <tr><td className="px-3 py-1">Σύνολο ΦΠΑ (υπολ.)</td><td /><td className="px-3 py-1 text-right tabular-nums">{fmtMoney(recon.vatComputed)}</td></tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+                <div className="space-y-1.5">
+                  <CheckRow ok={recon.linesVsSubtotal?.ok ?? null} label="Άθροισμα γραμμών = Καθαρή αξία"
+                    got={fmtMoney(recon.sumNet)} exp={recon.subtotal != null ? fmtMoney(recon.subtotal) : '—'} />
+                  <CheckRow ok={recon.vatOk} label="Υπολ. ΦΠΑ = δηλωμένο ΦΠΑ"
+                    got={fmtMoney(recon.vatComputed)} exp={recon.vatField != null ? fmtMoney(recon.vatField) : '—'} />
+                  <CheckRow ok={recon.totalOk} label="Καθαρή + ΦΠΑ = Γενικό Σύνολο"
+                    got={recon.totalComputed != null ? fmtMoney(recon.totalComputed) : '—'} exp={recon.totalField != null ? fmtMoney(recon.totalField) : '—'} />
+                </div>
+              </div>
+              {totalsBox}
+            </div>
+
             {/* ---------- JSON ---------- */}
-            <TabsContent value="json" className="p-3">
-              {/* Το JSON είναι ΠΡΟΑΙΡΕΤΙΚΗ προβολή και μπορεί να είναι τεράστιο — εδώ το
-                  `overflow-auto` είναι σωστό, αλλά χωρίς ύψος-φυλακή: μέχρι 70vh. */}
-              <pre className="max-h-[70vh] overflow-auto rounded-lg border border-border bg-muted p-3 text-[length:var(--fs-11)] font-mono leading-relaxed text-foreground">
+            {/* ---------- JSON: ΚΛΕΙΣΤΟ, όχι καρτέλα ----------
+                Είναι εργαλείο ελέγχου, όχι δουλειά του λογιστή. Ως καρτέλα κατείχε ίσο βάρος με
+                τα πεδία και τις γραμμές· ως `<details>` είναι μία γραμμή όσο δεν το χρειάζεσαι. */}
+            <details className="group overflow-hidden rounded-lg border border-border bg-card">
+              <summary className="flex cursor-pointer list-none items-center gap-2 bg-muted/50 px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground transition hover:bg-muted">
+                <FiChevronRight className="size-3.5 shrink-0 transition-transform duration-200 group-open:rotate-90" aria-hidden />
+                JSON εξαγωγής
+                <span className="font-normal normal-case text-muted-foreground">— για έλεγχο</span>
+              </summary>
+              {/* Το JSON μπορεί να είναι τεράστιο: εδώ το `overflow-auto` είναι σωστό, αλλά χωρίς
+                  ύψος-φυλακή — μέχρι 70vh, και μόνο όταν είναι ανοιχτό. */}
+              <pre className="max-h-[70vh] overflow-auto border-t border-border bg-muted p-3 text-[length:var(--fs-11)] font-mono leading-relaxed text-foreground">
 {JSON.stringify(buildExtractedData(), null, 2)}
               </pre>
-            </TabsContent>
-          </Tabs>
+            </details>
+          </div>
 
           {/* ---- Footer (sticky action bar — always visible) ---- */}
           <div className="sticky bottom-0 z-20 flex flex-col gap-2 rounded-b-xl border-t border-border bg-card/95 px-3 py-2.5 shadow-[0_-2px_10px_rgba(0,0,0,0.06)] backdrop-blur lg:flex-row lg:items-end lg:justify-between">
