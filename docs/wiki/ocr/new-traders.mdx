@@ -11,7 +11,7 @@ screenshots:
     route: /admin/ocr/new-traders
     caption: "Ουρά «Νέοι συναλλασσόμενοι» με το panel δημιουργίας"
 related: [doc-type, new-items, ocr-overview]
-helpAnchors: [new-traders, bulk-create-traders, add-trader-kind, foreign-traders, vies, geocoding, coordinates, trader-code, next-code, dual-cards, trader-kinds, aade-autofill, doy, tax-office]
+helpAnchors: [new-traders, bulk-create-traders, afm-recover, add-trader-kind, foreign-traders, vies, geocoding, coordinates, trader-code, next-code, dual-cards, trader-kinds, aade-autofill, doy, tax-office]
 ---
 
 ## Επισκόπηση
@@ -56,6 +56,24 @@ helpAnchors: [new-traders, bulk-create-traders, add-trader-kind, foreign-traders
 
 <Callout type="info">
 Αν πέσει η σύνδεση με το SoftOne στη μέση, όσοι δεν πρόλαβαν μπαίνουν στην **ουρά εργασιών** και δημιουργούνται αυτόματα στην επανασύνδεση — δες <a href="/wiki/ocr/softone-connection">Σύνδεση SoftOne & ουρά</a>. Το «Διακοπή μετά την τρέχουσα» σταματά ομαλά.
+</Callout>
+
+### Επανάγνωση ΑΦΜ από το αρχείο
+
+Ένα πραγματικό παραστατικό έχει **πάντα** ΑΦΜ που περνά τον έλεγχο ψηφίου — όταν το δικό μας δεν περνά (ή λείπει), το λάθος είναι της ανάγνωσης. Το κουμπί **«Επανάγνωση από το αρχείο»** (στις γραμμές «Λάθος ΑΦΜ» της μαζικής δημιουργίας, και στη λωρίδα ελέγχων του παραστατικού) ξαναδιαβάζει την πρώτη σελίδα και ψάχνει το σωστό.
+
+<Steps>
+  <li><strong>Επανάγνωση</strong> μόνο του ΑΦΜ — στοχευμένη ερώτηση, όχι ολόκληρο το τιμολόγιο.</li>
+  <li><strong>Επιδιόρθωση</strong> αν επιμένει το λάθος: δοκιμάζονται οι συνηθισμένες συγχύσεις (3↔8, 7↔1…) ή το ψηφίο που λείπει.</li>
+  <li><strong>Επιβεβαίωση ΑΑΔΕ</strong>: γίνεται δεκτό <strong>μόνο</strong> το ΑΦΜ για το οποίο η ΑΑΔΕ δίνει την <strong>ίδια επωνυμία</strong> με το παραστατικό.</li>
+</Steps>
+
+<Callout type="info">
+Η επιβεβαίωση επωνυμίας απορρίπτει έγκυρα αλλά λάθος ΑΦΜ — π.χ. το ΑΦΜ του **παραλήπτη**, που είναι τυπωμένο στην ίδια σελίδα. Αν το σωστό ΑΦΜ ανήκει σε καρτέλα που υπάρχει ήδη, το παραστατικό συνδέεται εκεί· αν ήταν δεμένο σε καρτέλα με **άλλο** ΑΦΜ, η λάθος σύνδεση καθαρίζεται.
+</Callout>
+
+<Callout type="warning">
+Όταν το παραστατικό δεν έχει δική του επωνυμία για σύγκριση, το εύρημα **δεν** εφαρμόζεται αυτόματα: ανοίγεις το αρχείο, ελέγχεις, και πατάς «Το έλεγξα — εφάρμοσέ το». Έτσι εντοπίστηκε σκανάρισμα με **δύο αποδείξεις στην ίδια σελίδα** — τέτοιο αρχείο θέλει διαχωρισμό, όχι διόρθωση ΑΦΜ.
 </Callout>
 
 ## Κωδικός συναλλασσομένου

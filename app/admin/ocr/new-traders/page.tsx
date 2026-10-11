@@ -43,7 +43,7 @@ export default async function NewTradersPage() {
               canManage={canManage}
               groups={groups.map((g) => ({
                 afm: g.afm, name: g.name, country: g.country, suggestedKind: g.suggestedKind,
-                missingKinds: g.missing.map((m) => m.kind), docCount: g.docCount,
+                missingKinds: g.missing.map((m) => m.kind), docCount: g.docCount, docIds: g.docs.map((d) => d.id),
               }))}
             />
           }

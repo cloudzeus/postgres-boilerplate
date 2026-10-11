@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { planRow, type PlanRow, type TraderKind } from '@/lib/ocr/bulk-trader-plan';
+import { recoverAfm } from '@/components/admin/afm-recover';
 
 /** Ό,τι χρειάζεται από κάθε ομάδα της ουράς — ΟΧΙ ολόκληρο το `TraderGroup` (δείγματα, μικρογραφίες). */
 export interface BulkGroup {
@@ -20,6 +21,8 @@ export interface BulkGroup {
   suggestedKind: TraderKind;
   missingKinds: TraderKind[];
   docCount: number;
+  /** Τα παραστατικά της ομάδας — για την «Επανάγνωση ΑΦΜ από το αρχείο». */
+  docIds: string[];
 }
 
 type RunState =
@@ -56,15 +59,18 @@ const COUNTRIES: [string, string][] = [
  */
 export function BulkCreateTradersButton({ groups, canManage }: { groups: BulkGroup[]; canManage: boolean }) {
   const [open, setOpen] = React.useState(false);
-  if (!canManage || groups.length === 0) return null;
+  if (!canManage) return null;
   return (
     <>
-      <button
+      {/* Κρύβεται ΜΟΝΟ το κουμπί όταν η ουρά είναι άδεια — ΟΧΙ το ανοιχτό παράθυρο. Μετά από μια
+          επιτυχημένη μαζική δημιουργία η ουρά αδειάζει (router.refresh), και με το παλιό
+          `groups.length === 0 → return null` το παράθυρο εξαφανιζόταν πριν δείξει τα αποτελέσματα. */}
+      {groups.length > 0 && <button
         type="button" onClick={() => setOpen(true)}
         className="inline-flex h-8 items-center gap-1.5 rounded-md bg-sisyphus-500 px-3 text-[length:var(--fs-12)] font-semibold text-white shadow-sm transition hover:bg-sisyphus-600 active:bg-sisyphus-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-500/40 focus-visible:ring-offset-1"
       >
         <FiUsers className="size-3.5" /> Μαζική δημιουργία ({groups.length})
-      </button>
+      </button>}
       {open && <BulkCreateTradersModal groups={groups} onClose={() => setOpen(false)} />}
     </>
   );
@@ -89,11 +95,40 @@ function BulkCreateTradersModal({ groups, onClose }: { groups: BulkGroup[]; onCl
       .catch(() => null);
   }, []);
 
-  const set = (afm: string, patch: Partial<PlanRow>) =>
-    setRows((rs) => rs.map((r) => (r.afm === afm ? { ...r, ...patch } : r)));
+  const set = (key: string, patch: Partial<PlanRow>) =>
+    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const docIdsOf = React.useMemo(() => new Map(groups.map((g) => [g.afm, g.docIds])), [groups]);
+  const [recovering, setRecovering] = React.useState<string | null>(null);
+
+  /**
+   * ΕΠΑΝΑΓΝΩΣΗ ΑΦΜ για γραμμή «λάθος ΑΦΜ». Γράφει ΜΟΝΟ ό,τι επιβεβαιώνει η ΑΑΔΕ (βλ.
+   * `lib/ocr/afm-recovery.ts`). Επιτυχία → η γραμμή γίνεται «έτοιμη» με το σωστό ΑΦΜ, ή «υπάρχει
+   * ήδη» αν βρέθηκε καρτέλα με αυτό. Αδύναμη απόδειξη → ΔΕΝ εφαρμόζεται· ο χρήστης κοιτά το αρχείο.
+   */
+  async function recover(r: PlanRow) {
+    setRecovering(r.key);
+    try {
+      // ΚΑΘΕ παραστατικό της ομάδας, με ΔΙΚΗ του επιβεβαίωση — όχι «διορθώθηκε το πρώτο, άρα και
+      // τα υπόλοιπα». Αλλιώς τα επόμενα θα έμεναν με το λάθος ΑΦΜ και θα ξαναγεννούσαν την ομάδα.
+      let first: Awaited<ReturnType<typeof recoverAfm>> | null = null;
+      let last: Awaited<ReturnType<typeof recoverAfm>> | null = null;
+      for (const id of docIdsOf.get(r.key) ?? []) {
+        const x = await recoverAfm(id);
+        last = x;
+        if (x.applied && x.afm && !first) first = x;
+      }
+      if (first?.afm) {
+        set(r.key, first.linkedTrader
+          ? { afm: first.afm, status: 'linked', selected: false, reason: `Σωστό ΑΦΜ ${first.afm} — υπάρχει ήδη στο SoftOne, συνδέθηκε (${first.linkedTrader.code ?? first.linkedTrader.trdr}).` }
+          : { afm: first.afm, country: 'GR', useAade: true, status: 'ready', selected: true, reason: `Διορθώθηκε από το αρχείο (${first.previousAfm ?? '—'} → ${first.afm}) — ΑΑΔΕ: ${first.aadeName}` });
+      } else if (last) {
+        set(r.key, { reason: last.status === 'confirmed' ? `${last.message} Άνοιξε το παραστατικό για να το εγκρίνεις.` : last.message });
+      }
+    } finally { setRecovering(null); }
+  }
 
   /** Επιλέξιμη = όχι λάθος ΑΦΜ, και ξένος μόνο ΑΦΟΥ έχει χώρα. */
-  const selectable = (r: PlanRow) => r.status !== 'invalid_afm' && r.country != null;
+  const selectable = (r: PlanRow) => r.status !== 'invalid_afm' && r.status !== 'linked' && r.country != null;
   const chosen = rows.filter((r) => r.selected && selectable(r));
   const counts = {
     ready: rows.filter((r) => r.status === 'ready').length,
@@ -150,14 +185,14 @@ function BulkCreateTradersModal({ groups, onClose }: { groups: BulkGroup[]; onCl
     setPhase('running');
     stop.current = false;
     const todo = chosen;
-    setRun(Object.fromEntries(todo.map((r) => [r.afm, { s: 'idle' } as RunState])));
+    setRun(Object.fromEntries(todo.map((r) => [r.key, { s: 'idle' } as RunState])));
     let ok = 0, failed = 0, queued = 0;
     for (const r of todo) {
       if (stop.current) break;
-      setRun((m) => ({ ...m, [r.afm]: { s: 'running' } }));
+      setRun((m) => ({ ...m, [r.key]: { s: 'running' } }));
       let out: RunState;
       try { out = await runOne(r); } catch (e) { out = { s: 'error', msg: (e as Error).message }; }
-      setRun((m) => ({ ...m, [r.afm]: out }));
+      setRun((m) => ({ ...m, [r.key]: out }));
       if (out.s === 'done') ok++; else if (out.s === 'queued') queued++; else failed++;
     }
     setPhase('finished');
@@ -206,15 +241,15 @@ function BulkCreateTradersModal({ groups, onClose }: { groups: BulkGroup[]; onCl
             </thead>
             <tbody className="divide-y divide-border">
               {rows.map((r) => {
-                const st = run[r.afm];
+                const st = run[r.key];
                 const locked = busy || phase === 'finished' || st?.s === 'done';
                 return (
-                  <tr key={r.afm} className={cn('align-top', !selectable(r) && 'bg-muted/30', st?.s === 'done' && 'bg-emerald-500/5')}>
+                  <tr key={r.key} className={cn('align-top', !selectable(r) && 'bg-muted/30', st?.s === 'done' && 'bg-emerald-500/5')}>
                     <td className="px-3 py-2">
                       <input
                         type="checkbox" aria-label={`Επιλογή ${r.name}`}
                         disabled={locked || !selectable(r)} checked={r.selected && selectable(r)}
-                        onChange={(e) => set(r.afm, { selected: e.target.checked })}
+                        onChange={(e) => set(r.key, { selected: e.target.checked })}
                         className="size-4 cursor-pointer accent-sisyphus-500 disabled:cursor-not-allowed"
                       />
                     </td>
@@ -226,7 +261,7 @@ function BulkCreateTradersModal({ groups, onClose }: { groups: BulkGroup[]; onCl
                     <td className="px-2 py-2">
                       <select
                         value={r.kind} disabled={locked} aria-label={`Τύπος για ${r.name}`}
-                        onChange={(e) => set(r.afm, { kind: e.target.value as TraderKind })}
+                        onChange={(e) => set(r.key, { kind: e.target.value as TraderKind })}
                         className="h-7 w-full rounded-md border border-input bg-background px-1.5 text-[length:var(--fs-12)] text-foreground focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60"
                       >
                         {(['supplier', 'creditor', 'debtor'] as TraderKind[]).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
@@ -236,7 +271,7 @@ function BulkCreateTradersModal({ groups, onClose }: { groups: BulkGroup[]; onCl
                       {r.status === 'needs_country' ? (
                         <select
                           value={r.country ?? ''} disabled={locked} aria-label={`Χώρα για ${r.name}`}
-                          onChange={(e) => set(r.afm, { country: e.target.value || null, countryGuessed: false })}
+                          onChange={(e) => set(r.key, { country: e.target.value || null, countryGuessed: false })}
                           className={cn(
                             'h-7 w-full rounded-md border bg-background px-1.5 text-[length:var(--fs-12)] text-foreground focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60',
                             r.countryGuessed ? 'border-amber-400' : 'border-input',
@@ -249,7 +284,16 @@ function BulkCreateTradersModal({ groups, onClose }: { groups: BulkGroup[]; onCl
                         <span className="text-foreground">{r.country ?? '—'}</span>
                       )}
                     </td>
-                    <td className="px-2 py-2"><StatusCell row={r} st={st} /></td>
+                    <td className="px-2 py-2">
+                      <StatusCell row={r} st={st} />
+                      {r.status === 'invalid_afm' && !locked && (
+                        <button type="button" onClick={() => recover(r)} disabled={recovering != null}
+                          className="mt-1 inline-flex h-6 items-center gap-1 rounded-md bg-sisyphus-500 px-2 text-[length:var(--fs-10)] font-semibold text-white shadow-sm transition hover:bg-sisyphus-600 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none">
+                          <FiLoader className={cn('size-3', recovering === r.key ? 'animate-spin' : 'hidden')} />
+                          {recovering === r.key ? 'Επανάγνωση…' : 'Επανάγνωση από το αρχείο'}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -309,6 +353,7 @@ function StatusCell({ row, st }: { row: PlanRow; st?: RunState }) {
   if (st?.s === 'queued') return <Line icon={FiClock} fg="#1F6FEB">{st.msg}</Line>;
   if (st?.s === 'error') return <Line icon={FiAlertOctagon} fg="#B91C1C">{st.msg}</Line>;
   if (row.status === 'invalid_afm') return <Line icon={FiAlertOctagon} fg="#B91C1C">{row.reason}</Line>;
+  if (row.status === 'linked') return <Line icon={FiCheck} fg="#047857">{row.reason}</Line>;
   if (row.status === 'needs_country') {
     return <Line icon={FiAlertTriangle} fg="#B45309">{row.country && !row.countryGuessed ? 'Χώρα επιλεγμένη.' : row.reason}</Line>;
   }

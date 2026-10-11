@@ -1,5 +1,7 @@
 'use client';
 
+import { AfmRecover } from '@/components/admin/afm-recover';
+import { isValidAfm, vatCountry } from '@/lib/ocr/validate';
 import * as React from 'react';
 import {
   FiAlertOctagon, FiAlertTriangle, FiCheck, FiChevronDown, FiChevronRight, FiCopy, FiLoader,
@@ -223,7 +225,12 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                     {/* ΕΞΑΚΡΙΒΩΣΗ ΠΡΙΝ ΤΗ ΔΗΜΙΟΥΡΓΙΑ. Μέχρι τώρα, για να δεις τι λέει η ΑΑΔΕ για
                         έναν ΑΦΜ έπρεπε να ΞΕΚΙΝΗΣΕΙΣ να φτιάχνεις καρτέλα. Τώρα κοιτάς πρώτα —
                         και βλέπεις σε ποιο πεδίο του SoftOne κάθεται το κάθε στοιχείο. */}
-                    {data.supplier.afm && (
+                    {/* ΑΦΜ που λείπει ή δεν περνά τον έλεγχο: η ΑΑΔΕ δεν έχει τι να ψάξει — πρώτα
+                        ξαναδιαβάζεται το αρχείο. Με σωστό ΑΦΜ εμφανίζεται κανονικά η εξακρίβωση. */}
+                    {!afmLooksValid(data.supplier.afm) && (
+                      <AfmRecover docId={docId} onDone={() => { void load(); emitDocLinesChanged(docId); }} />
+                    )}
+                    {afmLooksValid(data.supplier.afm) && (
                       <AadeVerifyPanel
                         afm={data.supplier.afm}
                         kind={req?.kind ?? null}
@@ -388,4 +395,11 @@ function SegmentAction({
       {children}
     </button>
   );
+}
+
+/** Έγκυρο = ελληνικό που περνά τον έλεγχο, ή ξένο με πρόθεμα χώρας. Ό,τι άλλο θέλει επανάγνωση. */
+function afmLooksValid(afm: string | null | undefined): boolean {
+  const a = String(afm ?? '').trim();
+  if (!a) return false;
+  return isValidAfm(a) || (vatCountry(a) != null && vatCountry(a) !== 'GR');
 }

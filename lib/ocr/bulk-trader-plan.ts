@@ -21,7 +21,9 @@ export type PlanStatus =
   /** Ξένος χωρίς πρόθεμα χώρας: χρειάζεται χώρα. Μπορεί να υπάρχει ΠΡΟΤΑΣΗ, ποτέ σιωπηλή επιλογή. */
   | 'needs_country'
   /** Το ΑΦΜ δεν περνά τον έλεγχο ψηφίου: σχεδόν σίγουρα λάθος ανάγνωσης. */
-  | 'invalid_afm';
+  | 'invalid_afm'
+  /** Μετά από επανάγνωση: υπάρχει ΗΔΗ καρτέλα με το σωστό ΑΦΜ και συνδέθηκε — δεν δημιουργείται. */
+  | 'linked';
 
 export interface PlanInput {
   afm: string;
@@ -34,6 +36,8 @@ export interface PlanInput {
 }
 
 export interface PlanRow {
+  /** Σταθερή ταυτότητα της γραμμής = το ΑΦΜ της ουράς. Το `afm` αλλάζει αν διορθωθεί· αυτό όχι. */
+  key: string;
   afm: string;
   name: string;
   kind: TraderKind;
@@ -80,7 +84,7 @@ export function planRow(g: PlanInput): PlanRow {
   // Ο τύπος που ΖΗΤΑ η σειρά προηγείται της γενικής πρότασης: αυτόν θα δεχτεί η κεφαλίδα.
   const kind = g.missingKinds[0] ?? g.suggestedKind;
   const vat = normalizeVatId(g.afm);
-  const base = { afm: g.afm, name, kind, countryGuessed: false, useAade: false };
+  const base = { key: g.afm, afm: g.afm, name, kind, countryGuessed: false, useAade: false };
 
   // Γνωστό πρόθεμα χώρας ή έγκυρο ελληνικό ΑΦΜ.
   if (vat?.country === 'GR' || g.country === 'GR') {
