@@ -52,3 +52,6 @@ next-env.d.ts
 .claude/launch.json
 .claude/worktrees/
 .local/
+
+# Αντίγραφα ασφαλείας δεδομένων πριν από μαζικές αλλαγές — ΠΟΤΕ στο git (περιέχουν δεδομένα πελάτη).
+.backups/
