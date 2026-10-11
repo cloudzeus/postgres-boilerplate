@@ -3,7 +3,7 @@ import { SODTYPE_LABEL, softoneFindTraderByAfm, softoneCheckPurchaseDoc } from '
 import { requiredTraderKind } from '@/lib/ocr/required-trader-kind';
 import { normalizeLineText } from '@/lib/ocr/line-match';
 import { documentReference } from '@/lib/ocr/purdoc-payload';
-import { classifyUtilityCharge, detectUtility, utilityInputFromDocument, utilityMemoryKey } from '@/lib/ocr/utility-bills';
+import { classifyUtilityCharge, detectUtility, utilityInputFromDocument, utilityMemoryKeys } from '@/lib/ocr/utility-bills';
 
 /** Η αναγνώριση λογαριασμού πάνω στις ΓΡΑΜΜΕΣ της βάσης (όχι του JSON) — αυτές αντιστοιχίζονται. */
 export function detectUtilityForItems(
@@ -185,7 +185,7 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
   const byCode1 = new Map(sItems.filter((m) => m.code1).map((m) => [m.code1!, m]));
 
   const updates = new Map<string, LineMatchUpdate>();
-  const unmatched: { id: string; pattern: string; utilityKey: string | null }[] = [];
+  const unmatched: { id: string; pattern: string; utilityKeys: string[] }[] = [];
   let matched = 0;
 
   // ── 1. Πέρασμα κωδικού ──────────────────────────────────────────────
@@ -215,7 +215,7 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     }
     updates.set(it.id, { ...NO_MATCH });
     const pattern = normalizeLineText(it.name);
-    if (pattern) unmatched.push({ id: it.id, pattern, utilityKey: null });
+    if (pattern) unmatched.push({ id: it.id, pattern, utilityKeys: [] });
   }
 
   // ── 2. Πέρασμα μνήμης (LineMatchRule) ───────────────────────────────
@@ -234,14 +234,15 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
       const byId = new Map(items.map((it) => [it.id, it]));
       for (const u of unmatched) {
         const it = byId.get(u.id)!;
+        const vatRate = it.vatRate == null ? null : Number(it.vatRate);
         const charge = classifyUtilityCharge(utility.kind, {
-          name: it.name, vatRate: it.vatRate == null ? null : Number(it.vatRate), amount: it.total == null ? null : Number(it.total),
+          name: it.name, vatRate, amount: it.total == null ? null : Number(it.total),
         });
-        u.utilityKey = charge ? utilityMemoryKey(utility.kind, charge) : null;
+        u.utilityKeys = charge ? utilityMemoryKeys(utility.kind, charge, vatRate) : [];
       }
     }
 
-    const patterns = Array.from(new Set(unmatched.flatMap((u) => (u.utilityKey ? [u.pattern, u.utilityKey] : [u.pattern]))));
+    const patterns = Array.from(new Set(unmatched.flatMap((u) => [u.pattern, ...u.utilityKeys])));
     const rules = await prisma.lineMatchRule.findMany({
       where: { pattern: { in: patterns }, afm: { in: afm ? [afm, ''] : [''] } },
       select: {
@@ -251,14 +252,16 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     });
 
     if (rules.length > 0) {
-      // Σειρά προτίμησης: κείμενο του εκδότη → είδος χρέωσης του εκδότη → γενικό κείμενο → γενικό
-      // είδος χρέωσης. Ο εκδότης κερδίζει πάντα· το ακριβές κείμενο κερδίζει το είδος χρέωσης.
+      // Σειρά προτίμησης: κείμενο του εκδότη → είδος χρέωσης του εκδότη (με ΦΠΑ, μετά χωρίς) → γενικό
+      // κείμενο → γενικό είδος χρέωσης (με ΦΠΑ, μετά χωρίς). Ο εκδότης κερδίζει πάντα· το ακριβές
+      // κείμενο κερδίζει το είδος χρέωσης· ο ΦΠΑ κερδίζει το σκέτο είδος.
       const byKey = new Map(rules.map((r) => [`${r.afm}|${r.pattern}`, r]));
+      const first = (prefix: string, keys: string[]) => keys.map((k) => byKey.get(`${prefix}|${k}`)).find(Boolean);
       const ruleFor = (u: (typeof unmatched)[number]) =>
         (afm ? byKey.get(`${afm}|${u.pattern}`) : undefined)
-        ?? (afm && u.utilityKey ? byKey.get(`${afm}|${u.utilityKey}`) : undefined)
+        ?? (afm ? first(afm, u.utilityKeys) : undefined)
         ?? byKey.get(`|${u.pattern}`)
-        ?? (u.utilityKey ? byKey.get(`|${u.utilityKey}`) : undefined);
+        ?? first('', u.utilityKeys);
       const mtrls = Array.from(new Set(rules.map((r) => r.mtrl).filter((v): v is number => v != null)));
       const expns = Array.from(new Set(rules.map((r) => r.expn).filter((v): v is number => v != null)));
       const lins = Array.from(new Set(rules.map((r) => r.lin).filter((v): v is number => v != null)));

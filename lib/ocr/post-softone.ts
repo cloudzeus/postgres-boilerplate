@@ -218,7 +218,7 @@ async function gather(id: string): Promise<Gathered> {
       orderBy: { rowIndex: 'asc' },
       select: {
         rowIndex: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneIsService: true,
-        softoneCostCntr: true, softonePrjc: true, softonePrjcStage: true,
+        softoneCostCntr: true, softonePrjc: true, softonePrjcStage: true, softoneMatchedBy: true, total: true,
         // Ο επιμερισμός σε πολλούς λογαριασμούς — όταν υπάρχει, ΥΠΕΡΙΣΧΥΕΙ της μονής αντιστοίχισης.
         allocations: { orderBy: { order: 'asc' }, select: { registryMtrl: true, amount: true, percent: true, kind: true } },
       },
@@ -299,8 +299,12 @@ async function gather(id: string): Promise<Gathered> {
     const hasClass = Boolean(
       myDataCode || lin?.classType || lin?.classCategory || expense?.classTypeX || expense?.classCategoryX,
     );
+    // Μηδενική γραμμή που ο χρήστης παρέλειψε ρητά: δεν στέλνεται, δεν μπλοκάρει (βλ. `PurdocLineCtx.omit`).
+    const omit = i.softoneMatchedBy === 'skipped' && !matched && (i.allocations ?? []).length === 0
+      && Math.abs(Number(i.total ?? 0)) < 0.005;
     return {
       rowIndex: i.rowIndex,
+      ...(omit ? { omit: true } : {}),
       mtrl: i.softoneMtrl,
       expn: i.softoneExpn,
       lin: i.softoneLinMtrl,

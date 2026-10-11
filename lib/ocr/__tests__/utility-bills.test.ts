@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  analyzeUtility, classifyUtilityCharge, detectUtility, utilityMemoryKey, utilityMemoryKeyLabel,
+  analyzeUtility, classifyUtilityCharge, detectUtility, utilityMemoryKey, utilityMemoryKeyLabel, utilityMemoryKeys,
   utilityInputFromDocument,
 } from '@/lib/ocr/utility-bills';
 
@@ -81,6 +81,13 @@ describe('κλειδιά μνήμης', () => {
     expect(utilityMemoryKey('telecom', 'discount')).toBe('@utility:telecom:consumption');
     expect(utilityMemoryKeyLabel('@utility:electricity:municipal')).toBe('Ρεύμα · Δημοτικά τέλη');
     expect(utilityMemoryKeyLabel('ρευμα')).toBeNull();
+  });
+
+  it('με ΦΠΑ πρώτα το ειδικό κλειδί, μετά το γενικό· η έκπτωση χωρίς ΦΠΑ', () => {
+    expect(utilityMemoryKeys('water', 'consumption', 24)).toEqual(['@utility:water:consumption@24', '@utility:water:consumption']);
+    expect(utilityMemoryKeys('water', 'consumption', null)).toEqual(['@utility:water:consumption']);
+    expect(utilityMemoryKeys('telecom', 'discount', 24)).toEqual(['@utility:telecom:consumption']);
+    expect(utilityMemoryKeyLabel('@utility:water:consumption@24')).toBe('Νερό · Κατανάλωση & πάγια · 24%');
   });
 });
 

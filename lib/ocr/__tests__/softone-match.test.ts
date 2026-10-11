@@ -341,6 +341,22 @@ describe('matchDocItems — μνήμη είδους χρέωσης (λογαρι
     expect(updateFor('l1')).toMatchObject({ softoneLinMtrl: 7401 });
   });
 
+  it('ο κανόνας του ΦΠΑ της γραμμής κερδίζει την προεπιλογή του είδους (ύδρευση 13% / πάγιο 24%)', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ issuerAfm: '094079101', document: { issuer: { name: 'ΕΥΔΑΠ' } } });
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { id: 'l1', code: null, name: 'ΥΔΡΕΥΣΗ (198,00M3)', vatRate: 13, total: 600, softoneMatchedBy: null },
+      { id: 'l2', code: null, name: 'ΠΑΓΙΟ ΤΕΛΟΣ ΤΡΙΜΗΝΟΥ', vatRate: 24, total: 5.5, softoneMatchedBy: null },
+    ]);
+    db.lineMatchRule.findMany.mockResolvedValue([
+      { id: 'r1', afm: '', pattern: '@utility:water:consumption', mtrl: null, expn: null, lin: 8540, isService: false, costCntr: null, prjc: null, prjcStage: null },
+      { id: 'r2', afm: '', pattern: '@utility:water:consumption@24', mtrl: null, expn: null, lin: 8542, isService: false, costCntr: null, prjc: null, prjcStage: null },
+    ]);
+    db.softoneLineItem.findMany.mockResolvedValue([]);
+    await matchDocItems('doc1');
+    expect(updateFor('l1')).toMatchObject({ softoneLinMtrl: 8540 });
+    expect(updateFor('l2')).toMatchObject({ softoneLinMtrl: 8542 });
+  });
+
   it('συνηθισμένο τιμολόγιο: κανένα κλειδί είδους χρέωσης', async () => {
     db.ocrDocument.findUnique.mockResolvedValue({ issuerAfm: '094073495', document: { issuer: { name: 'SOL HELLAS' } } });
     db.ocrInvoiceItem.findMany.mockResolvedValue([

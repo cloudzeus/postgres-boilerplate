@@ -168,6 +168,16 @@ describe('postingBlockers', () => {
     expect(postingBlockers(doc({ lines: [] }), postingDoc(), ctx({ lines: [] }))).toContain('no_lines');
   });
 
+  it('μηδενική γραμμή που παραλείφθηκε ρητά (omit) δεν μπλοκάρει και δεν στέλνεται', () => {
+    const c = ctx({ lines: [{ rowIndex: 0, mtrl: 555, expn: null, isService: false }, { rowIndex: 1, omit: true }] });
+    expect(postingBlockers(doc(), postingDoc(), c)).not.toContain('unmatched_lines');
+    const p = buildPurdocPayload(doc(), c);
+    expect([...(p.DATA.ITELINES ?? []), ...(p.DATA.SRVLINES ?? [])]).toHaveLength(1);
+    // Χωρίς τη σημαία (π.χ. παραλειμμένη γραμμή ΜΕ ποσό) η γραμμή μπλοκάρει όπως πάντα.
+    expect(postingBlockers(doc(), postingDoc(), ctx({ lines: [{ rowIndex: 0, mtrl: 555, expn: null, isService: false }, { rowIndex: 1 }] })))
+      .toContain('unmatched_lines');
+  });
+
   it('συντελεστής ΦΠΑ χωρίς κωδικό στο μητρώο → no_vat_category', () => {
     const d = doc({ lines: [{ ...doc().lines[0], vatRate: 17 }] });
     const c = ctx({ lines: [{ rowIndex: 0, mtrl: 555, expn: null, isService: false }] });

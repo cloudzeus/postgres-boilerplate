@@ -192,8 +192,20 @@ export function classifyUtilityCharge(
  * μειώνει, άρα μοιράζεται το κλειδί της. Το πρόθεμα `@` δεν μπορεί να βγει ποτέ από το
  * `normalizeLineText` (μόνο γράμματα/ψηφία), οπότε δεν συγκρούεται με κανόνα κειμένου.
  */
-export function utilityMemoryKey(kind: UtilityKind, charge: UtilityCharge): string {
-  return `@utility:${kind}:${charge === 'discount' ? 'consumption' : charge}`;
+export function utilityMemoryKey(kind: UtilityKind, charge: UtilityCharge, vatRate?: number | null): string {
+  const base = `@utility:${kind}:${charge === 'discount' ? 'consumption' : charge}`;
+  return vatRate == null || !Number.isFinite(vatRate) ? base : `${base}@${vatRate}`;
+}
+
+/**
+ * Τα κλειδιά μιας γραμμής, από το πιο ειδικό στο πιο γενικό: πρώτα με τον ΦΠΑ της («νερό ·
+ * κατανάλωση · 13%»), μετά χωρίς. Ο ΦΠΑ μετράει γιατί το ίδιο είδος χρέωσης πάει σε άλλον
+ * λογαριασμό ανά συντελεστή (ύδρευση 13% → 62.02.00.0013, πάγιο τέλος 24% → 62.02.00.0024).
+ * Η έκπτωση δεν παίρνει δικό της κλειδί ΦΠΑ: ακολουθεί την κατανάλωση που μειώνει.
+ */
+export function utilityMemoryKeys(kind: UtilityKind, charge: UtilityCharge, vatRate?: number | null): string[] {
+  const base = utilityMemoryKey(kind, charge);
+  return vatRate == null || !Number.isFinite(vatRate) || charge === 'discount' ? [base] : [utilityMemoryKey(kind, charge, vatRate), base];
 }
 
 export function isUtilityMemoryKey(pattern: string): boolean {
@@ -202,11 +214,11 @@ export function isUtilityMemoryKey(pattern: string): boolean {
 
 /** «Ρεύμα · Κατανάλωση & πάγια» από ένα κλειδί μνήμης — για τη λίστα κανόνων. */
 export function utilityMemoryKeyLabel(pattern: string): string | null {
-  const m = /^@utility:([a-z_]+):([a-z_]+)$/.exec(pattern);
+  const m = /^@utility:([a-z_]+):([a-z_]+)(?:@([\d.]+))?$/.exec(pattern);
   if (!m) return null;
   const kind = UTILITY_KIND_LABEL[m[1] as UtilityKind];
   const charge = UTILITY_CHARGE_LABEL[m[2] as UtilityCharge];
-  return kind && charge ? `${kind} · ${charge}` : null;
+  return kind && charge ? `${kind} · ${charge}${m[3] ? ` · ${m[3]}%` : ''}` : null;
 }
 
 export type UtilityFindingCode =

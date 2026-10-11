@@ -1243,31 +1243,45 @@ export async function rememberUtilityMatch(input: {
   const afm = line.document.issuerAfm ?? '';
   const utility = detectUtilityForItems(line.document.document, afm, line.document.items);
   if (!utility) return null;
+  const vatRate = line.vatRate == null ? null : Number(line.vatRate);
   const charge = classifyUtilityCharge(utility.kind, {
-    name: line.name, vatRate: line.vatRate == null ? null : Number(line.vatRate), amount: line.total == null ? null : Number(line.total),
+    name: line.name, vatRate, amount: line.total == null ? null : Number(line.total),
   });
   if (!charge) return null;
 
-  const pattern = utilityMemoryKey(utility.kind, charge);
   const { mtrl, expn, lin, isService } = input.match;
   const target = { mtrl, expn, lin, isService, targetSource: 'manual' };
-  if (afm) {
-    await prisma.lineMatchRule.upsert({
-      where: { afm_pattern: { afm, pattern } },
-      update: { ...target, ...input.analytics, timesUsed: { increment: 1 } },
-      create: { afm, pattern, ...target, ...input.analytics, createdById: input.userId ?? null },
+  const base = utilityMemoryKey(utility.kind, charge);
+  // Ο ΦΠΑ μπαίνει στο κλειδί (όχι για την έκπτωση): ύδρευση 13% και πάγιο τέλος 24% είναι το ίδιο
+  // είδος χρέωσης αλλά άλλος λογαριασμός. Το κλειδί ΧΩΡΙΣ ΦΠΑ είναι η ΠΡΟΕΠΙΛΟΓΗ του είδους: γράφεται
+  // μόνο αν δεν υπάρχει ήδη, ώστε μια απόφαση για 24% να μη μετακινήσει τις γραμμές 13%.
+  const withVat = vatRate != null && Number.isFinite(vatRate) && charge !== 'discount' ? utilityMemoryKey(utility.kind, charge, vatRate) : null;
+  type Extra = Partial<Prisma.LineMatchRuleUncheckedCreateInput>;
+  const upsert = (where: { afm: string; pattern: string }, extra: Extra) =>
+    prisma.lineMatchRule.upsert({
+      where: { afm_pattern: where },
+      update: { ...target, ...extra, timesUsed: { increment: 1 } },
+      create: { ...where, ...target, ...extra, createdById: input.userId ?? null },
     });
-  }
-  // Ο γενικός κανόνας ΔΕΝ κρατά αναλυτική: το κέντρο κόστους ενός παρόχου (π.χ. η παροχή του
-  // εργοστασίου) δεν είναι σωστή πρόταση για τον λογαριασμό άλλου παρόχου.
-  await prisma.lineMatchRule.upsert({
-    where: { afm_pattern: { afm: '', pattern } },
-    update: { ...target, timesUsed: { increment: 1 } },
-    create: { afm: '', pattern, ...target, createdById: input.userId ?? null },
-  });
+  const keep = async (where: { afm: string; pattern: string }, extra: Extra) => {
+    const exists = await prisma.lineMatchRule.findUnique({ where: { afm_pattern: where }, select: { id: true } });
+    if (!exists) await upsert(where, extra);
+  };
+  // Ο κανόνας του εκδότη κρατά και αναλυτική· ο γενικός ΟΧΙ: το κέντρο κόστους ενός παρόχου (π.χ. η
+  // παροχή του εργοστασίου) δεν είναι σωστή πρόταση για τον λογαριασμό άλλου παρόχου.
+  const learn = async (who: string, extra: Extra) => {
+    if (!withVat) return void (await upsert({ afm: who, pattern: base }, extra));
+    await upsert({ afm: who, pattern: withVat }, extra);
+    await keep({ afm: who, pattern: base }, extra);
+  };
+  if (afm) await learn(afm, input.analytics);
+  await learn('', {});
 
   const propagated = await propagateUtilityMemory(utility.kind);
-  return { label: `${UTILITY_KIND_LABEL[utility.kind]} · ${UTILITY_CHARGE_LABEL[charge]}`, propagated };
+  return {
+    label: `${UTILITY_KIND_LABEL[utility.kind]} · ${UTILITY_CHARGE_LABEL[charge]}${withVat ? ` · ${vatRate}%` : ''}`,
+    propagated,
+  };
 }
 
 const isMatched = (i: { softoneMtrl: number | null; softoneExpn: number | null; softoneLinMtrl: number | null }) =>
