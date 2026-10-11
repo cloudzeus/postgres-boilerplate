@@ -175,10 +175,9 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
               ? (
                 <Popover>
                   <PopoverTrigger asChild>
-                    <button type="button"
-                      className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-current/20 px-2 py-1 text-[length:var(--fs-11)] font-semibold hover:bg-current/5">
+                    <SegmentAction>
                       {data.supplier.mismatch ? 'Διόρθωσε' : data.supplier.found ? 'Αλλαγή' : 'Δημιουργία'} <FiChevronDown className="size-3" />
-                    </button>
+                    </SegmentAction>
                   </PopoverTrigger>
                   <PopoverContent align="end" className="w-[24rem] space-y-2">
                     {req ? (
@@ -261,10 +260,9 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
               : itemsUnmatched === 0 ? `Όλες αντιστοιχισμένες (${data.items.total})` : itemsNeed}
             action={itemsTone === 'warn'
               ? (
-                <button type="button" onClick={() => setOpen((o) => !o)}
-                  className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-current/20 px-2 py-1 text-[length:var(--fs-11)] font-semibold hover:bg-current/5">
+                <SegmentAction onClick={() => setOpen((o) => !o)}>
                   Επίλυση <FiChevronDown className={cn('size-3 transition-transform', open && 'rotate-180')} />
-                </button>
+                </SegmentAction>
               )
               : undefined}
           />}
@@ -339,11 +337,13 @@ function Segment({
 }: { tone: Tone; icon: React.ReactNode; title: string; value: string; action?: React.ReactNode }) {
   const t = TONE[tone];
   const StatusIcon = tone === 'ok' ? FiCheck : tone === 'danger' ? FiAlertOctagon : tone === 'warn' ? FiAlertTriangle : FiLoader;
-  // Η ενέργεια πάει σε ΔΙΚΗ της γραμμή, κάτω από την κατάσταση. Δίπλα της, σε τέσσερις στήλες,
-  // έτρωγε τον χώρο του κειμένου και η κατάσταση γινόταν «Δεν βρέθ…» — δηλαδή το τμήμα έλεγε
-  // ότι κάτι φταίει χωρίς να λέει τι.
+  // Η ενέργεια στην ΙΔΙΑ γραμμή με την κατάσταση, δεξιά.
+  //
+  // Είχε φύγει σε δική της γραμμή όταν η λωρίδα είχε ΤΕΣΣΕΡΑ τμήματα και το κουμπί έτρωγε τον
+  // χώρο του κειμένου. Τα τμήματα είναι πια δύο — και μια ολόκληρη σειρά για ένα κουμπί 90px
+  // ήταν μεγαλύτερη σπατάλη από αυτήν που απέτρεπε. Το κείμενο κρατά `truncate` + tooltip.
   return (
-    <div className="px-4 py-3">
+    <div className="px-4 py-2.5">
       <div className="flex items-center gap-3">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg" style={{ backgroundColor: t.bg, color: t.fg }}>
           {icon}
@@ -357,8 +357,35 @@ function Segment({
             <span className="truncate text-[length:var(--fs-13)] font-medium text-foreground" title={value}>{value}</span>
           </div>
         </div>
+        {action}
       </div>
-      {action && <div className="mt-2 flex justify-end" style={{ color: t.fg }}>{action}</div>}
     </div>
+  );
+}
+
+/**
+ * Το κουμπί ενέργειας της λωρίδας.
+ *
+ * ΤΟ ΧΡΩΜΑ ΤΗΣ ΚΑΤΑΣΤΑΣΗΣ ΔΕΝ ΕΙΝΑΙ ΧΡΩΜΑ ΚΟΥΜΠΙΟΥ. Το `#B45309` της προειδοποίησης είναι καφέ:
+ * σωστό για ένα εικονίδιο «πρόσεξε», απαράδεκτο ως γέμισμα κουμπιού. Η ενέργεια παίρνει το ΜΠΛΕ
+ * ΤΗΣ ΕΦΑΡΜΟΓΗΣ με λευκά γράμματα — ένα χρώμα για «πάτα εδώ» σε όλη την εφαρμογή, όση ποικιλία
+ * κι αν έχουν οι καταστάσεις δίπλα του. Η κατάσταση μιλά με το εικονίδιο και το κείμενό της.
+ */
+function SegmentAction({
+  children, className, ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button" {...rest}
+      className={cn(
+        'inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md bg-sisyphus-500 px-2.5',
+        'text-[length:var(--fs-11)] font-semibold text-white shadow-sm transition',
+        'hover:bg-sisyphus-600 active:bg-sisyphus-700',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-500/40 focus-visible:ring-offset-1',
+        className,
+      )}
+    >
+      {children}
+    </button>
   );
 }

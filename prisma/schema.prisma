@@ -2233,3 +2233,74 @@ model GeocodeCache {
 
   @@index([usedAt])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ΣΥΝΔΕΣΗ SOFTONE: ταυτότητα εγκατάστασης, εμπιστοσύνη καθρεφτών, ουρά εργασιών
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum SoftoneOutboxStatus {
+  PENDING // Περιμένει σύνδεση. Ασφαλές να σταλεί — ΔΕΝ έχει φτάσει ποτέ στο ERP.
+  SENT // Έφυγε και επιβεβαιώθηκε.
+  NEEDS_REVIEW // Η αίτηση ΙΣΩΣ έφτασε (διακοπή εν πτήσει). ΔΕΝ ξαναστέλνεται μόνη της.
+  REJECTED // Το SoftOne την απέρριψε για επιχειρησιακό λόγο — η επανάληψη δεν θα βοηθήσει.
+  CANCELLED // Ο χρήστης την ακύρωσε.
+}
+
+/// Μια εργασία ΕΓΓΡΑΦΗΣ προς το SoftOne που δεν μπόρεσε να φύγει τώρα.
+///
+/// Υπάρχει επειδή η σύνδεση με το ERP ΠΕΦΤΕΙ: όταν συνέβη, ο χρήστης έχανε τη δουλειά του και
+/// έβλεπε ένα τεχνικό μήνυμα. Τώρα η εργασία μπαίνει σε σειρά και φεύγει μόλις ξανασυνδεθούμε.
+///
+/// ΤΟ ΚΡΙΣΙΜΟ ΕΙΝΑΙ ΤΟ `NEEDS_REVIEW`. Μια εγγραφή που «ίσως έφτασε» ΔΕΝ ξαναστέλνεται αυτόματα:
+/// μια δεύτερη `setData` θα δημιουργούσε ΔΙΠΛΟ συναλλασσόμενο ή διπλό παραστατικό. Αυτόματη
+/// επανάληψη γίνεται μόνο όταν ξέρουμε ότι το αίτημα ΔΕΝ εκτελέστηκε ποτέ.
+model SoftoneOutbox {
+  id String @id @default(cuid())
+
+  /// Η εγκατάσταση για την οποία φτιάχτηκε. Εργασία άλλου tenant ΔΕΝ εκτελείται ποτέ —
+  /// τα ids μέσα της (TRDR, MTRL, σειρές) δεν σημαίνουν τίποτα αλλού.
+  tenantKey      String
+  kind           String // π.χ. «trader.create»
+  label          String // Τι βλέπει ο χρήστης στη λίστα αναμονής
+  service        String // Η υπηρεσία SoftOne («setData», …)
+  payload        Json
+  /// Κλειδί ιδεμποτικότητας: δεύτερη ίδια εργασία δεν μπαίνει δεύτερη φορά στην ουρά.
+  idempotencyKey String              @unique
+  status         SoftoneOutboxStatus @default(PENDING)
+  attempts       Int                 @default(0)
+  lastError      String?
+  result         Json?
+  createdById    String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  sentAt         DateTime?
+
+  @@index([status, createdAt])
+  @@index([tenantKey])
+}
+
+/// Πότε και για ΠΟΙΑ εγκατάσταση κατέβηκε ο κάθε βοηθητικός πίνακας.
+///
+/// Χωρίς αυτό, μια αλλαγή λογαριασμού SoftOne περνούσε ΑΠΑΡΑΤΗΡΗΤΗ: οι καθρέφτες κρατούσαν
+/// TRDR/MTRL της ΠΑΛΙΑΣ εγκατάστασης, η εφαρμογή τα εμφάνιζε σαν έγκυρα, και η επόμενη
+/// καταχώριση θα έδειχνε σε ανύπαρκτες — ή, χειρότερα, σε ΑΛΛΕΣ — εγγραφές.
+model SoftoneMirrorState {
+  table     String   @id // 'traders' | 'items' | 'accounts' | …
+  tenantKey String
+  syncedAt  DateTime
+  rows      Int      @default(0)
+
+  @@index([tenantKey])
+}
+
+/// Ημερολόγιο της σύνδεσης: πτώσεις, επανασυνδέσεις και αλλαγές εγκατάστασης.
+model SoftoneConnectionEvent {
+  id            String   @id @default(cuid())
+  at            DateTime @default(now())
+  kind          String // 'up' | 'down' | 'tenant_changed'
+  tenantKey     String?
+  prevTenantKey String?
+  detail        Json?
+
+  @@index([at])
+}

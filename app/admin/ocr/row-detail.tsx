@@ -131,6 +131,10 @@ function fmt2(v: unknown): string {
 /* ------------------------------------------------------------------ */
 
 const LABEL_CLS = 'text-[length:var(--fs-11)] font-semibold text-muted-foreground';
+/** Ένα ανενεργό κουμπί δεν είναι «ξεθωριασμένο χρωματιστό» — είναι ουδέτερο. */
+const DISABLED_CLS =
+  'disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none ' +
+  'disabled:hover:bg-muted';
 const INPUT_CLS =
   'h-8 w-full rounded-md border border-input bg-background px-2 text-[length:var(--fs-12)] text-foreground ' +
   'placeholder:text-muted-foreground/60 transition focus:border-sisyphus-500 focus:outline-none ' +
@@ -831,10 +835,16 @@ export function OcrRowDetail({
 
           {/* ---- Footer (sticky action bar — always visible) ---- */}
           <div className="sticky bottom-0 z-20 flex flex-col gap-2 rounded-b-xl border-t border-border bg-card/95 px-3 py-2.5 shadow-[0_-2px_10px_rgba(0,0,0,0.06)] backdrop-blur lg:flex-row lg:items-end lg:justify-between">
-            <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2 lg:max-w-xl">
+            {/* ΧΩΡΙΣ `lg:max-w-xl`: η μπάρα είχε χώρο, αλλά τα δύο combo ήταν κλεισμένα σε 36rem
+                και η επιλεγμένη σειρά («ΤΥΠΥΠ · Τιμολόγιο Παροχής Υπηρεσιών») κοβόταν στη μέση —
+                ο χρήστης δεν έβλεπε ΤΙ είχε διαλέξει. Η σειρά παίρνει διπλάσιο πλάτος από την
+                κατηγορία, γιατί τα ονόματά της είναι τριπλάσια. `title` για ολόκληρη την τιμή. */}
+            <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
               <label className="flex min-w-0 flex-col gap-0.5">
                 <span className={LABEL_CLS}>Είδος παραστατικού στο SoftOne</span>
-                <select value={seriesKey} disabled={ro} onChange={(e) => setSeriesKey(e.target.value)} className={cn(INPUT_CLS, 'w-full cursor-pointer')}>
+                <select value={seriesKey} disabled={ro} onChange={(e) => setSeriesKey(e.target.value)}
+                  title={postableSeries.find((o) => `${o.sosource}:${o.code}` === seriesKey)?.name ?? 'Δεν έχει επιλεγεί σειρά'}
+                  className={cn(INPUT_CLS, 'w-full cursor-pointer')}>
                   <option value="">— Επιλογή σειράς —</option>
                   {/* Ομαδοποίηση όπως στο SoftOne: μία ομάδα ανά ΕΝΟΤΗΤΑ, με το όνομά της. */}
                   {[...new Set(postableSeries.map((o) => o.family))].map((family) => {
@@ -856,7 +866,9 @@ export function OcrRowDetail({
               </label>
               <label className="flex min-w-0 flex-col gap-0.5">
                 <span className={LABEL_CLS}>Κατηγορία</span>
-                <select value={category} disabled={ro} onChange={(e) => setCategory(e.target.value)} className={cn(INPUT_CLS, 'w-full')}>
+                <select value={category} disabled={ro} onChange={(e) => setCategory(e.target.value)}
+                  title={CATEGORY_OPTIONS.find((o) => o.value === category)?.label ?? 'Δεν έχει επιλεγεί κατηγορία'}
+                  className={cn(INPUT_CLS, 'w-full cursor-pointer')}>
                   <option value="">— Επιλογή —</option>
                   {CATEGORY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
@@ -869,14 +881,18 @@ export function OcrRowDetail({
                   <FiRotateCcw className="size-3.5" /> Επαναφορά
                 </button>
               )}
+              {/* ΑΠΕΝΕΡΓΟΠΟΙΗΜΕΝΟ = ΟΥΔΕΤΕΡΟ, ποτέ ξεθωριασμένο χρώμα μάρκας.
+                  Το `disabled:opacity-50` πάνω σε μπλε/πράσινο έβγαζε ένα λασπωμένο παστέλ που
+                  ούτε διαβαζόταν ούτε έλεγε «ανενεργό» — έμοιαζε με χαλασμένο κουμπί. Γκρι φόντο
+                  και σβησμένο κείμενο το λένε καθαρά, και το ενεργό χρώμα μένει πλήρες. */}
               <button type="button" disabled={ro || saving || !dirty} onClick={save}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-sisyphus-500 px-3.5 text-[length:var(--fs-12)] font-semibold text-white shadow-sm transition hover:bg-sisyphus-600 active:bg-sisyphus-700 disabled:opacity-50 disabled:hover:bg-sisyphus-500">
+                className={cn(DISABLED_CLS, 'inline-flex h-8 items-center gap-1.5 rounded-md bg-sisyphus-500 px-3.5 text-[length:var(--fs-12)] font-semibold text-white shadow-sm transition hover:bg-sisyphus-600 active:bg-sisyphus-700')}>
                 <FiSave className="size-3.5" /> {saving ? 'Αποθήκευση…' : 'Αποθήκευση'}
               </button>
               <button type="button"
                 disabled={!canPost || posting || row.status !== 'COMPLETED' || !category || row.postStatus === 'POSTED'}
                 onClick={post}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 text-[length:var(--fs-12)] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50">
+                className={cn(DISABLED_CLS, 'inline-flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 text-[length:var(--fs-12)] font-semibold text-white shadow-sm transition hover:bg-emerald-700')}>
                 <FiSend className="size-3.5" /> {posting ? 'Ανάρτηση…' : row.postStatus === 'POSTED' ? 'Αναρτήθηκε' : 'Ανάρτηση'}
               </button>
             </div>

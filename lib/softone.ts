@@ -56,6 +56,46 @@ export class SoftoneOrphanError extends SoftoneError {
 }
 
 /** Λείπουν ρυθμίσεις σύνδεσης — ούτε ο ERP φταίει, ούτε η βάση: η διαμόρφωση. */
+/**
+ * Η ΜΕΤΑΦΟΡΑ απέτυχε: το ERP δεν απάντησε, ή απάντησε κάτι που δεν είναι απάντηση υπηρεσίας.
+ *
+ * Το `phase` είναι ΤΟ ΠΙΟ ΚΡΙΣΙΜΟ ΠΕΔΙΟ ΟΛΟΥ ΤΟΥ ΑΡΧΕΙΟΥ, γιατί πάνω του κρίνεται αν μια
+ * εγγραφή επιτρέπεται να ξανασταλεί:
+ *
+ *   `not_sent` — ΞΕΡΟΥΜΕ ότι το ERP δεν εκτέλεσε τίποτα (DNS/άρνηση σύνδεσης, ή ο host απάντησε
+ *                404/502/503/504 χωρίς να φτάσει το αίτημα στην εφαρμογή). Ασφαλές να επαναληφθεί.
+ *   `unknown`  — το αίτημα ΜΠΟΡΕΙ να εκτελέστηκε και χάθηκε η απάντηση (διακοπή εν πτήσει,
+ *                HTTP 500, σώμα που δεν διαβάζεται). ΑΠΑΓΟΡΕΥΕΤΑΙ η αυτόματη επανάληψη: μια
+ *                δεύτερη `setData` θα έφτιαχνε ΔΙΠΛΟ συναλλασσόμενο ή διπλό παραστατικό.
+ */
+export class SoftoneTransportError extends SoftoneError {
+  readonly phase: 'not_sent' | 'unknown';
+  readonly httpStatus: number | null;
+  constructor(message: string, phase: 'not_sent' | 'unknown', httpStatus: number | null, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'SoftoneTransportError';
+    this.phase = phase;
+    this.httpStatus = httpStatus;
+  }
+}
+
+/** Κωδικοί λάθους δικτύου που σημαίνουν ότι ΔΕΝ άνοιξε καν σύνδεση — άρα τίποτα δεν εκτελέστηκε. */
+const NEVER_SENT_CODES = new Set([
+  'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'ERR_INVALID_URL',
+  'CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'DEPTH_ZERO_SELF_SIGNED_CERT',
+]);
+
+/** Ο κωδικός λάθους ενός `fetch` rejection, όσο βαθιά κι αν είναι θαμμένος στις αιτίες. */
+function networkCode(e: unknown): string | null {
+  let cur: unknown = e;
+  for (let i = 0; i < 5 && cur != null; i++) {
+    const code = (cur as { code?: unknown }).code;
+    if (typeof code === 'string') return code;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return null;
+}
+
 export class SoftoneConfigError extends SoftoneError {
   constructor(message: string) {
     super(message);
@@ -148,7 +188,14 @@ export async function softoneFetch<T = Record<string, unknown>>(
   } catch (e) {
     // Δίκτυο/DNS/TLS: το SoftOne δεν απάντησε καν. Τυποποιείται, για να μην μπερδευτεί
     // αργότερα με αποτυχία της τοπικής βάσης.
-    throw new SoftoneError(`Το SoftOne δεν απάντησε (${(e as Error).message})`, { cause: e });
+    const code = networkCode(e);
+    const host = (() => { try { return new URL(endpoint).host; } catch { return endpoint; } })();
+    throw new SoftoneTransportError(
+      `Το SoftOne (${host}) δεν απάντησε: ${(e as Error).message}`,
+      code && NEVER_SENT_CODES.has(code) ? 'not_sent' : 'unknown',
+      null,
+      { cause: e },
+    );
   }
 
   // Always ArrayBuffer — res.text()/res.json() assume UTF-8 and corrupt Greek.
@@ -161,9 +208,19 @@ export async function softoneFetch<T = Record<string, unknown>>(
   try {
     return JSON.parse(text) as T;
   } catch (e) {
-    // Απάντηση που δεν είναι JSON (HTML σφάλματος από proxy, άδειο σώμα κ.λπ.).
-    throw new SoftoneError(
-      `Μη αναγνώσιμη απάντηση SoftOne (HTTP ${res.status}): ${text.slice(0, 200)}`,
+    // Απάντηση που ΔΕΝ είναι JSON. Το σκέτο «Μη αναγνώσιμη απάντηση (HTTP 404)» δεν έλεγε τίποτα
+    // σε κανέναν: 404 από τον host σημαίνει ότι το `/s1services` ΔΕΝ είναι δημοσιευμένο εκεί —
+    // λάθος serial ή κλειστή εγκατάσταση — και καμία ρύθμιση μέσα στην εφαρμογή δεν το φτιάχνει.
+    const host = (() => { try { return new URL(endpoint).host; } catch { return endpoint; } })();
+    const notSent = res.status === 404 || res.status === 502 || res.status === 503 || res.status === 504;
+    throw new SoftoneTransportError(
+      res.status === 404
+        ? `Η υπηρεσία SoftOne δεν υπάρχει στο ${host} (HTTP 404). Έλεγξε το Serial/υποτομέα στις Ρυθμίσεις — ή η εγκατάσταση δεν δημοσιεύει Web Services.`
+        : notSent
+          ? `Το SoftOne (${host}) δεν είναι διαθέσιμο αυτή τη στιγμή (HTTP ${res.status}).`
+          : `Μη αναγνώσιμη απάντηση SoftOne (${host}, HTTP ${res.status}): ${text.slice(0, 200)}`,
+      notSent ? 'not_sent' : 'unknown',
+      res.status,
       { cause: e },
     );
   }
