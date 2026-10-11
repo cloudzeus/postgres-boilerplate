@@ -40,7 +40,7 @@ describe('loadUtilityGaps', () => {
     ]);
     const [g] = await loadUtilityGaps();
     expect(g).toMatchObject({ kind: 'water', charge: 'consumption', lines: 2, vatRate: 13 });
-    expect(g.toOpen).toEqual({ code: '62.02.00.0013', name: 'Ύδρευση παραγωγικής διαδικασίας με Φ.Π.Α. 13%' });
+    expect(g.toOpen).toEqual({ code: '62.02.00.0013', name: 'Ύδρευση παραγωγικής διαδικασίας με Φ.Π.Α. 13%', vatRate: 13 });
     expect(g.suggestions.map((s) => s.code)).toEqual(['62.02.00.0009', '62.02.00.0019']);
   });
 
