@@ -1,3 +1,4 @@
+import { BulkResolveItemsButton } from '@/components/admin/bulk-resolve-items';
 import { FiPackage } from 'react-icons/fi';
 import { prisma } from '@/lib/db';
 import { requirePermission, hasPermission } from '@/lib/rbac';
@@ -49,6 +50,11 @@ export default async function NewItemsPage() {
     }),
   ]);
 
+  const vatOpts = disambiguateLabels(vats.map((v) => ({
+    code: v.code, label: v.rate != null ? `${v.descr} (${v.rate}%)` : v.descr, rate: v.rate,
+  })));
+  const unitOpts = disambiguateLabels(units.map((u) => ({ code: u.code, label: u.name })));
+
   return (
     <NewItemsClient
       header={
@@ -57,6 +63,26 @@ export default async function NewItemsPage() {
           title="Είδη & έξοδα"
           description="Γραμμές παραστατικών που δεν βρέθηκαν στο SoftOne — αντιστοίχισέ τες ή δημιούργησε νέο είδος/έξοδο."
           helpAnchor="new-items"
+          // Μόνο ό,τι χρειάζεται η κρίση ανά ομάδα: η κορυφαία πρόταση γίνεται ΕΠΙΛΟΓΗ, όχι απόφαση.
+          actions={
+            <BulkResolveItemsButton
+              canManage={canManage}
+              vats={vatOpts}
+              units={unitOpts}
+              groups={queue.groups.map((g) => {
+                const s = g.suggestions?.[0];
+                const id = s ? (s.lin ?? s.expn ?? s.mtrl) : null;
+                return {
+                  key: g.key, afm: g.afm, pattern: g.pattern, sample: g.sample, supplier: g.supplier,
+                  code: g.code, category: g.category, lineCount: g.lineCount, docCount: g.docCount,
+                  price: g.lines.find((l) => l.price != null)?.price ?? null,
+                  suggestion: s && id != null
+                    ? { kind: s.kind, id, code: s.code, name: s.name, isService: s.kind === 'service', score: s.score }
+                    : null,
+                };
+              })}
+            />
+          }
         />
       }
       initialGroups={queue.groups}
@@ -66,10 +92,8 @@ export default async function NewItemsPage() {
       canManage={canManage}
       // Δύο κατηγορίες ΦΠΑ μπορούν να έχουν ΙΔΙΑ περιγραφή («Μηδενικός Συντελεστής ΦΠΑ 0%»)
       // με διαφορετικό κωδικό: τότε — και μόνο τότε — η ετικέτα κουβαλά και τον κωδικό.
-      vats={disambiguateLabels(vats.map((v) => ({
-        code: v.code, label: v.rate != null ? `${v.descr} (${v.rate}%)` : v.descr, rate: v.rate,
-      })))}
-      units={disambiguateLabels(units.map((u) => ({ code: u.code, label: u.name })))}
+      vats={vatOpts}
+      units={unitOpts}
       itemGroups={disambiguateLabels(groups.map((g) => ({ code: g.code, label: g.name })))}
       itemCategories={disambiguateLabels(categories.map((c) => ({ code: c.code, label: c.name })))}
       lineCategories={lineCategories.map((c) => ({ id: c.mtrCategory, label: c.name || c.code }))}

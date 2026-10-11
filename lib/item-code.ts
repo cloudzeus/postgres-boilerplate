@@ -12,6 +12,7 @@
  * 20 χαρακτήρες, δύο διαφορετικές μακριές περιγραφές παράγουν τον ΙΔΙΟ κωδικό.
  */
 
+import { erpMaskAccepts } from '@/lib/erp-mask';
 import { nextCode, isCodeTaken, type NextCodeResult } from '@/lib/next-code';
 
 /**
@@ -75,21 +76,76 @@ export function proposeItemCode(opts: {
   supplierCode?: string | null;
   /** `softone.itemCodeMask.<kind>` — μόνο για άδειο μητρώο. */
   mask?: string | null;
+  /**
+   * Η μάσκα που ΕΠΙΒΑΛΛΕΙ το SoftOne (βλ. `lib/erp-mask.ts`). Όταν είναι γνωστή, το μοτίβο
+   * βγαίνει ΜΟΝΟ από κωδικούς που την τηρούν, και κωδικός προμηθευτή εκτός μάσκας αγνοείται.
+   */
+  erpMask?: string | null;
+  /**
+   * Κωδικοί ΑΛΛΩΝ τύπων του ίδιου πίνακα (όλο το MTRL). Δεν επηρεάζουν το ΜΟΤΙΒΟ — μόνο το «είναι
+   * ελεύθερος;». Ο κωδικός στο SoftOne είναι μοναδικός σε όλο τον πίνακα, όχι ανά τύπο.
+   */
+  takenElsewhere?: readonly string[];
 }): ItemCodeProposal {
-  const existing = opts.existing.map((c) => String(c ?? '').trim()).filter(Boolean);
-  const supplierCode = String(opts.supplierCode ?? '').trim() || null;
+  const own = opts.existing.map((c) => String(c ?? '').trim()).filter(Boolean);
+  // `all` = ό,τι είναι ΠΙΑΣΜΕΝΟ (δικοί + άλλων τύπων)· το μοτίβο βγαίνει μόνο από τους δικούς.
+  const all = [...own, ...(opts.takenElsewhere ?? []).map((c) => String(c ?? '').trim()).filter(Boolean)];
+  const erpMask = String(opts.erpMask ?? '').trim() || null;
+  const fits = (c: string) => erpMaskAccepts(erpMask, c);
+  // Η ΚΑΤΑΛΗΨΗ ελέγχεται σε ΟΛΟΥΣ τους κωδικούς· το ΜΟΤΙΒΟ μόνο σε όσους τηρούν τη μάσκα.
+  const existing = erpMask ? own.filter(fits) : own;
+  const rawSupplier = String(opts.supplierCode ?? '').trim() || null;
+  const supplierCode = rawSupplier && fits(rawSupplier) ? rawSupplier : null;
 
-  if (supplierCode && !isCodeTaken(existing, supplierCode)) {
+  if (supplierCode && !isCodeTaken(all, supplierCode)) {
     return {
       code: supplierCode,
       source: 'supplier',
       // Ίδια μέτρηση με το `nextCode`: διακριτοί κωδικοί, χωρίς διάκριση κεφαλαίων/πεζών.
-      taken: new Set(existing.map((c) => c.toUpperCase())).size,
+      taken: new Set(all.map((c) => c.toUpperCase())).size,
       supplierCodeTaken: false,
       supplierCode,
     };
   }
 
-  const next = nextCode(existing, { mask: opts.mask });
+  let next = nextCode(existing, { mask: opts.mask });
+  // Η πρόταση είναι ελεύθερη ανάμεσα στους κωδικούς ΤΟΥ ΤΥΠΟΥ — όχι απαραίτητα σε όλο τον πίνακα.
+  // Προχωράμε την ΙΔΙΑ αρίθμηση ώσπου να είναι ελεύθερη παντού (το μοτίβο δεν αλλάζει).
+  if (next.code && next.prefix != null && next.width != null) {
+    const takenAll = new Set(all.map((c) => c.toUpperCase()));
+    let n = Number(next.code.slice(next.prefix.length));
+    let cand = next.code;
+    for (let i = 0; i < 5000 && Number.isFinite(n) && (takenAll.has(cand.toUpperCase()) || !fits(cand)); i++) {
+      n += 1;
+      cand = next.prefix + String(n).padStart(next.width, '0');
+    }
+    if (cand !== next.code) next = { ...next, code: cand };
+  }
+  // Κανένας υπάρχων κωδικός δεν τηρεί τη μάσκα του ERP (π.χ. όλες οι υπηρεσίες είναι «ΥΠΗΡ-…»
+  // ενώ το ERP ζητά ψηφία): ο ΠΡΩΤΟΣ κωδικός βγαίνει από την ίδια τη μάσκα — «nnnnnnnnn» →
+  // «000000001» — και προχωρά ώσπου να βρει ελεύθερο ανάμεσα σε ΟΛΟΥΣ τους κωδικούς.
+  if (!next.code && erpMask) {
+    const first = firstFromErpMask(erpMask, all);
+    if (first) next = { code: first, source: 'mask', taken: all.length };
+  }
+  // Δίχτυ ασφαλείας: πρόταση που το ERP θα απέρριπτε δεν είναι πρόταση.
+  // `supplierCodeTaken` = ο κωδικός προμηθευτή ΤΗΡΟΥΣΕ τη μάσκα αλλά ήταν πιασμένος. Κωδικός εκτός
+  // μάσκας δεν είναι «πιασμένος» — απλώς δεν μετράει, και `supplierCode` είναι τότε null.
+  if (next.code && !fits(next.code)) return { code: null, source: 'none', taken: all.length, supplierCodeTaken: supplierCode != null, supplierCode };
   return { ...next, supplierCodeTaken: supplierCode != null, supplierCode };
+}
+
+/** Ο πρώτος ελεύθερος κωδικός που ταιριάζει σε μια μάσκα ERP: οι θέσεις ψηφίων γίνονται αρίθμηση. */
+function firstFromErpMask(erpMask: string, taken: readonly string[]): string | null {
+  const digitPos = [...erpMask].map((ch, i) => (/[nN9#0]/.test(ch) ? i : -1)).filter((i) => i >= 0);
+  if (digitPos.length === 0) return null;
+  const used = new Set(taken.map((c) => c.toUpperCase()));
+  const width = digitPos.length;
+  for (let n = 1; n < 10 ** Math.min(width, 9); n++) {
+    const digits = String(n).padStart(width, '0');
+    let k = 0;
+    const code = [...erpMask].map((ch, i) => (digitPos.includes(i) ? digits[k++] : ch)).join('');
+    if (!used.has(code.toUpperCase())) return code;
+  }
+  return null;
 }

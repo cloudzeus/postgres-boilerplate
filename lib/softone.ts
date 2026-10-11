@@ -1024,18 +1024,28 @@ export async function softoneLoadItemAux(): Promise<ItemAuxMeta> {
 }
 
 /** Builds the exact setData payload for an item create (also used for dry-run preview). */
-export function buildItemPayload(input: CreateItemInput): { OBJECT: 'ITEM'; KEY: ''; DATA: { ITEM: Record<string, unknown>[] } } {
+/**
+ * Το setData για νέο είδος Ή υπηρεσία.
+ *
+ * ΤΟ OBJECT ΟΡΙΖΕΙ ΤΟ SODTYPE, ΟΧΙ ΤΟ ΠΕΔΙΟ. Μέχρι τις 2026-10-11 και οι υπηρεσίες έφευγαν στο
+ * object `ITEM` με `SODTYPE: 52` — και το SoftOne το ΑΓΝΟΟΥΣΕ σιωπηλά: η «υπηρεσία» «Soft1 OpEn
+ * Serial Numbers-Service» γράφτηκε στο Demo S1 ως ΕΙΔΟΣ (MTRL 8509, SODTYPE 51). Ίδιος κανόνας με
+ * τους συναλλασσόμενους (SUPPLIER/CREDITOR/DEBTOR): η υπηρεσία έχει δικό της object, `SERVICE`
+ * (πίνακας `SERVICE` πάνω στο MTRL), που ορίζει μόνο του SODTYPE 52. Ο πίνακας `SERVICE` δεν έχει
+ * `MTRUNIT3/4` — μία μονάδα (`MTRUNIT1`) — οπότε δεν στέλνονται.
+ */
+export function buildItemPayload(input: CreateItemInput):
+  | { OBJECT: 'ITEM'; KEY: ''; DATA: { ITEM: Record<string, unknown>[] } }
+  | { OBJECT: 'SERVICE'; KEY: ''; DATA: { SERVICE: Record<string, unknown>[] } } {
   const row: Record<string, unknown> = {
     CODE: input.code,
     NAME: input.name,
-    SODTYPE: input.isService ? 52 : 51,
     MTRTYPE: 0,
     VAT: input.vat,
     MTRUNIT1: input.unit,
-    MTRUNIT3: input.unit,
-    MTRUNIT4: input.unit,
     ISACTIVE: 1,
   };
+  if (!input.isService) { row.MTRUNIT3 = input.unit; row.MTRUNIT4 = input.unit; }
   // ΜΟΝΟ χονδρική, όπως δόθηκε (δεν «βελτιώνουμε» αριθμό που έγραψε άνθρωπος).
   //
   // ΓΙΑΤΙ ΔΕΝ ΣΤΕΛΝΕΤΑΙ `PRICER`: η εφαρμογή καταχωρεί παραστατικά **αγορών, εξόδων και
@@ -1047,27 +1057,46 @@ export function buildItemPayload(input: CreateItemInput): { OBJECT: 'ITEM'; KEY:
   if (input.price != null) row.PRICEW = input.price;
   if (input.group) row.MTRGROUP = input.group;
   if (input.category) row.MTRCATEGORY = input.category;
-  if (input.manufacturer) row.MTRMANFCTR = input.manufacturer;
-  if (input.brand) row.MTRMARK = input.brand;
-  return { OBJECT: 'ITEM', KEY: '', DATA: { ITEM: [row] } };
+  if (!input.isService) {
+    if (input.manufacturer) row.MTRMANFCTR = input.manufacturer;
+    if (input.brand) row.MTRMARK = input.brand;
+  }
+  return input.isService
+    ? { OBJECT: 'SERVICE', KEY: '', DATA: { SERVICE: [row] } }
+    : { OBJECT: 'ITEM', KEY: '', DATA: { ITEM: [row] } };
 }
 
 /**
- * Creates a new item/service in SoftOne (setData on object ITEM → MTRL).
- * Returns the new MTRL id. Required fields: CODE, NAME, VAT, MTRUNIT (1/3/4);
- * the rest fall back to SoftOne defaults.
+ * Creates a new item (object ITEM, SODTYPE 51) or service (object SERVICE, SODTYPE 52).
+ * Returns the new MTRL id.
+ *
+ * `success: true` ΔΕΝ αποδεικνύει ότι γράφτηκε αυτό που ζητήσαμε: διαβάζουμε ΠΑΝΤΑ πίσω το
+ * SODTYPE. Χωρίς αυτόν τον έλεγχο μια υπηρεσία γράφτηκε ως είδος και κανείς δεν το κατάλαβε —
+ * η γραμμή του τιμολογίου αντιστοιχίστηκε κανονικά σε λάθος τύπο μητρώου.
  */
 export async function softoneCreateItem(input: CreateItemInput): Promise<number> {
   const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>(
     'setData', buildItemPayload(input),
   );
   if (res.success === false || res.id == null) {
-    throw new SoftoneError(res.error ?? `setData ITEM απέτυχε (code ${res.errorcode ?? '?'})`);
+    throw new SoftoneError(res.error ?? `setData ${input.isService ? 'SERVICE' : 'ITEM'} απέτυχε (code ${res.errorcode ?? '?'})`);
   }
   // Ο κωδικός ΕΠΙΑΣΕ θέση τη στιγμή που πέτυχε το setData: η cached λίστα (60s) θα τον έδινε
-  // ξανά ως ελεύθερο στην επόμενη πρόταση. Ίδια φροντίδα με τον συναλλασσόμενο.
-  clearItemCodeCache(input.isService ? 'service' : 'product');
-  return Number(res.id);
+  // ξανά ως ελεύθερο στην επόμενη πρόταση. Ο κωδικός είναι μοναδικός σε ΟΛΟ το MTRL, άρα
+  // καθαρίζουν και οι δύο λίστες.
+  clearItemCodeCache('product');
+  clearItemCodeCache('service');
+  const mtrl = Number(res.id);
+  const back = await softoneGetTable('MTRL', ['MTRL', 'SODTYPE'], `MTRL=${mtrl}`).catch(() => []);
+  const sodtype = Number(back.find((r) => Number(r.MTRL) === mtrl)?.SODTYPE ?? NaN);
+  const expected = input.isService ? 52 : 51;
+  if (Number.isFinite(sodtype) && sodtype !== expected) {
+    throw new SoftoneError(
+      `Το SoftOne δημιούργησε την εγγραφή (MTRL ${mtrl}) ως SODTYPE ${sodtype} αντί για ${expected}. ` +
+      'Η εγγραφή υπάρχει στο ERP με λάθος τύπο — χρειάζεται διόρθωση από τον integrator.',
+    );
+  }
+  return mtrl;
 }
 
 export interface ItemClassification {
@@ -1304,8 +1333,26 @@ export function clearTraderCodeCache(kind?: TraderKind): void {
 
 /** Καθαρίζει το cache κωδικών ειδών/εξόδων/χρεοπιστώσεων (δοκιμές / μετά από δημιουργία). */
 export function clearItemCodeCache(kind?: ItemCodeKind): void {
+  // Η λίστα «όλο το MTRL» μένει πίσω σε κάθε δημιουργία οποιουδήποτε τύπου — πάντα μαζί.
+  codeCache.delete(MTRL_ALL_KEY);
   if (kind) codeCache.delete(itemCacheKey(kind));
   else for (const k of codeCache.keys()) if (k.startsWith('item:')) codeCache.delete(k);
+}
+
+const MTRL_ALL_KEY = 'item:*mtrl';
+
+/**
+ * ΟΛΟΙ οι κωδικοί του MTRL, κάθε SODTYPE (είδη, υπηρεσίες, χρεοπιστώσεις, πάγια…).
+ *
+ * Ο κωδικός είναι μοναδικός σε ΟΛΟ τον πίνακα, όχι ανά τύπο. Η πρόταση κοιτούσε μόνο τον δικό
+ * της τύπο: για υπηρεσία πρότεινε «000000002», ελεύθερο ανάμεσα στις υπηρεσίες, πιασμένο από
+ * είδος — και το ERP απέρριπτε έντεκα υπηρεσίες στη σειρά με «Ο κωδικός υπάρχει ήδη».
+ */
+export async function softoneFetchAllMtrlCodes(): Promise<string[]> {
+  return cachedCodes(MTRL_ALL_KEY, async () => {
+    const rows = await softoneGetTable('MTRL', ['CODE'], '');
+    return rows.map((r) => str(r.CODE)).filter(Boolean);
+  });
 }
 
 /**
@@ -1363,12 +1410,13 @@ export async function softoneFetchItemCodes(kind: ItemCodeKind): Promise<string[
  */
 export async function softoneNextItemCode(
   kind: ItemCodeKind,
-  opts: { mask?: string | null; supplierCode?: string | null; fallbackCodes?: readonly string[] } = {},
+  opts: { mask?: string | null; erpMask?: string | null; supplierCode?: string | null; fallbackCodes?: readonly string[] } = {},
 ): Promise<ItemCodeProposal & { stale: boolean }> {
-  const rules = { supplierCode: opts.supplierCode ?? null, mask: opts.mask ?? null };
+  const rules = { supplierCode: opts.supplierCode ?? null, mask: opts.mask ?? null, erpMask: opts.erpMask ?? null };
   try {
-    const codes = await softoneFetchItemCodes(kind);
-    return { ...proposeItemCode({ existing: codes, ...rules }), stale: false };
+    // ΜΟΤΙΒΟ από τον τύπο, ΚΑΤΑΛΗΨΗ από όλο το MTRL (βλ. `softoneFetchAllMtrlCodes`).
+    const [codes, allCodes] = await Promise.all([softoneFetchItemCodes(kind), softoneFetchAllMtrlCodes().catch(() => [])]);
+    return { ...proposeItemCode({ existing: codes, takenElsewhere: allCodes, ...rules }), stale: false };
   } catch {
     return { ...proposeItemCode({ existing: opts.fallbackCodes ?? [], ...rules }), stale: true };
   }

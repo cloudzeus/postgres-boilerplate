@@ -11,7 +11,8 @@ import {
 } from '@/lib/softone';
 import { itemCodeMaskKey, type ItemCodeKind } from '@/lib/item-code';
 import { mirrorItemCodes } from '@/lib/item-code-mirror';
-import { getSetting } from '@/lib/settings';
+import { getSetting, setSetting } from '@/lib/settings';
+import { parseErpMaskError, itemErpMaskKey } from '@/lib/erp-mask';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -168,6 +169,19 @@ async function duplicateCode(
   e: unknown, kind: ItemCodeKind, b: z.infer<typeof Body>,
 ): Promise<NextResponse | null> {
   const message = (e as Error).message;
+  // ΜΑΣΚΑ ΤΟΥ ERP: το SoftOne λέει ποια μορφή δέχεται («…της μορφής nnnnnnnnn»). Τη ΜΑΘΑΙΝΟΥΜΕ
+  // μία φορά για το μητρώο, ώστε όλες οι επόμενες προτάσεις να την τηρούν, και δίνουμε αμέσως
+  // κωδικό που ταιριάζει. Πριν, η ίδια απόρριψη επαναλαμβανόταν σε κάθε είδος μιας μαζικής εκτέλεσης.
+  const learned = parseErpMaskError(message);
+  if (learned) {
+    await setSetting(itemErpMaskKey(kind), learned).catch(() => null);
+    clearItemCodeCache(kind);
+    const next = await suggestCode(kind, null);
+    return NextResponse.json(
+      { error: 'code_mask', field: 'code', kind, message, mask: learned, suggestion: next?.code ?? null, stale: next?.stale ?? false },
+      { status: 422 },
+    );
+  }
   if (!isDuplicateCodeError(message)) return null;
   // Η νέα πρόταση πρέπει να βγει από ΦΡΕΣΚΑ δεδομένα — αλλιώς η cache 60s ξαναδίνει τον ίδιο.
   clearItemCodeCache(kind);
@@ -200,11 +214,12 @@ async function suggestCode(
   kind: ItemCodeKind, supplierCode: string | null,
 ): Promise<{ code: string | null; stale: boolean } | null> {
   try {
-    const [mask, fallbackCodes] = await Promise.all([
+    const [mask, erpMask, fallbackCodes] = await Promise.all([
       getSetting<string>(itemCodeMaskKey(kind), '').catch(() => ''),
+      getSetting<string>(itemErpMaskKey(kind), '').catch(() => ''),
       mirrorItemCodes(kind),
     ]);
-    const r = await softoneNextItemCode(kind, { mask: mask ?? '', supplierCode, fallbackCodes });
+    const r = await softoneNextItemCode(kind, { mask: mask ?? '', erpMask: erpMask || null, supplierCode, fallbackCodes });
     return { code: r.code, stale: r.stale };
   } catch {
     return null;

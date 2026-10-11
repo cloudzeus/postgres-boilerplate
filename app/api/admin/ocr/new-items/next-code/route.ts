@@ -1,3 +1,4 @@
+import { itemErpMaskKey } from '@/lib/erp-mask';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requirePermission } from '@/lib/rbac';
@@ -61,12 +62,14 @@ export async function GET(req: Request) {
     }
   }
 
-  const [mask, fallbackCodes] = await Promise.all([
+  const [mask, erpMask, fallbackCodes] = await Promise.all([
     getSetting<string>(itemCodeMaskKey(kind), '').catch(() => ''),
+    // Η μάσκα που ΕΜΑΘΕ η εφαρμογή από απόρριψη του ERP (βλ. `lib/erp-mask.ts`).
+    getSetting<string>(itemErpMaskKey(kind), '').catch(() => ''),
     mirrorItemCodes(kind),
   ]);
 
-  const res = await softoneNextItemCode(kind, { mask: mask ?? '', supplierCode, fallbackCodes });
+  const res = await softoneNextItemCode(kind, { mask: mask ?? '', erpMask: erpMask || null, supplierCode, fallbackCodes });
 
   return NextResponse.json({ kind, ...res });
 }
