@@ -866,14 +866,7 @@ export function OcrTable({
            «ΒΙΟΜΗΧΑΝΙΑ ΣΚΥΡΟΔΕΜΑΤΟΣ ΧΡΗΣΤΟΣ ΑΡΓΥΡΙΟΥ Ε.Π.Ε.») και αυτό που κερδίζει
            περισσότερο από κάθε επιπλέον pixel. */
         growColumnId="issuer"
-        responsiveHide={[
-          /* Σε tablet το όνομα αρχείου είναι το λιγότερο χρήσιμο: ο λογιστής αναγνωρίζει το
-             παραστατικό από εκδότη + αριθμό + ποσό, όχι από το «SKM_C25826092511480.pdf». */
-          { id: 'fileName', minWidth: 860 },
-          { id: 'thumb', minWidth: 900 },
-          { id: 'series', minWidth: 1020 },
-          { id: 'softone', minWidth: 1150 },
-        ]}
+        responsiveHide={['thumb', 'series', 'softone', 'fileName']}
         enableSelection
         groupBy={{
           getKey: (r) => localDayKey(r.createdAt),

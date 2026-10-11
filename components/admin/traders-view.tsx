@@ -229,18 +229,10 @@ export function TradersView({
         </div>
         <div className="overflow-x-auto p-3">
           <DataTable
-        /* Σειρά θυσίας στηλών όταν στενεύει ο πίνακας — βλ. κανόνα «οριζόντιο scroll
-           = απόκρυψη στηλών» στο dg-design-system. Το «Στήλες» υπερισχύει. */
+        /* ΣΕΙΡΑ ΘΥΣΙΑΣ: πρώτη η λιγότερο χρήσιμη. Κρύβονται όσες χρειαστεί ώστε ο πίνακας να
+           ΧΩΡΑΕΙ — ποτέ οριζόντιο scroll. Το «Στήλες» υπερισχύει. */
         growColumnId="name"
-        responsiveHide={[
-          { id: 'webpage', minWidth: 1700 },
-          { id: 'fax', minWidth: 1560 },
-          { id: 'district', minWidth: 1420 },
-          { id: 'email', minWidth: 1280 },
-          { id: 'address', minWidth: 1100 },
-          { id: 'phone', minWidth: 960 },
-          { id: 'doy', minWidth: 840 },
-        ]}
+        responsiveHide={['webpage', 'fax', 'district', 'email', 'address', 'phone', 'doy']}
             key={activeType ?? 'all'}
             columns={columns}
             data={visible}

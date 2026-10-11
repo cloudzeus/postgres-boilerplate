@@ -127,14 +127,10 @@ export function LineItemsTableClient({
         η εφαρμογή τον δείχνει, δεν τον αλλάζει.
       </p>
       <DataTable
-        /* Σειρά θυσίας στηλών όταν στενεύει ο πίνακας — βλ. κανόνα «οριζόντιο scroll
-           = απόκρυψη στηλών» στο dg-design-system. Το «Στήλες» υπερισχύει. */
+        /* ΣΕΙΡΑ ΘΥΣΙΑΣ: πρώτη η λιγότερο χρήσιμη. Κρύβονται όσες χρειαστεί ώστε ο πίνακας να
+           ΧΩΡΑΕΙ — ποτέ οριζόντιο scroll. Το «Στήλες» υπερισχύει. */
         growColumnId="name"
-        responsiveHide={[
-          { id: 'myData', minWidth: 1340 },
-          { id: 'category', minWidth: 1100 },
-          { id: 'vat', minWidth: 940 },
-        ]}
+        responsiveHide={['myData', 'category', 'vat']}
         columns={columns}
         data={rows}
         searchKey="name"

@@ -64,17 +64,18 @@ export interface DataTableProps<TData, TValue> {
   enableSelection?: boolean;
   initialColumnVisibility?: VisibilityState;
   /**
-   * ΠΡΟΟΔΕΥΤΙΚΗ ΑΠΟΚΡΥΨΗ ΑΝΤΙ ΓΙΑ ΟΡΙΖΟΝΤΙΟ SCROLL.
+   * ΟΡΙΖΟΝΤΙΟ SCROLL ΔΕΝ ΥΠΑΡΧΕΙ — ΑΠΟΚΡΥΠΤΟΥΜΕ ΣΤΗΛΕΣ ΜΕΧΡΙ ΝΑ ΧΩΡΕΣΕΙ.
    *
-   * Μετρημένο στη λίστα OCR: οι στήλες αθροίζουν 1017px, ενώ στα 1280 με ανοιχτό sidebar (244px)
-   * και `p-6` μένουν 988px — έλλειμμα 29px, δηλαδή scroller. Ο χρήστης δεν ξέρει ποιον scroller
-   * κινεί και χάνει τη στήλη που κοιτούσε.
+   * Λίστα `id` σε **σειρά θυσίας**: πρώτη η λιγότερο χρήσιμη για τη δουλειά. Κρύβονται όσες
+   * χρειαστεί, μετρώντας το πλάτος του ΙΔΙΟΥ του πίνακα — όχι του παραθύρου, γιατί το sidebar
+   * ανοιγοκλείνει ανεξάρτητα και κανένα media query δεν το βλέπει.
    *
-   * Κάθε εγγραφή λέει «κρύψε αυτή τη στήλη όταν ο ΠΙΝΑΚΑΣ είναι στενότερος από `minWidth`».
-   * Μετράμε τον ΔΙΚΟ ΜΑΣ χώρο, όχι το viewport: το sidebar ανοίγει και κλείνει ανεξάρτητα, και
-   * ένα media query δεν το βλέπει.
+   * ΓΙΑΤΙ ΟΧΙ ΚΑΤΩΦΛΙΑ `minWidth`: τα χειροκίνητα νούμερα είναι εικασία και αστοχούν. Μετρημένο
+   * στα 768: με κατώφλια ο πίνακας έβγαινε 780px σε δοχείο 671px και οι στήλες ΚΟΒΟΝΤΑΝ από το
+   * `overflow-hidden` της κάρτας — απρόσιτα δεδομένα, χωρίς καν scrollbar. Η άπληστη απόκρυψη
+   * με βάση το ΠΡΑΓΜΑΤΙΚΟ πλάτος δεν αστοχεί.
    */
-  responsiveHide?: { id: string; minWidth: number }[];
+  responsiveHide?: string[];
   /**
    * Η στήλη που ΑΠΛΩΝΕΙ. Δεν δηλώνει πλάτος, οπότε απορροφά όλο τον ελεύθερο χώρο — ιδίως όταν
    * το `responsiveHide` κρύψει στήλες. Χωρίς αυτήν, ο πίνακας θα άφηνε λευκό κενό δεξιά.
@@ -175,20 +176,7 @@ export function DataTable<TData, TValue>({
     return () => ro.disconnect();
   }, [responsiveHide]);
 
-  /**
-   * Η ΕΠΙΛΟΓΗ ΤΟΥ ΧΡΗΣΤΗ ΝΙΚΑΕΙ. Η αυτόματη απόκρυψη ισχύει μόνο για στήλες που ΔΕΝ έχει αγγίξει
-   * ο χρήστης — αλλιώς το «Στήλες» θα ήταν ψεύτικο κουμπί που το σύστημα αναιρεί στο επόμενο
-   * resize.
-   */
-  const effectiveVisibility = React.useMemo(() => {
-    if (!responsiveHide?.length || availWidth == null) return columnVisibility;
-    const out: VisibilityState = { ...columnVisibility };
-    for (const r of responsiveHide) {
-      if (Object.prototype.hasOwnProperty.call(columnVisibility, r.id)) continue;
-      if (availWidth < r.minWidth) out[r.id] = false;
-    }
-    return out;
-  }, [columnVisibility, responsiveHide, availWidth]);
+
 
   React.useEffect(() => {
     if (visibilityKey) {
@@ -275,6 +263,50 @@ export function DataTable<TData, TValue>({
     }
     return [...cols, ...columns];
   }, [columns, expandable, enableSelection]);
+
+  /**
+   * Η ΕΠΙΛΟΓΗ ΤΟΥ ΧΡΗΣΤΗ ΝΙΚΑΕΙ. Η αυτόματη απόκρυψη αγγίζει μόνο στήλες που ΔΕΝ έχει ρυθμίσει
+   * ρητά ο χρήστης — αλλιώς το «Στήλες» θα ήταν ψεύτικο κουμπί που το σύστημα αναιρεί στο
+   * επόμενο resize.
+   */
+  const effectiveVisibility = React.useMemo(() => {
+    if (!responsiveHide?.length || availWidth == null) return columnVisibility;
+    const sizeOf = (id: string) => {
+      const c = enrichedColumns.find(
+        (x) => (x.id ?? (x as { accessorKey?: string }).accessorKey) === id,
+      );
+      return c?.size ?? 150;
+    };
+    let total = enrichedColumns.reduce((t, c) => {
+      const id = c.id ?? (c as { accessorKey?: string }).accessorKey;
+      return columnVisibility[id as string] === false ? t : t + (c.size ?? 150);
+    }, 0);
+    const out: VisibilityState = { ...columnVisibility };
+    for (const id of responsiveHide) {
+      if (total <= availWidth) break;
+      if (Object.prototype.hasOwnProperty.call(columnVisibility, id)) continue;
+      out[id] = false;
+      total -= sizeOf(id);
+    }
+    /**
+     * ΑΝ ΜΕΤΑ ΑΠΟ ΟΛΕΣ ΤΙΣ ΘΥΣΙΕΣ ΔΕΝ ΧΩΡΑΕΙ. Σε πολύ στενό δοχείο μένουν στήλες που δεν
+     * επιτρέπεται να φύγουν (εκδότης, ποσό, κατάσταση) και το άθροισμά τους ξεπερνά τον χώρο —
+     * μετρημένο στα 520: 460px σε δοχείο 438px. Τότε ΠΑΡΑΙΤΟΥΜΑΣΤΕ από τα σταθερά πλάτη και
+     * αφήνουμε τις στήλες να συρρικνωθούν (το κείμενο ήδη κόβεται με `truncate`). Το χειρότερο
+     * θα ήταν να μείνουν σταθερές και να κοπούν από το `overflow-hidden` της κάρτας.
+     */
+    return out;
+  }, [columnVisibility, responsiveHide, availWidth, enrichedColumns]);
+
+  /** `true` όταν ούτε με όλες τις θυσίες χωράει ο πίνακας — τότε τα πλάτη γίνονται ελαστικά. */
+  const mustShrink = React.useMemo(() => {
+    if (availWidth == null) return false;
+    const total = enrichedColumns.reduce((t, c) => {
+      const id = (c.id ?? (c as { accessorKey?: string }).accessorKey) as string;
+      return effectiveVisibility[id] === false ? t : t + (c.size ?? 150);
+    }, 0);
+    return total > availWidth;
+  }, [enrichedColumns, effectiveVisibility, availWidth]);
 
   const table = useReactTable({
     data,
@@ -414,12 +446,8 @@ export function DataTable<TData, TValue>({
             ξέρει ποιον κινεί, χάνει τη θέση του, και το ποντίκι αλλάζει στόχο ανάλογα με το πού
             βρίσκεται. Η κεφαλίδα μένει `sticky` — πλέον κολλάει στο ΠΑΝΩ ΜΕΡΟΣ ΤΗΣ ΟΘΟΝΗΣ, που
             είναι και το σωστό για μακριές λίστες. */}
-        {/* `overflow-x-auto` ως ΔΙΧΤΥ ΑΣΦΑΛΕΙΑΣ, όχι ως σχεδίαση: ο κανόνας «ένας scroller»
-            αφορά τον ΚΑΘΕΤΟ. Οριζόντια, αν το `responsiveHide` δεν προλάβει να χωρέσει τον
-            πίνακα (π.χ. πολύ στενό δοχείο), η εναλλακτική ήταν το `overflow-hidden` της κάρτας
-            να ΚΟΒΕΙ στήλες αθόρυβα — μετρημένο στα 768: πίνακας 780px σε δοχείο 671px, με
-            δεδομένα απρόσιτα και χωρίς καν scrollbar. Καλύτερα ορατό scroll παρά χαμένη στήλη. */}
-        <div ref={widthRef} className="min-h-0 flex-1 overflow-x-auto">
+        {/* ΟΥΤΕ ΟΡΙΖΟΝΤΙΟ SCROLL. Η άπληστη απόκρυψη παραπάνω εγγυάται ότι ο πίνακας χωράει. */}
+        <div ref={widthRef} className="min-h-0 flex-1">
           {/* `width: 100%` ΚΑΙ `minWidth` από το άθροισμα: όταν κρύβονται στήλες ο πίνακας
               ΑΠΛΩΝΕΤΑΙ αντί να αφήσει κενό δεξιά, ενώ ποτέ δεν συμπιέζεται κάτω από το άθροισμα
               των στηλών του. Η ελαστική στήλη (`growColumnId`) δεν δηλώνει πλάτος, οπότε σε
@@ -427,7 +455,11 @@ export function DataTable<TData, TValue>({
               και θα φούσκωνε η στήλη των ενεργειών. */}
           <table
             className="w-full text-[length:var(--fs-12)]"
-            style={{ tableLayout: 'fixed', width: '100%', minWidth: rem(table.getTotalSize()) }}
+            /* ΧΩΡΙΣ `minWidth`: θα επέβαλλε πλάτος μεγαλύτερο από το δοχείο και θα ξαναέκοβε. */
+            /* ΠΑΝΤΑ `fixed`. Με `auto` το περιεχόμενο επιβάλλει πλάτος και ο πίνακας ΜΕΓΑΛΩΝΕΙ
+               αντί να συρρικνωθεί — μετρημένο στα 520: 1186px σε δοχείο 438px. Με `fixed` και
+               ΧΩΡΙΣ δηλωμένα πλάτη, ο browser μοιράζει ισόποσα το 100% και χωράει πάντα. */
+            style={{ tableLayout: 'fixed', width: '100%' }}
           >
             <thead className="sticky top-0 z-10 bg-neutral-4 dark:bg-muted shadow-[inset_0_-1px_0_0_var(--border)]">
               {table.getHeaderGroups().map((headerGroup) => (
@@ -439,7 +471,7 @@ export function DataTable<TData, TValue>({
                       <th
                         key={header.id}
                         colSpan={header.colSpan}
-                        style={header.column.id === growColumnId ? undefined : { width: rem(header.getSize()) }}
+                        style={mustShrink || header.column.id === growColumnId ? undefined : { width: rem(header.getSize()) }}
                         className="relative h-8 px-2.5 text-left font-semibold text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground dark:text-muted-foreground select-none"
                       >
                         {!header.isPlaceholder && (
@@ -521,7 +553,7 @@ export function DataTable<TData, TValue>({
                         return (
                           <td
                             key={cell.id}
-                            style={cell.column.id === growColumnId ? undefined : { width: rem(cell.column.getSize()) }}
+                            style={mustShrink || cell.column.id === growColumnId ? undefined : { width: rem(cell.column.getSize()) }}
                             className={cn(
                               'h-[var(--row-h)] px-[var(--row-px)] text-[length:var(--fs-12)] text-foreground',
                               isActions ? 'overflow-visible text-center' : 'truncate',

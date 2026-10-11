@@ -581,7 +581,10 @@ export function OcrRowDetail({
             </div>
 
             {/* ---------- Πεδία: invoice-styled ---------- */}
-            <TabsContent value="fields" className={cn('overflow-auto p-3', fullscreen ? 'max-h-[calc(92vh-230px)]' : 'max-h-[480px]')}>
+            {/* ΧΩΡΙΣ δικό του scroll: το ανοιγμένο πλαίσιο δείχνει ΟΛΟ το περιεχόμενο και μεγαλώνει
+                όσο χρειάζεται — κυλάει η σελίδα. Τρία επίπεδα scroll (σελίδα → πλαίσιο →
+                καρτέλα) έκαναν αδύνατο να ξέρεις τι κινείς. */}
+            <TabsContent value="fields" className="p-3">
               {isInvoice ? (
                 <div className="space-y-3">
                   {/* Εκδότης — ΜΟΝΟΣ του. Ο λήπτης είναι ΠΑΝΤΑ η εταιρεία που τρέχει την
@@ -620,7 +623,7 @@ export function OcrRowDetail({
 
             {/* ---------- Γραμμές ---------- */}
             {showLines && (
-              <TabsContent value="items" className={cn('overflow-auto p-3', fullscreen ? 'max-h-[calc(92vh-230px)]' : 'max-h-[480px]')}>
+              <TabsContent value="items" className="p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">Γραμμές <span className="text-foreground">({items.length})</span></span>
                   {!ro && (
@@ -761,7 +764,9 @@ export function OcrRowDetail({
 
             {/* ---------- JSON ---------- */}
             <TabsContent value="json" className="p-3">
-              <pre className={cn('overflow-auto rounded-lg border border-border bg-muted p-3 text-[length:var(--fs-11)] font-mono leading-relaxed text-foreground', fullscreen ? 'max-h-[calc(92vh-250px)]' : 'max-h-[440px]')}>
+              {/* Το JSON είναι ΠΡΟΑΙΡΕΤΙΚΗ προβολή και μπορεί να είναι τεράστιο — εδώ το
+                  `overflow-auto` είναι σωστό, αλλά χωρίς ύψος-φυλακή: μέχρι 70vh. */}
+              <pre className="max-h-[70vh] overflow-auto rounded-lg border border-border bg-muted p-3 text-[length:var(--fs-11)] font-mono leading-relaxed text-foreground">
 {JSON.stringify(buildExtractedData(), null, 2)}
               </pre>
             </TabsContent>

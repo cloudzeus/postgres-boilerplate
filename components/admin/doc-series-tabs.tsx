@@ -286,13 +286,10 @@ export function DocSeriesTabs({
         </div>
         <div className="overflow-x-auto p-3">
           <DataTable
-        /* Σειρά θυσίας στηλών όταν στενεύει ο πίνακας — βλ. κανόνα «οριζόντιο scroll
-           = απόκρυψη στηλών» στο dg-design-system. Το «Στήλες» υπερισχύει. */
+        /* ΣΕΙΡΑ ΘΥΣΙΑΣ: πρώτη η λιγότερο χρήσιμη. Κρύβονται όσες χρειαστεί ώστε ο πίνακας να
+           ΧΩΡΑΕΙ — ποτέ οριζόντιο scroll. Το «Στήλες» υπερισχύει. */
         growColumnId="name"
-        responsiveHide={[
-          { id: 'family', minWidth: 1420 },
-          { id: 'abbrev', minWidth: 1180 },
-        ]}
+        responsiveHide={['family', 'abbrev']}
             key={`${comboValue}:${onlyEnabled}`}
             columns={columns}
             data={visible}
