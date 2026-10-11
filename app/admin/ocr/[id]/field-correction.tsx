@@ -21,8 +21,10 @@ const FIELD_LABELS: Record<string, string> = {
  * τι παραστατικό, σε ποιον, πόσα — οπότε αυτή είναι και η σειρά που πρέπει να βλέπει.
  */
 const FIELD_GROUPS: { title: string; keys: string[] }[] = [
-  { title: 'Εκδότης',      keys: ['companyName', 'vatNumber', 'storeName', 'companyPhone', 'companyEmail', 'phone', 'email'] },
+  // Η ΣΕΙΡΑ ΤΟΥ ΤΙΜΟΛΟΓΙΟΥ: τύπος και αριθμός παραστατικού πρώτα — αυτό κοιτά πρώτο ο λογιστής
+  // και έτσι είναι τυπωμένο στο χαρτί. Ο εκδότης ακολουθεί, τα ποσά κλείνουν.
   { title: 'Παραστατικό',  keys: ['documentTypeLabel', 'invoiceNumber', 'date'] },
+  { title: 'Εκδότης',      keys: ['companyName', 'vatNumber', 'storeName', 'companyPhone', 'companyEmail', 'phone', 'email'] },
   { title: 'Ποσά',         keys: ['subtotal', 'vatAmount', 'totalAmount'] },
 ];
 
@@ -124,52 +126,67 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
 
       {/* Field editors */}
       <div>
+        {/* ΜΙΑ ΚΑΡΤΑ, ΟΧΙ ΤΡΕΙΣ. Μετρημένο πριν: κάθε ενότητα 173px για 3 πεδία, από τα οποία
+            μόνο ~49px ήταν το ίδιο το πεδίο — το ~72% ήταν περίγραμμα, κεφαλίδα και padding.
+            Η ετικέτα της ομάδας πάει ΑΡΙΣΤΕΡΑ, σε δική της στενή στήλη: γλιτώνει μια ολόκληρη
+            σειρά κεφαλίδας ανά ομάδα και το μάτι σαρώνει κάθετα τις ενότητες. */}
+        <div className="divide-y divide-border overflow-hidden rounded-lg border border-border border-l-4 border-l-sisyphus-500 bg-card shadow-fluent-2">
         {FIELD_GROUPS.map((g) => {
           const keys = g.keys.filter((k) => fields.includes(k));
           if (keys.length === 0) return null;
           return (
-        <section key={g.title} className="mb-2.5 overflow-hidden rounded-lg border border-border border-l-4 border-l-sisyphus-500 bg-card shadow-fluent-2">
-        <h3 className="mb-2 border-b border-border/60 bg-sisyphus-500/[0.07] px-2.5 py-1.5 text-[length:var(--fs-12)] font-extrabold uppercase tracking-wider text-foreground">{g.title}</h3>
-        <div className={`grid gap-2 px-2.5 pb-2.5 ${showDoc ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4'}`}>
-        {keys.map((f) => (
-          <div key={f} className={`flex items-end gap-1.5 rounded p-1 ${activeField===f ? 'ring-2 ring-sisyphus-500' : ''}`}>
-            <label className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="truncate text-[length:var(--fs-10)] font-semibold uppercase tracking-wide text-muted-foreground">{FIELD_LABELS[f] ?? f}</span>
-              <input value={data[f] ?? ''}
-                onChange={(e) => setData((d) => ({ ...d, [f]: e.target.value }))}
-                className="h-8 w-full rounded border border-border bg-neutral-4 px-2 text-[length:var(--fs-12)] focus:border-sisyphus-500 focus:bg-card focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25" />
-            </label>
-            <Button size="sm" variant="subtle" type="button" disabled={busy}
-              aria-label={`Μαρκάρισμα περιοχής για ${FIELD_LABELS[f] ?? f}`}
-              title={`Μαρκάρισμα περιοχής για ${FIELD_LABELS[f] ?? f}`}
-              onClick={() => setActiveField((cur) => cur===f ? null : f)}>🎯</Button>
-          </div>
-        ))}
-        </div>
-        </section>
+            <section key={g.title} className="grid gap-x-3 px-3 py-2 sm:grid-cols-[6.5rem_1fr]">
+              <h3 className="pt-1.5 text-[length:var(--fs-11)] font-extrabold uppercase tracking-wider text-muted-foreground">
+                {g.title}
+              </h3>
+              <div className={`grid gap-x-3 gap-y-1 ${showDoc ? 'sm:grid-cols-2' : 'sm:grid-cols-3 2xl:grid-cols-4'}`}>
+                {keys.map((f) => (
+                  <div key={f} className={`flex items-center gap-1 rounded px-1 ${activeField === f ? 'ring-2 ring-sisyphus-500' : ''}`}>
+                    {/* Ετικέτα ΠΑΝΩ από το πεδίο αλλά μικροσκοπική και κολλητά: μένει ορατή
+                        (δεν γίνεται placeholder) χωρίς να κοστίζει δική της σειρά 14px. */}
+                    <label className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-[length:var(--fs-10)] leading-tight text-muted-foreground">{FIELD_LABELS[f] ?? f}</span>
+                      <input
+                        value={data[f] ?? ''}
+                        onChange={(e) => setData((d) => ({ ...d, [f]: e.target.value }))}
+                        className="h-7 w-full rounded border border-border bg-neutral-4 px-1.5 text-[length:var(--fs-12)] focus:border-sisyphus-500 focus:bg-card focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25"
+                      />
+                    </label>
+                    <button
+                      type="button" disabled={busy}
+                      aria-label={`Μαρκάρισμα περιοχής για ${FIELD_LABELS[f] ?? f}`}
+                      title={`Μαρκάρισμα περιοχής στο παραστατικό για «${FIELD_LABELS[f] ?? f}»`}
+                      onClick={() => setActiveField((cur) => (cur === f ? null : f))}
+                      className={`mt-3 inline-flex size-6 shrink-0 items-center justify-center rounded text-[length:var(--fs-11)] transition ${activeField === f ? 'bg-sisyphus-500 text-white' : 'text-muted-foreground hover:bg-muted'}`}
+                    >◎</button>
+                  </div>
+                ))}
+              </div>
+            </section>
           );
         })}
-        {/* Ό,τι δεν ανήκει σε ενότητα δεν εξαφανίζεται — μπαίνει στο τέλος. */}
         {(() => {
           const known = new Set(FIELD_GROUPS.flatMap((g) => g.keys));
           const rest = fields.filter((f) => !known.has(f));
           if (rest.length === 0) return null;
           return (
-            <section className="mb-2.5 overflow-hidden rounded-lg border border-border border-l-4 border-l-sisyphus-500 bg-card shadow-fluent-2">
-              <h3 className="mb-2 border-b border-border/60 bg-sisyphus-500/[0.07] px-2.5 py-1.5 text-[length:var(--fs-12)] font-extrabold uppercase tracking-wider text-foreground">Λοιπά</h3>
-              <div className={`grid gap-2 px-2.5 pb-2.5 ${showDoc ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4'}`}>
+            <section className="grid gap-x-3 px-3 py-2 sm:grid-cols-[6.5rem_1fr]">
+              <h3 className="pt-1.5 text-[length:var(--fs-11)] font-extrabold uppercase tracking-wider text-muted-foreground">Λοιπά</h3>
+              <div className={`grid gap-x-3 gap-y-1 ${showDoc ? 'sm:grid-cols-2' : 'sm:grid-cols-3 2xl:grid-cols-4'}`}>
                 {rest.map((f) => (
-                  <label key={f} className="flex min-w-0 flex-col gap-0.5">
-                    <span className="truncate text-[length:var(--fs-10)] font-semibold uppercase tracking-wide text-muted-foreground">{FIELD_LABELS[f] ?? f}</span>
+                  <label key={f} className="flex min-w-0 flex-col px-1">
+                    <span className="truncate text-[length:var(--fs-10)] leading-tight text-muted-foreground">{FIELD_LABELS[f] ?? f}</span>
                     <input value={data[f] ?? ''}
                       onChange={(e) => setData((d) => ({ ...d, [f]: e.target.value }))}
-                      className="h-8 w-full rounded border border-border bg-neutral-4 px-2 text-[length:var(--fs-12)] focus:border-sisyphus-500 focus:bg-card focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25" />
+                      className="h-7 w-full rounded border border-border bg-neutral-4 px-1.5 text-[length:var(--fs-12)] focus:border-sisyphus-500 focus:bg-card focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25" />
                   </label>
                 ))}
               </div>
             </section>
           );
         })()}
+        </div>
+
         <div className="flex gap-2 pt-1">
           <Button variant="primary" onClick={saveCorrections} isLoading={busy}>Αποθήκευση διορθώσεων</Button>
         </div>
