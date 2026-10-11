@@ -75,6 +75,11 @@ export interface DataTableProps<TData, TValue> {
    * ένα media query δεν το βλέπει.
    */
   responsiveHide?: { id: string; minWidth: number }[];
+  /**
+   * Η στήλη που ΑΠΛΩΝΕΙ. Δεν δηλώνει πλάτος, οπότε απορροφά όλο τον ελεύθερο χώρο — ιδίως όταν
+   * το `responsiveHide` κρύψει στήλες. Χωρίς αυτήν, ο πίνακας θα άφηνε λευκό κενό δεξιά.
+   */
+  growColumnId?: string;
   /** When set, column visibility + order are persisted to localStorage under this key. */
   persistKey?: string;
   className?: string;
@@ -119,6 +124,7 @@ export function DataTable<TData, TValue>({
   enableSelection = false,
   initialColumnVisibility,
   responsiveHide,
+  growColumnId,
   persistKey,
   fullHeight = false,
   className,
@@ -156,6 +162,9 @@ export function DataTable<TData, TValue>({
    * Το πλάτος του ΙΔΙΟΥ του πίνακα, όχι του παραθύρου. `ResizeObserver` ώστε να αντιδρά και στο
    * μάζεμα του sidebar, που κανένα media query δεν πιάνει.
    */
+  /** px → rem για την ΑΠΟΔΟΣΗ. Βάση 16, όπως ορίζει το `--fs-*` σύστημα. */
+  const rem = (px: number) => `${px / 16}rem`;
+
   const widthRef = React.useRef<HTMLDivElement | null>(null);
   const [availWidth, setAvailWidth] = React.useState<number | null>(null);
   React.useEffect(() => {
@@ -406,7 +415,15 @@ export function DataTable<TData, TValue>({
             βρίσκεται. Η κεφαλίδα μένει `sticky` — πλέον κολλάει στο ΠΑΝΩ ΜΕΡΟΣ ΤΗΣ ΟΘΟΝΗΣ, που
             είναι και το σωστό για μακριές λίστες. */}
         <div ref={widthRef} className="min-h-0 flex-1">
-          <table className="w-full text-[length:var(--fs-12)]" style={{ tableLayout: 'fixed', width: table.getTotalSize() }}>
+          {/* `width: 100%` ΚΑΙ `minWidth` από το άθροισμα: όταν κρύβονται στήλες ο πίνακας
+              ΑΠΛΩΝΕΤΑΙ αντί να αφήσει κενό δεξιά, ενώ ποτέ δεν συμπιέζεται κάτω από το άθροισμα
+              των στηλών του. Η ελαστική στήλη (`growColumnId`) δεν δηλώνει πλάτος, οπότε σε
+              `table-layout: fixed` παίρνει αυτή όλο το περίσσευμα — αλλιώς θα μοιραζόταν εξίσου
+              και θα φούσκωνε η στήλη των ενεργειών. */}
+          <table
+            className="w-full text-[length:var(--fs-12)]"
+            style={{ tableLayout: 'fixed', width: '100%', minWidth: rem(table.getTotalSize()) }}
+          >
             <thead className="sticky top-0 z-10 bg-neutral-4 dark:bg-muted shadow-[inset_0_-1px_0_0_var(--border)]">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id}>
@@ -417,7 +434,7 @@ export function DataTable<TData, TValue>({
                       <th
                         key={header.id}
                         colSpan={header.colSpan}
-                        style={{ width: header.getSize() }}
+                        style={header.column.id === growColumnId ? undefined : { width: rem(header.getSize()) }}
                         className="relative h-8 px-2.5 text-left font-semibold text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground dark:text-muted-foreground select-none"
                       >
                         {!header.isPlaceholder && (
@@ -499,7 +516,7 @@ export function DataTable<TData, TValue>({
                         return (
                           <td
                             key={cell.id}
-                            style={{ width: cell.column.getSize() }}
+                            style={cell.column.id === growColumnId ? undefined : { width: rem(cell.column.getSize()) }}
                             className={cn(
                               'h-8 px-2.5 text-[length:var(--fs-12)] text-foreground',
                               isActions ? 'overflow-visible text-center' : 'truncate',
