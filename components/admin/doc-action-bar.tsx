@@ -55,6 +55,20 @@ export function DocActionBar({
   /** Το αποτέλεσμα του ελέγχου διπλοτύπου — τρέχει ΠΡΙΝ εμφανιστεί το «Ναι, καταχώρισέ το». */
   const [dup, setDup] = React.useState<{ status: 'duplicate' | 'clear' | 'unknown'; message: string } | null>(null);
   const [dupBusy, setDupBusy] = React.useState(false);
+  const [markBusy, setMarkBusy] = React.useState(false);
+
+  /** Ο ΜΑΡΚ σε ήδη καταχωρισμένο παραστατικό (όσα καταχωρίστηκαν πριν η εφαρμογή γράφει το σωστό πεδίο). */
+  async function syncMark() {
+    setMarkBusy(true);
+    try {
+      const r = await fetch(`/api/admin/ocr/${docId}/sync-mark`, { method: 'POST' });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error(d.message ?? 'Η ενημέρωση ΜΑΡΚ απέτυχε.'); return; }
+      toast.success(d.changed ? `Ο ΜΑΡΚ ${d.mark} γράφτηκε στο FINDOC ${d.ref}.` : `Το FINDOC ${d.ref} έχει ήδη τον ΜΑΡΚ ${d.mark}.`);
+    } catch {
+      toast.error('Σφάλμα δικτύου — ο ΜΑΡΚ δεν ενημερώθηκε.');
+    } finally { setMarkBusy(false); }
+  }
 
   const load = React.useCallback(async () => {
     try {
@@ -166,7 +180,19 @@ export function DocActionBar({
           {!preview ? (
             <span className={STATUS}><FiLoader className="size-3.5 animate-spin text-muted-foreground" aria-hidden /> Έλεγχος…</span>
           ) : posted ? (
-            <span className={STATUS}><FiCheck className="size-3.5" style={{ color: '#047857' }} aria-hidden /> Καταχωρήθηκε · FINDOC {preview.postedRef}</span>
+            <span className={cn(STATUS, 'flex-wrap gap-2')}>
+              <FiCheck className="size-3.5" style={{ color: '#047857' }} aria-hidden /> Καταχωρήθηκε · FINDOC {preview.postedRef}
+              {canPost && (
+                <button
+                  type="button" onClick={syncMark} disabled={markBusy}
+                  className="inline-flex min-h-8 items-center gap-1 rounded-md border border-input bg-background px-2.5 text-[length:var(--fs-12)] font-semibold text-foreground hover:bg-muted disabled:opacity-60"
+                  title="Γράφει τον ΜΑΡΚ της ανάγνωσης στο καταχωρισμένο παραστατικό, αν λείπει"
+                >
+                  {markBusy ? <FiLoader className="size-3.5 animate-spin" aria-hidden /> : <FiDatabase className="size-3.5" aria-hidden />}
+                  Ενημέρωση ΜΑΡΚ
+                </button>
+              )}
+            </span>
           ) : blockers.length === 0 ? (
             <span className={STATUS}><FiCheck className="size-3.5" style={{ color: '#047857' }} aria-hidden /> Έτοιμο για καταχώριση</span>
           ) : (

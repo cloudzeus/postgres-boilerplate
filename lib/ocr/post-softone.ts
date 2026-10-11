@@ -578,3 +578,76 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
     throw err;
   }
 }
+
+/** Οι πίνακες γραμμών ενός καταχωρισμένου παραστατικού — μετριούνται πριν και μετά από μια ενημέρωση κεφαλίδας. */
+const LINE_TABLES = ['ITELINES', 'SRVLINES', 'EXPANAL', 'LINLINES'] as const;
+const lineCount = (tables: Record<string, unknown[]>) =>
+  Object.fromEntries(LINE_TABLES.map((t) => [t, (tables[t] ?? []).length])) as Record<(typeof LINE_TABLES)[number], number>;
+
+export interface MarkSyncResult {
+  ref: string;
+  mark: string;
+  /** `false` = ο ΜΑΡΚ ήταν ήδη σωστός στο SoftOne — δεν στάλθηκε τίποτα. */
+  changed: boolean;
+}
+
+/**
+ * Γράφει τον ΜΑΡΚ σε παραστατικό που έχει ΗΔΗ καταχωριστεί — για όσα καταχωρίστηκαν πριν η
+ * εφαρμογή μάθει το σωστό πεδίο (`SomyDataMARK`· το `MYDATAMARK` είναι υπολογιζόμενο και αγνοείται).
+ *
+ * Στέλνει ΜΟΝΟ την κεφαλίδα με ΕΝΑ πεδίο: πίνακας που δεν στέλνεται δεν αγγίζεται από το setData.
+ * Επειδή όμως μια λάθος υπόθεση εδώ θα έσβηνε γραμμές καταχωρισμένου παραστατικού, ο κανόνας
+ * ελέγχεται κάθε φορά: πριν και μετά διαβάζονται οι γραμμές και ο συναλλασσόμενος, και κάθε
+ * διαφορά σταματά με δυνατό μήνυμα.
+ */
+export async function syncPostedMark(id: string): Promise<MarkSyncResult> {
+  const doc = await prisma.ocrDocument.findUnique({
+    where: { id },
+    select: { postStatus: true, postedRef: true, softoneSeries: true, seriesSource: true },
+  });
+  if (!doc) throw new PostError('not_found', POST_ERROR_TEXT.not_found);
+  if (doc.postStatus !== 'POSTED' || !doc.postedRef) {
+    throw new Error('Το παραστατικό δεν έχει καταχωριστεί στο SoftOne — ο ΜΑΡΚ θα σταλεί με την καταχώριση.');
+  }
+  if ((await getSetting<boolean>(POSTING_ENABLED_KEY)) !== true) {
+    throw new PostError('posting_disabled', POST_ERROR_TEXT.posting_disabled);
+  }
+  const document = await loadDocumentJson(id);
+  const mark = String(document?.digital?.mark ?? '').trim();
+  if (!mark) throw new Error('Το παραστατικό δεν έχει ΜΑΡΚ στην ανάγνωση — συμπλήρωσέ τον πρώτα.');
+
+  const { target } = await loadTarget(doc.softoneSeries, doc.seriesSource);
+  if (!target.supported) throw new Error('Άγνωστο object καταχώρισης για τη σειρά του παραστατικού.');
+  const object = target.object;
+  const ref = doc.postedRef;
+
+  const before = await softoneGetData(object, ref);
+  const head = before[object]?.[0];
+  if (!head) throw new Error(`Το παραστατικό ${ref} δεν βρέθηκε στο SoftOne (${object}).`);
+  if (String(head.SomyDataMARK ?? '').trim() === mark) return { ref, mark, changed: false };
+
+  const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number }>('setData', {
+    OBJECT: object, KEY: ref, DATA: { [object]: [{ SomyDataMARK: mark }] },
+  });
+  if (res.success === false) throw new Error(res.error ?? `setData ${object} ${ref} απέτυχε (code ${res.errorcode ?? '?'})`);
+
+  const after = await softoneGetData(object, ref);
+  const headAfter = after[object]?.[0];
+  const lb = lineCount(before), la = lineCount(after);
+  const changedLines = LINE_TABLES.filter((t) => lb[t] !== la[t]);
+  if (changedLines.length || String(headAfter?.TRDR) !== String(head.TRDR)) {
+    throw new Error(
+      `ΠΡΟΣΟΧΗ: μετά την ενημέρωση ΜΑΡΚ το παραστατικό ${ref} άλλαξε (${changedLines.map((t) => `${t} ${lb[t]}→${la[t]}`).join(', ') || 'συναλλασσόμενος'}). `
+      + 'Έλεγξέ το αμέσως στο SoftOne.',
+    );
+  }
+  if (String(headAfter?.SomyDataMARK ?? '').trim() !== mark) {
+    // Επαληθευμένο στο Demo S1 (2026-10-12): το setData απαντά επιτυχία αλλά το πεδίο μένει κενό —
+    // τον ΜΑΡΚ αγορών τον γράφει μόνο η ενότητα myDATA του ίδιου του SoftOne.
+    throw new Error(
+      `Το SoftOne απάντησε επιτυχία αλλά δεν κράτησε τον ΜΑΡΚ στο ${ref}: σε αυτή την εγκατάσταση ο ΜΑΡΚ αγορών `
+      + `δεν γράφεται από τα web services. Συμπλήρωσέ τον στο SoftOne (${mark}). Το παραστατικό δεν άλλαξε.`,
+    );
+  }
+  return { ref, mark, changed: true };
+}
