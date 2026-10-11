@@ -257,7 +257,8 @@ function BulkCreateTradersModal({ groups, onClose }: { groups: BulkGroup[]; onCl
           </table>
         </div>
 
-        <DialogFooter className="flex-col items-stretch gap-2 border-t border-border bg-card px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+        {/* `mx-0 mb-0`: το DialogFooter έχει `-mx-4 -mb-4` για modal με padding· εδώ είναι `p-0`. */}
+        <DialogFooter className="mx-0 mb-0 flex-col items-stretch gap-2 border-t border-border bg-card px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="flex items-center gap-1.5 text-[length:var(--fs-11)] text-muted-foreground">
             <FiDatabase className="size-3.5 shrink-0" aria-hidden />
             {target

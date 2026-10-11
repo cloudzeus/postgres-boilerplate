@@ -299,7 +299,8 @@ export function CreateTraderDialog({
           )}
         </div>
 
-        <DialogFooter className="flex-col gap-2 border-t border-border bg-muted/30 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+        {/* `mx-0 mb-0`: το DialogFooter έχει `-mx-4 -mb-4` για modal με padding· εδώ είναι `p-0`. */}
+        <DialogFooter className="mx-0 mb-0 flex-col gap-2 border-t border-border bg-muted/30 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
           <label className={cn('flex items-center gap-2 text-[length:var(--fs-12)] text-muted-foreground',
             postingEnabled === false ? 'cursor-not-allowed' : 'cursor-pointer')}>
             <input
