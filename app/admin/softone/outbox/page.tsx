@@ -26,6 +26,7 @@ export default async function SoftoneOutboxPage() {
       <PageHeader
         title="Ουρά SoftOne"
         description="Εργασίες που δεν μπόρεσαν να φύγουν — και τι περιμένει η καθεμία."
+        helpAnchor="softone-outbox"
       />
       <OutboxTable initial={items.map((i) => ({ ...i, createdAt: i.createdAt.toISOString(), sentAt: i.sentAt?.toISOString() ?? null }))} />
     </div>

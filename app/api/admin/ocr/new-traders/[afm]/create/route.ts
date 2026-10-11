@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
-import { parseAfmParam, vatCountry } from '@/lib/ocr/validate';
+import { parseAfmParam, vatCountry, isValidAfm } from '@/lib/ocr/validate';
 import { applyVatPrefix } from '@/lib/ocr/vat-prefix';
 import { applyTraderToDocs, TRADER_KIND_LABEL } from '@/lib/ocr/queues';
 import {
@@ -62,6 +62,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
   const b = parsed.data;
   // Η χώρα του εκδότη: ό,τι επέλεξε ο χρήστης, αλλιώς αυτή που λέει το ίδιο το
   // ΑΦΜ (ξένο πρόθεμα → η χώρα του, σκέτα ψηφία → Ελλάδα).
+  // ΚΑΜΙΑ ΣΙΩΠΗΛΗ «GR». Πριν, ένα ΑΦΜ χωρίς πρόθεμα και χωρίς χώρα γινόταν ελληνικό — έτσι ένας
+  // Τούρκος ή Ιταλός προμηθευτής θα γραφόταν στο ERP ως ελληνικός με ξένο αριθμό. Αν δεν ξέρουμε
+  // τη χώρα, τη ζητάμε.
+  if (!b.country && vatCountry(afm) == null) {
+    return NextResponse.json({
+      error: 'country_required', field: 'country',
+      message: 'Το ΑΦΜ δεν είναι έγκυρο ελληνικό και δεν έχει πρόθεμα χώρας — διάλεξε χώρα ή διόρθωσε το ΑΦΜ.',
+    }, { status: 422 });
+  }
+  // Ελληνικό ΑΦΜ που δεν περνά τον έλεγχο ψηφίου = λάθος ανάγνωσης. Καρτέλα με αυτό θα έμενε
+  // στο μητρώο του πελάτη με ψεύτικο ΑΦΜ — και δεν σβήνεται από εδώ.
+  if ((b.country ?? '').toUpperCase() === 'GR' && /^\d+$/.test(afm) && !isValidAfm(afm)) {
+    return NextResponse.json({
+      error: 'invalid_afm', field: 'afm',
+      message: `Το ΑΦΜ ${afm} δεν περνά τον έλεγχο ψηφίου — πιθανό λάθος ανάγνωσης. Διόρθωσέ το στο παραστατικό.`,
+    }, { status: 422 });
+  }
   const country = (b.country ?? vatCountry(afm) ?? 'GR').toUpperCase();
   // Ο εκδότης είναι ξένος αλλά το OCR διάβασε γυμνά ψηφία: προσθέτουμε το πρόθεμα
   // της χώρας ΜΙΑ φορά, εδώ, και το χρησιμοποιούμε παντού (SoftOne + έγγραφα).

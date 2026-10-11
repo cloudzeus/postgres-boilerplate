@@ -5,6 +5,7 @@ import { softoneFetchTaxOffices } from '@/lib/softone';
 import type { TaxOffice } from '@/lib/tax-office';
 import { PageHeader } from '@/components/admin/page-header';
 import { NewTradersClient } from './queue-client';
+import { BulkCreateTradersButton } from '@/components/admin/bulk-create-traders';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +37,16 @@ export default async function NewTradersPage() {
           title="Νέοι συναλλασσόμενοι"
           description={`Εκδότες παραστατικών που δεν βρέθηκαν στο SoftOne (${groups.length} εκκρεμείς).`}
           helpAnchor="new-traders"
+          // Μόνο τα πεδία που χρειάζεται η κρίση ανά γραμμή — όχι δείγματα/μικρογραφίες της ουράς.
+          actions={
+            <BulkCreateTradersButton
+              canManage={canManage}
+              groups={groups.map((g) => ({
+                afm: g.afm, name: g.name, country: g.country, suggestedKind: g.suggestedKind,
+                missingKinds: g.missing.map((m) => m.kind), docCount: g.docCount,
+              }))}
+            />
+          }
         />
       }
       groups={groups}
