@@ -150,6 +150,12 @@ const CHART_HINT: Partial<Record<`${UtilityKind}:${UtilityCharge}` | UtilityChar
   interest: /ΠΡΟΣΑΥΞΗΣ|ΤΟΚΟΙ ΥΠΕΡΗΜΕΡ|ΤΟΚΟΙ/,
   works: /ΕΠΙΣΚΕΥ|ΣΥΝΤΗΡΗΣ/,
 };
+/** Η λέξη-κλειδί με την οποία ένα είδος χρέωσης εμφανίζεται στα μητρώα του SoftOne — για τις προτάσεις. */
+export function utilityRegistryHint(kind: UtilityKind, charge: UtilityCharge): RegExp | null {
+  const c: UtilityCharge = charge === 'discount' ? 'consumption' : charge;
+  return CHART_HINT[`${kind}:${c}`] ?? CHART_HINT[c] ?? null;
+}
+
 const MAX_SUGGESTIONS = 6;
 const OUTSIDE: readonly UtilityCharge[] = ['municipal', 'ert', 'tax', 'deposit'];
 

@@ -1,5 +1,7 @@
 import { FiFileText } from 'react-icons/fi';
 import { detectUtility, utilityInputFromDocument } from '@/lib/ocr/utility-bills';
+import { lineCoverage } from '@/lib/ocr/coverage';
+import { MatchCoverage } from '@/components/admin/match-coverage';
 import { prisma } from '@/lib/db';
 import { requirePermission, hasPermission } from '@/lib/rbac';
 import { PageHeader } from '@/components/admin/page-header';
@@ -98,6 +100,7 @@ export default async function AdminOcrPage() {
   });
 
   const stats = computeStats(rows);
+  const coverage = await lineCoverage();
 
   return (
     <div className="space-y-5 p-6">
@@ -109,11 +112,12 @@ export default async function AdminOcrPage() {
       />
 
       {/* Stats strip */}
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <StatTile label="Σύνολο" value={stats.total} accent="sisyphus" />
         <StatTile label="Επιτυχημένα" value={stats.completed} accent="emerald" />
         <StatTile label="Σε εκκρεμότητα" value={stats.pending} accent="amber" />
         <StatTile label="Αναρτημένα" value={stats.posted} accent="sisyphus" />
+        <MatchCoverage coverage={coverage} canRematch={canCategorize} />
       </section>
 
       <OcrUploadForm />

@@ -5,6 +5,7 @@ import { normalizeAfm, vatCountry } from '@/lib/ocr/validate';
 import { splitGluedAddress } from '@/lib/ocr/address';
 import { refreshDocTallies, matchDocItems, detectUtilityForItems } from '@/lib/ocr/softone-match';
 import { classifyUtilityCharge, utilityMemoryKey, UTILITY_CHARGE_LABEL, UTILITY_KIND_LABEL } from '@/lib/ocr/utility-bills';
+import { classifyExpenseFamily, familyMemoryKeys, EXPENSE_FAMILY_LABEL } from '@/lib/ocr/expense-families';
 import { loadDocumentJson, saveDocumentJson } from '@/lib/ocr/document';
 import { setPath } from '@/lib/ocr/canonical';
 import { SODTYPE_LABEL, TRADER_KIND_SODTYPE, type TraderKind } from '@/lib/softone';
@@ -1214,17 +1215,17 @@ export interface UtilityLearned {
   propagated: number;
 }
 
-/** Πόσα παραστατικά το πολύ ξανακοιτάζει μία απόφαση — η μνήμη είναι τοπική, αλλά όχι απεριόριστη. */
-const UTILITY_PROPAGATE_LIMIT = 300;
+/** Πόσα παραστατικά το πολύ ξανακοιτάζει μία επανεφαρμογή — η μνήμη είναι τοπική, αλλά όχι απεριόριστη. */
+const REMATCH_LIMIT = 300;
 
 /**
- * Η ΜΝΗΜΗ ΕΙΔΟΥΣ ΧΡΕΩΣΗΣ. Αν η γραμμή ανήκει σε λογαριασμό ρεύματος/νερού/αερίου/τηλεφώνου/
- * μίσθωσης οχημάτων, η ίδια απόφαση γράφεται και με το σταθερό κλειδί του είδους χρέωσης:
- *  • για τον ΕΚΔΟΤΗ (μαζί με την αναλυτική) — ο επόμενος λογαριασμός του ίδιου παρόχου,
- *  • ΓΕΝΙΚΑ (χωρίς αναλυτική) — ο πρώτος λογαριασμός ΑΛΛΟΥ παρόχου του ίδιου είδους.
- * Μετά ξανατρέχει το πέρασμα μνήμης στα ανοιχτά λογαριασμούς του ίδιου είδους, ώστε η απόφαση να
- * φανεί αμέσως παντού (και στις υπόλοιπες γραμμές του ΙΔΙΟΥ παραστατικού, π.χ. πέντε «ΥΔΡΕΥΣΗ»).
- * Χειροκίνητες και παραλειμμένες γραμμές δεν αγγίζονται ποτέ (`matchDocItems`).
+ * Η ΜΝΗΜΗ ΣΤΑΘΕΡΟΥ ΚΛΕΙΔΙΟΥ. Μια απόφαση πάνω σε γραμμή γράφεται, εκτός από τον κανόνα κειμένου,
+ * και με ένα κλειδί που ΔΕΝ αλλάζει από εκδότη σε εκδότη:
+ *  • είδος χρέωσης λογαριασμού κοινής ωφέλειας (`@utility:water:consumption@13`), αλλιώς
+ *  • οικογένεια δαπάνης (`@family:freight@24`) — ο ναύλος ενός μεταφορέα που δεν έχουμε ξαναδεί.
+ * Για τον ΕΚΔΟΤΗ (μαζί με την αναλυτική) και ΓΕΝΙΚΑ (χωρίς αναλυτική). Μετά ξανατρέχει η μνήμη σε
+ * όλα τα ανοιχτά παραστατικά, ώστε η απόφαση να φανεί αμέσως παντού. Χειροκίνητες και
+ * παραλειμμένες γραμμές δεν αγγίζονται ποτέ (`matchDocItems`).
  */
 export async function rememberUtilityMatch(input: {
   lineId: string;
@@ -1241,21 +1242,38 @@ export async function rememberUtilityMatch(input: {
   });
   if (!line) return null;
   const afm = line.document.issuerAfm ?? '';
-  const utility = detectUtilityForItems(line.document.document, afm, line.document.items);
-  if (!utility) return null;
   const vatRate = line.vatRate == null ? null : Number(line.vatRate);
-  const charge = classifyUtilityCharge(utility.kind, {
-    name: line.name, vatRate, amount: line.total == null ? null : Number(line.total),
-  });
-  if (!charge) return null;
+  const hasVat = vatRate != null && Number.isFinite(vatRate);
+
+  // ΠΟΙΟ ΣΤΑΘΕΡΟ ΚΛΕΙΔΙ: είδος χρέωσης λογαριασμού κοινής ωφέλειας, αλλιώς οικογένεια δαπάνης
+  // (ναύλος, καύσιμο, συνδρομή…). Χωρίς κανένα από τα δύο, η απόφαση μένει μόνο στον κανόνα κειμένου.
+  const utility = detectUtilityForItems(line.document.document, afm, line.document.items);
+  const charge = utility
+    ? classifyUtilityCharge(utility.kind, { name: line.name, vatRate, amount: line.total == null ? null : Number(line.total) })
+    : null;
+  const family = utility && charge ? null : classifyExpenseFamily(line.name);
+  let base: string;
+  let withVat: string | null;
+  let label: string;
+  if (utility && charge) {
+    base = utilityMemoryKey(utility.kind, charge);
+    // Ο ΦΠΑ μπαίνει στο κλειδί (όχι για την έκπτωση): ύδρευση 13% και πάγιο τέλος 24% είναι το ίδιο
+    // είδος χρέωσης αλλά άλλος λογαριασμός.
+    withVat = hasVat && charge !== 'discount' ? utilityMemoryKey(utility.kind, charge, vatRate) : null;
+    label = `${UTILITY_KIND_LABEL[utility.kind]} · ${UTILITY_CHARGE_LABEL[charge]}`;
+  } else if (family) {
+    const keys = familyMemoryKeys(family, hasVat ? vatRate : null);
+    base = keys[keys.length - 1];
+    withVat = keys.length > 1 ? keys[0] : null;
+    label = EXPENSE_FAMILY_LABEL[family];
+  } else {
+    return null;
+  }
 
   const { mtrl, expn, lin, isService } = input.match;
   const target = { mtrl, expn, lin, isService, targetSource: 'manual' };
-  const base = utilityMemoryKey(utility.kind, charge);
-  // Ο ΦΠΑ μπαίνει στο κλειδί (όχι για την έκπτωση): ύδρευση 13% και πάγιο τέλος 24% είναι το ίδιο
-  // είδος χρέωσης αλλά άλλος λογαριασμός. Το κλειδί ΧΩΡΙΣ ΦΠΑ είναι η ΠΡΟΕΠΙΛΟΓΗ του είδους: γράφεται
-  // μόνο αν δεν υπάρχει ήδη, ώστε μια απόφαση για 24% να μη μετακινήσει τις γραμμές 13%.
-  const withVat = vatRate != null && Number.isFinite(vatRate) && charge !== 'discount' ? utilityMemoryKey(utility.kind, charge, vatRate) : null;
+  // Το κλειδί ΧΩΡΙΣ ΦΠΑ είναι η ΠΡΟΕΠΙΛΟΓΗ: γράφεται μόνο αν δεν υπάρχει ήδη, ώστε μια απόφαση για
+  // 24% να μη μετακινήσει τις γραμμές 13%.
   type Extra = Partial<Prisma.LineMatchRuleUncheckedCreateInput>;
   const upsert = (where: { afm: string; pattern: string }, extra: Extra) =>
     prisma.lineMatchRule.upsert({
@@ -1277,21 +1295,26 @@ export async function rememberUtilityMatch(input: {
   if (afm) await learn(afm, input.analytics);
   await learn('', {});
 
-  const propagated = await propagateUtilityMemory(utility.kind);
-  return {
-    label: `${UTILITY_KIND_LABEL[utility.kind]} · ${UTILITY_CHARGE_LABEL[charge]}${withVat ? ` · ${vatRate}%` : ''}`,
-    propagated,
-  };
+  const propagated = (await rematchOpenDocuments()).filled;
+  return { label: `${label}${withVat ? ` · ${vatRate}%` : ''}`, propagated };
 }
 
 const isMatched = (i: { softoneMtrl: number | null; softoneExpn: number | null; softoneLinMtrl: number | null }) =>
   i.softoneMtrl != null || i.softoneExpn != null || i.softoneLinMtrl != null;
 
+export interface RematchResult {
+  /** Παραστατικά που ξαναπέρασαν από τη μνήμη. */
+  docs: number;
+  /** Γραμμές που συμπληρώθηκαν τώρα. */
+  filled: number;
+}
+
 /**
- * Ξανατρέχει το πέρασμα μνήμης στα ΑΚΑΤΑΧΩΡΙΣΤΑ παραστατικά με αταίριαστες γραμμές που είναι
- * λογαριασμοί του ίδιου είδους. Επιστρέφει πόσες γραμμές συμπληρώθηκαν.
+ * ΕΠΑΝΕΦΑΡΜΟΓΗ ΜΝΗΜΗΣ: ξανατρέχει το πέρασμα μνήμης σε ΟΛΑ τα ακαταχώριστα παραστατικά που έχουν
+ * αταίριαστες γραμμές (κείμενο, είδος χρέωσης, οικογένεια δαπάνης). Τοπικό — καμία κλήση SoftOne.
+ * Χειροκίνητες και παραλειμμένες γραμμές δεν αγγίζονται ποτέ (`matchDocItems`).
  */
-export async function propagateUtilityMemory(kind: string): Promise<number> {
+export async function rematchOpenDocuments(): Promise<RematchResult> {
   const docs = await prisma.ocrDocument.findMany({
     where: {
       status: 'COMPLETED',
@@ -1304,20 +1327,19 @@ export async function propagateUtilityMemory(kind: string): Promise<number> {
       },
     },
     orderBy: { createdAt: 'desc' },
-    take: UTILITY_PROPAGATE_LIMIT,
+    take: REMATCH_LIMIT,
     select: {
-      id: true, issuerAfm: true, document: true,
-      items: { select: { name: true, vatRate: true, total: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true } },
+      id: true,
+      items: { select: { softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true } },
     },
   });
   let filled = 0;
   for (const d of docs) {
-    if (detectUtilityForItems(d.document, d.issuerAfm, d.items)?.kind !== kind) continue;
     const before = d.items.filter(isMatched).length;
     const after = await matchDocItems(d.id).catch(() => null);
     if (after) filled += Math.max(0, after.matched - before);
   }
-  return filled;
+  return { docs: docs.length, filled };
 }
 
 /**

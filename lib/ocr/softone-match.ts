@@ -4,6 +4,7 @@ import { requiredTraderKind } from '@/lib/ocr/required-trader-kind';
 import { normalizeLineText } from '@/lib/ocr/line-match';
 import { documentReference } from '@/lib/ocr/purdoc-payload';
 import { classifyUtilityCharge, detectUtility, utilityInputFromDocument, utilityMemoryKeys } from '@/lib/ocr/utility-bills';
+import { classifyExpenseFamily, familyMemoryKeys } from '@/lib/ocr/expense-families';
 
 /** Η αναγνώριση λογαριασμού πάνω στις ΓΡΑΜΜΕΣ της βάσης (όχι του JSON) — αυτές αντιστοιχίζονται. */
 export function detectUtilityForItems(
@@ -227,19 +228,24 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     const doc = await prisma.ocrDocument.findUnique({ where: { id: docId }, select: { issuerAfm: true, document: true } });
     const afm = doc?.issuerAfm ?? '';
 
-    // Λογαριασμός ρεύματος/νερού/τηλεφώνου: κάθε γραμμή παίρνει ΚΑΙ το σταθερό κλειδί του είδους
-    // χρέωσης της (`@utility:electricity:consumption`), γιατί το κείμενό της αλλάζει κάθε μήνα.
+    // Σταθερά κλειδιά ΠΕΡΑ από το κείμενο, γιατί το κείμενο αλλάζει από μήνα σε μήνα και από
+    // εκδότη σε εκδότη: (α) λογαριασμός ρεύματος/νερού/τηλεφώνου → είδος χρέωσης
+    // (`@utility:electricity:consumption`), (β) κάθε παραστατικό → οικογένεια δαπάνης
+    // (`@family:freight`), ώστε ο ναύλος ενός άγνωστου μεταφορέα να βρει την απόφαση για τον
+    // προηγούμενο. Πρώτα τα κλειδιά λογαριασμού, μετά της οικογένειας.
     const utility = detectUtilityForItems(doc?.document, afm, items);
-    if (utility) {
-      const byId = new Map(items.map((it) => [it.id, it]));
-      for (const u of unmatched) {
-        const it = byId.get(u.id)!;
-        const vatRate = it.vatRate == null ? null : Number(it.vatRate);
-        const charge = classifyUtilityCharge(utility.kind, {
-          name: it.name, vatRate, amount: it.total == null ? null : Number(it.total),
-        });
-        u.utilityKeys = charge ? utilityMemoryKeys(utility.kind, charge, vatRate) : [];
-      }
+    const byId = new Map(items.map((it) => [it.id, it]));
+    for (const u of unmatched) {
+      const it = byId.get(u.id)!;
+      const vatRate = it.vatRate == null ? null : Number(it.vatRate);
+      const charge = utility
+        ? classifyUtilityCharge(utility.kind, { name: it.name, vatRate, amount: it.total == null ? null : Number(it.total) })
+        : null;
+      const family = classifyExpenseFamily(it.name);
+      u.utilityKeys = [
+        ...(utility && charge ? utilityMemoryKeys(utility.kind, charge, vatRate) : []),
+        ...(family ? familyMemoryKeys(family, vatRate) : []),
+      ];
     }
 
     const patterns = Array.from(new Set(unmatched.flatMap((u) => [u.pattern, ...u.utilityKeys])));

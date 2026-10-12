@@ -357,6 +357,21 @@ describe('matchDocItems — μνήμη είδους χρέωσης (λογαρι
     expect(updateFor('l2')).toMatchObject({ softoneLinMtrl: 8542 });
   });
 
+  it('ναύλος άγνωστου μεταφορέα βρίσκει τον γενικό κανόνα της οικογένειας «ναύλοι»', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ issuerAfm: 'ATU19208701', document: { issuer: { name: 'LKW WALTER' } } });
+    db.ocrInvoiceItem.findMany.mockResolvedValue([
+      { id: 'l1', code: null, name: 'Freight', vatRate: 0, total: 3200, softoneMatchedBy: null },
+      { id: 'l2', code: null, name: 'Reactor 16m3', vatRate: 0, total: 74000, softoneMatchedBy: null },
+    ]);
+    db.lineMatchRule.findMany.mockResolvedValue([
+      { id: 'r1', afm: '', pattern: '@family:freight', mtrl: null, expn: 103, lin: null, isService: false, costCntr: null, prjc: null, prjcStage: null },
+    ]);
+    const r = await matchDocItems('doc1');
+    expect(r).toEqual({ matched: 1, total: 2 });
+    expect(updateFor('l1')).toMatchObject({ softoneExpn: 103, softoneMatchedBy: 'memory' });
+    expect(updateFor('l2')).toMatchObject({ softoneExpn: null, softoneMtrl: null });
+  });
+
   it('συνηθισμένο τιμολόγιο: κανένα κλειδί είδους χρέωσης', async () => {
     db.ocrDocument.findUnique.mockResolvedValue({ issuerAfm: '094073495', document: { issuer: { name: 'SOL HELLAS' } } });
     db.ocrInvoiceItem.findMany.mockResolvedValue([
@@ -364,6 +379,6 @@ describe('matchDocItems — μνήμη είδους χρέωσης (λογαρι
     ]);
     await matchDocItems('doc1');
     const asked = db.lineMatchRule.findMany.mock.calls[0][0].where.pattern.in as string[];
-    expect(asked.some((p) => p.startsWith('@utility:'))).toBe(false);
+    expect(asked.some((p) => p.startsWith('@utility:') || p.startsWith('@family:'))).toBe(false);
   });
 });

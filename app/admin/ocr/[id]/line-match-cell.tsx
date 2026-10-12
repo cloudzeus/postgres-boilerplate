@@ -2,9 +2,11 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import type { LineSuggestion, SuggestionCandidate } from '@/lib/ocr/line-suggestions';
 import {
   FiBriefcase, FiCrosshair, FiDollarSign, FiEdit2, FiLayers, FiLink, FiLoader, FiPackage,
   FiTag, FiTool, FiX, FiPlusCircle, FiAlertTriangle,
+  FiCheck,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -70,7 +72,7 @@ const EMPTY: AnalyticsValue = { id: null, label: null, source: null };
  */
 export function LineMatchCell({
   lineId, docId, match: initial, analytics: initialAnalytics, canManage, defaultKind, lineCategories, trdr,
-  target, lineCode, lineName, lineVatRate, lineUnit,
+  target, lineCode, lineName, lineVatRate, lineUnit, suggestion,
 }: {
   lineId: string;
   docId: string;
@@ -93,6 +95,8 @@ export function LineMatchCell({
   lineName?: string | null;
   lineVatRate?: string | number | null;
   lineUnit?: string | null;
+  /** Έτοιμη πρόταση στόχου (οικογένεια δαπάνης / είδος χρέωσης) — ένα κλικ, και μαθαίνεται. */
+  suggestion?: LineSuggestion | null;
 }) {
   const router = useRouter();
   const rootRef = React.useRef<HTMLDivElement>(null);
@@ -140,6 +144,24 @@ export function LineMatchCell({
     }
   }
 
+  /** Αποδοχή πρότασης: (ενεργοποίηση αν είναι ανενεργή χρεοπίστωση) → αντιστοίχιση → μνήμη. */
+  const acceptSuggestion = async (c: SuggestionCandidate) => {
+    if (c.inactive) {
+      setBusy(true);
+      try {
+        const res = await fetch(`/api/admin/softone/lineitems/${c.id}/activate`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ allowCreditors: true }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok && d.error !== 'nothing_to_do') { toast.error(d.message ?? 'Η ενεργοποίηση απέτυχε.'); return; }
+      } catch {
+        toast.error('Σφάλμα δικτύου — η χρεοπίστωση δεν ενεργοποιήθηκε.');
+        return;
+      } finally { setBusy(false); }
+    }
+    await pick(c.id, c.kind, c.code, c.name);
+  };
+
   const pick = (id: number, picked: MatchKind, code: string, name: string) =>
     send(
       {
@@ -168,7 +190,7 @@ export function LineMatchCell({
         const utility = d.utility as { label: string; propagated: number } | null | undefined;
         toast.success(`Αντιστοιχίστηκε: ${name}`, {
           description: utility
-            ? `Κανόνας «${utility.label}»: θα εφαρμόζεται σε κάθε λογαριασμό αυτού του είδους.${utility.propagated > 0 ? ` Συμπληρώθηκαν ήδη ${utility.propagated} ακόμη γραμμές.` : ''}`
+            ? `Κανόνας «${utility.label}»: θα εφαρμόζεται αυτόματα σε κάθε επόμενο παραστατικό, από οποιονδήποτε εκδότη.${utility.propagated > 0 ? ` Συμπληρώθηκαν ήδη ${utility.propagated} ακόμη γραμμές.` : ''}`
             : d.remembered === false
               ? undefined
               : 'Θα συμπληρωθεί μόνη της στην ίδια περιγραφή του ίδιου εκδότη.',
@@ -229,6 +251,23 @@ export function LineMatchCell({
         </span>
       ) : (
         <span className="text-[length:var(--fs-12)] text-muted-foreground">Χωρίς αντιστοίχιση</span>
+      )}
+      {!match && canManage && suggestion && suggestion.candidates.length > 0 && (
+        <span className="flex flex-col gap-1 rounded-md border border-sisyphus-500/25 bg-sisyphus-500/[0.05] px-2 py-1.5">
+          <span className="text-[length:var(--fs-10)] font-semibold uppercase tracking-wide text-sisyphus-700">Πρόταση · {suggestion.label}</span>
+          {suggestion.candidates.map((c) => (
+            <button
+              key={`${c.kind}-${c.id}`} type="button" disabled={busy}
+              onClick={() => void acceptSuggestion(c)}
+              className="flex min-h-8 items-center gap-1.5 rounded px-1.5 text-left text-[length:var(--fs-12)] text-foreground hover:bg-sisyphus-500/10 disabled:opacity-60"
+            >
+              <FiCheck className="size-3.5 shrink-0 text-sisyphus-600" aria-hidden />
+              <span className="font-mono text-[length:var(--fs-11)]">{c.code}</span>
+              <span className="min-w-0 truncate">{c.name}</span>
+              {c.inactive && <span className="shrink-0 rounded bg-amber-500/15 px-1 text-[length:var(--fs-10)] font-semibold text-amber-800">ανενεργή</span>}
+            </button>
+          ))}
+        </span>
       )}
       {shown.length > 0 && (
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[length:var(--fs-10)] text-muted-foreground">

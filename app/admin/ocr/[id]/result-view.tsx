@@ -14,6 +14,7 @@ import type { AccountCheckLine } from '@/lib/ocr/account-check';
 import { AccountLine } from '@/components/admin/account-line';
 import { UtilityChargeChip } from '@/components/admin/utility-bill-card';
 import type { UtilityCharge } from '@/lib/ocr/utility-bills';
+import type { LineSuggestion } from '@/lib/ocr/line-suggestions';
 
 type DocWithItems = Prisma.OcrDocumentGetPayload<{ include: { items: { include: { allocations: true } } } }>;
 
@@ -43,6 +44,8 @@ export interface LineMatchOptions {
   target: PostingTarget | null;
   /** Λογαριασμός κοινής ωφέλειας: το είδος χρέωσης κάθε γραμμής, με τη σειρά των `items`. */
   utilityCharges?: (UtilityCharge | null)[];
+  /** Έτοιμη πρόταση στόχου ανά γραμμή (id γραμμής) — βλ. `lib/ocr/line-suggestions.ts`. */
+  suggestions?: Record<string, LineSuggestion>;
 }
 
 /**
@@ -166,6 +169,7 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
                       lineVatRate={it.vatRate == null ? null : String(it.vatRate)}
                       /* Η μονάδα ΔΕΝ είναι στήλη της βάσης — ζει στο κανονικό JSON (`lines.unit`). */
                       lineUnit={(line.unit ?? null) as string | null}
+                      suggestion={match.suggestions?.[it.id] ?? null}
                     />
                     {match.lineAccounts?.[it.rowIndex] && (
                       <div className="mt-1">

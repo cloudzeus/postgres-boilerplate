@@ -21,6 +21,7 @@ import { lineAccountsFor } from '@/lib/ocr/account-chart';
 import { postingTargetsForSeries, seriesKey } from '@/lib/ocr/required-trader-kind';
 import { analyzeUtility, utilityInputFromDocument } from '@/lib/ocr/utility-bills';
 import { UtilityBillCard } from '@/components/admin/utility-bill-card';
+import { suggestionsForDocument } from '@/lib/ocr/line-suggestions';
 
 export const dynamic = 'force-dynamic';
 
@@ -151,6 +152,10 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
   const utilityInput = completed ? utilityInputFromDocument(doc.document, doc.issuerAfm, items) : null;
   const utility = utilityInput ? analyzeUtility(utilityInput) : null;
   const utilityHelpHref = utility ? helpHrefFor('utility-bills', (user.role.key as WikiRoleKey | undefined) ?? null) : null;
+  // Έτοιμη πρόταση στόχου για κάθε αταίριαστη γραμμή που αναγνωρίζεται (ναύλος, καύσιμο, δημοτικά…).
+  const lineSuggestions = completed && canManage
+    ? await suggestionsForDocument({ document: doc.document, issuerAfm: doc.issuerAfm, items, target: postingTarget }).catch(() => ({}))
+    : {};
   const docPeriod = ((doc.document ?? null) as { references?: { period?: { from: string | null; to: string | null } | null } } | null)
     ?.references?.period ?? null;
 
@@ -243,6 +248,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
           lineAccounts,
           target: postingTarget,
           utilityCharges: utility ? utility.lines.map((l) => l.charge) : undefined,
+          suggestions: lineSuggestions,
         }}
       />
 

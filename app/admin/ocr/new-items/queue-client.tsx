@@ -291,7 +291,7 @@ export function NewItemsClient({
         `${d.linesUpdated === 1 ? 'Αντιστοιχίστηκε' : 'Αντιστοιχίστηκαν'} ${lineLabel(d.linesUpdated)} → ${d.name}`,
         {
           description: d.utility
-            ? `Κανόνας «${d.utility.label}» για κάθε λογαριασμό αυτού του είδους.${d.utility.propagated > 0 ? ` Συμπληρώθηκαν ήδη ${d.utility.propagated} ακόμη γραμμές.` : ''}`
+            ? `Κανόνας «${d.utility.label}» για κάθε επόμενο παραστατικό, από οποιονδήποτε εκδότη.${d.utility.propagated > 0 ? ` Συμπληρώθηκαν ήδη ${d.utility.propagated} ακόμη γραμμές.` : ''}`
             : memoryNote(g),
         },
       );
