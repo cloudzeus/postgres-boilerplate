@@ -29,3 +29,20 @@ describe('extractSerials', () => {
     expect(extractSerials('SN: AB1234 · S/N AB1234 · SN: CD5678')).toEqual(['AB1234', 'CD5678']);
   });
 });
+
+import { stripSerials } from '@/lib/ocr/serials';
+import { normalizeLineText } from '@/lib/ocr/line-match';
+
+describe('stripSerials / κλειδί μνήμης', () => {
+  it('ίδια υπηρεσία για άλλη συσκευή ⇒ ίδιο κλειδί', () => {
+    const a = 'ΠΡΟΓΡΑΜΜΑ ΑΝΑΒΑΘΜΙΣΗΣ IRIS SN: DMV24000771-P.ID 159894';
+    const b = 'ΠΡΟΓΡΑΜΜΑ ΑΝΑΒΑΘΜΙΣΗΣ IRIS SN: DMV24000233-P.ID 159894';
+    expect(stripSerials(a)).toBe('ΠΡΟΓΡΑΜΜΑ ΑΝΑΒΑΘΜΙΣΗΣ IRIS');
+    expect(normalizeLineText(a)).toBe(normalizeLineText(b));
+    expect(normalizeLineText(a)).toBe('προγραμμα αναβαθμισης iris');
+  });
+  it('χωρίς σειριακό το κείμενο μένει ίδιο· ετικέτα χωρίς ψηφίο δεν σβήνεται', () => {
+    expect(stripSerials('Soft1 OpEn Serial Numbers-Service')).toBe('Soft1 OpEn Serial Numbers-Service');
+    expect(stripSerials('Multi-purpose shears D820-200')).toBe('Multi-purpose shears D820-200');
+  });
+});

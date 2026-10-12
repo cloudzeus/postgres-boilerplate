@@ -99,6 +99,7 @@ export async function POST(req: Request) {
       docId: r.docId,
       remembered: r.remembered,
       utility: r.utility,
+      sameIssuerFilled: r.sameIssuerFilled,
     });
   } catch (e) {
     if (e instanceof QueueError) {

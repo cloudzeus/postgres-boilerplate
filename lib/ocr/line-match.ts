@@ -6,6 +6,7 @@
  * γραμμών, ομοιότητα ονομάτων (Dice σε bigrams) και πρόταση τύπου συναλλασσομένου.
  */
 import type { SeriesTraderKind } from '@/lib/ocr/posting-target';
+import { stripSerials } from '@/lib/ocr/serials';
 
 // Tokens που δεν λένε τίποτα για το είδος: ποσά/ποσότητες, με ή χωρίς μονάδα.
 const AMOUNT_TOKEN = /^[\d.,]+(kg|lt|ml|gr|τεμ|%)?$/;
@@ -17,7 +18,8 @@ const MAX_PATTERN = 120;
  * Το ίδιο pattern είναι το κλειδί της μνήμης (`LineMatchRule.pattern`).
  */
 export function normalizeLineText(raw: string | null | undefined): string {
-  const flat = String(raw ?? '')
+  // Οι σειριακοί ΔΕΝ είναι μέρος του κλειδιού: ίδια υπηρεσία για άλλη συσκευή = ίδια απόφαση.
+  const flat = stripSerials(raw)
     .toLowerCase()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')     // τόνοι/διαλυτικά

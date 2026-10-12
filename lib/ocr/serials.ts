@@ -43,3 +43,39 @@ export function extractSerials(text: string | null | undefined): string[] {
   }
   return out;
 }
+
+/**
+ * Το κείμενο ΧΩΡΙΣ σειριακούς (ετικέτα + κωδικοί) και χωρίς αναγνωριστικό συσκευής («P.ID: 159894»).
+ * Για τη μνήμη αντιστοιχίσεων: «ΠΡΟΓΡΑΜΜΑ ΑΝΑΒΑΘΜΙΣΗΣ IRIS SN: DMV24000771-P.ID 159894» και
+ * «… SN: DMV24000233-P.ID 159894» είναι η ΙΔΙΑ υπηρεσία για δύο συσκευές — μία απόφαση πρέπει να
+ * καλύπτει και τις δύο, και κάθε επόμενη.
+ */
+export function stripSerials(text: string | null | undefined): string {
+  // Πρώτα το αναγνωριστικό συσκευής («-P.ID 159894», «P.ID: 159894»), ώστε να μη μείνει κομμάτι του.
+  const s = String(text ?? '').replace(/-?(?<![\p{L}\p{N}])P\.?\s*ID\s*[:.]?\s*[A-Z0-9]+/giu, ' ');
+  let out = '';
+  let last = 0;
+  for (const m of s.matchAll(LABEL)) {
+    const start = m.index ?? 0;
+    let end = start + m[0].length;
+    let rest = s.slice(end);
+    let hasDigit = false;
+    for (let i = 0; i < 20; i++) {
+      const t = TOKEN.exec(rest);
+      if (!t) break;
+      if (/\d/.test(t[0])) hasDigit = true;
+      end += t[0].length;
+      rest = rest.slice(t[0].length);
+      const sep = /^\s*[,;\/]\s*/u.exec(rest);
+      if (!sep) break;
+      end += sep[0].length;
+      rest = rest.slice(sep[0].length);
+    }
+    // Ίδιος κανόνας με `extractSerials`: χωρίς ψηφίο δεν είναι σειριακός — το κείμενο μένει ακέραιο.
+    if (!hasDigit) continue;
+    out += s.slice(last, start) + ' ';
+    last = end;
+  }
+  out += s.slice(last);
+  return out.replace(/\s+/g, ' ').trim();
+}

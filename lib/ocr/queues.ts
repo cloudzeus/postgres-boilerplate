@@ -1330,12 +1330,13 @@ export interface RematchResult {
  * Χειροκίνητες και παραλειμμένες γραμμές δεν αγγίζονται ποτέ (`matchDocItems`).
  */
 export async function rematchOpenDocuments(
-  only: { family?: string; utilityKind?: string } = {},
+  only: { family?: string; utilityKind?: string; issuerAfm?: string } = {},
 ): Promise<RematchResult> {
   const docs = await prisma.ocrDocument.findMany({
     where: {
       status: 'COMPLETED',
       postStatus: { not: 'POSTED' },
+      ...(only.issuerAfm ? { issuerAfm: only.issuerAfm } : {}),
       // Και παραστατικά ΧΩΡΙΣ αταίριαστες γραμμές, αν κάποια γραμμή τη συμπλήρωσε η ΜΝΗΜΗ: μια νεότερη,
       // ειδικότερη απόφαση (π.χ. «ναύλος 0%» μετά τον «ναύλο» γενικά) πρέπει να τη διορθώσει.
       items: {
@@ -1470,6 +1471,8 @@ export interface LineMatchResult extends ResolvedMatch {
   remembered: boolean;
   analytics: LineAnalytics;
   utility: UtilityLearned | null;
+  /** Χωρίς οικογένεια/είδος: γραμμές με ΙΔΙΑ περιγραφή του ΙΔΙΟΥ εκδότη που συμπληρώθηκαν τώρα. */
+  sameIssuerFilled: number;
 }
 
 /**
@@ -1515,9 +1518,14 @@ export async function applyMatchToLine(input: {
   // Ο χρήστης διάλεξε ΡΗΤΑ αυτόν τον στόχο στη σελίδα του παραστατικού.
   if (pattern) await rememberLineMatch({ afm, pattern, match, analytics, userId: input.userId });
   const utility = await rememberUtilityMatch({ lineId, match, analytics, userId: input.userId }).catch(() => null);
+  // Ο κανόνας κειμένου εφαρμόζεται ΑΜΕΣΑ στα ανοιχτά παραστατικά του ίδιου εκδότη — όχι στην επόμενη
+  // σάρωση. (Με οικογένεια/είδος χρέωσης η επανεφαρμογή έγινε ήδη, ευρύτερα.)
+  const sameIssuerFilled = !utility && pattern && afm
+    ? (await rematchOpenDocuments({ issuerAfm: afm }).catch(() => ({ filled: 0 }))).filled
+    : 0;
 
   await refreshDocTallies([line.documentId]);
-  return { ...match, lineId, docId: line.documentId, afm, pattern, remembered: !!pattern, analytics, utility };
+  return { ...match, lineId, docId: line.documentId, afm, pattern, remembered: !!pattern, analytics, utility, sameIssuerFilled };
 }
 
 /**
