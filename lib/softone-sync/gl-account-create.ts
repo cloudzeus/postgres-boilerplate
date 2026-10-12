@@ -44,7 +44,8 @@ export interface GlAccountPlan {
 
 /** Τα πεδία που ΔΕΝ αντιγράφονται από τον αδελφό. */
 const SKIP = new Set(['ACNT', 'CODE', 'NAME', 'VAT', 'ACNTVATID', 'INSDATE', 'INSUSER', 'UPDDATE', 'UPDUSER']);
-const CODE_RE = /^\d{2}\.\d{2}\.\d{2}\.\d{4}$/;
+/** 4ης βαθμίδας (κινούμενος, ΝΝ.ΝΝ.ΝΝ.ΝΝΝΝ) ή 3ης (ομάδα, ΝΝ.ΝΝ.ΝΝ) — η ομάδα χρειάζεται όταν λείπει ο γονικός. */
+const CODE_RE = /^\d{2}\.\d{2}\.\d{2}(\.\d{4})?$/;
 /** «1|Πρότυπο» → «1»: το getData δίνει ετικέτες, το setData θέλει κλειδιά. */
 const keyOf = (v: unknown) => String(v ?? '').split('|')[0];
 const quote = (s: string) => s.replace(/'/g, '');
@@ -66,21 +67,23 @@ async function chartCount(): Promise<number> {
 export async function planGlAccount(input: GlAccountInput): Promise<GlAccountPlan> {
   const code = input.code.trim();
   const name = input.name.trim();
-  if (!CODE_RE.test(code)) throw new GlAccountError('invalid_code', `Ο κωδικός «${code}» δεν είναι λογαριασμός 4ης βαθμίδας (ΝΝ.ΝΝ.ΝΝ.ΝΝΝΝ).`);
+  if (!CODE_RE.test(code)) throw new GlAccountError('invalid_code', `Ο κωδικός «${code}» δεν είναι λογαριασμός 3ης ή 4ης βαθμίδας (ΝΝ.ΝΝ.ΝΝ ή ΝΝ.ΝΝ.ΝΝ.ΝΝΝΝ).`);
+  const grade = code.split('.').length;
   if (!name) throw new GlAccountError('name_required', 'Δώσε περιγραφή λογαριασμού.');
   if (await accountByCode(code)) throw new GlAccountError('exists', `Ο λογαριασμός ${code} υπάρχει ήδη στο SoftOne.`, 409);
 
-  const parentCode = code.split('.').slice(0, 3).join('.');
+  const parentCode = code.split('.').slice(0, grade - 1).join('.');
   const parent = await accountByCode(parentCode);
   if (!parent) throw new GlAccountError('no_parent', `Ο γονικός λογαριασμός ${parentCode} δεν υπάρχει — δεν ανοίγουμε λογαριασμό εκτός δομής.`);
 
   // Ο αδελφός-πρότυπο: κινούμενος, ίδιος γονικός. Αν ο γονικός δεν έχει κανέναν (π.χ. 63.98.99
   // «Λοιποί φόροι-τέλη»), ο ξάδελφος από την ίδια ομάδα (63.98.xx) — ίδια φύση, ίδια συμπεριφορά.
   // Προτιμάται όποιος έχει ΦΠΑ όταν ο νέος θα έχει, όποιος ΔΕΝ έχει όταν ο νέος είναι χωρίς ΦΠΑ.
-  const fourth = (prefix: string) => softoneGetTable('ACNT', ['ACNT', 'CODE', 'NAME', 'ACNMOVING', 'VAT'], `CODE LIKE '${quote(prefix)}.%'`)
-    .then((rows) => rows.filter((s) => s.ACNMOVING === '1' && s.CODE.split('.').length === 4));
-  let siblings = await fourth(parentCode);
-  if (!siblings.length) siblings = await fourth(code.split('.').slice(0, 2).join('.'));
+  // Πρότυπο ΙΔΙΑΣ βαθμίδας: κινούμενος για 4ης, ομάδα (μη κινούμενη) για 3ης.
+  const sameGrade = (prefix: string) => softoneGetTable('ACNT', ['ACNT', 'CODE', 'NAME', 'ACNMOVING', 'VAT'], `CODE LIKE '${quote(prefix)}.%'`)
+    .then((rows) => rows.filter((s) => s.CODE.split('.').length === grade && (grade === 4 ? s.ACNMOVING === '1' : true)));
+  let siblings = await sameGrade(parentCode);
+  if (!siblings.length) siblings = await sameGrade(code.split('.').slice(0, grade - 2).join('.'));
   if (!siblings.length) throw new GlAccountError('no_template', `Δεν υπάρχει κινούμενος λογαριασμός κάτω από ${parentCode} (ούτε στην ομάδα του) να χρησιμεύσει ως πρότυπο.`);
   const wantsVat = input.vatRate != null && input.vatRate > 0;
   siblings.sort((a, b) => Number(!!b.VAT === wantsVat) - Number(!!a.VAT === wantsVat) || b.CODE.localeCompare(a.CODE));
@@ -168,9 +171,10 @@ export async function createGlAccount(input: GlAccountInput): Promise<GlAccountC
   if (!created) throw new GlAccountError('not_persisted', `Το SoftOne απάντησε επιτυχία αλλά ο ${plan.code} δεν βρέθηκε.`, 502);
   const check = await softoneCall<{ success?: boolean; data?: Record<string, Record<string, unknown>[]> }>('getData', { OBJECT: 'ACNTGL', KEY: created.ACNT });
   const r = check.data?.ACNTGL?.[0] ?? {};
+  const grade = plan.code.split('.').length;
   const problems = [
     keyOf(r.NAME) !== plan.name && 'περιγραφή',
-    keyOf(r.ACNMOVING) !== '1' && 'κινείται',
+    grade === 4 && keyOf(r.ACNMOVING) !== '1' && 'κινείται',
     plan.vat && keyOf(r.VAT) !== plan.vat.code && 'ΦΠΑ',
     plan.vatAccount && keyOf(r.ACNTVATID) !== String(plan.vatAccount.acnt) && 'λογαριασμός ΦΠΑ',
   ].filter(Boolean);
@@ -180,8 +184,8 @@ export async function createGlAccount(input: GlAccountInput): Promise<GlAccountC
 
   await prisma.softoneAccount.upsert({
     where: { acnt: Number(created.ACNT) },
-    update: { code: plan.code, name: plan.name, grade: 4, parentCode: plan.parent.code, sodtype: 89, postable: true, isActive: true, syncedAt: new Date() },
-    create: { acnt: Number(created.ACNT), code: plan.code, name: plan.name, grade: 4, parentCode: plan.parent.code, sodtype: 89, postable: true, isActive: true },
+    update: { code: plan.code, name: plan.name, grade, parentCode: plan.parent.code, sodtype: 89, postable: grade === 4, isActive: true, syncedAt: new Date() },
+    create: { acnt: Number(created.ACNT), code: plan.code, name: plan.name, grade, parentCode: plan.parent.code, sodtype: 89, postable: grade === 4, isActive: true },
   });
   const { payload: _p, ...rest } = plan;
   return { ...rest, acnt: Number(created.ACNT) };

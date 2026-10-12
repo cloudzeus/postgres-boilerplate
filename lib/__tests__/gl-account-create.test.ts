@@ -17,6 +17,8 @@ const CHART = [
   { ACNT: '8306', CODE: '62.00.00.0024', NAME: 'Ηλεκτρικό ρεύμα παραγωγής με Φ.Π.Α. 24%', ACNGRADE: '4', ACNMOVING: '1', VAT: '1410' },
   { ACNT: '3795', CODE: '54.00.29.0006', NAME: 'Φ.Π.Α. εισρ-δαπ εσωτερ.με Φ.Π.Α. 6%', ACNGRADE: '4', ACNMOVING: '1', VAT: '' },
   { ACNT: '8285', CODE: '54.00.29.0024', NAME: 'Φ.Π.Α. εισρ-δαπ εσωτερ.με Φ.Π.Α. 24%', ACNGRADE: '4', ACNMOVING: '1', VAT: '' },
+  { ACNT: '6000', CODE: '15.01', NAME: 'Κτίρια υπό εκτέλεση', ACNGRADE: '2', ACNMOVING: '0', VAT: '' },
+  { ACNT: '6001', CODE: '15.01.77', NAME: 'Επενδυτικά κτίρια υπό εκτέλεση', ACNGRADE: '3', ACNMOVING: '0', VAT: '' },
 ];
 
 beforeEach(() => {
@@ -59,5 +61,14 @@ describe('planGlAccount', () => {
     await expect(planGlAccount({ code: '62.00.00.0024', name: 'x', vatRate: 24 })).rejects.toMatchObject({ code: 'exists' });
     await expect(planGlAccount({ code: '99.99.99.0024', name: 'x', vatRate: 24 })).rejects.toMatchObject({ code: 'no_parent' });
     await expect(planGlAccount({ code: '62.00', name: 'x', vatRate: 24 })).rejects.toMatchObject({ code: 'invalid_code' });
+  });
+});
+
+describe('planGlAccount — ομάδα 3ης βαθμίδας', () => {
+  it('15.01.00 κάτω από 15.01, πρότυπο η ομάδα 15.01.77, χωρίς ΦΠΑ', async () => {
+    const p = await planGlAccount({ code: '15.01.00', name: 'Κτίρια υπό εκτέλεση', vatRate: null });
+    expect(p.parent.code).toBe('15.01');
+    expect(p.template.code).toBe('15.01.77');
+    expect(p.vat).toBeNull();
   });
 });
