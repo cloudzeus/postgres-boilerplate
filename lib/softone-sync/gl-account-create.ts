@@ -74,11 +74,16 @@ export async function planGlAccount(input: GlAccountInput): Promise<GlAccountPla
   const parent = await accountByCode(parentCode);
   if (!parent) throw new GlAccountError('no_parent', `Ο γονικός λογαριασμός ${parentCode} δεν υπάρχει — δεν ανοίγουμε λογαριασμό εκτός δομής.`);
 
-  // Ο αδελφός-πρότυπο: κινούμενος, ίδιος γονικός· προτιμάται όποιος έχει ΦΠΑ, και ο νεότερος κωδικός.
-  const siblings = (await softoneGetTable('ACNT', ['ACNT', 'CODE', 'NAME', 'ACNMOVING', 'VAT'], `CODE LIKE '${quote(parentCode)}.%'`))
-    .filter((s) => s.ACNMOVING === '1' && s.CODE.split('.').length === 4);
-  if (!siblings.length) throw new GlAccountError('no_template', `Δεν υπάρχει κινούμενος λογαριασμός κάτω από ${parentCode} να χρησιμεύσει ως πρότυπο.`);
-  siblings.sort((a, b) => Number(!!b.VAT) - Number(!!a.VAT) || b.CODE.localeCompare(a.CODE));
+  // Ο αδελφός-πρότυπο: κινούμενος, ίδιος γονικός. Αν ο γονικός δεν έχει κανέναν (π.χ. 63.98.99
+  // «Λοιποί φόροι-τέλη»), ο ξάδελφος από την ίδια ομάδα (63.98.xx) — ίδια φύση, ίδια συμπεριφορά.
+  // Προτιμάται όποιος έχει ΦΠΑ όταν ο νέος θα έχει, όποιος ΔΕΝ έχει όταν ο νέος είναι χωρίς ΦΠΑ.
+  const fourth = (prefix: string) => softoneGetTable('ACNT', ['ACNT', 'CODE', 'NAME', 'ACNMOVING', 'VAT'], `CODE LIKE '${quote(prefix)}.%'`)
+    .then((rows) => rows.filter((s) => s.ACNMOVING === '1' && s.CODE.split('.').length === 4));
+  let siblings = await fourth(parentCode);
+  if (!siblings.length) siblings = await fourth(code.split('.').slice(0, 2).join('.'));
+  if (!siblings.length) throw new GlAccountError('no_template', `Δεν υπάρχει κινούμενος λογαριασμός κάτω από ${parentCode} (ούτε στην ομάδα του) να χρησιμεύσει ως πρότυπο.`);
+  const wantsVat = input.vatRate != null && input.vatRate > 0;
+  siblings.sort((a, b) => Number(!!b.VAT === wantsVat) - Number(!!a.VAT === wantsVat) || b.CODE.localeCompare(a.CODE));
   const tpl = siblings[0];
   const tplData = await softoneCall<{ success?: boolean; error?: string; data?: Record<string, Record<string, unknown>[]> }>(
     'getData', { OBJECT: 'ACNTGL', KEY: tpl.ACNT },
