@@ -50,7 +50,7 @@ const RULES: [ExpenseFamily, RegExp][] = [
     `ΝΑΥΛ|FREIGHT|ΜΕΤΑΦΟΡΑ|ΜΕΤΑΦΟΡΕΣ|ΜΕΤΑΦΟΡΙΚ|TRANSPORT|CARRIAGE|${w('B L FEE|BL FEE')}|BILL OF LADING|${w('VGM|THC')}`
     + `|RELEASE OF EMPTY|DEMURRAGE|DETENTION|STABILITY SURCHARGE|BUNKER|AGENCY FEE|CONTAINER|CONEX|TERMINAL (SECURITY|HANDLING)`,
   )],
-  ['fuel', new RegExp(`ΑΜΟΛΥΒΔ|DIESEL|ΠΕΤΡΕΛΑΙΟ ΚΙΝΗΣ|ΒΕΝΖΙΝ|UNLEADED|${w('V ?POWER')}|ADBLUE|ΚΑΥΣΙΜΟ ΚΙΝΗΣ|${w('ΚΑΥΣΙΜΑ|ΚΑΥΣΙΜΟ')}`)],
+  ['fuel', new RegExp(`ΑΜΟΛΥΒΔ|DIESEL|ΠΕΤΡΕΛΑΙΟ ΚΙΝΗΣ|ΒΕΝΖΙΝ|UNLEADED|${w('V ?POWER')}|ADBLUE|ΚΑΥΣΙΜΟ ΚΙΝΗΣ|ΜΑΖΟΥΤ|HEAVY FUEL OIL|${w('ΚΑΥΣΙΜΑ|ΚΑΥΣΙΜΟ')}`)],
   ['hosting', new RegExp(`${w('DOMAIN')}|ΟΝΟΜΑΤΟΣ ΧΩΡΟΥ|HOSTING|ΦΙΛΟΞΕΝΙΑ ΙΣΤΟΣΕΛ|${w('SSL')}|ΚΑΤΟΧΥΡΩΣΗ ΟΝΟΜ`)],
   ['software', new RegExp(
     `ΣΥΝΔΡΟΜΗ|ΣΥΝΔΡΟΜΗΣ|SUBSCRIPTION|LICEN[CS]E|ΑΔΕΙΑ ΧΡΗΣ|ΑΔΕΙΕΣ ΧΡΗΣ|${w('CLOUD|SAAS')}|CONNECTOR|ΛΟΓΙΣΜΙΚ|SOFTWARE`
@@ -60,7 +60,8 @@ const RULES: [ExpenseFamily, RegExp][] = [
   ['commission', new RegExp(`COMMISSION|ΠΡΟΜΗΘΕΙΑ ΜΕΣΙΤ|ΠΡΟΜΗΘΕΙΕΣ ΠΩΛΗΣ|ΠΡΟΜΗΘΕΙΑ ΠΩΛΗΣ|BROKERAGE`)],
   ['rent', new RegExp(`ΕΝΟΙΚΙΟ|ΕΝΟΙΚΙΑ|ΜΙΣΘΩΜΑ ΑΚΙΝ|${w('RENT')}`)],
   ['insurance', new RegExp(`ΑΣΦΑΛΙΣΤΡ|INSURANCE PREMIUM`)],
-  ['repairs', new RegExp(`ΕΠΙΣΚΕΥ|ΣΥΝΤΗΡΗΣ|REPAIR|MAINTENANCE`)],
+  // «Βλάβη …», «Αποκατάσταση βλάβης …» στα τιμολόγια συντηρητών (π.χ. ηλεκτρολόγου/μηχανολόγου).
+  ['repairs', new RegExp(`ΕΠΙΣΚΕΥ|ΣΥΝΤΗΡΗΣ|REPAIR|MAINTENANCE|ΒΛΑΒ|ΕΠΙΔΙΟΡΘΩΣ`)],
   ['stationery', new RegExp(`ΓΡΑΦΙΚΗ ΥΛΗ|ΓΡΑΦΙΚΗΣ ΥΛΗΣ|ΧΑΡΤΙ Α4|${w('TONER')}|ΜΕΛΑΝΙ`)],
   ['travel', new RegExp(`ΕΙΣΙΤΗΡΙ|ΑΕΡΟΠΟΡΙΚ|ΞΕΝΟΔΟΧ|ΔΙΑΜΟΝΗ|ΔΙΟΔΙ|${w('TOLL|TAXI|ΤΑΞΙ')}|ΣΤΑΘΜΕΥΣ|PARKING`)],
   ['meals', new RegExp(`ΕΣΤΙΑΣ|ΓΕΥΜΑ|ΦΑΓΗΤ|RESTAURANT`)],
