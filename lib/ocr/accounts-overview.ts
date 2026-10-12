@@ -16,6 +16,7 @@ import { checkAccounts, type AccountStatus } from './account-check';
 import { loadAccountChart } from './account-chart';
 import { detectUtilityForItems } from './softone-match';
 import { normalizeGreek } from './doc-type-classify';
+import { cachedInactiveLineItems, type InactiveLineItem } from '@/lib/softone-sync/lineitem-activate';
 import {
   classifyUtilityCharge, UTILITY_CHARGE_LABEL, UTILITY_KIND_LABEL, type UtilityCharge, type UtilityKind,
 } from './utility-bills';
@@ -52,6 +53,11 @@ export interface UtilityGap {
    * συντελεστές αλλά όχι με τον σωστό (π.χ. 62.02.00.0013 όταν υπάρχουν μόνο 0009/0019).
    */
   toOpen: { code: string; name: string | null; vatRate: number | null } | null;
+  /**
+   * ΑΝΕΝΕΡΓΕΣ χρεοπιστώσεις του SoftOne για αυτό το είδος χρέωσης (πρώτα του σωστού ΦΠΑ) —
+   * ενεργοποίηση αντί για δημιουργία νέας.
+   */
+  inactive: InactiveLineItem[];
 }
 
 export interface ChartRow {
@@ -136,9 +142,10 @@ const CHART_HINT: Partial<Record<`${UtilityKind}:${UtilityCharge}` | UtilityChar
   'gas:consumption': /ΦΩΤΑΕΡΙΟ|ΑΕΡΙΟ|ΚΑΥΣΙΜ/,
   'telecom:consumption': /ΤΗΛΕΦΩΝ|ΤΗΛΕΠΙΚΟΙΝΩΝ|ΚΙΝΗΤΗ/,
   'vehicle_lease:rental': /ΕΝΟΙΚΙΑ (ΜΕΤΑΦΟΡΙΚ|ΕΙΧ|ΦΙΧ|ΑΥΤΟΚΙΝ)|ΕΝΟΙΚΙΑ.*ΑΥΤΟΚΙΝ|ΜΙΣΘΩΜΑΤΑ.*(ΜΕΤΑΦΟΡ|ΑΥΤΟΚΙΝ|ΟΧΗΜ)|LEASING/,
-  municipal: /ΔΗΜΟΤ/,
+  municipal: /ΔΗΜΟΤ|ΚΑΘΑΡΙΟΤ|ΦΩΤΙΣΜ/,
   ert: /ΕΡΤ|ΡΑΔΙΟΦΩΝ|ΤΗΛΕΟΡΑΣ/,
-  tax: /ΤΕΛΗ|ΕΙΔΙΚΟΣ ΦΟΡΟΣ|ΛΟΙΠΟΙ ΦΟΡΟΙ/,
+  // ΟΧΙ σκέτο «ΤΕΛΗ»: θα έπιανε τα «Τέλη καθαριότητας και φωτισμού», που είναι δημοτικά.
+  tax: /ΕΙΔΙΚΟΣ ΦΟΡΟΣ|ΕΙΔΙΚΑ ΤΕΛΗ|ΛΟΙΠΟΙ ΦΟΡΟΙ|ΦΟΡΟΙ ΤΕΛΗ|ΠΕΡΙΒΑΛΛ|ΚΑΤΑΝΑΛΩΣ/,
   deposit: /ΕΓΓΥΗΣ/,
   interest: /ΠΡΟΣΑΥΞΗΣ|ΤΟΚΟΙ ΥΠΕΡΗΜΕΡ|ΤΟΚΟΙ/,
   works: /ΕΠΙΣΚΕΥ|ΣΥΝΤΗΡΗΣ/,
@@ -173,7 +180,7 @@ export async function loadUtilityGaps(): Promise<UtilityGap[]> {
       const key = `${u.kind}:${c}`;
       const g = gaps.get(key) ?? {
         kind: u.kind, charge: c, label: `${UTILITY_KIND_LABEL[u.kind]} · ${UTILITY_CHARGE_LABEL[c]}`,
-        lines: 0, docs: [], suggestions: [], vatRate: null, toOpen: null, docIds: new Set<string>(), rates: new Map<number, number>(),
+        lines: 0, docs: [], suggestions: [], vatRate: null, toOpen: null, inactive: [], docIds: new Set<string>(), rates: new Map<number, number>(),
       };
       g.lines++;
       if (it.vatRate != null) { const r = Number(it.vatRate); g.rates.set(r, (g.rates.get(r) ?? 0) + 1); }
@@ -190,6 +197,9 @@ export async function loadUtilityGaps(): Promise<UtilityGap[]> {
   });
   const normalized = accounts.map((a) => ({ ...a, n: normalizeGreek(a.name) }));
   const existing = new Set(accounts.map((a) => a.code));
+  // Ποτέ δεν ρίχνει τη σελίδα: χωρίς SoftOne απλώς δεν υπάρχουν προτάσεις ενεργοποίησης.
+  const inactiveAll = (await cachedInactiveLineItems().catch(() => [] as InactiveLineItem[]))
+    .map((it) => ({ it, n: normalizeGreek(it.name) }));
   return [...gaps.values()].map(({ docIds: _d, rates, ...g }) => {
     // Ο ΦΠΑ της πλειοψηφίας· τα τέλη τρίτων είναι εκτός ΦΠΑ ό,τι κι αν διάβασε η ανάγνωση.
     const top = [...rates.entries()].sort((a, b) => b[1] - a[1])[0];
@@ -207,7 +217,12 @@ export async function loadUtilityGaps(): Promise<UtilityGap[]> {
       const code = `${parent}.00${String(vatRate).padStart(2, '0')}`;
       if (!existing.has(code)) toOpen = { code, name: proposeAccountName(code, withVat.name), vatRate };
     }
-    return { ...g, suggestions, vatRate, toOpen };
+    const inactive = hint
+      ? inactiveAll.filter(({ n }) => hint.test(n)).map(({ it }) => it)
+        .sort((a, b) => rank(a.acnmsk ?? a.code) - rank(b.acnmsk ?? b.code) || a.code.localeCompare(b.code))
+        .slice(0, 3)
+      : [];
+    return { ...g, suggestions, vatRate, toOpen, inactive };
   }).sort((a, b) => b.lines - a.lines);
 }
 

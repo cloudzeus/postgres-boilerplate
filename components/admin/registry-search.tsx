@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { FiAlertTriangle, FiLoader, FiRefreshCw, FiSearch } from 'react-icons/fi';
+import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
@@ -25,6 +26,8 @@ export interface RegistryPick {
 type Result = {
   id: number; code: string; name: string; sub?: string; isService?: boolean;
   vat?: string | null; myData?: string | null; noClass?: boolean;
+  /** Χρεοπίστωση που υπάρχει στο SoftOne αλλά είναι ΑΝΕΝΕΡΓΗ: η επιλογή την ενεργοποιεί πρώτα. */
+  inactive?: boolean;
 };
 
 const ENDPOINT: Record<RegistryKind, string> = {
@@ -115,6 +118,22 @@ export function RegistrySearch({
     setOpen(false);
     setQ('');
     setResults([]);
+    // Ανενεργή στο SoftOne: πρώτα ενεργοποίηση (και αποδοχή πιστωτών, ώστε να χωρά και σε σειρά
+    // πιστωτών), μετά η επιλογή. Αν αποτύχει η ενεργοποίηση, ΔΕΝ επιλέγεται — θα μπλόκαρε στην καταχώριση.
+    if (r.inactive) {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/admin/softone/lineitems/${r.id}/activate`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ allowCreditors: true }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok && d.error !== 'nothing_to_do') { toast.error(d.message ?? 'Η ενεργοποίηση απέτυχε.'); return; }
+        toast.success(`Ενεργοποιήθηκε στο SoftOne: ${r.code}`);
+      } catch {
+        toast.error('Σφάλμα δικτύου — η χρεοπίστωση δεν ενεργοποιήθηκε.');
+        return;
+      } finally { setLoading(false); }
+    }
     await onPick({
       id: r.id,
       kind: kind === 'expense' || kind === 'lineitem' ? kind : r.isService ? 'service' : 'product',
@@ -191,15 +210,22 @@ export function RegistrySearch({
                   i === active ? 'bg-sisyphus-50' : 'hover:bg-[var(--cx-hover)]',
                 )}
               >
-                <span className="line-clamp-1 text-[length:var(--fs-13)] font-medium text-foreground">{r.name}</span>
+                <span className="line-clamp-1 text-[length:var(--fs-13)] font-medium text-foreground">
+                  {r.inactive && (
+                    <span className="mr-1.5 rounded bg-amber-500/15 px-1.5 py-px align-middle text-[length:var(--fs-10)] font-semibold text-amber-800">ανενεργή</span>
+                  )}
+                  {r.name}
+                </span>
                 <span className="text-caption text-muted-foreground">
                   <span className="font-mono">{r.code}</span>
                   {r.sub ? ` · ${r.sub}` : ''}
                 </span>
                 {/* Ο χαρακτηρισμός myDATA του μητρώου — μόνο ενημερωτικά, δεν τον ορίζει η εφαρμογή. */}
-                <span className="text-caption" style={{ color: r.noClass ? '#B45309' : '#047857' }}>
-                  {r.noClass ? 'myDATA: χωρίς χαρακτηρισμό' : `myDATA: ${r.myData}`}
-                </span>
+                {!r.inactive && (
+                  <span className="text-caption" style={{ color: r.noClass ? '#B45309' : '#047857' }}>
+                    {r.noClass ? 'myDATA: χωρίς χαρακτηρισμό' : `myDATA: ${r.myData}`}
+                  </span>
+                )}
               </button>
             </li>
           ))}

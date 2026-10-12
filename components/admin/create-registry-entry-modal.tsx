@@ -19,6 +19,7 @@ import { matchUnit, unitOptions } from '@/lib/ocr/unit-match';
 import { LINE_KIND_LABEL } from '@/lib/ocr/resolution-plan';
 import { parseLisourceType } from '@/lib/ocr/lineitem-create';
 import type { MatchKind } from '@/lib/ocr/line-match';
+import type { InactiveLineItem } from '@/lib/softone-sync/lineitem-activate';
 
 type Opt = { id: string; name: string };
 /** Η κατηγορία ΦΠΑ κουβαλά και το **δηλωμένο** ποσοστό της — `null` όταν το SoftOne δεν το δίνει. */
@@ -306,6 +307,55 @@ export function CreateRegistryEntryModal({
     return () => { ignore = true; };
   }, [open, kind, initialCode, account.code]);
 
+  /**
+   * ΠΡΟΤΑΣΗ ΕΝΕΡΓΟΠΟΙΗΣΗΣ. Πριν φτιαχτεί νέα χρεοπίστωση, ελέγχουμε αν υπάρχει ήδη ΑΝΕΝΕΡΓΗ στο
+   * SoftOne με τον ίδιο λογαριασμό ή τον ίδιο κωδικό — στο Demo S1 υπήρχαν 222, και η δημιουργία
+   * νέας είτε απορριπτόταν («ο κωδικός υπάρχει ήδη») είτε άφηνε δύο χρεοπιστώσεις για έναν λογαριασμό.
+   */
+  const [inactiveOffer, setInactiveOffer] = React.useState<InactiveLineItem[]>([]);
+  const [activating, setActivating] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    if (!open || kind !== 'lineitem') { setInactiveOffer([]); return; }
+    const acc = account.code.trim();
+    const code = f.code.trim();
+    if (!acc && !code) { setInactiveOffer([]); return; }
+    let ignore = false;
+    const h = setTimeout(() => {
+      const qs = new URLSearchParams();
+      if (acc) qs.set('account', acc);
+      if (code) qs.set('code', code);
+      fetch(`/api/admin/softone/lineitems/inactive?${qs}`, { cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : { items: [] }))
+        .then((d: { items?: InactiveLineItem[] }) => { if (!ignore) setInactiveOffer(d.items ?? []); })
+        .catch(() => { if (!ignore) setInactiveOffer([]); });
+    }, 300);
+    return () => { ignore = true; clearTimeout(h); };
+  }, [open, kind, account.code, f.code]);
+
+  const activateInactive = async (it: InactiveLineItem) => {
+    setActivating(it.mtrl);
+    try {
+      const res = await fetch(`/api/admin/softone/lineitems/${it.mtrl}/activate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        // Πιστωτές μόνο όταν τους χρειάζεται ο προορισμός· άγνωστος προορισμός ⇒ ναι, να χωρά παντού.
+        body: JSON.stringify({ allowCreditors: (template?.requiredSodtype ?? 16) === 16 }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok && d.error !== 'nothing_to_do') { toast.error(d.message ?? 'Η ενεργοποίηση απέτυχε.'); return; }
+      if (lineId) {
+        const m = await fetch('/api/admin/ocr/match-line', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lineId, lin: it.mtrl }),
+        });
+        if (!m.ok) { toast.error('Ενεργοποιήθηκε, αλλά η σύνδεση με τη γραμμή απέτυχε — διάλεξέ τη από την αναζήτηση.'); return; }
+      }
+      toast.success(`Ενεργοποιήθηκε η υπάρχουσα ${it.code} — δεν χρειάστηκε νέα χρεοπίστωση.`);
+      onCreated?.({ kind: 'lineitem', mtrl: null, expn: null, lin: it.mtrl, code: it.code, name: it.name });
+      onOpenChange(false);
+    } catch {
+      toast.error('Σφάλμα δικτύου — έλεγξε στο SoftOne πριν ξαναπροσπαθήσεις.');
+    } finally { setActivating(null); }
+  };
+
   const set = (k: keyof FormState, v: string) => setF((s) => ({ ...s, [k]: v }));
 
   const body = React.useCallback((overrides: Partial<{ dryRun: boolean }> = {}) => ({
@@ -418,6 +468,27 @@ export function CreateRegistryEntryModal({
           </DialogTitle>
           <DialogDescription className="text-[length:var(--fs-12)]">{KIND_WHERE[kind]}</DialogDescription>
         </DialogHeader>
+
+        {inactiveOffer.length > 0 && (
+          <div role="status" className="space-y-2 border-b border-amber-500/30 bg-amber-500/[0.06] px-5 py-3">
+            <p className="text-[length:var(--fs-12)] font-semibold text-foreground">
+              Υπάρχει ήδη στο SoftOne, ανενεργή — καλύτερα να την ενεργοποιήσεις παρά να φτιάξεις νέα:
+            </p>
+            <ul className="space-y-1.5">
+              {inactiveOffer.slice(0, 3).map((it) => (
+                <li key={it.mtrl} className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="min-w-0 text-[length:var(--fs-12)] text-foreground">
+                    <span className="font-mono font-semibold">{it.code}</span> · {it.name}
+                    <span className="text-muted-foreground"> · λογ. {it.acnmsk ?? '—'}{it.vat ? ` · ${it.vat}` : ''}</span>
+                  </span>
+                  <Button size="sm" onClick={() => activateInactive(it)} disabled={activating != null}>
+                    {activating === it.mtrl ? 'Ενεργοποίηση…' : lineId ? 'Ενεργοποίηση και χρήση' : 'Ενεργοποίηση'}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <div className="flex gap-1 border-b border-border bg-muted/30 px-5 py-2">
           {([['form', 'Στοιχεία', <FiEdit3 key="a" className="h-3.5 w-3.5" />], ['object', 'Αντικείμενο', <FiCode key="b" className="h-3.5 w-3.5" />]] as const).map(([v, lbl, ic]) => (

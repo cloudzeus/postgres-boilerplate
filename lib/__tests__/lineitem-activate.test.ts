@@ -7,14 +7,14 @@ const { softone, db } = vi.hoisted(() => ({
 vi.mock('@/lib/softone', () => softone);
 vi.mock('@/lib/db', () => ({ prisma: db }));
 
-import { activateLineItem, fetchInactiveLineItems } from '../softone-sync/lineitem-activate';
+import { activateLineItem, clearInactiveLineItemCache, fetchInactiveLineItems, findInactiveLineItems } from '../softone-sync/lineitem-activate';
 
 const row = (over: Record<string, unknown> = {}) => ({
   CODE: '62.02.00.0024', NAME: 'Ύδρευση 24%', ACNMSK: '62.02.00.0024', VAT: '1410|ΦΠΑ 24%', SODTYPE: '53',
   ISACTIVE: '0', LISOURCETYPE: '12,13,14,15', MTRTYPE: '0', ...over,
 });
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); clearInactiveLineItemCache(); });
 
 describe('fetchInactiveLineItems', () => {
   it('το MTRL από τη στήλη κλειδιού της λίστας και αν δέχεται πιστωτές', async () => {
@@ -46,5 +46,28 @@ describe('activateLineItem', () => {
       .mockResolvedValueOnce({ success: true, data: { LINEITEM: [row({ ISACTIVE: '1', ACNMSK: '99' })] } });
     await expect(activateLineItem(4011, { allowCreditors: false })).rejects.toMatchObject({ code: 'unexpected_change' });
     expect(db.softoneLineItem.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe('findInactiveLineItems', () => {
+  beforeEach(() => {
+    softone.softoneBrowseAll.mockResolvedValue([
+      { K: 'LINEITEM;4011', CODE: '62.02.00.0024', NAME: 'Ύδρευση παραγωγικής διαδικασίας με Φ.Π.Α. 24%', ACNMSK: '62.02.00.0024' },
+      { K: 'LINEITEM;4012', CODE: '62.03.00.0024', NAME: 'Τηλεφωνικά-τηλεγραφικά με Φ.Π.Α. 24%', ACNMSK: '62.03.00.0024' },
+    ]);
+  });
+
+  it('ίδιος λογαριασμός, ίδιος κωδικός ή κείμενο χωρίς τόνους· τίποτα χωρίς κριτήριο', async () => {
+    expect((await findInactiveLineItems({ account: '62.02.00.0024' })).map((i) => i.mtrl)).toEqual([4011]);
+    expect((await findInactiveLineItems({ code: '62.03.00.0024' })).map((i) => i.mtrl)).toEqual([4012]);
+    expect((await findInactiveLineItems({ q: 'τηλεφωνικα 24' })).map((i) => i.mtrl)).toEqual([4012]);
+    expect(await findInactiveLineItems({ q: 'x' })).toEqual([]);
+    // Μία κλήση στο SoftOne για όλα — η λίστα έρχεται από τη μνήμη.
+    expect(softone.softoneBrowseAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('χωρίς SoftOne: καμία πρόταση, κανένα σφάλμα', async () => {
+    softone.softoneBrowseAll.mockRejectedValue(new Error('offline'));
+    expect(await findInactiveLineItems({ account: '62.02.00.0024' })).toEqual([]);
   });
 });

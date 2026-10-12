@@ -143,6 +143,21 @@ export function AccountsClient({
   const [q, setQ] = React.useState('');
   const [onlyPostable, setOnlyPostable] = React.useState(false);
   const [openReq, setOpenReq] = React.useState<OpenRequest | null>(null);
+  const [activating, setActivating] = React.useState<number | null>(null);
+  const activate = async (mtrl: number, code: string) => {
+    setActivating(mtrl);
+    try {
+      const res = await fetch(`/api/admin/softone/lineitems/${mtrl}/activate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ allowCreditors: true }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok && d.error !== 'nothing_to_do') { toast.error(d.message ?? 'Η ενεργοποίηση απέτυχε.'); return; }
+      toast.success(`Ενεργοποιήθηκε η ${code} — διάλεξέ τη τώρα σε μία γραμμή του λογαριασμού.`);
+      router.refresh();
+    } catch {
+      toast.error('Σφάλμα δικτύου.');
+    } finally { setActivating(null); }
+  };
   const openBtn = (r: OpenRequest) => canSync && (
     <button type="button" className={`${BTN_PRIMARY} mt-1`} onClick={() => setOpenReq(r)}>
       <FiPlus className="size-3.5" aria-hidden /> Άνοιγμα στο SoftOne
@@ -278,6 +293,23 @@ export function AccountsClient({
                     </p>
                   )}
                   {g.toOpen && openBtn({ code: g.toOpen.code, name: g.toOpen.name ?? '', vatRate: g.toOpen.vatRate })}
+                  {g.inactive.length > 0 && (
+                    <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-2.5 py-2">
+                      <p className="text-[length:var(--fs-11)] font-semibold text-foreground">Υπάρχουν ήδη στο SoftOne, ανενεργές:</p>
+                      <ul className="mt-1 space-y-1">
+                        {g.inactive.map((it) => (
+                          <li key={it.mtrl} className="flex flex-wrap items-center justify-between gap-2">
+                            <span><span className="font-mono font-semibold text-foreground">{it.code}</span> <span className="text-muted-foreground">{it.name}</span></span>
+                            {canSync && (
+                              <button type="button" className={BTN_GHOST} disabled={activating != null} onClick={() => activate(it.mtrl, it.code)}>
+                                {activating === it.mtrl ? 'Ενεργοποίηση…' : 'Ενεργοποίηση'}
+                              </button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {g.suggestions.length > 0 ? (
                     <ul className="flex flex-wrap gap-1.5" aria-label="Λογαριασμοί του σχεδίου που ταιριάζουν">
                       {g.suggestions.map((s) => (

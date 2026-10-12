@@ -59,6 +59,43 @@ export async function fetchInactiveLineItems(): Promise<InactiveLineItem[]> {
   return out.sort((a, b) => a.code.localeCompare(b.code));
 }
 
+/**
+ * Η λίστα από τη ΜΝΗΜΗ για 10 λεπτά: ρωτιέται σε κάθε αναζήτηση χρεοπίστωσης και σε κάθε άνοιγμα
+ * του διαλόγου δημιουργίας, και μια κλήση στο SoftOne ανά πληκτρολόγηση θα ήταν απαράδεκτη.
+ * Κάθε ενεργοποίηση την ακυρώνει.
+ */
+const CACHE_MS = 10 * 60 * 1000;
+let cache: { at: number; items: InactiveLineItem[] } | null = null;
+
+export async function cachedInactiveLineItems(): Promise<InactiveLineItem[]> {
+  if (cache && Date.now() - cache.at < CACHE_MS) return cache.items;
+  const items = await fetchInactiveLineItems();
+  cache = { at: Date.now(), items };
+  return items;
+}
+
+/** Για τα tests και μετά από ενεργοποίηση. */
+export function clearInactiveLineItemCache(): void { cache = null; }
+
+const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9α-ω]+/g, ' ').trim();
+
+/**
+ * Ανενεργές χρεοπιστώσεις που ΑΞΙΖΕΙ να προταθούν: ίδιος κωδικός, ίδιος λογαριασμός γενικής ή —
+ * για την αναζήτηση — κείμενο σε κωδικό/περιγραφή. Ό,τι δεν ταιριάζει σε κανένα, δεν προτείνεται.
+ * Ποτέ δεν πετάει: χωρίς σύνδεση με το SoftOne απλώς δεν υπάρχει πρόταση.
+ */
+export async function findInactiveLineItems(by: { code?: string | null; account?: string | null; q?: string | null }): Promise<InactiveLineItem[]> {
+  const code = (by.code ?? '').trim();
+  const account = (by.account ?? '').trim();
+  const q = fold(by.q ?? '');
+  if (!code && !account && q.length < 2) return [];
+  const items = await cachedInactiveLineItems().catch(() => [] as InactiveLineItem[]);
+  return items.filter((it) =>
+    (code && it.code === code)
+    || (account && (it.acnmsk === account || it.code === account))
+    || (q.length >= 2 && q.split(' ').every((t) => fold(`${it.code} ${it.name}`).includes(t))));
+}
+
 async function readLineItem(mtrl: number): Promise<Record<string, unknown>> {
   const d = await softoneCall<{ success?: boolean; error?: string; data?: Record<string, Record<string, unknown>[]> }>(
     'getData', { OBJECT: 'LINEITEM', KEY: String(mtrl) },
@@ -114,6 +151,7 @@ export async function activateLineItem(mtrl: number, opts: { allowCreditors: boo
     acnmsk: str(after.ACNMSK) || null, acnmskSyncedAt: now,
   };
   await prisma.softoneLineItem.upsert({ where: { mtrl }, update: data, create: { mtrl, ...data } });
+  clearInactiveLineItemCache();
   return {
     mtrl, code: data.code, name: data.name, acnmsk: data.acnmsk,
     lisourceType: str(after.LISOURCETYPE), creditorsAdded: addCreditors,

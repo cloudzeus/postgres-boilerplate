@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { findInactiveLineItems } from '@/lib/softone-sync/lineitem-activate';
 import { matchesQuery } from '@/lib/ocr/search-match';
 import { prisma } from '@/lib/db';
 import { requireAnyPermission } from '@/lib/rbac';
@@ -158,6 +159,11 @@ export async function GET(req: Request) {
       },
     });
     const hits = rows.filter((r) => matchesQuery(q, r.code, r.name)).slice(0, q.length < 2 ? 500 : 25);
+    // Οι ΑΝΕΝΕΡΓΕΣ του SoftOne που ταιριάζουν — στο τέλος, σημαδεμένες: η επιλογή τις ενεργοποιεί.
+    // Χωρίς αυτό ο χρήστης δεν έβρισκε τίποτα και έφτιαχνε νέα με κωδικό που ήδη υπήρχε.
+    const inactive = q.length >= 2 && !(Number.isFinite(category) && category > 0)
+      ? (await findInactiveLineItems({ q })).slice(0, 10)
+      : [];
     const label = await classificationLabeller();
     const categories = hits.length
       ? await prisma.softoneLineCategory.findMany({
@@ -167,7 +173,7 @@ export async function GET(req: Request) {
       : [];
     const catName = new Map(categories.map((c) => [c.mtrCategory, c.name]));
     return NextResponse.json({
-      results: hits.map((r) => {
+      results: [...hits.map((r) => {
         const cls = label(r);
         return {
           id: r.mtrl, code: r.code, name: r.name, isService: false, vat: r.vat ?? null,
@@ -176,6 +182,11 @@ export async function GET(req: Request) {
             .filter(Boolean).join(' · '),
         };
       }),
+      ...inactive.map((r) => ({
+        id: r.mtrl, code: r.code, name: r.name, isService: false, vat: null, inactive: true,
+        myData: null, noClass: true,
+        sub: ['ανενεργή στο SoftOne — η επιλογή την ενεργοποιεί', r.acnmsk && `λογ. ${r.acnmsk}`, r.vat].filter(Boolean).join(' · '),
+      }))],
     });
   }
 
