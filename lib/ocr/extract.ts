@@ -137,16 +137,77 @@ export async function resolveCfg(): Promise<DeepSeekCfg> {
   return { textKey, textUrl, textModel, visionKey, visionUrl, visionModel, visionFallbackModels };
 }
 
+/**
+ * Το ΠΡΩΤΟ πλήρες αντικείμενο JSON μέσα σε κείμενο — με μέτρημα αγκίστρων που αγνοεί όσα είναι μέσα σε
+ * strings. Το παλιό «από το πρώτο `{` ως το τελευταίο `}`» αποτύγχανε όταν το μοντέλο έγραφε ΣΩΣΤΟ
+ * JSON και μετά κάτι ακόμη (ένα περισσευούμενο `}`, δεύτερο αντικείμενο, σχόλιο με άγκιστρα): μετρημένο
+ * στο Revoil ΔΑΤ μαζούτ, δύο αναγνώσεις στη σειρά «Unexpected non-whitespace character after JSON».
+ */
+export function firstJsonObject(s: string): string | null {
+  const start = s.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/** Κόμμα πριν από `}` ή `]` (συχνό λάθος μοντέλων) — αφαιρείται μόνο ΕΚΤΟΣ strings. */
+export function stripTrailingCommas(s: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inString) {
+      out += c;
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') { inString = true; out += c; continue; }
+    if (c === ',') {
+      let j = i + 1;
+      while (j < s.length && /\s/.test(s[j])) j++;
+      if (s[j] === '}' || s[j] === ']') continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
 export function parseJsonLoose(s: string): any {
   if (!s) throw new Error('Empty LLM response');
   // Strip code fences if model returned them anyway.
   const cleaned = s.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
   try { return JSON.parse(cleaned); } catch {}
-  // Fallback: extract first {...} block.
+  // Fallback: το πρώτο πλήρες αντικείμενο, και μετά το ίδιο χωρίς κόμματα πριν από `}`/`]`.
+  const obj = firstJsonObject(cleaned);
+  if (obj) {
+    try { return JSON.parse(obj); } catch {}
+    try { return JSON.parse(stripTrailingCommas(obj)); } catch {}
+  }
+  // Τελευταία προσπάθεια (παλιά συμπεριφορά): από το πρώτο `{` ως το τελευταίο `}`.
   const start = cleaned.indexOf('{');
   const end = cleaned.lastIndexOf('}');
   if (start !== -1 && end > start) {
-    return JSON.parse(cleaned.slice(start, end + 1));
+    return JSON.parse(stripTrailingCommas(cleaned.slice(start, end + 1)));
   }
   throw new Error('LLM did not return valid JSON');
 }
