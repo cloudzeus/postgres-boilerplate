@@ -89,11 +89,23 @@ export async function suggestionsForDocument(input: {
     rows = (await prisma.softoneExpense.findMany({ where: { isActive: true }, select: { expn: true, code: true, name: true } }))
       .map((e) => ({ kind: 'expense' as const, id: e.expn, code: e.code, name: e.name, inactive: false, n: normalizeGreek(e.name), vat: registryVat(e.code, e.name) }));
   } else {
-    const active = await prisma.softoneLineItem.findMany({ where: { isActive: true }, select: { mtrl: true, code: true, name: true } });
+    const active = await prisma.softoneLineItem.findMany({ where: { isActive: true }, select: { mtrl: true, code: true, name: true, acnmsk: true } });
     const inactive = await cachedInactiveLineItems().catch(() => [] as InactiveLineItem[]);
+    // Η περιγραφή μιας χρεοπίστωσης είναι συχνά λακωνική («Εξοδα», «0006»). Ο ΛΟΓΑΡΙΑΣΜΟΣ της και ο
+    // γονικός του λένε περισσότερα («64.02 Προμήθειες…»), οπότε συγκρίνουμε και με αυτούς.
+    const masks = [...new Set([...active, ...inactive].map((l) => l.acnmsk).filter((m): m is string => !!m && !m.includes('*')))];
+    const parents = masks.map((m) => m.split('.').slice(0, 3).join('.'));
+    const accounts = masks.length
+      ? await prisma.softoneAccount.findMany({ where: { code: { in: [...masks, ...parents] } }, select: { code: true, name: true } })
+      : [];
+    const accName = new Map(accounts.map((a) => [a.code, a.name]));
+    const text = (l: { name: string; acnmsk: string | null }) => {
+      const m = l.acnmsk ?? '';
+      return normalizeGreek([l.name, accName.get(m), accName.get(m.split('.').slice(0, 3).join('.'))].filter(Boolean).join(' | '));
+    };
     rows = [
-      ...active.map((l) => ({ kind: 'lineitem' as const, id: l.mtrl, code: l.code, name: l.name, inactive: false, n: normalizeGreek(l.name), vat: registryVat(l.code, l.name) })),
-      ...inactive.map((l) => ({ kind: 'lineitem' as const, id: l.mtrl, code: l.code, name: l.name, inactive: true, n: normalizeGreek(l.name), vat: registryVat(l.code, l.name) })),
+      ...active.map((l) => ({ kind: 'lineitem' as const, id: l.mtrl, code: l.code, name: l.name, inactive: false, n: text(l), vat: registryVat(l.code, l.name) })),
+      ...inactive.map((l) => ({ kind: 'lineitem' as const, id: l.mtrl, code: l.code, name: l.name, inactive: true, n: text(l), vat: registryVat(l.code, l.name) })),
     ];
   }
 

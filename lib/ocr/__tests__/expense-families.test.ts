@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { classifyExpenseFamily, familyMemoryKeyLabel, familyMemoryKeys } from '@/lib/ocr/expense-families';
+import { classifyExpenseFamily, familyMemoryKeyLabel, familyMemoryKeys, FAMILY_REGISTRY_HINT } from '@/lib/ocr/expense-families';
+import { normalizeGreek } from '@/lib/ocr/doc-type-classify';
 
 describe('classifyExpenseFamily — πραγματικές γραμμές του demo', () => {
   it.each([
@@ -43,5 +44,19 @@ describe('κλειδιά', () => {
     expect(familyMemoryKeys('freight', null)).toEqual(['@family:freight']);
     expect(familyMemoryKeyLabel('@family:fuel@24')).toBe('Καύσιμα · 24%');
     expect(familyMemoryKeyLabel('@utility:water:consumption')).toBeNull();
+  });
+});
+
+describe('FAMILY_REGISTRY_HINT — ποια μητρώα προτείνονται', () => {
+  const hit = (f: keyof typeof FAMILY_REGISTRY_HINT, name: string) => FAMILY_REGISTRY_HINT[f].test(normalizeGreek(name));
+  it('ναύλοι: μεταφορικά αγορών ναι, ενοίκια μεταφορικών μέσων όχι', () => {
+    expect(hit('freight', 'Μεταφορικά (Εισαγωγών) 24%')).toBe(true);
+    expect(hit('freight', 'Μεταφορικά Αγορών')).toBe(true);
+    expect(hit('freight', 'Έξοδα μεταφ.υλικών-αγαθών αγορών με μέσα τρίτων με ΦΠΑ 24%')).toBe(true);
+    expect(hit('freight', 'Ενοίκια μεταφορικών μέσων')).toBe(false);
+  });
+  it('λογισμικό: όχι συνδρομές σε περιοδικά', () => {
+    expect(hit('software', 'Συνδρομές σε περιοδικά και εφημερίδες με Φ.Π.Α. 24%')).toBe(false);
+    expect(hit('software', 'Άδειες χρήσης λογισμικού')).toBe(true);
   });
 });
