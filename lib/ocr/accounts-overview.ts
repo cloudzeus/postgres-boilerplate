@@ -167,7 +167,7 @@ export async function loadUtilityGaps(): Promise<UtilityGap[]> {
       id: true, fileName: true, issuerAfm: true, document: true,
       items: {
         orderBy: { rowIndex: 'asc' },
-        select: { name: true, vatRate: true, total: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneMatchedBy: true },
+        select: { name: true, vatRate: true, total: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneAsset: true, softoneMatchedBy: true },
       },
     },
   });
@@ -176,7 +176,7 @@ export async function loadUtilityGaps(): Promise<UtilityGap[]> {
     const u = detectUtilityForItems(d.document, d.issuerAfm, d.items);
     if (!u) continue;
     for (const it of d.items) {
-      if (it.softoneMtrl != null || it.softoneExpn != null || it.softoneLinMtrl != null || it.softoneMatchedBy === 'skipped') continue;
+      if (it.softoneMtrl != null || it.softoneExpn != null || it.softoneLinMtrl != null || it.softoneAsset != null || it.softoneMatchedBy === 'skipped') continue;
       const charge = classifyUtilityCharge(u.kind, {
         name: it.name, vatRate: it.vatRate == null ? null : Number(it.vatRate), amount: it.total == null ? null : Number(it.total),
       });

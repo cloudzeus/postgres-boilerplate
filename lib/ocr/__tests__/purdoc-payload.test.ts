@@ -256,7 +256,7 @@ describe('defaultPostingTarget', () => {
     expect(objectsForSosource(1351)).toEqual([]);
   });
 
-  it('τα πάγια ΔΕΝ προσφέρονται (λείπουν WHOUSE/ASSDEPR και μητρώο παγίων)', () => {
+  it('το ASSLINES δεν είναι ρύθμιση σειράς — τα πάγια φεύγουν μέσω «ανά γραμμή»', () => {
     expect(resolvePostingTarget({ sosource: 1251, postLines: 'ASSLINES' }))
       .toMatchObject({ object: 'PURDOC', lines: 'AUTO', source: 'default' });
   });

@@ -144,7 +144,7 @@ export function lineKindsReason(target: PostingTarget | null | undefined): strin
   const list = names.length <= 1 ? names[0] : `${names.slice(0, -1).join(', ')} ή ${names[names.length - 1]}`;
   // Το `AUTO` δεν είναι όνομα πίνακα που θα αναγνώριζε ο χρήστης — είναι «ανά γραμμή».
   return target.lines === 'AUTO'
-    ? `Κάθε γραμμή πάει στον πίνακα που της αναλογεί — δέχεται ${list}.`
+    ? `Κάθε γραμμή πάει στον πίνακα που της αναλογεί — δέχεται ${list}${target.object === 'PURDOC' ? ', ή αγορά παγίου' : ''}.`
     : `Οι γραμμές πάνε σε «${target.lines}» — δέχεται ${list}.`;
 }
 

@@ -20,6 +20,8 @@ import {
   SoftoneConfigError,
   SoftoneError,
   softoneFetchAccounts,
+  softoneFetchAssets,
+  softoneFetchAssetWarehouse,
   softoneFetchDocSeries,
   softoneFetchExpenses,
   softoneFetchItems,
@@ -41,7 +43,7 @@ import {
 export type SyncTable =
   | 'vat' | 'lookups' | 'expenses' | 'items' | 'traders' | 'purdoc' | 'docseries'
   | 'accounts' | 'lineitems' | 'linecategories' | 'mydataclasses'
-  | 'costcenters' | 'projects' | 'projectstages';
+  | 'costcenters' | 'projects' | 'projectstages' | 'assets';
 
 export type SyncActor = { id: string; email: string };
 
@@ -480,6 +482,42 @@ export async function syncLineItems(actor: SyncActor): Promise<SyncPayload> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Πάγια (ASSET → MTRL SODTYPE 54) — το `MTRL` των γραμμών ASSLINES
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Ίδιο μοτίβο με τις χρεοπιστώσεις: upsert ανά MTRL, ποτέ διαγραφή. Κρατά και την αποθήκη παγίων. */
+export async function syncAssets(actor: SyncActor): Promise<SyncPayload> {
+  const rows = await softoneFetchAssets();
+  assertNonEmpty(rows, 'πάγια', MAY_BE_EMPTY);
+
+  const existing = new Set((await prisma.softoneAsset.findMany({ select: { mtrl: true } })).map((v) => v.mtrl));
+  const now = new Date();
+  let created = 0;
+  let updated = 0;
+  for (const r of rows) {
+    const data = { code: r.code, name: r.name, vat: r.vat, mtrAcn: r.mtrAcn, mtrCategory: r.mtrCategory, acnmsk: r.acnmsk, isActive: true, syncedAt: now };
+    await prisma.softoneAsset.upsert({ where: { mtrl: r.mtrl }, update: data, create: { mtrl: r.mtrl, ...data } });
+    if (existing.has(r.mtrl)) updated++; else created++;
+  }
+  const deactivated = (await prisma.softoneAsset.updateMany({
+    where: { mtrl: { notIn: rows.map((r) => r.mtrl) }, isActive: true },
+    data: { isActive: false },
+  })).count;
+
+  const whouse = await softoneFetchAssetWarehouse();
+  if (whouse != null) await setSetting('integrations.softoneAssetWhouse', whouse, actor.id);
+
+  const syncedAt = now.toISOString();
+  await setSetting('integrations.softoneAssetsLastSync', syncedAt, actor.id);
+  await logAudit({
+    userId: actor.id, userEmail: actor.email,
+    action: 'metadata.assets.sync_softone', resource: 'setting',
+    metadata: { total: created + updated, created, updated, deactivated, whouse },
+  });
+  return { created, updated, skipped: 0, total: created + updated, syncedAt, detail: { deactivated, whouse } };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Λογαριασμοί εσόδων/εξόδων (SXACNT → SoftoneSxAccount) — απλογραφικά, βιβλία Β'
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -833,6 +871,7 @@ export const SYNC_STEPS: { table: SyncTable; label: string; run: (actor: SyncAct
   { table: 'accounts',       label: 'Λογιστικό σχέδιο',        run: syncAccounts },
   { table: 'linecategories', label: 'Κατηγορίες δαπανών',      run: syncLineCategories },
   { table: 'lineitems',      label: 'Χρεοπιστώσεις',           run: syncLineItems },
+  { table: 'assets',         label: 'Πάγια',                   run: syncAssets },
   { table: 'mydataclasses',  label: 'Χαρακτηρισμοί myDATA',    run: syncMyDataClasses },
   { table: 'costcenters',    label: 'Κέντρα κόστους',          run: syncCostCenters },
   { table: 'projects',       label: 'Έργα',                    run: syncProjects },

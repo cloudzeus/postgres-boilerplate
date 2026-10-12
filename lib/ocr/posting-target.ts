@@ -46,11 +46,10 @@ export const POST_OBJECT_SHORT: Record<PostObject, string> = {
  * Ο πίνακας γραμμών. `AUTO` = «ανά γραμμή» (μόνο για PURDOC): κάθε γραμμή πάει στον πίνακα που
  * της αναλογεί ανάλογα με το τι ταίριαξε — είδος → ITELINES, υπηρεσία → SRVLINES, έξοδο → EXPANAL.
  *
- * ΓΙΑΤΙ ΛΕΙΠΕΙ ΤΟ `ASSLINES`: οι γραμμές παγίων απαιτούν `MTRL` που είναι ΠΑΓΙΟ (editor ASSET,
- * MTRL με SODTYPE 54), καθώς και `WHOUSE` και `ASSDEPR` — και τα τρία required χωρίς default.
- * Η εφαρμογή δεν καθρεφτίζει μητρώο παγίων (`SoftoneItem` = SODTYPE 51/52 μόνο) και δεν ξέρει
- * ούτε αποθήκη ούτε εγγραφή απόσβεσης, οπότε κάθε τέτοιο payload θα απορριπτόταν από το SoftOne.
- * Ο στόχος θα ξαναμπεί όταν υπάρχει μητρώο παγίων· μέχρι τότε δεν προσφέρεται καν.
+ * ΓΙΑΤΙ ΤΟ `ASSLINES` ΔΕΝ ΕΙΝΑΙ ΕΠΙΛΟΓΗ ΣΕΙΡΑΣ: οι γραμμές παγίων δεν είναι «πίνακας του παραστατικού»
+ * αλλά απόφαση ανά γραμμή — ένα τιμολόγιο μπορεί να έχει αναλώσιμα ΚΑΙ ένα πάγιο. Φεύγουν μέσω του
+ * `AUTO` του PURDOC, όταν η γραμμή είναι αντιστοιχισμένη σε πάγιο (`asset`), με την αποθήκη παγίων
+ * της εγκατάστασης και «Αγορά/Προσθήκη» = 0 (βλ. `PurdocAssetLine` στο `purdoc-payload.ts`).
  */
 export const POST_LINE_TABLES = ['AUTO', 'ITELINES', 'SRVLINES', 'EXPANAL', 'LINLINES', 'SXDOCLINES'] as const;
 export type PostLineTable = (typeof POST_LINE_TABLES)[number];
@@ -328,3 +327,10 @@ export const SERIES_SIDE_LABEL: Record<SeriesTraderKind, string> = {
   creditor: 'Πιστωτών',
   debtor: 'Χρεωστών',
 };
+
+/**
+ * Δέχεται η σειρά γραμμές ΠΑΓΙΩΝ; Μόνο παραστατικό αγορών με γραμμές «ανά γραμμή»: εκεί ο πίνακας
+ * ASSLINES στέλνεται δίπλα στα είδη/υπηρεσίες/έξοδα (βλ. `autoTableFor` του `purdoc-payload.ts`).
+ */
+export const assetFits = (target: Pick<PostingTarget, 'object' | 'lines'> | null | undefined): boolean =>
+  target?.object === 'PURDOC' && target.lines === 'AUTO';

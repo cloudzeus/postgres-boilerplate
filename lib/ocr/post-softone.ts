@@ -61,10 +61,12 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   lines_need_lineitem: 'Οι «Ειδικές συναλλαγές» (LINLINES) δέχονται μόνο ΧΡΕΟΠΙΣΤΩΣΕΙΣ — υπάρχει γραμμή αντιστοιχισμένη σε είδος, υπηρεσία ή έξοδο',
   lines_lineitem_unsupported: 'Η σειρά καταχωρεί σε παραστατικό αγορών, που δεν έχει γραμμές χρεοπίστωσης — άλλαξε τον πίνακα γραμμών σε «Ειδικές συναλλαγές» ή αντιστοίχισε τη γραμμή σε είδος/υπηρεσία/έξοδο',
   lines_sxdoc_unsupported: 'Η σειρά ανήκει στα «Παραστατικά εξόδων» (απλογραφικά βιβλία). Το μητρώο λογαριασμών εσόδων/εξόδων έχει συγχρονιστεί, αλλά η ΚΑΤΑΧΩΡΙΣΗ σε αυτή την ενότητα δεν έχει υλοποιηθεί ακόμη — διάλεξε σειρά άλλης ενότητας ή περίμενε την υποστήριξη',
+  lines_asset_unsupported: 'Υπάρχει γραμμή αντιστοιχισμένη σε ΠΑΓΙΟ, αλλά η σειρά δεν καταχωρεί σε παραστατικό αγορών με γραμμές «ανά γραμμή» — οι γραμμές παγίων (ASSLINES) υπάρχουν μόνο εκεί· διάλεξε σειρά αγορών',
+  asset_no_whouse: 'Δεν είναι γνωστή η αποθήκη παγίων της εγκατάστασης — τρέξε τον συγχρονισμό «Πάγια» (Μητρώα αναφοράς)',
   lines_no_mtrtype: 'Χρεοπίστωση χωρίς «Τύπο» (MTRTYPE) στο μητρώο — συγχρόνισε ξανά τις χρεοπιστώσεις',
   series_unknown: 'Η σειρά του παραστατικού δεν υπάρχει (ή δεν είναι σε χρήση) στο μητρώο σειρών — διάλεξε σειρά από τη λίστα ή συγχρόνισε τις σειρές',
   series_module_unsupported: 'Η ενότητα της σειράς δεν υποστηρίζεται για καταχώριση — επίλεξε σειρά αγορών (1251), προμηθευτών (1253), χρεωστών (1553) ή πιστωτών (1653)',
-  registry_not_in_installation: 'Γραμμή δείχνει σε χρεοπίστωση ή έξοδο που δεν υπάρχει στην τωρινή εγκατάσταση SoftOne (απομεινάρι προηγούμενης σύνδεσης) — αντιστοίχισέ τη ξανά',
+  registry_not_in_installation: 'Γραμμή δείχνει σε χρεοπίστωση, έξοδο ή πάγιο που δεν υπάρχει στην τωρινή εγκατάσταση SoftOne (απομεινάρι προηγούμενης σύνδεσης) — αντιστοίχισέ τη ξανά',
   trader_kind_mismatch: 'Ο συναλλασσόμενος δεν είναι του τύπου που δέχεται το παραστατικό — άλλαξέ τον από «Νέοι συναλλασσόμενοι» ή διάλεξε άλλη σειρά',
   account_missing: 'Χρεοπίστωση χωρίς λογαριασμό γενικής λογιστικής — η λογιστική εγγραφή δεν θα είχε πού να πάει',
   account_not_in_chart: 'Ο λογαριασμός γενικής της χρεοπίστωσης δεν υπάρχει στο λογιστικό σχέδιο του SoftOne',
@@ -217,7 +219,7 @@ async function gather(id: string): Promise<Gathered> {
       where: { documentId: id },
       orderBy: { rowIndex: 'asc' },
       select: {
-        rowIndex: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneIsService: true,
+        rowIndex: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneAsset: true, softoneIsService: true,
         softoneCostCntr: true, softonePrjc: true, softonePrjcStage: true, softoneMatchedBy: true, total: true,
         // Ο επιμερισμός σε πολλούς λογαριασμούς — όταν υπάρχει, ΥΠΕΡΙΣΧΥΕΙ της μονής αντιστοίχισης.
         allocations: { orderBy: { order: 'asc' }, select: { registryMtrl: true, amount: true, percent: true, kind: true } },
@@ -253,6 +255,14 @@ async function gather(id: string): Promise<Gathered> {
     ...items.flatMap((i) => (i.allocations ?? []).map((a) => a.registryMtrl)),
   ])];
   const expns = items.map((i) => i.softoneExpn).filter((v): v is number => v != null);
+  const assetIds = items.map((i) => i.softoneAsset).filter((v): v is number => v != null);
+  const [assetRows, assetWhouse] = assetIds.length
+    ? await Promise.all([
+        prisma.softoneAsset.findMany({ where: { mtrl: { in: assetIds } }, select: { mtrl: true, isActive: true } }),
+        getSetting<unknown>('integrations.softoneAssetWhouse', null).then((v) => (Number.isFinite(Number(v)) && v != null ? Number(v) : null)).catch(() => null),
+      ])
+    : [[], null];
+  const assetById = new Map(assetRows.map((r) => [r.mtrl, r]));
   const [itemRows, linRows, expenseRows] = await Promise.all([
     mtrls.length
       ? prisma.softoneItem.findMany({ where: { mtrl: { in: mtrls } }, select: { mtrl: true, myDataCode: true } })
@@ -295,7 +305,7 @@ async function gather(id: string): Promise<Gathered> {
     const myDataCode = item?.myDataCode ?? lin?.myDataCode ?? null;
     // «Αχαρακτήριστο» = το μητρώο στο οποίο ταίριαξε η γραμμή δεν κουβαλά ΚΑΝΕΝΑ στοιχείο
     // χαρακτηρισμού. Το κρίνουμε μόνο για γραμμές που όντως ταίριαξαν κάπου.
-    const matched = item ?? lin ?? expense;
+    const matched = item ?? lin ?? expense ?? (i.softoneAsset != null ? assetById.get(i.softoneAsset) : undefined);
     const hasClass = Boolean(
       myDataCode || lin?.classType || lin?.classCategory || expense?.classTypeX || expense?.classCategoryX,
     );
@@ -308,6 +318,7 @@ async function gather(id: string): Promise<Gathered> {
       mtrl: i.softoneMtrl,
       expn: i.softoneExpn,
       lin: i.softoneLinMtrl,
+      asset: i.softoneAsset,
       linMtrType: lin?.mtrType ?? null,
       linLabel: lin ? `${lin.code} — ${lin.name}` : null,
       linAcnmsk: lin?.acnmsk ?? null,
@@ -336,7 +347,8 @@ async function gather(id: string): Promise<Gathered> {
       prjc: i.softonePrjc,
       prjcStage: i.softonePrjcStage,
       myDataCode,
-      noClassification: Boolean(matched) && !hasClass,
+      // Το πάγιο χαρακτηρίζεται από τη λογιστική του κατηγορία στο SoftOne — όχι παρατήρηση εδώ.
+      noClassification: Boolean(matched) && !hasClass && i.softoneAsset == null,
     };
   });
 
@@ -347,6 +359,7 @@ async function gather(id: string): Promise<Gathered> {
     lines: lineCtx,
     vatIdByRate,
     comments: document.notes,
+    assetWhouse,
   };
 
   // Ο έλεγχος λογαριασμού γενικής: μόνο όσο λογιστικό σχέδιο χρειάζεται για ΑΥΤΕΣ τις γραμμές.
@@ -377,7 +390,8 @@ async function gather(id: string): Promise<Gathered> {
     (i.softoneLinMtrl != null && linById.get(i.softoneLinMtrl)?.isActive !== true)
     // Μόνο επιμερισμοί σε ΧΡΕΟΠΙΣΤΩΣΗ: οι SXACCOUNT δείχνουν σε λογαριασμούς εσόδων/εξόδων, άλλο μητρώο.
     || (i.allocations ?? []).some((a) => a.kind !== 'SXACCOUNT' && linById.get(a.registryMtrl)?.isActive !== true)
-    || (i.softoneExpn != null && expenseById.get(i.softoneExpn)?.isActive !== true));
+    || (i.softoneExpn != null && expenseById.get(i.softoneExpn)?.isActive !== true)
+    || (i.softoneAsset != null && assetById.get(i.softoneAsset)?.isActive !== true));
   if (foreign && !blockers.includes('registry_not_in_installation')) blockers.push('registry_not_in_installation');
 
   return {
@@ -493,7 +507,7 @@ export interface PostOptions {
   verifiedById?: string | null;
 }
 
-export async function postDocumentToSoftone(id: string, opts: PostOptions = {}): Promise<{ ref: string }> {
+export async function postDocumentToSoftone(id: string, opts: PostOptions = {}): Promise<{ ref: string; warning?: string }> {
   const { doc, document, ctx, blockers, payload, accounts } = await gather(id);
   // ΙΔΕΜΠΟΤΗΤΑ, πρώτο απ' όλα: ένα δεύτερο κλικ (ή μια δεύτερη εκτέλεση προτύπου) δεν δημιουργεί
   // δεύτερο παραστατικό στο SoftOne. Πριν από κάθε έλεγχο εμποδίων — ένα ήδη καταχωρισμένο
@@ -560,10 +574,27 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
       );
     }
 
+    // ΠΑΓΙΑ: η γραμμή ASSLINES φεύγει με «Αγορά/Προσθήκη» = 0, με την υπόθεση ότι το SoftOne
+    // δημιουργεί μόνο του την εγγραφή απόκτησης όπως στο πρότυπο 105283. Το επαληθεύουμε εδώ. Το
+    // παραστατικό ΥΠΑΡΧΕΙ ήδη, οπότε δεν γίνεται FAILED (θα ξαναστελνόταν διπλό): μένει POSTED με
+    // δυνατή σημείωση για τον χρήστη και τον integrator.
+    const sentAssets = payload.DATA.ASSLINES?.length ?? 0;
+    let warning: string | undefined;
+    if (sentAssets > 0) {
+      const back = (tables.ASSLINES ?? []) as Record<string, unknown>[];
+      const linked = back.filter((l) => Number(l.ASSDEPR) > 0).length;
+      const created = (tables.ASSDEPR ?? []).length;
+      if (back.length < sentAssets || linked < sentAssets || created < sentAssets) {
+        warning = `ΠΑΓΙΑ: το παραστατικό ${ref} καταχωρίστηκε, αλλά από ${sentAssets} γραμμές παγίων `
+          + `${linked} συνδέθηκαν με εγγραφή απόκτησης («Αγορά/Προσθήκη») και ${created} εγγραφές απόκτησης δημιουργήθηκαν. `
+          + 'Έλεγξε το παραστατικό στο SoftOne και συμπλήρωσε την «Αγορά/Προσθήκη» χειροκίνητα.';
+      }
+    }
+
     await prisma.ocrDocument.update({
       where: { id },
       data: {
-        postStatus: 'POSTED', postedAt: new Date(), postedRef: ref, postError: null,
+        postStatus: 'POSTED', postedAt: new Date(), postedRef: ref, postError: warning ?? null,
         // ΜΟΝΟ χειροκίνητη ανάρτηση επιβεβαιώνει την ανάγνωση: κάποιος κοίταξε το παραστατικό και
         // το δέχτηκε ως λογιστικό γεγονός. Η αυτόματη ανάρτηση ενός AUTO προτύπου δεν είναι
         // επιβεβαίωση κανενός — βλ. `PostOptions.verified`.
@@ -573,7 +604,7 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
     if (opts.syncTemplateRun) {
       await markLatestRunPosted(id).catch((e) => console.error('[ocr] run status not synced after post', doc.id, (e as Error).message));
     }
-    return { ref };
+    return warning ? { ref, warning } : { ref };
   } catch (err) {
     await prisma.ocrDocument.update({
       where: { id },
@@ -584,7 +615,7 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
 }
 
 /** Οι πίνακες γραμμών ενός καταχωρισμένου παραστατικού — μετριούνται πριν και μετά από μια ενημέρωση κεφαλίδας. */
-const LINE_TABLES = ['ITELINES', 'SRVLINES', 'EXPANAL', 'LINLINES'] as const;
+const LINE_TABLES = ['ITELINES', 'SRVLINES', 'EXPANAL', 'LINLINES', 'ASSLINES', 'ASSDEPR'] as const;
 const lineCount = (tables: Record<string, unknown[]>) =>
   Object.fromEntries(LINE_TABLES.map((t) => [t, (tables[t] ?? []).length])) as Record<(typeof LINE_TABLES)[number], number>;
 

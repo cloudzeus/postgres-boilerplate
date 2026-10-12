@@ -38,7 +38,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         orderBy: { rowIndex: 'asc' },
         select: {
           id: true, rowIndex: true, code: true, name: true, vatRate: true,
-          softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true,
+          softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneAsset: true,
           // Ο ΕΠΙΜΕΡΙΣΜΟΣ σε λογαριασμούς είναι κι αυτός αντιστοίχιση — η γραμμή ξέρει πού πάει,
           // απλώς σε περισσότερους από έναν προορισμούς.
           allocations: { select: { id: true }, take: 1 },
@@ -56,7 +56,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   // στήλες, έλεγε «1 χωρίς αντιστοίχιση · Λύσε» πάνω από μια δαπάνη που ο χρήστης μόλις είχε
   // επιμερίσει σωστά — και τον έστελνε να «λύσει» κάτι που δεν ήταν χαλασμένο.
   const unmatched = doc.items.filter(
-    (i) => i.softoneMtrl == null && i.softoneExpn == null && i.softoneLinMtrl == null
+    (i) => i.softoneMtrl == null && i.softoneExpn == null && i.softoneLinMtrl == null && i.softoneAsset == null
       && i.allocations.length === 0,
   );
 

@@ -50,7 +50,7 @@ export function linesToRows(lines: DocumentLine[]): ItemRow[] {
 
 /** Το SoftOne match μιας γραμμής — ακριβό να υπολογιστεί, και καμιά φορά φτιαγμένο ΜΕ ΤΟ ΧΕΡΙ. */
 export type SoftoneCarry = {
-  softoneMtrl: number | null; softoneExpn: number | null; softoneLinMtrl: number | null;
+  softoneMtrl: number | null; softoneExpn: number | null; softoneLinMtrl: number | null; softoneAsset?: number | null;
   softoneCode: string | null;
   softoneName: string | null; softoneIsService: boolean | null; softoneMatchedBy: string | null;
 };
@@ -58,16 +58,16 @@ export type SoftoneColumns = SoftoneCarry & { rowIndex: number; code: string | n
 
 export const CARRY_SELECT = {
   rowIndex: true, code: true, name: true,
-  softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneCode: true, softoneName: true,
+  softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneAsset: true, softoneCode: true, softoneName: true,
   softoneIsService: true, softoneMatchedBy: true,
 } as const;
 
 const NO_CARRY: SoftoneCarry = {
-  softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneCode: null, softoneName: null,
+  softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneAsset: null, softoneCode: null, softoneName: null,
   softoneIsService: null, softoneMatchedBy: null,
 };
 const carryOf = (o: SoftoneColumns): SoftoneCarry => ({
-  softoneMtrl: o.softoneMtrl, softoneExpn: o.softoneExpn, softoneLinMtrl: o.softoneLinMtrl,
+  softoneMtrl: o.softoneMtrl, softoneExpn: o.softoneExpn, softoneLinMtrl: o.softoneLinMtrl, softoneAsset: o.softoneAsset ?? null,
   softoneCode: o.softoneCode,
   softoneName: o.softoneName, softoneIsService: o.softoneIsService, softoneMatchedBy: o.softoneMatchedBy,
 });

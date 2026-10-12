@@ -93,7 +93,7 @@ export async function refreshDocTallies(docIds: string[]): Promise<void> {
   const lines = await prisma.ocrInvoiceItem.findMany({
     where: { documentId: { in: ids } },
     select: {
-      documentId: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true,
+      documentId: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneAsset: true,
       // Ο ΕΠΙΜΕΡΙΣΜΟΣ ΕΙΝΑΙ ΑΝΤΙΣΤΟΙΧΙΣΗ. Η γραμμή ΞΕΡΕΙ πού πάει — σε έναν ή περισσότερους
       // λογαριασμούς — και το `postingBlockers` το δέχεται ήδη (`hasAllocations`). Χωρίς αυτό ο
       // μετρητής έλεγε `matched 0 από 1`, η λίστα έδειχνε «1 χωρίς αντιστοίχιση · Λύσε», και το
@@ -110,7 +110,7 @@ export async function refreshDocTallies(docIds: string[]): Promise<void> {
     // `_count` με `?.`: μια γραμμή χωρίς το πεδίο (παλιοί καλούντες, mocks) μετράει ως «χωρίς
     // επιμερισμό» αντί να ρίξει ολόκληρο τον υπολογισμό των συνόλων.
     const hasAlloc = (l._count?.allocations ?? 0) > 0;
-    if (l.softoneMtrl != null || l.softoneExpn != null || l.softoneLinMtrl != null || hasAlloc) t.matched++;
+    if (l.softoneMtrl != null || l.softoneExpn != null || l.softoneLinMtrl != null || l.softoneAsset != null || hasAlloc) t.matched++;
   }
   await Promise.all(Array.from(tally.entries()).map(([id, t]) => writeDocTally(id, t.total, t.matched)));
 }
@@ -167,7 +167,7 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     where: { documentId: docId },
     select: {
       id: true, code: true, name: true, vatRate: true, total: true,
-      softoneMatchedBy: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true,
+      softoneMatchedBy: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneAsset: true,
     },
   });
   if (items.length === 0) {
@@ -196,7 +196,7 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     // Χειροκίνητη γραμμή: δεν την ξαναγράφουμε, αλλά μετράει ως αντιστοιχισμένη ΜΟΝΟ αν
     // κρατάει πράγματι είδος ή έξοδο — ίδιος κανόνας με το `refreshDocTallies`.
     if (it.softoneMatchedBy === 'manual') {
-      if (it.softoneMtrl != null || it.softoneExpn != null || it.softoneLinMtrl != null) matched++;
+      if (it.softoneMtrl != null || it.softoneExpn != null || it.softoneLinMtrl != null || it.softoneAsset != null) matched++;
       continue;
     }
     if (it.softoneMatchedBy === 'skipped') continue;

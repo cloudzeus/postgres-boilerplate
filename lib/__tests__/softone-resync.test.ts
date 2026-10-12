@@ -19,6 +19,7 @@ const { db, s1, errs, settings, audit, rbac } = vi.hoisted(() => {
     purchaseDocType: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
     softoneDocSeries: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
     softoneLineItem: { findMany: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
+    softoneAsset: { findMany: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
     softoneAccount: { deleteMany: vi.fn(), createMany: vi.fn(), count: vi.fn() },
     softoneLineCategory: { findMany: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
     softoneMyDataClassType: { findMany: vi.fn(), upsert: vi.fn() },
@@ -42,6 +43,8 @@ const { db, s1, errs, settings, audit, rbac } = vi.hoisted(() => {
     softoneFetchPurchaseDocTypes: vi.fn(),
     softoneFetchDocSeries: vi.fn(),
     softoneFetchLineItems: vi.fn(),
+    softoneFetchAssets: vi.fn(),
+    softoneFetchAssetWarehouse: vi.fn(),
     softoneFetchAccounts: vi.fn(),
     softoneFetchLineCategories: vi.fn(),
     softoneFetchMyDataClassTypes: vi.fn(),
@@ -140,6 +143,10 @@ beforeEach(() => {
   db.softoneDocSeries.deleteMany.mockResolvedValue({ count: 0 });
   db.softoneLineItem.findMany.mockResolvedValue([]);
   db.softoneLineItem.updateMany.mockResolvedValue({ count: 0 });
+  db.softoneAsset.findMany.mockResolvedValue([]);
+  db.softoneAsset.updateMany.mockResolvedValue({ count: 0 });
+  s1.softoneFetchAssets.mockResolvedValue([{ mtrl: 6198, code: '14.00.00.0031', name: 'ΤΕΣΤ', vat: '1410', mtrAcn: 1002, mtrCategory: 1002, acnmsk: '12.00.00' }]);
+  s1.softoneFetchAssetWarehouse.mockResolvedValue(1000);
   db.softoneLineCategory.findMany.mockResolvedValue([]);
   db.softoneLineCategory.updateMany.mockResolvedValue({ count: 0 });
   db.softoneMyDataClassType.findMany.mockResolvedValue([]);
@@ -172,7 +179,7 @@ describe('SYNC_STEPS — η σειρά εξάρτησης', () => {
   it('τρέχει ΦΠΑ και lookups πριν από έξοδα/είδη, και τις σειρές τελευταίες', () => {
     expect(SYNC_STEPS.map((s) => s.table)).toEqual(
       ['vat', 'lookups', 'expenses', 'items', 'traders', 'purdoc', 'docseries',
-        'accounts', 'linecategories', 'lineitems', 'mydataclasses', 'costcenters', 'projects', 'projectstages'],
+        'accounts', 'linecategories', 'lineitems', 'assets', 'mydataclasses', 'costcenters', 'projects', 'projectstages'],
     );
   });
 
@@ -429,6 +436,12 @@ describe('άδεια απάντηση SoftOne — κανένα μητρώο δε
       arm: () => db.softoneLineItem.findMany.mockResolvedValue([{ mtrl: 777 }]),
       fetcher: () => s1.softoneFetchLineItems,
       destructive: () => [db.softoneLineItem.updateMany, db.softoneLineItem.upsert],
+    },
+    {
+      table: 'assets',
+      arm: () => db.softoneAsset.findMany.mockResolvedValue([{ mtrl: 6198 }]),
+      fetcher: () => s1.softoneFetchAssets,
+      destructive: () => [db.softoneAsset.updateMany, db.softoneAsset.upsert],
     },
     {
       table: 'mydataclasses',

@@ -657,6 +657,7 @@ export const UNMATCHED_LINE_WHERE: Prisma.OcrInvoiceItemWhereInput = {
   softoneMtrl: null,
   softoneExpn: null,
   softoneLinMtrl: null,
+  softoneAsset: null,
   // `not` σε nullable πεδίο δεν επιστρέφει NULL — τα κενά τα ζητάμε ρητά.
   OR: [{ softoneMatchedBy: null }, { softoneMatchedBy: { not: 'skipped' } }],
 };
@@ -1169,7 +1170,7 @@ export function normalizeAnalytics(a: LineAnalytics | undefined): LineAnalytics 
 /** Τα πεδία αντιστοίχισης μιας γραμμής — γράφονται ΜΑΖΙ, ποτέ μισά. */
 function lineMatchData(m: ResolvedMatch, analytics: LineAnalytics) {
   return {
-    softoneMtrl: m.mtrl, softoneExpn: m.expn, softoneLinMtrl: m.lin,
+    softoneMtrl: m.mtrl, softoneExpn: m.expn, softoneLinMtrl: m.lin, softoneAsset: null,
     softoneCode: m.code, softoneName: m.name,
     softoneIsService: m.isService, softoneMatchedBy: 'manual',
     softoneCostCntr: analytics.costCntr, softonePrjc: analytics.prjc, softonePrjcStage: analytics.prjcStage,
@@ -1314,8 +1315,8 @@ export async function rememberUtilityMatch(input: {
   return { label: `${label}${withVat ? ` · ${vatRate}%` : ''}`, propagated };
 }
 
-const isMatched = (i: { softoneMtrl: number | null; softoneExpn: number | null; softoneLinMtrl: number | null }) =>
-  i.softoneMtrl != null || i.softoneExpn != null || i.softoneLinMtrl != null;
+const isMatched = (i: { softoneMtrl: number | null; softoneExpn: number | null; softoneLinMtrl: number | null; softoneAsset?: number | null }) =>
+  i.softoneMtrl != null || i.softoneExpn != null || i.softoneLinMtrl != null || i.softoneAsset != null;
 
 export interface RematchResult {
   /** Παραστατικά που ξαναπέρασαν από τη μνήμη. */
@@ -1345,7 +1346,7 @@ export async function rematchOpenDocuments(
         some: {
           OR: [
             {
-              softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null,
+              softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneAsset: null,
               OR: [{ softoneMatchedBy: null }, { softoneMatchedBy: { notIn: ['manual', 'skipped'] } }],
             },
             { softoneMatchedBy: 'memory' },
@@ -1357,7 +1358,7 @@ export async function rematchOpenDocuments(
     take: REMATCH_LIMIT,
     select: {
       id: true, issuerAfm: true, document: !!only.utilityKind,
-      items: { select: { name: true, vatRate: true, total: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneMatchedBy: true } },
+      items: { select: { name: true, vatRate: true, total: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneAsset: true, softoneMatchedBy: true } },
     },
   });
   // Στενή επανεφαρμογή μετά από μία απόφαση: μόνο όπου υπάρχει αταίριαστη γραμμή του ίδιου είδους.
@@ -1607,7 +1608,7 @@ export async function clearLineMatch(lineId: string): Promise<{ lineId: string; 
   await prisma.ocrInvoiceItem.update({
     where: { id },
     data: {
-      softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneCode: null,
+      softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneAsset: null, softoneCode: null,
       softoneName: null, softoneIsService: null, softoneMatchedBy: null,
       softoneCostCntr: null, softonePrjc: null, softonePrjcStage: null,
     },

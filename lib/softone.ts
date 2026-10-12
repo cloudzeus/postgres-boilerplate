@@ -2531,3 +2531,138 @@ export async function softoneCreateItemCategory(input: {
   }
   return { mtrCategory: id, code: row.CODE || code, name: row.NAME || name };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ΠΑΓΙΑ (object ASSET → MTRL με SODTYPE 54)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const ASSET_SODTYPE = 54;
+
+export interface AssetRow {
+  mtrl: number;
+  code: string;
+  name: string;
+  vat: string | null;
+  /** MTRACN — λογιστική κατηγορία (ASSETGL). */
+  mtrAcn: number | null;
+  /** MTRCATEGORY — εμπορική κατηγορία (ASSCATEGORY). */
+  mtrCategory: number | null;
+  /** ACNMSK — λογαριασμός αγορών του παγίου (π.χ. 14.03.00). */
+  acnmsk: string | null;
+}
+
+/** Τα ενεργά πάγια. Μόνο ανάγνωση (`GetTable MTRL`). */
+export async function softoneFetchAssets(): Promise<AssetRow[]> {
+  const rows = await softoneGetTable('MTRL', ['MTRL', 'CODE', 'NAME', 'VAT', 'MTRACN', 'MTRCATEGORY', 'ACNMSK'], `SODTYPE=${ASSET_SODTYPE} AND ISACTIVE=1`);
+  return rows
+    .map((o) => ({
+      mtrl: Number(o.MTRL), code: str(o.CODE), name: str(o.NAME) || str(o.CODE), vat: idOrNull(o.VAT),
+      mtrAcn: intOrNull(o.MTRACN), mtrCategory: intOrNull(o.MTRCATEGORY), acnmsk: str(o.ACNMSK) || null,
+    }))
+    .filter((r) => Number.isFinite(r.mtrl) && r.code);
+}
+
+/**
+ * Η αποθήκη όπου ζουν τα πάγια της εγκατάστασης: η συχνότερη στις υπάρχουσες εγγραφές απόκτησης
+ * (`ASSDEPR.WHOUSE`). Η γραμμή ASSLINES τη θέλει υποχρεωτικά και δεν έχει default. `null` = καμία
+ * εγγραφή απόκτησης ακόμη (τότε η καταχώριση πάγιου μπλοκάρει με σαφές μήνυμα).
+ */
+export async function softoneFetchAssetWarehouse(): Promise<number | null> {
+  const rows = await softoneGetTable('ASSDEPR', ['ASSDEPR', 'WHOUSE'], '1=1').catch(() => []);
+  const count = new Map<number, number>();
+  for (const r of rows) {
+    const w = intOrNull(r.WHOUSE);
+    if (w != null) count.set(w, (count.get(w) ?? 0) + 1);
+  }
+  return [...count].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+export interface AssetLookups {
+  /** Λογιστικές κατηγορίες (ASSETGL): ο λογαριασμός αγορών τους δίνει το πρόθεμα του κωδικού. */
+  glCategories: { mtrAcn: number; code: string; name: string; acnmsk: string | null; depreciation: number | null }[];
+  /** Εμπορικές κατηγορίες παγίων (MTRCATEGORY με SODTYPE 54). */
+  categories: { mtrCategory: number; code: string; name: string }[];
+}
+
+export async function softoneFetchAssetLookups(): Promise<AssetLookups> {
+  const [gl, cat] = await Promise.all([
+    softoneGetTable('ASSETGL', ['MTRACN', 'CODE', 'NAME', 'ISACTIVE', 'ACNMSK19', 'ACNMSK01', 'ASSDEPR11'], '1=1'),
+    softoneGetTable('MTRCATEGORY', ['MTRCATEGORY', 'CODE', 'NAME', 'ISACTIVE'], `SODTYPE=${ASSET_SODTYPE}`),
+  ]);
+  return {
+    glCategories: gl
+      .filter((r) => str(r.ISACTIVE) !== '0' && intOrNull(r.MTRACN) != null)
+      .map((r) => ({
+        mtrAcn: Number(r.MTRACN), code: str(r.CODE), name: str(r.NAME) || str(r.CODE),
+        acnmsk: str(r.ACNMSK19) || str(r.ACNMSK01) || null,
+        depreciation: Number.isFinite(Number(r.ASSDEPR11)) && str(r.ASSDEPR11) !== '' ? Number(r.ASSDEPR11) : null,
+      })),
+    categories: cat
+      .filter((r) => str(r.ISACTIVE) !== '0' && intOrNull(r.MTRCATEGORY) != null)
+      .map((r) => ({ mtrCategory: Number(r.MTRCATEGORY), code: str(r.CODE), name: str(r.NAME) || str(r.CODE) })),
+  };
+}
+
+export interface CreateAssetInput {
+  code: string;
+  name: string;
+  mtrAcn: number;
+  mtrCategory: number | null;
+  vat: string;
+  acnmsk: string | null;
+  /** Μονάδες μέτρησης από υπάρχον πάγιο της εγκατάστασης (MTRUNIT1/3/4). */
+  units: { mtrunit1: string; mtrunit3: string | null; mtrunit4: string | null };
+}
+
+/** Το ακριβές setData νέου παγίου (και για προεπισκόπηση). */
+export function buildAssetPayload(input: CreateAssetInput): { OBJECT: 'ASSET'; KEY: ''; DATA: { ASSET: Record<string, unknown>[] } } {
+  const row: Record<string, unknown> = {
+    CODE: input.code,
+    NAME: input.name,
+    MTRACN: input.mtrAcn,
+    VAT: input.vat,
+    MTRUNIT1: input.units.mtrunit1,
+    MTRUNIT3: input.units.mtrunit3 ?? input.units.mtrunit1,
+    MTRUNIT4: input.units.mtrunit4 ?? input.units.mtrunit1,
+    MU31: 1,
+    MU41: 1,
+    ISACTIVE: 1,
+  };
+  if (input.mtrCategory != null) row.MTRCATEGORY = input.mtrCategory;
+  if (input.acnmsk) row.ACNMSK = input.acnmsk;
+  return { OBJECT: 'ASSET', KEY: '', DATA: { ASSET: [row] } };
+}
+
+/**
+ * Δημιουργία παγίου. Διαβάζει ΠΑΝΤΑ πίσω τον τύπο (SODTYPE 54): το `success:true` δεν αποδεικνύει
+ * ότι γράφτηκε αυτό που ζητήσαμε (βλ. την υπηρεσία που γράφτηκε ως είδος, `softoneCreateItem`).
+ */
+export async function softoneCreateAsset(input: CreateAssetInput): Promise<number> {
+  const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>(
+    'setData', buildAssetPayload(input),
+  );
+  if (res.success === false || res.id == null) {
+    throw new SoftoneError(res.error ?? `setData ASSET απέτυχε (code ${res.errorcode ?? '?'})`);
+  }
+  clearItemCodeCache('product');
+  clearItemCodeCache('service');
+  const mtrl = Number(res.id);
+  const back = await softoneGetTable('MTRL', ['MTRL', 'SODTYPE', 'CODE'], `MTRL=${mtrl}`).catch(() => []);
+  const sodtype = Number(back.find((r) => Number(r.MTRL) === mtrl)?.SODTYPE ?? NaN);
+  if (Number.isFinite(sodtype) && sodtype !== ASSET_SODTYPE) {
+    throw new SoftoneError(
+      `Το SoftOne δημιούργησε την εγγραφή (MTRL ${mtrl}) ως SODTYPE ${sodtype} αντί για ${ASSET_SODTYPE}. ` +
+      'Η εγγραφή υπάρχει στο ERP με λάθος τύπο — χρειάζεται διόρθωση από τον integrator.',
+    );
+  }
+  return mtrl;
+}
+
+/** Οι μονάδες μέτρησης ενός υπάρχοντος παγίου — πρότυπο για το νέο (ίδια λογιστική κατηγορία πρώτα). */
+export async function softoneAssetUnitTemplate(mtrAcn: number): Promise<CreateAssetInput['units'] | null> {
+  const rows = await softoneGetTable('MTRL', ['MTRL', 'MTRACN', 'MTRUNIT1', 'MTRUNIT3', 'MTRUNIT4'], `SODTYPE=${ASSET_SODTYPE} AND ISACTIVE=1`);
+  const ok = rows.filter((r) => idOrNull(r.MTRUNIT1));
+  const pick = ok.find((r) => intOrNull(r.MTRACN) === mtrAcn) ?? ok[0];
+  if (!pick) return null;
+  return { mtrunit1: idOrNull(pick.MTRUNIT1)!, mtrunit3: idOrNull(pick.MTRUNIT3), mtrunit4: idOrNull(pick.MTRUNIT4) };
+}

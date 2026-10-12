@@ -12,6 +12,8 @@ export interface LineMatch {
   mtrl: number | null;
   expn: number | null;
   lin: number | null;
+  /** MTRL ΠΑΓΙΟΥ (ASSLINES) — χωριστό από τα τέσσερα μητρώα: δεν μαθαίνεται από τη μνήμη. */
+  asset?: number | null;
   code: string | null;
   name: string | null;
   isService: boolean | null;

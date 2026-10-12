@@ -6,7 +6,7 @@ import type { LineSuggestion, SuggestionCandidate } from '@/lib/ocr/line-suggest
 import {
   FiBriefcase, FiCrosshair, FiDollarSign, FiEdit2, FiLayers, FiLink, FiLoader, FiPackage,
   FiTag, FiTool, FiX, FiPlusCircle, FiAlertTriangle,
-  FiCheck,
+  FiCheck, FiHardDrive,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -14,8 +14,9 @@ import { RegistrySearch } from '@/components/admin/registry-search';
 import { AnalyticsPicker, type AnalyticsValue } from '@/components/admin/analytics-picker';
 import { emitDocLinesChanged, useFocusLine } from '@/components/admin/doc-lines-events';
 import { CreateRegistryEntryModal } from '@/components/admin/create-registry-entry-modal';
+import { AssetSearch, CreateAssetDialog, type AssetPick } from '@/components/admin/asset-picker';
 import { lineKindFits, lineKindsReason } from '@/lib/ocr/resolution-plan';
-import type { PostingTarget } from '@/lib/ocr/posting-target';
+import { assetFits, type PostingTarget } from '@/lib/ocr/posting-target';
 import { matchKindOf, type LineCategoryOption, type LineMatch } from './line-match-kind';
 import type { MatchKind } from '@/lib/ocr/line-match';
 import { cn } from '@/lib/utils';
@@ -39,6 +40,9 @@ const KIND_META: Record<MatchKind, { label: string; bg: string; fg: string; icon
 };
 
 const SEGMENTS: MatchKind[] = ['product', 'service', 'expense', 'lineitem'];
+
+/** Το πάγιο ζει ΕΚΤΟΣ των τεσσάρων μητρώων (δεν μαθαίνεται από τη μνήμη) — ίδια μορφή chip. */
+const ASSET_META = { label: 'Πάγιο', bg: '#EEF2F7', fg: '#334155', icon: <FiHardDrive aria-hidden className="size-3" /> };
 
 /** Γιατί αντιστοιχίστηκε — το `softoneMatchedBy` της στήλης σε ανθρώπινα ελληνικά. */
 const MATCHED_BY: Record<string, string> = {
@@ -109,6 +113,7 @@ export function LineMatchCell({
   const [kind, setKind] = React.useState<MatchKind | null>(current ?? defaultKind);
   const [lineCategory, setLineCategory] = React.useState<number | null>(null);
   const [creating, setCreating] = React.useState(false);
+  const [creatingAsset, setCreatingAsset] = React.useState(false);
 
   // Ο server ξαναέδωσε τη γραμμή (π.χ. μετά από `router.refresh()`): η στήλη είναι η αλήθεια.
   React.useEffect(() => { setMatch(initial); }, [initial]);
@@ -200,6 +205,30 @@ export function LineMatchCell({
       },
     );
 
+  /** Αντιστοίχιση σε ΠΑΓΙΟ: τοπικά μόνο, χωρίς μνήμη (κάθε πάγιο είναι μοναδικό). */
+  const pickAsset = async (a: AssetPick) => {
+    setBusy(true);
+    try {
+      const res = await fetch('/api/admin/ocr/line-asset', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lineId, asset: a.mtrl }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(d.message ?? 'Η αντιστοίχιση απέτυχε.'); return; }
+      assetPicked(a);
+      toast.success(`Αντιστοιχίστηκε στο πάγιο ${a.code}`, { description: 'Θα καταχωριστεί ως γραμμή παγίων του παραστατικού αγορών.' });
+    } catch {
+      toast.error('Σφάλμα δικτύου — η ενέργεια δεν ολοκληρώθηκε.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const assetPicked = (a: AssetPick) => {
+    setOpen(false);
+    setMatch({ mtrl: null, expn: null, lin: null, asset: a.mtrl, code: a.code, name: a.name, isService: null, matchedBy: 'manual' });
+    router.refresh();
+    emitDocLinesChanged(docId);
+  };
+
   const clear = () => send({ lineId, mtrl: null }, () => {
     setMatch(null);
     setAnalytics({ costCntr: EMPTY, prjc: EMPTY, prjcStage: EMPTY });
@@ -229,7 +258,9 @@ export function LineMatchCell({
   const kindsReason = React.useMemo(() => lineKindsReason(target), [target]);
   /** Τα μητρώα που ΟΝΤΩΣ χωράνε εδώ — αν είναι ένα, δεν υπάρχει τίποτα να διαλέξει ο χρήστης. */
   const allowedHere = React.useMemo(() => SEGMENTS.filter((k) => lineKindFits(target, k)), [target]);
-  const meta = current ? KIND_META[current] : null;
+  const isAsset = match?.asset != null;
+  const meta = isAsset ? ASSET_META : current ? KIND_META[current] : null;
+  const assetsHere = assetFits(target);
   const label = match?.code || match?.name ? [match.code, match.name].filter(Boolean).join(' — ') : null;
   const analyticsSupported = current !== 'expense';
   const shown = ([
@@ -408,6 +439,23 @@ export function LineMatchCell({
             </>
           )}
 
+          {assetsHere && (
+            <div className="space-y-1.5 border-t border-border pt-2">
+              <p className="flex items-center gap-1 text-caption font-semibold uppercase tracking-wider text-muted-foreground">
+                <FiHardDrive aria-hidden className="size-3" /> Ή αγορά παγίου
+              </p>
+              <AssetSearch id={`asset-${lineId}`} disabled={busy} onPick={pickAsset} />
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => { setOpen(false); setCreatingAsset(true); }}
+                className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-[length:var(--fs-11)] font-semibold text-slate-700 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-sisyphus-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <FiPlusCircle aria-hidden className="size-3" /> Νέο πάγιο
+              </button>
+            </div>
+          )}
+
           <div className="border-t border-border pt-2">
             <p className="text-caption font-semibold uppercase tracking-wider text-muted-foreground">
               Αναλυτική γραμμής
@@ -442,6 +490,15 @@ export function LineMatchCell({
           </div>
         </PopoverContent>
       </Popover>
+
+      <CreateAssetDialog
+        open={creatingAsset}
+        onOpenChange={setCreatingAsset}
+        lineId={lineId}
+        lineName={lineName ?? null}
+        lineVatRate={lineVatRate ?? null}
+        onCreated={(a) => { setCreatingAsset(false); assetPicked(a); }}
+      />
 
       {/* Ο δημιουργός ζει ΕΞΩ από το popover: το popover κλείνει με το που ανοίγει ο διάλογος,
           αλλιώς το outside-click του ενός έκλεινε το άλλο. */}

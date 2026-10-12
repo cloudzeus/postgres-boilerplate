@@ -22,7 +22,7 @@ export async function lineCoverage(): Promise<LineCoverage> {
     select: {
       items: {
         select: {
-          softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneMatchedBy: true,
+          softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneAsset: true, softoneMatchedBy: true,
           _count: { select: { allocations: true } },
         },
       },
@@ -33,7 +33,7 @@ export async function lineCoverage(): Promise<LineCoverage> {
     let done = 0;
     for (const i of d.items) {
       total++;
-      const ok = i.softoneMtrl != null || i.softoneExpn != null || i.softoneLinMtrl != null
+      const ok = i.softoneMtrl != null || i.softoneExpn != null || i.softoneLinMtrl != null || i.softoneAsset != null
         || (i._count?.allocations ?? 0) > 0 || i.softoneMatchedBy === 'skipped';
       if (!ok) continue;
       matched++; done++;

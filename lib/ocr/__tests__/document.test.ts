@@ -141,7 +141,7 @@ describe('carryForward', () => {
   it('drops the match when the line became a different article', () => {
     const changed = [{ ...rows[0], code: 'Z9', name: 'Άλλο' }];
     expect(carryForward(changed, old)[0]).toEqual({
-      softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneCode: null, softoneName: null,
+      softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneAsset: null, softoneCode: null, softoneName: null,
       softoneIsService: null, softoneMatchedBy: null,
     });
   });

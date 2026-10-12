@@ -41,6 +41,7 @@ interface SuggestItem {
   softoneMtrl: number | null;
   softoneExpn: number | null;
   softoneLinMtrl: number | null;
+  softoneAsset?: number | null;
   softoneMatchedBy: string | null;
 }
 
@@ -69,7 +70,7 @@ export async function suggestionsForDocument(input: {
   const utility = utilityInput ? analyzeUtility(utilityInput) : null;
   const wanted: { item: SuggestItem; label: string; hint: RegExp; vat: number | null }[] = [];
   input.items.forEach((it, index) => {
-    if (it.softoneMtrl != null || it.softoneExpn != null || it.softoneLinMtrl != null || it.softoneMatchedBy === 'skipped') return;
+    if (it.softoneMtrl != null || it.softoneExpn != null || it.softoneLinMtrl != null || it.softoneAsset != null || it.softoneMatchedBy === 'skipped') return;
     const vat = num(it.vatRate);
     const charge = utility?.lines[index]?.charge ?? null;
     if (utility && charge) {

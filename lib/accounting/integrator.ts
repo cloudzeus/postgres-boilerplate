@@ -38,7 +38,7 @@ const ERP_ACTIONS: Record<string, string> = {
   'ocr.post.mark': 'Ενημέρωση ΜΑΡΚ',
 };
 
-const KIND_LABEL: Record<string, string> = { product: 'είδος', service: 'υπηρεσία', expense: 'έξοδο', lineitem: 'χρεοπίστωση' };
+const KIND_LABEL: Record<string, string> = { product: 'είδος', service: 'υπηρεσία', expense: 'έξοδο', lineitem: 'χρεοπίστωση', asset: 'πάγιο' };
 const TRADER_LABEL: Record<string, string> = { supplier: 'προμηθευτής', creditor: 'πιστωτής', debtor: 'χρεώστης' };
 
 function summarize(action: string, md: Record<string, unknown>): string {
@@ -82,7 +82,7 @@ export async function loadIntegratorReport(): Promise<IntegratorReport> {
       where: { status: 'COMPLETED', postStatus: { not: 'POSTED' }, OR: [{ reconOverride: null }, { reconOverride: { not: 'IGNORED' } }] },
       select: {
         fileName: true, softoneSeries: true,
-        items: { select: { name: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneMatchedBy: true } },
+        items: { select: { name: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneAsset: true, softoneMatchedBy: true } },
       },
     }),
     prisma.ocrDocument.findMany({ where: { postStatus: 'POSTED', ...(since ? { postedAt: { gte: since } } : {}) }, select: { fileName: true, postedRef: true, postedAt: true, document: true } }),
@@ -143,7 +143,7 @@ export async function loadIntegratorReport(): Promise<IntegratorReport> {
 
   // δ. Γραμμές που η εφαρμογή δεν μπορεί να αντιστοιχίσει (π.χ. πάγια χωρίς γραμμές ASSLINES).
   const stuck = openDocs
-    .map((d) => ({ d, n: d.items.filter((i) => i.softoneMtrl == null && i.softoneExpn == null && i.softoneLinMtrl == null && i.softoneMatchedBy !== 'skipped').length }))
+    .map((d) => ({ d, n: d.items.filter((i) => i.softoneMtrl == null && i.softoneExpn == null && i.softoneLinMtrl == null && i.softoneAsset == null && i.softoneMatchedBy !== 'skipped').length }))
     .filter((x) => x.n > 0)
     .map((x) => `${x.d.fileName.replace(/^.*\//, '')} — ${x.n} γραμμ${x.n === 1 ? 'ή' : 'ές'}${x.d.softoneSeries ? '' : ' · χωρίς σειρά'}`);
   if (stuck.length) {

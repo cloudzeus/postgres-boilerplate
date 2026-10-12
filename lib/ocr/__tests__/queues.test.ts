@@ -526,7 +526,7 @@ describe('applyMatchToGroup', () => {
     const upd = db.ocrInvoiceItem.updateMany.mock.calls[0][0];
     expect(upd.where).toEqual({ id: { in: ['l1', 'l2'] } });
     expect(upd.data).toEqual({
-      softoneMtrl: 77, softoneExpn: null, softoneLinMtrl: null, softoneCode: '76-71106', softoneName: 'ΥΓΡΟ ΑΖΩΤΟ',
+      softoneMtrl: 77, softoneExpn: null, softoneLinMtrl: null, softoneAsset: null, softoneCode: '76-71106', softoneName: 'ΥΓΡΟ ΑΖΩΤΟ',
       softoneIsService: false, softoneMatchedBy: 'manual',
       softoneCostCntr: null, softonePrjc: null, softonePrjcStage: null,
     });

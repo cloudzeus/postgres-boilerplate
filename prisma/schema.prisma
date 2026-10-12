@@ -1379,6 +1379,9 @@ model OcrInvoiceItem {
   // Αντιστοίχιση σε ΧΡΕΟΠΙΣΤΩΣΗ SoftOne (LINEITEM → MTRL με SODTYPE 53). Ξεχωριστή στήλη από το
   // `softoneMtrl`: και οι δύο κρατούν MTRL, αλλά μόνο η χρεοπίστωση μπαίνει σε γραμμή LINLINES.
   softoneLinMtrl   Int?
+  // Αντιστοίχιση σε ΠΑΓΙΟ SoftOne (ASSET → MTRL με SODTYPE 54) — καταχωρείται σε γραμμή ASSLINES
+  // παραστατικού αγορών. Πάντα χειροκίνητη απόφαση: η μνήμη δεν μαθαίνει πάγια (κάθε πάγιο είναι μοναδικό).
+  softoneAsset     Int?
   // Αναλυτική ανά γραμμή: κέντρο κόστους, έργο, κατηγορία δραστηριότητας. Και τα τρία είναι
   // ΠΡΟΑΙΡΕΤΙΚΑ στο SoftOne — δεν μπλοκάρουν ποτέ καταχώριση.
   softoneCostCntr  Int?
@@ -1394,6 +1397,7 @@ model OcrInvoiceItem {
   @@index([softoneMtrl])
   @@index([softoneExpn])
   @@index([softoneLinMtrl])
+  @@index([softoneAsset])
 }
 
 // Επιμερισμός ΜΙΑΣ γραμμής παραστατικού σε 2+ λογαριασμούς γενικής.
@@ -2346,4 +2350,22 @@ model IntegratorItem {
   resolvedBy  String?
 
   @@index([status])
+}
+
+/// Καθρέφτης ΠΑΓΙΩΝ του SoftOne (object ASSET → MTRL με SODTYPE 54). Μόνο ανάγνωση από τον
+/// συγχρονισμό· νέα πάγια ανοίγονται από την εφαρμογή (setData ASSET) και γράφονται εδώ αμέσως.
+model SoftoneAsset {
+  id          Int      @id @default(autoincrement())
+  mtrl        Int      @unique // SoftOne MTRL (SODTYPE 54)
+  code        String
+  name        String
+  vat         String? // VAT (κατηγορία ΦΠΑ)
+  mtrAcn      Int? // MTRACN — λογιστική κατηγορία παγίου (ASSETGL)
+  mtrCategory Int? // MTRCATEGORY — εμπορική κατηγορία παγίου (ASSCATEGORY)
+  acnmsk      String? // ACNMSK — λογαριασμός αγορών (π.χ. 14.03.00)
+  isActive    Boolean  @default(true)
+  syncedAt    DateTime @default(now())
+
+  @@index([name])
+  @@index([code])
 }

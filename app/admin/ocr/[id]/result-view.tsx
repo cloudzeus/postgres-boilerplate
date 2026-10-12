@@ -68,10 +68,10 @@ function lineAnalyticsOf(
 }
 
 const lineMatchOf = (it: DocWithItems['items'][number]): LineMatch | null =>
-  it.softoneMtrl == null && it.softoneExpn == null && it.softoneLinMtrl == null
+  it.softoneMtrl == null && it.softoneExpn == null && it.softoneLinMtrl == null && it.softoneAsset == null
     ? null
     : {
-      mtrl: it.softoneMtrl, expn: it.softoneExpn, lin: it.softoneLinMtrl,
+      mtrl: it.softoneMtrl, expn: it.softoneExpn, lin: it.softoneLinMtrl, asset: it.softoneAsset,
       code: it.softoneCode, name: it.softoneName,
       isService: it.softoneIsService, matchedBy: it.softoneMatchedBy,
     };

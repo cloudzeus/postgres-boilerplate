@@ -32,6 +32,8 @@ export type PurdocLineCtx = {
   expn?: number | null;
   /** MTRL ΧΡΕΟΠΙΣΤΩΣΗΣ (μητρώο `SoftoneLineItem`) — το μόνο που δέχεται γραμμή LINLINES. */
   lin?: number | null;
+  /** MTRL ΠΑΓΙΟΥ (μητρώο `SoftoneAsset`, SODTYPE 54) — καταχωρείται σε γραμμή ASSLINES του PURDOC. */
+  asset?: number | null;
   /** MTRTYPE της χρεοπίστωσης· η γραμμή LINLINES το απαιτεί. */
   linMtrType?: number | null;
   /** «κωδικός — περιγραφή» της χρεοπίστωσης, για τα μηνύματα του ελέγχου λογαριασμού. */
@@ -97,6 +99,11 @@ export type PurdocContext = {
   /** Συντελεστής ΦΠΑ (π.χ. 24) → κωδικός ΦΠΑ SoftOne (`VatCategory.code`). */
   vatIdByRate: Record<number, number>;
   comments?: string | null;
+  /**
+   * Η αποθήκη παγίων (`WHOUSE`) — υποχρεωτική στη γραμμή ASSLINES, χωρίς default. Βγαίνει από τις
+   * υπάρχουσες εγγραφές απόκτησης της εγκατάστασης (συγχρονισμός «Πάγια»).
+   */
+  assetWhouse?: number | null;
 };
 
 /**
@@ -143,6 +150,22 @@ export type PurdocItemLine = {
   VAT?: number; COMMENTS?: string; MYDATACODE?: string;
   COSTCNTR?: number; PRJC?: number; PRJCSTAGE?: number;
 };
+/**
+ * Γραμμή ΠΑΓΙΟΥ (ASSLINES, DB MTRLINES με SODTYPE 54) σε PURDOC.
+ *
+ * `ASSDEPR` («Αγορά/Προσθήκη») είναι υποχρεωτικό. Στο πρότυπο της εγκατάστασης (FINDOC 105283) η
+ * εγγραφή απόκτησης ΔΗΜΙΟΥΡΓΗΘΗΚΕ από το ίδιο το παραστατικό (κωδικός «*», FINDOCC = το παραστατικό).
+ * Ρητή εγγραφή ASSDEPR μέσα στο payload απορρίπτεται πάντα («Ποσ.ένταξης» — read-only που
+ * υπολογίζεται από τη γραμμή), ενώ `ASSDEPR: 0` περνά τον έλεγχο του SoftOne (`calculate`). Το ότι η
+ * ΑΠΟΘΗΚΕΥΣΗ με 0 δημιουργεί νέα «Αγορά/Προσθήκη» επιβεβαιώνεται με το read-back της πρώτης
+ * καταχώρισης (βλ. `post-softone.ts`).
+ */
+export type PurdocAssetLine = {
+  LINENUM: number; MTRL: number; WHOUSE: number; ASSDEPR: 0; MTRTYPE: 0; QTY1: number; PRICE: number;
+  DISC1PRC?: number; DISC1VAL?: number;
+  VAT?: number; COMMENTS?: string;
+  COSTCNTR?: number; PRJC?: number; PRJCSTAGE?: number;
+};
 /** Γραμμή ανάλυσης εξόδων (EXPANAL) — δεν έχει ποσότητα/τιμή, μόνο αξία. */
 export type PurdocExpenseLine = { LINENUM: number; EXPN: number; VAT?: number; EXPVAL: number };
 /** Γραμμή ειδικών συναλλαγών (LINLINES): `MTRL` = ΧΡΕΟΠΙΣΤΩΣΗ, με τον τύπο της. */
@@ -169,6 +192,7 @@ export type PostingPayload = {
     SRVLINES?: PurdocItemLine[];
     EXPANAL?: PurdocExpenseLine[];
     LINLINES?: PurdocLinLine[];
+    ASSLINES?: PurdocAssetLine[];
   };
 };
 /** Παλιό όνομα, διατηρείται για τους υπάρχοντες καλούντες. */
@@ -211,6 +235,8 @@ export type BlockerCode =
   | 'lines_need_lineitem'
   | 'lines_lineitem_unsupported'
   | 'lines_sxdoc_unsupported'
+  | 'lines_asset_unsupported'
+  | 'asset_no_whouse'
   | 'lines_no_mtrtype'
   | 'series_unknown'
   | 'series_module_unsupported'
@@ -426,7 +452,8 @@ const vatIdFor = (rate: number | null, map: Record<number, number>): number | un
 };
 
 /** Ο πίνακας που θα δεχτεί ΑΥΤΗ τη γραμμή, όταν ο στόχος είναι `AUTO` (μόνο PURDOC). */
-const autoTableFor = (m: PurdocLineCtx): 'ITELINES' | 'SRVLINES' | 'EXPANAL' | null => {
+const autoTableFor = (m: PurdocLineCtx): 'ITELINES' | 'SRVLINES' | 'EXPANAL' | 'ASSLINES' | null => {
+  if (m.asset != null) return 'ASSLINES';
   if (m.mtrl != null) return m.isService ? 'SRVLINES' : 'ITELINES';
   if (m.expn != null) return 'EXPANAL';
   return null; // χρεοπίστωση ή τίποτα — δεν χωράει σε PURDOC
@@ -444,7 +471,7 @@ export function lineFits(table: PostLineTable, m: PurdocLineCtx): boolean {
   // στέλνει είδη ή έξοδα δεν εκφράζεται — και το λέμε δυνατά αντί να πέσει σιωπηλά.
   if (hasAllocations(m)) return table === 'LINLINES';
   switch (table) {
-    case 'ITELINES': case 'SRVLINES': return m.mtrl != null;
+    case 'ITELINES': case 'SRVLINES': return m.mtrl != null && m.asset == null;
     case 'EXPANAL': return m.expn != null;
     case 'LINLINES': return m.lin != null;
     case 'AUTO': return autoTableFor(m) != null;
@@ -492,6 +519,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
   const items: Record<'ITELINES' | 'SRVLINES', PurdocItemLine[]> = { ITELINES: [], SRVLINES: [] };
   const expenses: PurdocExpenseLine[] = [];
   const linLines: PurdocLinLine[] = [];
+  const assetLines: PurdocAssetLine[] = [];
 
   document.lines.forEach((line, i) => {
     const match = byRow.get(i);
@@ -505,6 +533,25 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
     const extra = (line.serials ?? []).filter((sn) => !(baseName ?? '').includes(sn));
     const name = extra.length ? `${baseName ? `${baseName} · ` : ''}S/N: ${extra.join(', ')}` : baseName;
     const target = table === 'AUTO' ? autoTableFor(match) : table;
+    if (target === 'ASSLINES') {
+      // Χωρίς αποθήκη παγίων η γραμμή δεν εκφράζεται — το λέει το εμπόδιο `asset_no_whouse`.
+      if (ctx.assetWhouse == null) return;
+      const row: PurdocAssetLine = {
+        LINENUM: FIRST_LINENUM + assetLines.length,
+        MTRL: match.asset as number,
+        WHOUSE: ctx.assetWhouse,
+        ASSDEPR: 0,
+        MTRTYPE: 0,
+        QTY1: num(line.quantity, 1),
+        PRICE: num(line.unitPrice, 0),
+        ...discountFields(line),
+        ...analyticsOf(match),
+      };
+      if (vat != null) row.VAT = vat;
+      if (name) row.COMMENTS = name;
+      assetLines.push(row);
+      return;
+    }
     if (!target || !lineFits(target, match)) return;
 
     if (target === 'LINLINES') {
@@ -581,6 +628,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
   if (items.SRVLINES.length) DATA.SRVLINES = items.SRVLINES;
   if (expenses.length) DATA.EXPANAL = expenses;
   if (linLines.length) DATA.LINLINES = linLines;
+  if (assetLines.length) DATA.ASSLINES = assetLines;
   return { OBJECT: object, KEY: '', DATA };
 }
 
@@ -593,7 +641,8 @@ export function accountCheckInputs(ctx: Pick<PurdocContext, 'lines' | 'target'>)
   const table = ctx.target.lines;
   return ctx.lines.map((m) => {
     const target = table === 'AUTO' ? autoTableFor(m) : table;
-    const path: AccountPath | null = target && lineFits(target, m) ? target : null;
+    // Το πάγιο παίρνει λογαριασμό από τη λογιστική του κατηγορία — εκτός ελέγχου χρεοπιστώσεων.
+    const path: AccountPath | null = target && target !== 'ASSLINES' && lineFits(target, m) ? target : null;
     return {
       rowIndex: m.rowIndex,
       path,
@@ -632,7 +681,7 @@ const mismatchCode = (table: PostLineTable): BlockerCode => {
 export function postingBlockers(
   document: DocumentJson,
   doc: PostingDoc,
-  ctx: Pick<PurdocContext, 'lines' | 'vatIdByRate' | 'target'>,
+  ctx: Pick<PurdocContext, 'lines' | 'vatIdByRate' | 'target'> & Partial<Pick<PurdocContext, 'assetWhouse'>>,
   /**
    * Το αποτέλεσμα του `checkAccounts` για τις ίδιες γραμμές. Προαιρετικό μόνο για τους παλιούς
    * καλούντες/tests· το `post-softone.ts` το περνάει ΠΑΝΤΑ, σε προεπισκόπηση και σε καταχώριση.
@@ -693,9 +742,16 @@ export function postingBlockers(
     // Ο ΕΠΙΜΕΡΙΣΜΟΣ μετράει ως αντιστοίχιση: η γραμμή ΞΕΡΕΙ πού πάει — σε περισσότερους από έναν
     // λογαριασμούς. Χωρίς αυτό, μια πλήρως επιμερισμένη γραμμή εμφανιζόταν «χωρίς αντιστοίχιση».
     const unmatched = matched.some(
-      (m) => !m || (m.mtrl == null && m.expn == null && m.lin == null && !hasAllocations(m) && !m.omit),
+      (m) => !m || (m.mtrl == null && m.expn == null && m.lin == null && m.asset == null && !hasAllocations(m) && !m.omit),
     );
     if (unmatched) out.push('unmatched_lines');
+    // ΠΑΓΙΑ: μόνο σε παραστατικό αγορών με γραμμές «ανά γραμμή» (εκεί ζει ο πίνακας ASSLINES), και
+    // μόνο αν ξέρουμε την αποθήκη παγίων — αλλιώς η γραμμή θα έπεφτε σιωπηλά από το payload.
+    const assets = matched.filter((m) => m?.asset != null);
+    if (assets.length) {
+      if (ctx.target.object !== 'PURDOC' || table !== 'AUTO') out.push('lines_asset_unsupported');
+      else if (ctx.assetWhouse == null) out.push('asset_no_whouse');
+    }
     // Αντιστοιχισμένη γραμμή που δεν εκφράζεται στον πίνακα της σειράς: ΔΕΝ τη ρίχνουμε σιωπηλά
     // και δεν εφευρίσκουμε κωδικό — το λέμε δυνατά (π.χ. έξοδο EXPN σε σειρά που στέλνει LINLINES).
     // Ο ΕΠΙΜΕΡΙΣΜΟΣ μετράει κι εδώ. Χωρίς αυτόν, μια επιμερισμένη γραμμή σε σειρά που ΔΕΝ στέλνει
@@ -703,7 +759,7 @@ export function postingBlockers(
     // mtrl/expn/lin της είναι κενά) — άρα ΚΑΝΕΝΑ εμπόδιο, και ταυτόχρονα το payload δεν έβγαζε
     // καμία γραμμή: η δαπάνη εξαφανιζόταν σιωπηλά. Ακριβώς αυτό που ο έλεγχος υπάρχει να αποτρέψει.
     const misfit = matched.some(
-      (m) => m && (m.mtrl != null || m.expn != null || m.lin != null || hasAllocations(m)) && !lineFits(table, m),
+      (m) => m && m.asset == null && (m.mtrl != null || m.expn != null || m.lin != null || hasAllocations(m)) && !lineFits(table, m),
     );
     if (misfit) out.push(mismatchCode(table));
     // Η γραμμή LINLINES απαιτεί MTRTYPE· λείπει όταν το μητρώο χρεοπιστώσεων δεν το συγχρόνισε.
