@@ -1846,13 +1846,21 @@ export interface CreateExpenseInput {
   vat?: string | null;
   /** Προαιρετικό «πρότυπο» έξοδο από το οποίο αντιγράφονται τα flags. */
   templateExpn?: number | null;
+  /**
+   * Ο λογαριασμός ΓΕΝΙΚΗΣ του εξόδου (`EXPN.ACNMSK`) — ΡΗΤΑ, ποτέ από το πρότυπο: ένα «Καύσιμα»
+   * φτιαγμένο από πρότυπο «Μεταφορικά Αγορών» θα κληρονομούσε λάθος λογαριασμό. Χωρίς αυτόν η
+   * εγγραφή γενικής θα έμενε χωρίς λογαριασμό.
+   */
+  acnmsk?: string | null;
+  /** Λογαριασμός ΦΠΑ αγορών (`EXPN.ACNMSKVAT1`) — κενό για μη εκπιπτόμενο ΦΠΑ. */
+  acnmskVat?: string | null;
 }
 
 /** Builds the exact setData payload for an expense create (also used for dry-run preview). */
 export function buildExpensePayload(
   input: CreateExpenseInput,
   flags: Record<string, unknown>,
-): { OBJECT: 'EXPENSES'; KEY: ''; DATA: { EXPENSES: Record<string, unknown>[] } } {
+): { OBJECT: 'EXPENSES'; KEY: ''; DATA: { EXPN: Record<string, unknown>[] } } {
   const row: Record<string, unknown> = {
     CODE: input.code,
     NAME: input.name,
@@ -1860,7 +1868,14 @@ export function buildExpensePayload(
     ...flags,
   };
   if (input.vat) row.VAT = input.vat;
-  return { OBJECT: 'EXPENSES', KEY: '', DATA: { EXPENSES: [row] } };
+  // Το κλειδί `EXPN` («Κωδ.») ΔΕΝ είναι αυτόματο στα έξοδα: το δίνει ο χρήστης, και στην
+  // εγκατάσταση είναι ίδιο με τον κωδικό (103 → 103). Αριθμητικός κωδικός ⇒ ίδιο κλειδί.
+  if (/^\d{1,9}$/.test(String(input.code).trim())) row.EXPN = Number(input.code);
+  if (input.acnmsk) row.ACNMSK = input.acnmsk;
+  if (input.acnmskVat) row.ACNMSKVAT1 = input.acnmskVat;
+  // Ο πίνακας του object EXPENSES λέγεται `EXPN` (getObjectTables). Με κλειδί «EXPENSES» το SoftOne
+  // αγνοεί ολόκληρη τη γραμμή και απαντά «Πρέπει να συμπληρωθεί Φ.Π.Α.» — επαληθευμένο στο Demo S1.
+  return { OBJECT: 'EXPENSES', KEY: '', DATA: { EXPN: [row] } };
 }
 
 /**

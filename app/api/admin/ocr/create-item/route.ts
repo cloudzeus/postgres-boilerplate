@@ -56,6 +56,8 @@ const Body = z.object({
    * από το πρότυπο — δες `lib/ocr/lineitem-create.ts`.
    */
   acnmsk: z.string().trim().max(40).nullable().optional(),
+  /** Μόνο για `expense`: λογαριασμός ΦΠΑ αγορών (κενό = μη εκπιπτόμενος). */
+  acnmskVat: z.string().trim().max(40).nullable().optional(),
   /** Η γραμμή που θα αντιστοιχιστεί αμέσως μετά. */
   lineId: z.string().trim().min(1).nullable().optional(),
   /** Ο κωδικός που κουβαλά η γραμμή — για σωστή πρόταση μετά από 409. */
@@ -189,7 +191,7 @@ export async function POST(req: Request) {
         const { flags, expn: templateExpn } = await softoneLoadExpenseTemplate(b.templateExpn ?? null);
         return NextResponse.json({
           dryRun: true, templateExpn,
-          payload: { service: 'setData', ...buildExpensePayload({ code: b.code, name: b.name, vat: b.vat ?? null }, flags) },
+          payload: { service: 'setData', ...buildExpensePayload({ code: b.code, name: b.name, vat: b.vat ?? null, acnmsk: b.acnmsk ?? null, acnmskVat: b.acnmskVat ?? null }, flags) },
         });
       } catch (e) {
         return NextResponse.json({ error: 'softone_error', message: (e as Error).message }, { status: 502 });
@@ -200,6 +202,7 @@ export async function POST(req: Request) {
     try {
       created = await softoneCreateExpense({
         code: b.code, name: b.name, vat: b.vat ?? null, templateExpn: b.templateExpn ?? null,
+        acnmsk: b.acnmsk ?? null, acnmskVat: b.acnmskVat ?? null,
       });
     } catch (e) {
       const taken = await duplicateCode(e, 'expense', b);

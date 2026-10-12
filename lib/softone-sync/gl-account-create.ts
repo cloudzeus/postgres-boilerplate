@@ -94,7 +94,10 @@ export async function planGlAccount(input: GlAccountInput): Promise<GlAccountPla
   // ΦΠΑ: ο κωδικός από τον χάρτη της εφαρμογής, ο λογαριασμός ΦΠΑ από το σχέδιο.
   let vat: GlAccountPlan['vat'] = null;
   let vatAccount: GlAccountPlan['vatAccount'] = null;
-  if (input.vatRate != null && input.vatRate > 0) {
+  // Ομάδα όπου ΚΑΝΕΝΑΣ λογαριασμός δεν δένει ΦΠΑ (π.χ. 32.01.01 «Ειδικά έξοδα Τρίτων Χωρών»): ο νέος
+  // ακολουθεί την ομάδα — ο ΦΠΑ εκεί δεν ζει στον λογαριασμό, και ένας λογαριασμός ΦΠΑ θα ήταν εφεύρεση.
+  const groupUsesVat = siblings.some((s) => !!s.VAT);
+  if (input.vatRate != null && input.vatRate > 0 && groupUsesVat) {
     const cats = await prisma.vatCategory.findMany();
     const map = buildVatRateMap(cats, parseVatRateOverrides(await getSetting(VAT_RATE_MAP_SETTING)));
     const vatCode = map.byRate[input.vatRate];

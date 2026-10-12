@@ -340,7 +340,22 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     }
   }
 
-  await Promise.all(Array.from(updates.entries()).map(([id, data]) =>
+  // Γράφονται ΜΟΝΟ όσες γραμμές αλλάζουν. Η επανεφαρμογή μνήμης περνά από δεκάδες παραστατικά σε
+  // κάθε κλικ· ένα UPDATE ανά αμετάβλητη γραμμή έκανε το κλικ να κρατά ~10 δευτερόλεπτα.
+  const prior = new Map(items.map((it) => [it.id, it]));
+  const unchanged = (id: string, data: LineMatchUpdate) => {
+    const p = prior.get(id);
+    if (!p) return false;
+    // Ήταν ΗΔΗ (ρητά) αταίριαστη και μένει αταίριαστη.
+    const stillNone = data.softoneMatchedBy === null && data.softoneMtrl === null && data.softoneExpn === null && data.softoneLinMtrl === null
+      && p.softoneMatchedBy === null && p.softoneMtrl === null && p.softoneExpn === null && p.softoneLinMtrl === null;
+    // Ίδιος στόχος από τη μνήμη, χωρίς αναλυτική να γραφτεί.
+    const sameMemory = data.softoneMatchedBy === 'memory' && p.softoneMatchedBy === 'memory'
+      && (data.softoneMtrl ?? null) === p.softoneMtrl && (data.softoneExpn ?? null) === p.softoneExpn && (data.softoneLinMtrl ?? null) === p.softoneLinMtrl
+      && data.softoneCostCntr === undefined && data.softonePrjc === undefined && data.softonePrjcStage === undefined;
+    return stillNone || sameMemory;
+  };
+  await Promise.all(Array.from(updates.entries()).filter(([id, data]) => !unchanged(id, data)).map(([id, data]) =>
     prisma.ocrInvoiceItem.update({ where: { id }, data }),
   ));
 

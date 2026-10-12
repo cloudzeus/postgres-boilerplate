@@ -1309,7 +1309,8 @@ export async function rememberUtilityMatch(input: {
   if (afm) await learn(afm, input.analytics);
   await learn('', {});
 
-  const propagated = (await rematchOpenDocuments()).filled;
+  // Μόνο τα παραστατικά που έχουν γραμμές του ΙΔΙΟΥ είδους/οικογένειας — όχι όλα.
+  const propagated = (await rematchOpenDocuments(utility && charge ? { utilityKind: utility.kind } : family ? { family } : {})).filled;
   return { label: `${label}${withVat ? ` · ${vatRate}%` : ''}`, propagated };
 }
 
@@ -1328,32 +1329,57 @@ export interface RematchResult {
  * αταίριαστες γραμμές (κείμενο, είδος χρέωσης, οικογένεια δαπάνης). Τοπικό — καμία κλήση SoftOne.
  * Χειροκίνητες και παραλειμμένες γραμμές δεν αγγίζονται ποτέ (`matchDocItems`).
  */
-export async function rematchOpenDocuments(): Promise<RematchResult> {
+export async function rematchOpenDocuments(
+  only: { family?: string; utilityKind?: string } = {},
+): Promise<RematchResult> {
   const docs = await prisma.ocrDocument.findMany({
     where: {
       status: 'COMPLETED',
       postStatus: { not: 'POSTED' },
+      // Και παραστατικά ΧΩΡΙΣ αταίριαστες γραμμές, αν κάποια γραμμή τη συμπλήρωσε η ΜΝΗΜΗ: μια νεότερη,
+      // ειδικότερη απόφαση (π.χ. «ναύλος 0%» μετά τον «ναύλο» γενικά) πρέπει να τη διορθώσει.
       items: {
         some: {
-          softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null,
-          OR: [{ softoneMatchedBy: null }, { softoneMatchedBy: { notIn: ['manual', 'skipped'] } }],
+          OR: [
+            {
+              softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null,
+              OR: [{ softoneMatchedBy: null }, { softoneMatchedBy: { notIn: ['manual', 'skipped'] } }],
+            },
+            { softoneMatchedBy: 'memory' },
+          ],
         },
       },
     },
     orderBy: { createdAt: 'desc' },
     take: REMATCH_LIMIT,
     select: {
-      id: true,
-      items: { select: { softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true } },
+      id: true, issuerAfm: true, document: !!only.utilityKind,
+      items: { select: { name: true, vatRate: true, total: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneMatchedBy: true } },
     },
   });
+  // Στενή επανεφαρμογή μετά από μία απόφαση: μόνο όπου υπάρχει αταίριαστη γραμμή του ίδιου είδους.
+  const relevant = docs.filter((d) => {
+    if (only.utilityKind) return detectUtilityForItems(d.document, d.issuerAfm, d.items)?.kind === only.utilityKind;
+    if (only.family) {
+      return d.items.some((i) => (i.softoneMatchedBy === 'memory' || (!isMatched(i) && i.softoneMatchedBy !== 'skipped'))
+        && classifyExpenseFamily(i.name) === only.family);
+    }
+    return true;
+  });
+  // Έξι παραστατικά ταυτόχρονα: κάθε `matchDocItems` κάνει μερικά μικρά ερωτήματα, και η σειριακή
+  // εκτέλεση κρατούσε την επανεφαρμογή ~25 δευτερόλεπτα για 40 παραστατικά.
   let filled = 0;
-  for (const d of docs) {
-    const before = d.items.filter(isMatched).length;
-    const after = await matchDocItems(d.id).catch(() => null);
-    if (after) filled += Math.max(0, after.matched - before);
+  const PARALLEL = 6;
+  for (let k = 0; k < relevant.length; k += PARALLEL) {
+    const chunk = relevant.slice(k, k + PARALLEL);
+    const results = await Promise.all(chunk.map(async (d) => {
+      const before = d.items.filter(isMatched).length;
+      const after = await matchDocItems(d.id).catch(() => null);
+      return after ? Math.max(0, after.matched - before) : 0;
+    }));
+    filled += results.reduce((a, b) => a + b, 0);
   }
-  return { docs: docs.length, filled };
+  return { docs: relevant.length, filled };
 }
 
 /**

@@ -43,11 +43,12 @@ const w = (s: string) => `(?<![A-ZΑ-Ω0-9])(?:${s})(?![A-ZΑ-Ω0-9])`;
  * και «μεταφορικά»), ταχυμεταφορές πριν από τα μεταφορικά, domains πριν από το λογισμικό.
  */
 const RULES: [ExpenseFamily, RegExp][] = [
-  ['customs', new RegExp(`ΕΚΤΕΛΩΝΙΣ|ΤΕΛΩΝΕΙ|CUSTOMS|ΔΑΣΜ|ΔΙΑΣΑΦΗΣ|CLEARANCE|${w('ΟΛΠ')}|${w('ΟΛΘ')}`)],
+  // «Ε.Ε.Π.Α.» = ειδική εισφορά λιμένων στο εκτελωνιστικό σημείωμα.
+  ['customs', new RegExp(`ΕΚΤΕΛΩΝΙΣ|ΤΕΛΩΝΕΙ|CUSTOMS|ΔΑΣΜ|ΔΙΑΣΑΦΗΣ|CLEARANCE|${w('ΟΛΠ')}|${w('ΟΛΘ')}|${w('ΕΕΠΑ')}`)],
   ['courier', new RegExp(`COURIER|ΤΑΧΥΜΕΤΑΦΟΡ|ΑΠΟΣΤΟΛΗ ΔΕΜΑΤ|${w('ACS|DHL|UPS|FEDEX|ΕΛΤΑ')}|ΓΕΝΙΚΗ ΤΑΧΥΔΡΟΜ`)],
   ['freight', new RegExp(
     `ΝΑΥΛ|FREIGHT|ΜΕΤΑΦΟΡΑ|ΜΕΤΑΦΟΡΕΣ|ΜΕΤΑΦΟΡΙΚ|TRANSPORT|CARRIAGE|${w('B L FEE|BL FEE')}|BILL OF LADING|${w('VGM|THC')}`
-    + `|RELEASE OF EMPTY|DEMURRAGE|DETENTION|STABILITY SURCHARGE|BUNKER|AGENCY FEE|CONTAINER|CONEX`,
+    + `|RELEASE OF EMPTY|DEMURRAGE|DETENTION|STABILITY SURCHARGE|BUNKER|AGENCY FEE|CONTAINER|CONEX|TERMINAL (SECURITY|HANDLING)`,
   )],
   ['fuel', new RegExp(`ΑΜΟΛΥΒΔ|DIESEL|ΠΕΤΡΕΛΑΙΟ ΚΙΝΗΣ|ΒΕΝΖΙΝ|UNLEADED|${w('V ?POWER')}|ADBLUE|ΚΑΥΣΙΜΟ ΚΙΝΗΣ|${w('ΚΑΥΣΙΜΑ|ΚΑΥΣΙΜΟ')}`)],
   ['hosting', new RegExp(`${w('DOMAIN')}|ΟΝΟΜΑΤΟΣ ΧΩΡΟΥ|HOSTING|ΦΙΛΟΞΕΝΙΑ ΙΣΤΟΣΕΛ|${w('SSL')}|ΚΑΤΟΧΥΡΩΣΗ ΟΝΟΜ`)],

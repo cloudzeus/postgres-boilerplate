@@ -25,6 +25,10 @@ describe('classifyExpenseFamily — πραγματικές γραμμές του
     ['ΙΟΥΛΙΟΣ 2026 -112 ΑΤΟΜΑ ΜΙΣΘΟΔΟΣΙΑ -1 JL10 -1 ΤΗΡΗΣΗ ΑΔΕΙΩΝ-', 'fees'],
     ['Q1 2026-COMMISSION', 'commission'],
     ['Αμοιβή εκτελωνιστή', 'customs'],
+    ['Ε.Ε.Π.Α.', 'customs'],
+    ['Εργατικά ΟΛΠ', 'customs'],
+    ['TSC-TERMINAL SECURITY CHARGE', 'freight'],
+    ['MOUNTING FULL CONTAINER', 'freight'],
   ])('%s → %s', (name, family) => {
     expect(classifyExpenseFamily(name)).toBe(family);
   });

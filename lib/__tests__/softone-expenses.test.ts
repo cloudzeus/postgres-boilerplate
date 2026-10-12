@@ -51,11 +51,11 @@ describe('buildExpensePayload', () => {
     const p = buildExpensePayload({ code: 'ΕΞ01', name: 'Μεταφορικά', vat: '1300' }, { CLCMD: 1, KEPYOFLAG: 0 });
     expect(p.OBJECT).toBe('EXPENSES');
     expect(p.KEY).toBe('');
-    expect(p.DATA.EXPENSES[0]).toMatchObject({ CODE: 'ΕΞ01', NAME: 'Μεταφορικά', ISACTIVE: 1, VAT: '1300', CLCMD: 1, KEPYOFLAG: 0 });
+    expect(p.DATA.EXPN[0]).toMatchObject({ CODE: 'ΕΞ01', NAME: 'Μεταφορικά', ISACTIVE: 1, VAT: '1300', CLCMD: 1, KEPYOFLAG: 0 });
   });
   it('παραλείπει το VAT όταν δεν δίνεται', () => {
     const p = buildExpensePayload({ code: 'Χ', name: 'Ψ' }, {});
-    expect(p.DATA.EXPENSES[0]).not.toHaveProperty('VAT');
+    expect(p.DATA.EXPN[0]).not.toHaveProperty('VAT');
   });
 });
 
@@ -98,7 +98,7 @@ describe('softoneCreateExpense', () => {
 
     expect(calls.map((c) => c.service)).toEqual(['GetTable', 'getData', 'setData', 'GetTable']);
     expect(calls[1].body).toMatchObject({ OBJECT: 'EXPENSES', KEY: '7', LOCATEINFO: `EXPN:${EXPENSE_FLAG_FIELDS.join(',')}` });
-    const row = (calls[2].body.DATA as { EXPENSES: Record<string, unknown>[] }).EXPENSES[0];
+    const row = (calls[2].body.DATA as { EXPN: Record<string, unknown>[] }).EXPN[0];
     expect(row).toMatchObject({ CODE: 'ΕΞ42', NAME: 'Μεταφορικά', ISACTIVE: 1, VAT: '1300', CLCMD: 2, KEPYOFLAG: 0, STOCKMD: 3 });
     // Τα flags που επιστρέφει το πρότυπο αντιγράφονται· όσα λείπουν πέφτουν στο default 0.
     expect(row).toMatchObject({ INTRASTATFLAG: 1, USEBYITEM: 1, TURNOVRFLAG: 0, EFKFLAG: 0, HANDMD: 0, ISEXPN: 0 });
