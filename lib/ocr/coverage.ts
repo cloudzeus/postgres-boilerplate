@@ -17,7 +17,8 @@ export interface LineCoverage {
 
 export async function lineCoverage(): Promise<LineCoverage> {
   const docs = await prisma.ocrDocument.findMany({
-    where: { status: 'COMPLETED', postStatus: { not: 'POSTED' } },
+    // Τα ΑΓΝΟΗΜΕΝΑ (π.χ. τιμολόγιο πώλησης που σαρώθηκε κατά λάθος) δεν είναι δουλειά που μένει.
+    where: { status: 'COMPLETED', postStatus: { not: 'POSTED' }, OR: [{ reconOverride: null }, { reconOverride: { not: 'IGNORED' } }] },
     select: {
       items: {
         select: {

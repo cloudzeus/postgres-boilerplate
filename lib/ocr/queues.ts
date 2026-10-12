@@ -1336,6 +1336,8 @@ export async function rematchOpenDocuments(
     where: {
       status: 'COMPLETED',
       postStatus: { not: 'POSTED' },
+      // Αγνοημένο παραστατικό: καμία αυτόματη αντιστοίχιση. (ΟΧΙ `NOT: {…}`: στη SQL αποκλείει και το NULL.)
+      AND: [{ OR: [{ reconOverride: null }, { reconOverride: { not: 'IGNORED' } }] }],
       ...(only.issuerAfm ? { issuerAfm: only.issuerAfm } : {}),
       // Και παραστατικά ΧΩΡΙΣ αταίριαστες γραμμές, αν κάποια γραμμή τη συμπλήρωσε η ΜΝΗΜΗ: μια νεότερη,
       // ειδικότερη απόφαση (π.χ. «ναύλος 0%» μετά τον «ναύλο» γενικά) πρέπει να τη διορθώσει.
