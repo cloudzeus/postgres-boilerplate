@@ -81,7 +81,7 @@ export function familyMemoryKeys(family: ExpenseFamily, vatRate?: number | null)
 
 /** «Ναύλοι & μεταφορικά · 24%» από ένα κλειδί μνήμης. */
 export function familyMemoryKeyLabel(pattern: string): string | null {
-  const m = /^@family:([a-z_]+)(?:@([\d.]+))?$/.exec(pattern);
+  const m = /^@family:([a-z_]+)(?:@([\d.]+))?(?:#(?:lin|pur))?$/.exec(pattern);
   if (!m) return null;
   const label = EXPENSE_FAMILY_LABEL[m[1] as ExpenseFamily];
   return label ? `${label}${m[2] ? ` · ${m[2]}%` : ''}` : null;

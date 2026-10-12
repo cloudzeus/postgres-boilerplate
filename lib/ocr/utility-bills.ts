@@ -214,7 +214,7 @@ export function isUtilityMemoryKey(pattern: string): boolean {
 
 /** «Ρεύμα · Κατανάλωση & πάγια» από ένα κλειδί μνήμης — για τη λίστα κανόνων. */
 export function utilityMemoryKeyLabel(pattern: string): string | null {
-  const m = /^@utility:([a-z_]+):([a-z_]+)(?:@([\d.]+))?$/.exec(pattern);
+  const m = /^@utility:([a-z_]+):([a-z_]+)(?:@([\d.]+))?(?:#(?:lin|pur))?$/.exec(pattern);
   if (!m) return null;
   const kind = UTILITY_KIND_LABEL[m[1] as UtilityKind];
   const charge = UTILITY_CHARGE_LABEL[m[2] as UtilityCharge];

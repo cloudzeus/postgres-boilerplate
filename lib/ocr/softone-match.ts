@@ -5,6 +5,8 @@ import { normalizeLineText } from '@/lib/ocr/line-match';
 import { documentReference } from '@/lib/ocr/purdoc-payload';
 import { classifyUtilityCharge, detectUtility, utilityInputFromDocument, utilityMemoryKeys } from '@/lib/ocr/utility-bills';
 import { classifyExpenseFamily, familyMemoryKeys } from '@/lib/ocr/expense-families';
+import { ruleFitsWorld, scopeKeys, worldOfLines } from '@/lib/ocr/memory-scope';
+import { postingTargetsForSeries, seriesKey } from '@/lib/ocr/required-trader-kind';
 
 /** Η αναγνώριση λογαριασμού πάνω στις ΓΡΑΜΜΕΣ της βάσης (όχι του JSON) — αυτές αντιστοιχίζονται. */
 export function detectUtilityForItems(
@@ -225,8 +227,14 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
     // που γράφει η μνήμη (ουρά «Είδη & έξοδα» και σελίδα παραστατικού). Η παλιά παραγωγή από το
     // JSON με `replace(/\D+/g,'')` έκοβε το πρόθεμα χώρας, οπότε κανόνας ξένου εκδότη
     // (`DE144960040`) δεν μπορούσε ΠΟΤΕ να βρεθεί.
-    const doc = await prisma.ocrDocument.findUnique({ where: { id: docId }, select: { issuerAfm: true, document: true } });
+    const doc = await prisma.ocrDocument.findUnique({
+      where: { id: docId }, select: { issuerAfm: true, document: true, softoneSeries: true, seriesSource: true },
+    });
     const afm = doc?.issuerAfm ?? '';
+    // Ο «κόσμος» της σειράς (αγορές / ειδικές συναλλαγές): ποιο μητρώο χωράει — βλ. `memory-scope.ts`.
+    const ref = { seriesSource: doc?.seriesSource ?? null, softoneSeries: doc?.softoneSeries ?? null };
+    const sk = seriesKey(ref);
+    const world = sk ? worldOfLines((await postingTargetsForSeries([ref]).catch(() => new Map())).get(sk)?.lines) : null;
 
     // Σταθερά κλειδιά ΠΕΡΑ από το κείμενο, γιατί το κείμενο αλλάζει από μήνα σε μήνα και από
     // εκδότη σε εκδότη: (α) λογαριασμός ρεύματος/νερού/τηλεφώνου → είδος χρέωσης
@@ -243,8 +251,8 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
         : null;
       const family = classifyExpenseFamily(it.name);
       u.utilityKeys = [
-        ...(utility && charge ? utilityMemoryKeys(utility.kind, charge, vatRate) : []),
-        ...(family ? familyMemoryKeys(family, vatRate) : []),
+        ...(utility && charge ? scopeKeys(utilityMemoryKeys(utility.kind, charge, vatRate), world) : []),
+        ...(family ? scopeKeys(familyMemoryKeys(family, vatRate), world) : []),
       ];
     }
 
@@ -261,7 +269,9 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
       // Σειρά προτίμησης: κείμενο του εκδότη → είδος χρέωσης του εκδότη (με ΦΠΑ, μετά χωρίς) → γενικό
       // κείμενο → γενικό είδος χρέωσης (με ΦΠΑ, μετά χωρίς). Ο εκδότης κερδίζει πάντα· το ακριβές
       // κείμενο κερδίζει το είδος χρέωσης· ο ΦΠΑ κερδίζει το σκέτο είδος.
-      const byKey = new Map(rules.map((r) => [`${r.afm}|${r.pattern}`, r]));
+      // Κανόνας με στόχο που δεν χωράει στη σειρά του παραστατικού (π.χ. έξοδο σε ειδικές συναλλαγές)
+      // δεν εφαρμόζεται ποτέ: θα γέμιζε τη γραμμή και θα μπλόκαρε την καταχώριση.
+      const byKey = new Map(rules.filter((r) => ruleFitsWorld(r, world)).map((r) => [`${r.afm}|${r.pattern}`, r]));
       const first = (prefix: string, keys: string[]) => keys.map((k) => byKey.get(`${prefix}|${k}`)).find(Boolean);
       const ruleFor = (u: (typeof unmatched)[number]) =>
         (afm ? byKey.get(`${afm}|${u.pattern}`) : undefined)

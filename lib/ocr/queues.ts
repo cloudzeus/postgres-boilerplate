@@ -6,6 +6,7 @@ import { splitGluedAddress } from '@/lib/ocr/address';
 import { refreshDocTallies, matchDocItems, detectUtilityForItems } from '@/lib/ocr/softone-match';
 import { classifyUtilityCharge, utilityMemoryKey, UTILITY_CHARGE_LABEL, UTILITY_KIND_LABEL } from '@/lib/ocr/utility-bills';
 import { classifyExpenseFamily, familyMemoryKeys, EXPENSE_FAMILY_LABEL } from '@/lib/ocr/expense-families';
+import { scopeKey, worldOfLines } from '@/lib/ocr/memory-scope';
 import { loadDocumentJson, saveDocumentJson } from '@/lib/ocr/document';
 import { setPath } from '@/lib/ocr/canonical';
 import { SODTYPE_LABEL, TRADER_KIND_SODTYPE, type TraderKind } from '@/lib/softone';
@@ -1237,7 +1238,12 @@ export async function rememberUtilityMatch(input: {
     where: { id: input.lineId },
     select: {
       name: true, vatRate: true, total: true,
-      document: { select: { issuerAfm: true, document: true, items: { select: { name: true, vatRate: true, total: true } } } },
+      document: {
+        select: {
+          issuerAfm: true, document: true, softoneSeries: true, seriesSource: true,
+          items: { select: { name: true, vatRate: true, total: true } },
+        },
+      },
     },
   });
   if (!line) return null;
@@ -1269,6 +1275,14 @@ export async function rememberUtilityMatch(input: {
   } else {
     return null;
   }
+
+  // Ο κόσμος της σειράς (αγορές / ειδικές συναλλαγές) μπαίνει στο κλειδί: το ίδιο «λογισμικό» είναι
+  // έξοδο στη μία και χρεοπίστωση στην άλλη — βλ. `lib/ocr/memory-scope.ts`.
+  const ref = { seriesSource: line.document.seriesSource, softoneSeries: line.document.softoneSeries };
+  const sk = seriesKey(ref);
+  const world = sk ? worldOfLines((await postingTargetsForSeries([ref]).catch(() => new Map())).get(sk)?.lines) : null;
+  base = scopeKey(base, world);
+  if (withVat) withVat = scopeKey(withVat, world);
 
   const { mtrl, expn, lin, isService } = input.match;
   const target = { mtrl, expn, lin, isService, targetSource: 'manual' };
