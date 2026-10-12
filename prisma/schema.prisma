@@ -2304,3 +2304,46 @@ model SoftoneConnectionEvent {
 
   @@index([at])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ΛΟΓΙΣΤΙΚΗ ΑΡΧΙΚΟΠΟΙΗΣΗ — ερωτήματα προς τον λογιστή και θέματα για τον integrator.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Η ΑΠΑΝΤΗΣΗ του λογιστή σε ένα ερώτημα. Τα ερωτήματα ΔΕΝ αποθηκεύονται εδώ: παράγονται ζωντανά από
+/// την κατάσταση της εφαρμογής (κανόνες οικογένειας/είδους χρέωσης, λογαριασμοί που άνοιξαν, εκκρεμότητες).
+/// Εδώ ζει μόνο τι είπε ο λογιστής, με κλειδί το ερώτημα και «αποτύπωμα» της πρότασης: αν η πρόταση
+/// αλλάξει (π.χ. ο κανόνας δείχνει πλέον σε άλλο έξοδο), η απάντηση παύει να ισχύει και ξαναρωτάμε.
+model AccountingAnswer {
+  id          String   @id @default(cuid())
+  questionKey String   @unique
+  /// Η πρόταση που απαντήθηκε — αν η τρέχουσα διαφέρει, η απάντηση είναι παλιά.
+  fingerprint String
+  /// ACCEPTED · CHANGED (άλλαξε στόχο μέσα από την εφαρμογή) · NEEDS_ERP (ζήτησε ενέργεια στο SoftOne)
+  status      String
+  comment     String?  @db.Text
+  answeredBy  String?
+  answeredAt  DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Θέμα για τον integrator — ό,τι η εφαρμογή ΔΕΝ μπορεί να κάνει μέσω web services. Δημιουργείται
+/// αυτόματα όταν ο λογιστής ζητά κάτι τέτοιο, ή χειροκίνητα. Οι αυτόματοι έλεγχοι της σελίδας
+/// (π.χ. χρεοπιστώσεις χωρίς χαρακτηρισμό myDATA) υπολογίζονται ζωντανά και δεν αποθηκεύονται.
+model IntegratorItem {
+  id          String    @id @default(cuid())
+  title       String
+  detail      String    @db.Text
+  /// high · mid · low
+  severity    String    @default("mid")
+  /// OPEN · DONE
+  status      String    @default("OPEN")
+  /// accountant · manual
+  source      String    @default("accountant")
+  questionKey String?
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+  resolvedBy  String?
+
+  @@index([status])
+}

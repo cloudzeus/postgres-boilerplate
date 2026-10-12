@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   FiGrid, FiUsers, FiShield, FiKey, FiImage, FiChevronDown, FiList,
-  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiLayers, FiCpu, FiBookOpen, FiBook, FiUserCheck, FiBox, FiTool, FiFolder, FiAlertCircle, FiUserPlus, FiPackage, FiPlayCircle, FiUploadCloud,
+  FiActivity, FiSettings, FiFileText, FiLogOut, FiDatabase, FiBriefcase, FiLayers, FiCpu, FiBookOpen, FiBook, FiUserCheck, FiBox, FiTool, FiFolder, FiAlertCircle, FiUserPlus, FiPackage, FiPlayCircle, FiUploadCloud, FiHelpCircle, FiClipboard,
 } from 'react-icons/fi';
 
 type IconType = React.ComponentType<{ className?: string }>;
@@ -30,6 +30,10 @@ export interface Badges {
   newItems?: number;
   /** Εργασίες σάρωσης που τρέχουν ή περιμένουν — από /api/admin/ocr/templates/jobs?count=1. */
   activeJobs?: number;
+  /** Ερωτήματα λογιστή χωρίς ισχύουσα απάντηση — από /api/admin/accounting/counts. */
+  openQuestions?: number;
+  /** Ανοιχτά θέματα για τον integrator — από το ίδιο endpoint. */
+  integratorOpen?: number;
 }
 
 /** DGsoft wordmark shown at the top of the sidebar. */
@@ -51,7 +55,6 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/services', label: 'Υπηρεσίες', icon: FiTool, permissions: ['metadata.read'] },
       { href: '/admin/doc-series', label: 'Σειρές παραστατικών', icon: FiList, permissions: ['metadata.read'] },
       { href: '/admin/reference-data', label: 'Μητρώα αναφοράς', icon: FiLayers, permissions: ['metadata.read'] },
-      { href: '/admin/softone/accounts', label: 'Λογιστικό σχέδιο', icon: FiBook, permissions: ['metadata.read'] },
       { href: '/admin/document-types', label: 'Τύποι Δικαιολογητικών', icon: FiFileText, permissions: ['metadata.read'] },
       { href: '/admin/business-types', label: 'Νομικές Μορφές', icon: FiBriefcase, permissions: ['metadata.read'] },
       { href: '/admin/media', label: 'Media', icon: FiImage },
@@ -63,6 +66,16 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/ocr/posted', label: 'Αναρτημένα SoftOne', icon: FiUploadCloud, permissions: ['ocr.read'] },
       { href: '/admin/ocr/templates', label: 'Πρότυπα εξαγωγής', icon: FiLayers, permissions: ['ocr.read'], exact: true },
       { href: '/admin/ocr/templates/jobs', label: 'Εργασίες σάρωσης', icon: FiPlayCircle, permissions: ['ocr.read'], badgeKey: 'activeJobs' },
+    ],
+  },
+  {
+    // Για τον λογιστή της επιχείρησης και τον integrator: πώς λογιστικοποιείται κάθε δαπάνη και τι
+    // πρέπει να γίνει στο SoftOne.
+    label: 'Λογιστική αρχικοποίηση',
+    items: [
+      { href: '/admin/softone/accounts', label: 'Λογιστικό σχέδιο', icon: FiBook, permissions: ['metadata.read'] },
+      { href: '/admin/accounting/questions', label: 'Ερωτήματα λογιστή', icon: FiHelpCircle, permissions: ['metadata.read'], badgeKey: 'openQuestions' },
+      { href: '/admin/accounting/integrator', label: 'Αναφορά integrator', icon: FiClipboard, permissions: ['metadata.read'], badgeKey: 'integratorOpen' },
     ],
   },
   {
@@ -167,7 +180,7 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
   // Queue badges («Νέοι συναλλασσόμενοι» / «Είδη & έξοδα») — fetched once on
   // mount. Any failure (404 while the route is not deployed, offline, 403) is
   // swallowed: the badge is decoration, never a blocker.
-  const [queueCounts, setQueueCounts] = React.useState<Pick<Badges, 'newTraders' | 'newItems' | 'activeJobs'>>({});
+  const [queueCounts, setQueueCounts] = React.useState<Pick<Badges, 'newTraders' | 'newItems' | 'activeJobs' | 'openQuestions' | 'integratorOpen'>>({});
   const canReadOcr = permissionKeys.includes('ocr.read');
   React.useEffect(() => {
     if (!canReadOcr) return;
@@ -176,7 +189,7 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { traders?: unknown; items?: unknown } | null) => {
         if (cancelled || !d) return;
-        setQueueCounts({ newTraders: Number(d.traders) || 0, newItems: Number(d.items) || 0 });
+        setQueueCounts((p) => ({ ...p, newTraders: Number(d.traders) || 0, newItems: Number(d.items) || 0 }));
       })
       .catch(() => { /* badges are optional */ });
     // Οι ενεργές εργασίες σάρωσης είναι ξεχωριστό, φθηνό ερώτημα (ένα COUNT) — ζητείται και
@@ -189,6 +202,18 @@ export function AdminSidebar({ user, roleName, roleKey, locale, permissionKeys, 
     const timer = setInterval(() => { void jobs(); }, 30_000);
     return () => { cancelled = true; clearInterval(timer); };
   }, [canReadOcr]);
+  const canReadMeta = permissionKeys.includes('metadata.read');
+  React.useEffect(() => {
+    if (!canReadMeta) return;
+    let cancelled = false;
+    fetch('/api/admin/accounting/counts', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { questions?: unknown; integrator?: unknown } | null) => {
+        if (!cancelled && d) setQueueCounts((p) => ({ ...p, openQuestions: Number(d.questions) || 0, integratorOpen: Number(d.integrator) || 0 }));
+      })
+      .catch(() => { /* badges are optional */ });
+    return () => { cancelled = true; };
+  }, [canReadMeta, path]);
   const allBadges: Badges = { ...badges, ...queueCounts };
 
   return (
