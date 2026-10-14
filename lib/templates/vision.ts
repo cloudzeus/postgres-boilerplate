@@ -2,7 +2,7 @@
 // Same OpenAI-compatible call shape as app/api/admin/ocr/[id]/read-region (now delegated here).
 import 'server-only';
 import sharp from 'sharp';
-import { resolveVisionEndpoint } from '@/lib/ai/vision-config';
+import { acrossProviders, resolveVisionEndpoints, type VisionEndpoint } from '@/lib/ai/vision-config';
 import { providerHeaders, providerModel } from '@/lib/ai/vision-provider';
 import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
 import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
@@ -16,24 +16,29 @@ import { padBbox, type Bbox, type TemplateValueType } from './schema';
 export { cropBoxToPage } from './geometry';
 
 type VisionConfig = { key: string; url: string; models: string[] };
+/** Ο κύριος πάροχος πρώτος, μετά οι εφεδρικοί (βλ. `lib/ai/vision-config.ts`). */
+type VisionConfigs = { list: VisionConfig[]; endpoints: VisionEndpoint[] };
 
 // Four settings lookups per call adds up fast when a template has 20 fields. The
 // settings rarely change, so cache the resolved config briefly; a 60s TTL keeps an
 // admin edit in the settings UI taking effect within a minute.
 const VISION_CONFIG_TTL_MS = 60_000;
-let cached: { at: number; cfg: VisionConfig } | null = null;
+let cached: { at: number; cfg: VisionConfigs } | null = null;
 
 /** Drop the memoized vision config (tests, and anywhere settings change must apply now). */
 export function resetVisionConfigCache(): void {
   cached = null;
 }
 
-async function visionConfig(): Promise<VisionConfig> {
+async function visionConfig(): Promise<VisionConfigs> {
   if (cached && Date.now() - cached.at < VISION_CONFIG_TTL_MS) return cached.cfg;
-  // Ίδια πηγή με την ανάγνωση εγγράφων: OpenRouter όταν υπάρχει κλειδί του, αλλιώς Google AI Studio.
-  const { url, key, model, fallbacks } = await resolveVisionEndpoint();
-  if (!key) throw new Error('Δεν έχει ρυθμιστεί κλειδί vision (OPENROUTER_API_KEY / ai.visionApiKey)');
-  const cfg: VisionConfig = { key, url, models: buildModelChain(model, fallbacks) };
+  // Ίδια πηγή με την ανάγνωση εγγράφων: OpenRouter πρώτο, Google ως εφεδρεία.
+  const endpoints = (await resolveVisionEndpoints()).filter((e) => e.key);
+  if (!endpoints.length) throw new Error('Δεν έχει ρυθμιστεί κλειδί vision (OpenRouter ή Google)');
+  const cfg: VisionConfigs = {
+    endpoints,
+    list: endpoints.map((e) => ({ key: e.key, url: e.url, models: buildModelChain(e.model, e.fallbacks) })),
+  };
   cached = { at: Date.now(), cfg };
   return cfg;
 }
@@ -79,7 +84,11 @@ export type UsageRef = { refType: string; refId: string };
  * model for one hard crop without losing the fallbacks that keep the call alive under load.
  */
 export async function callVision(crop: Buffer, system: string, operation: string, ref?: UsageRef, mime = 'image/png', modelOverride?: string): Promise<CallResult> {
-  const cfg = await visionConfig();
+  const all = await visionConfig();
+  return acrossProviders(all.endpoints, (e) => callVisionAt(all.list[all.endpoints.indexOf(e)], crop, system, operation, ref, mime, modelOverride));
+}
+
+async function callVisionAt(cfg: VisionConfig, crop: Buffer, system: string, operation: string, ref: UsageRef | undefined, mime: string, modelOverride?: string): Promise<CallResult> {
   const models = modelOverride ? buildModelChain(providerModel(modelOverride, cfg.url), cfg.models) : cfg.models;
   return tryModels(models, async (model) => {
     // NOTE: every failure path in here must RETURN `{ ok: false }` rather than

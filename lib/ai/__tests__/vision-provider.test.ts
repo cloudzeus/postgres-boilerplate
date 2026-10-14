@@ -61,3 +61,55 @@ describe('resolveVisionEndpoint', () => {
     expect((await resolveVisionEndpoint()).key).toBe('');
   });
 });
+
+describe('πολλοί πάροχοι: προτεραιότητα OpenRouter, εφεδρεία Google', () => {
+  beforeEach(async () => {
+    for (const k of Object.keys(settings)) delete settings[k];
+    process.env.OPENROUTER_API_KEY = 'or-key';
+    process.env.GEMINI_API_KEY = 'g-key';
+    (await import('../vision-config')).resetProviderDown();
+  });
+
+  it('resolveVisionEndpoints: πρώτα OpenRouter, μετά Google, κάθε ένας με το δικό του κλειδί', async () => {
+    const { resolveVisionEndpoints } = await import('../vision-config');
+    const list = await resolveVisionEndpoints();
+    expect(list.map((e) => [e.url, e.key, e.model])).toEqual([
+      [OPENROUTER_URL, 'or-key', 'google/gemini-2.5-flash'],
+      [GEMINI_OPENAI_URL, 'g-key', 'gemini-2.5-flash'],
+    ]);
+  });
+
+  it('χωρίς credits στο OpenRouter (402) → Google, και το OpenRouter μπαίνει σε αναμονή', async () => {
+    const { resolveVisionEndpoints, acrossProviders, isProviderDown } = await import('../vision-config');
+    const list = await resolveVisionEndpoints();
+    const calls: string[] = [];
+    const out = await acrossProviders(list, async (e) => {
+      calls.push(e.url);
+      if (e.url === OPENROUTER_URL) throw new Error('Vision OCR 402: {"error":{"message":"Insufficient credits"}}');
+      return 'από-google';
+    });
+    expect(out).toBe('από-google');
+    expect(calls).toEqual([OPENROUTER_URL, GEMINI_OPENAI_URL]);
+    expect(isProviderDown(OPENROUTER_URL)).toBe(true);
+
+    // Η επόμενη κλήση πάει κατευθείαν στο Google όσο διαρκεί η αναμονή.
+    const next: string[] = [];
+    await acrossProviders(list, async (e) => { next.push(e.url); return 'ok'; });
+    expect(next).toEqual([GEMINI_OPENAI_URL]);
+  });
+
+  it('απέτυχαν και οι δύο → ένα μήνυμα με την απάντηση κάθε παρόχου', async () => {
+    const { resolveVisionEndpoints, acrossProviders } = await import('../vision-config');
+    const list = await resolveVisionEndpoints();
+    await expect(acrossProviders(list, async (e) => {
+      throw new Error(e.url === OPENROUTER_URL ? 'Vision OCR 402: no credits' : 'Gemini 403: PERMISSION_DENIED');
+    })).rejects.toThrow(/OpenRouter: Vision OCR 402.*Google: Gemini 403/);
+  });
+
+  it('υπερφόρτωση (503) δοκιμάζει τον επόμενο αλλά ΔΕΝ βάζει αναμονή', async () => {
+    const { resolveVisionEndpoints, acrossProviders, isProviderDown } = await import('../vision-config');
+    const list = await resolveVisionEndpoints();
+    await acrossProviders(list, async (e) => { if (e.url === OPENROUTER_URL) throw new Error('Vision OCR 503: overloaded'); return 'ok'; });
+    expect(isProviderDown(OPENROUTER_URL)).toBe(false);
+  });
+});

@@ -18,9 +18,11 @@ const ok = (content: string) => ({
   json: async () => ({ choices: [{ message: { content } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }),
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
   process.env.OPENROUTER_API_KEY = 'or-test';
+  delete process.env.GEMINI_API_KEY;
+  (await import('@/lib/ai/vision-config')).resetProviderDown();
 });
 
 describe('callPdfNative μέσω OpenRouter', () => {
@@ -51,5 +53,21 @@ describe('callPdfNative μέσω OpenRouter', () => {
     expect(models[0]).toBe('google/gemini-2.5-pro');
     expect(models[1]).toMatch(/^google\//);
     expect(r.content).toBe('{"b":2}');
+  });
+});
+
+describe('OpenRouter χωρίς credits → Google Gemini', () => {
+  it('402 σε όλα τα μοντέλα του OpenRouter ⇒ το PDF διαβάζεται από το native API της Google', async () => {
+    process.env.GEMINI_API_KEY = 'g-test';
+    net.fetchWithRetry.mockImplementation(async (url: string) => {
+      if (url.includes('openrouter.ai')) return { ok: false, status: 402, text: async () => '{"error":{"message":"Insufficient credits"}}' };
+      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: '{"c":3}' }] } }], usageMetadata: { totalTokenCount: 9 } }) };
+    });
+    const cfg = await resolveCfg();
+    const r = await callPdfNative(cfg, 'SYSTEM', Buffer.from('%PDF'));
+    expect(r).toMatchObject({ content: '{"c":3}', model: 'gemini-2.5-flash' });
+    const urls = net.fetchWithRetry.mock.calls.map((c) => String(c[0]));
+    expect(urls.filter((u) => u.includes('openrouter.ai')).length).toBe(3); // όλα τα μοντέλα του πρώτου παρόχου
+    expect(urls.at(-1)).toContain('generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent');
   });
 });

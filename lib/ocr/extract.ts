@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import { getSetting } from '@/lib/settings';
 import { buildSystemPrompt, resolveDocType, type ExtractDocType, type SupportedLang } from '@/lib/ocr/templates';
-import { resolveVisionEndpoint } from '@/lib/ai/vision-config';
+import { acrossProviders, resolveVisionEndpoints, type VisionEndpoint } from '@/lib/ai/vision-config';
 import { isGoogleAiStudio, isOpenRouter, providerHeaders, providerModel, supportsPdfNative } from '@/lib/ai/vision-provider';
 import { logAiUsage, providerFromUrl, type AiScope } from '@/lib/ai/usage';
 import { qualityScore } from '@/lib/ocr/validate';
@@ -114,6 +114,8 @@ export interface DeepSeekCfg {
   visionUrl: string;
   visionModel: string;
   visionFallbackModels: string[];
+  /** Εφεδρικοί πάροχοι vision (π.χ. Google όταν το OpenRouter μείνει χωρίς credits). */
+  visionAlternates?: VisionEndpoint[];
 }
 
 export async function resolveCfg(): Promise<DeepSeekCfg> {
@@ -122,12 +124,31 @@ export async function resolveCfg(): Promise<DeepSeekCfg> {
   const textModel = (await getSetting<string>('ai.deepseekTextModel')) ?? 'deepseek-chat';
   // Vision: ΕΝΑ σημείο απόφασης για πάροχο/κλειδί/μοντέλα (`lib/ai/vision-config.ts`) — OpenRouter όταν
   // υπάρχει κλειδί του, αλλιώς Google AI Studio. Τα μοντέλα έρχονται ήδη στο όνομα του παρόχου.
-  const vision = await resolveVisionEndpoint();
+  const [vision, ...visionAlternates] = await resolveVisionEndpoints();
   const visionKey = vision.key;
   const visionUrl = vision.url;
   const visionModel = vision.model;
   const visionFallbackModels = vision.fallbacks;
-  return { textKey, textUrl, textModel, visionKey, visionUrl, visionModel, visionFallbackModels };
+  return { textKey, textUrl, textModel, visionKey, visionUrl, visionModel, visionFallbackModels, visionAlternates };
+}
+
+/** Ο κύριος πάροχος του `cfg` και οι εφεδρικοί του, ως λίστα endpoints. */
+function visionEndpointsOf(cfg: DeepSeekCfg): VisionEndpoint[] {
+  return [
+    { url: cfg.visionUrl, key: cfg.visionKey, model: cfg.visionModel, fallbacks: cfg.visionFallbackModels },
+    ...(cfg.visionAlternates ?? []),
+  ];
+}
+
+/** Το ίδιο `cfg`, με άλλον πάροχο vision (και χωρίς δικούς του εφεδρικούς — δεν κάνουμε κύκλους). */
+function withEndpoint(cfg: DeepSeekCfg, e: VisionEndpoint): DeepSeekCfg {
+  return { ...cfg, visionUrl: e.url, visionKey: e.key, visionModel: e.model, visionFallbackModels: e.fallbacks, visionAlternates: [] };
+}
+
+/** Μία κλήση vision σε όλους τους παρόχους με σειρά — βλ. `acrossProviders`. */
+function viaProviders<T>(cfg: DeepSeekCfg, run: (c: DeepSeekCfg) => Promise<T>): Promise<T> {
+  if (!cfg.visionAlternates?.length) return run(cfg);
+  return acrossProviders(visionEndpointsOf(cfg), (e) => run(withEndpoint(cfg, e)));
 }
 
 /**
@@ -326,7 +347,14 @@ export async function callTextLLM(
  * κείμενο. ΔΕΝ στέλνει `response_format` (δεν το υποστηρίζουν όλα τα μοντέλα σε
  * text-only κλήση) — ο καλών πρέπει να ανέχεται απάντηση εκτός JSON.
  */
-export async function callTextViaVision(
+export function callTextViaVision(
+  cfg: DeepSeekCfg, system: string, userContent: string,
+  usage?: { operation?: string; refType?: string; refId?: string },
+): Promise<{ content: string; tokens: number | null; model: string }> {
+  return viaProviders(cfg, (c) => callTextViaVisionOnce(c, system, userContent, usage));
+}
+
+async function callTextViaVisionOnce(
   cfg: DeepSeekCfg, system: string, userContent: string,
   usage?: { operation?: string; refType?: string; refId?: string },
 ): Promise<{ content: string; tokens: number | null; model: string }> {
@@ -467,19 +495,30 @@ export async function callOpenRouterPdf(
   });
 }
 
-/** PDF ολόκληρο στον πάροχο vision — Google AI Studio (native API) ή OpenRouter (file part). */
+/**
+ * PDF ολόκληρο στον πάροχο vision — OpenRouter (file part) ή Google AI Studio (native API), με
+ * μετάβαση στον επόμενο πάροχο αν ο πρώτος αποτύχει ολόκληρος. Πάροχος χωρίς εγγενές PDF παραλείπεται.
+ */
 export function callPdfNative(
   cfg: DeepSeekCfg, system: string, pdfBuffer: Buffer, modelOverride?: string, usageScope: AiScope = 'OCR_VISION',
-) {
-  return isOpenRouter(cfg.visionUrl)
-    ? callOpenRouterPdf(cfg, system, pdfBuffer, modelOverride, usageScope)
-    : callGeminiPdfNative(cfg, system, pdfBuffer, modelOverride, usageScope);
+): Promise<{ content: string; tokens: number | null; model: string }> {
+  const pdfCfg = { ...cfg, visionAlternates: (cfg.visionAlternates ?? []).filter((e) => supportsPdfNative(e.url)) };
+  return viaProviders(pdfCfg, (c) => (isOpenRouter(c.visionUrl)
+    ? callOpenRouterPdf(c, system, pdfBuffer, modelOverride, usageScope)
+    : callGeminiPdfNative(c, system, pdfBuffer, modelOverride, usageScope)));
 }
 
-export async function callVisionLLM(
+export function callVisionLLM(
   cfg: DeepSeekCfg, system: string, imageBase64: string, mimeType: string,
   modelOverride?: string, usageScope: AiScope = 'OCR_VISION',
-) {
+): Promise<{ content: string; tokens: number | null; model: string }> {
+  return viaProviders(cfg, (c) => callVisionLLMOnce(c, system, imageBase64, mimeType, modelOverride, usageScope));
+}
+
+async function callVisionLLMOnce(
+  cfg: DeepSeekCfg, system: string, imageBase64: string, mimeType: string,
+  modelOverride?: string, usageScope: AiScope = 'OCR_VISION',
+): Promise<{ content: string; tokens: number | null; model: string }> {
   if (!cfg.visionKey) throw new Error('Vision API key is not configured (settings: ai.visionApiKey).');
   const primary = providerModel(modelOverride ?? cfg.visionModel, cfg.visionUrl);
   const dataUrl = `data:${mimeType};base64,${imageBase64}`;
