@@ -226,16 +226,16 @@ export function OcrResultView({ doc, match }: { doc: DocWithItems; match: LineMa
    * παραστατικά· δύο άδεια κουτιά σε κάθε καρτέλα σπρώχνουν κάτω τη δουλειά που μετράει. Δεν
    * συμμετέχουν σε κανέναν έλεγχο καταχώρισης, οπότε η απόκρυψή τους δεν κρύβει εκκρεμότητα.
    */
-  const OPTIONAL_IF_EMPTY = ['companyPhone', 'companyEmail'];
+  const OPTIONAL_IF_EMPTY = ['companyPhone', 'companyEmail', 'otherCharges'];
   const extracted = (doc.extractedData ?? {}) as Record<string, unknown>;
   const hasValue = (k: string) => String(extracted[k] ?? '').trim() !== '';
 
   const fieldListAll = doc.docType === 'RECEIPT'
-    ? ['companyName', 'vatNumber', 'documentTypeLabel', 'invoiceNumber', 'date', 'companyPhone', 'companyEmail', 'subtotal', 'vatAmount', 'totalAmount']
+    ? ['companyName', 'vatNumber', 'documentTypeLabel', 'invoiceNumber', 'date', 'companyPhone', 'companyEmail', 'subtotal', 'vatAmount', 'otherCharges', 'totalAmount']
     // ΧΩΡΙΣ ΠΕΛΑΤΗ: ο παραλήπτης είναι ΠΑΝΤΑ η εταιρία που τρέχει την εφαρμογή — δύο πεδία που
     // δεν αλλάζουν ποτέ και δεν διορθώνει κανείς. (Η ΕΞΑΓΩΓΗ τους μένει: το κανονικό JSON και ο
     // έλεγχος διπλών τα χρησιμοποιούν· εδώ φεύγει μόνο η οθόνη.)
-    : ['companyName', 'vatNumber', 'documentTypeLabel', 'companyPhone', 'companyEmail', 'invoiceNumber', 'date', 'subtotal', 'vatAmount', 'totalAmount'];
+    : ['companyName', 'vatNumber', 'documentTypeLabel', 'companyPhone', 'companyEmail', 'invoiceNumber', 'date', 'subtotal', 'vatAmount', 'otherCharges', 'totalAmount'];
   const fieldList = fieldListAll.filter((k) => !OPTIONAL_IF_EMPTY.includes(k) || hasValue(k));
 
   const correction = (doc.docType === 'INVOICE' || doc.docType === 'RECEIPT') ? (

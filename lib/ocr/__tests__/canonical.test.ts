@@ -603,3 +603,30 @@ describe('totals.derived — ποια σύνολα συμπληρώθηκαν α
     expect(edited.custom).not.toHaveProperty('totalsFromLines');
   });
 });
+
+describe('επιβαρύνσεις μέσα στο Γενικό Σύνολο (CIF)', () => {
+  it('πληρωτέο = σύνολο (όχι + επιβαρύνσεις ξανά)· διορθώνει και το αποθηκευμένο 180.000', () => {
+    const doc = (payable: number | null) => reconcileForDerived(normalizeForDerived({
+      kind: 'invoice', lines: [{ name: 'Reactor', quantity: 1, unitPrice: 167000, net: 167000 }],
+      totals: { net: 167000, vatAmount: null, fees: 6500, total: 173500, payable },
+    })).document;
+    expect(doc(null).totals.payable).toBe(173500);
+    expect(doc(180000).totals.payable).toBe(173500);
+    expect(doc(173500).totals.payable).toBe(173500);
+  });
+  it('οι επιβαρύνσεις φτάνουν στη φόρμα (`otherCharges`) και γυρίζουν πίσω', () => {
+    const d = reconcileForDerived(normalizeForDerived({ kind: 'invoice', totals: { net: 10, fees: 2, total: 12 } })).document;
+    const legacy = toLegacyForDerived(d);
+    expect(legacy.otherCharges).toBe(2);
+    expect(normalizeForDerived(fromLegacyForDerived(legacy)).totals.fees).toBe(2);
+  });
+});
+
+import { withFeesFromDocument } from '../canonical';
+describe('withFeesFromDocument', () => {
+  it('συμπληρώνει τις επιβαρύνσεις μόνο όταν λείπουν', () => {
+    expect(withFeesFromDocument({ subtotal: 1 }, { totals: { fees: 6500 } })).toEqual({ subtotal: 1, otherCharges: 6500 });
+    expect(withFeesFromDocument({ otherCharges: 10 }, { totals: { fees: 6500 } })).toEqual({ otherCharges: 10 });
+    expect(withFeesFromDocument({ a: 1 }, null)).toEqual({ a: 1 });
+  });
+});

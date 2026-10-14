@@ -77,3 +77,28 @@ describe('reconcileInvoice — mismatches', () => {
     expect(r.totalOk).toBeNull();
   });
 });
+
+import { reconcileInvoice as recon2, totalsFixes } from '../invoice-math';
+
+describe('επιβαρύνσεις & «τι να κάνω»', () => {
+  const cif = [{ quantity: 1, price: 74000, total: 74000 }, { quantity: 1, price: 93000, total: 93000 }];
+  it('CIF: 167.000 γραμμές + 6.500 μεταφορικά = 173.500 ⇒ κλείνει', () => {
+    const r = recon2({ items: cif, subtotal: 167000, vatAmount: null, totalAmount: 173500, otherCharges: 6500 });
+    expect(r.totalOk).toBe(true);
+    // …αλλά οι επιβαρύνσεις δεν είναι γραμμή: πρόταση μεταφοράς.
+    expect(totalsFixes(r, cif)).toEqual([{ kind: 'fees_to_line', amount: 6500 }]);
+  });
+  it('χωρίς επιβαρύνσεις: η διαφορά προτείνεται ως επιβάρυνση ή ως διόρθωση συνόλου', () => {
+    const r = recon2({ items: cif, subtotal: 167000, vatAmount: null, totalAmount: 173500 });
+    expect(r.totalOk).toBe(false);
+    expect(totalsFixes(r, cif)).toEqual([
+      { kind: 'set_fees', amount: 6500, diff: 6500 },
+      { kind: 'set_total', total: 167000 },
+    ]);
+  });
+  it('γραμμές χωρίς ΦΠΑ και διαφορά = 24% ⇒ πρόταση ΦΠΑ 24%', () => {
+    const items = [{ quantity: 1, price: 100, total: 100 }];
+    const r = recon2({ items, subtotal: 100, vatAmount: null, totalAmount: 124 });
+    expect(totalsFixes(r, items)[0]).toEqual({ kind: 'set_vat', rate: 24, vat: 24 });
+  });
+});

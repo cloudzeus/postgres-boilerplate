@@ -1,3 +1,4 @@
+import { withFeesFromDocument } from '@/lib/ocr/canonical';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { FiArrowLeft, FiDownload, FiChevronRight } from 'react-icons/fi';
@@ -235,7 +236,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
       )}
 
       <OcrResultView
-        doc={doc}
+        doc={{ ...doc, extractedData: withFeesFromDocument((doc.extractedData ?? {}) as Record<string, unknown>, doc.document) as typeof doc.extractedData }}
         match={{
           canManage,
           lineCategories: lineCategories.map((c) => ({ id: c.mtrCategory, label: c.name || c.code })),

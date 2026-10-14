@@ -9,7 +9,7 @@ const FIELD_LABELS: Record<string, string> = {
   companyName: 'Επωνυμία Εκδότη', vatNumber: 'ΑΦΜ Εκδότη',
   documentTypeLabel: 'Τύπος παραστατικού',
   invoiceNumber: 'Αρ. Παραστατικού', date: 'Ημερομηνία',
-  subtotal: 'Καθαρή Αξία', vatAmount: 'ΦΠΑ', totalAmount: 'Σύνολο',
+  subtotal: 'Καθαρή Αξία', vatAmount: 'ΦΠΑ', otherCharges: 'Επιβαρύνσεις', totalAmount: 'Σύνολο',
   storeName: 'Κατάστημα',
   companyPhone: 'Τηλέφωνο Εκδότη', companyEmail: 'Email Εκδότη',
   phone: 'Τηλέφωνο', email: 'Email',
@@ -25,7 +25,7 @@ const FIELD_GROUPS: { title: string; keys: string[] }[] = [
   // και έτσι είναι τυπωμένο στο χαρτί. Ο εκδότης ακολουθεί, τα ποσά κλείνουν.
   { title: 'Παραστατικό',  keys: ['documentTypeLabel', 'invoiceNumber', 'date'] },
   { title: 'Εκδότης',      keys: ['companyName', 'vatNumber', 'storeName', 'companyPhone', 'companyEmail', 'phone', 'email'] },
-  { title: 'Ποσά',         keys: ['subtotal', 'vatAmount', 'totalAmount'] },
+  { title: 'Ποσά',         keys: ['subtotal', 'vatAmount', 'otherCharges', 'totalAmount'] },
 ];
 
 export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields }: {

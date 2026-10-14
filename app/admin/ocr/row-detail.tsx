@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { SerialChips } from '@/components/admin/serial-chips';
 import { extractSerials } from '@/lib/ocr/serials';
 import { DOC_CATEGORY_OPTIONS } from '@/lib/ocr/doc-category';
-import { reconcileInvoice, analyzeLine } from '@/lib/ocr/invoice-math';
+import { reconcileInvoice, analyzeLine, totalsFixes, type TotalsFix } from '@/lib/ocr/invoice-math';
 import { toLineItems, EMPTY_LINE, type LineItem } from '@/lib/ocr/line-items';
 import { docTypeOf } from '@/lib/ocr/canonical';
 import { objectsForSosource, defaultPostingTarget } from '@/lib/ocr/posting-target';
@@ -97,6 +97,8 @@ const FIELD_SPECS: Record<string, FieldSpec[]> = {
     // Τα `customer*` εξακολουθούν να εξάγονται και να αποθηκεύονται — απλώς δεν ζητούνται εδώ.
     { key: 'subtotal',           label: 'Καθαρή αξία',  required: true, numeric: true, group: 'totals' },
     { key: 'vatAmount',          label: 'ΦΠΑ',          required: true, numeric: true, group: 'totals' },
+    // Μεταφορικά, ασφάλιστρα, τέλη, χαρτόσημο — μέρος του Γενικού Συνόλου ή του Πληρωτέου, όχι γραμμή.
+    { key: 'otherCharges',       label: 'Επιβαρύνσεις',  numeric: true, group: 'totals' },
     { key: 'totalAmount',        label: 'Γενικό Σύνολο', required: true, numeric: true, group: 'totals' },
   ],
   RECEIPT: [
@@ -112,6 +114,7 @@ const FIELD_SPECS: Record<string, FieldSpec[]> = {
     { key: 'itemsCount',     label: 'Πλήθος ειδών', numeric: true, span: 6, group: 'main' },
     { key: 'subtotal',       label: 'Καθαρή αξία',  numeric: true, group: 'totals' },
     { key: 'vatAmount',      label: 'ΦΠΑ',          numeric: true, group: 'totals' },
+    { key: 'otherCharges',   label: 'Επιβαρύνσεις', numeric: true, group: 'totals' },
     { key: 'totalAmount',    label: 'Σύνολο',       required: true, numeric: true, group: 'totals' },
   ],
   GENERAL_TEXT: [
@@ -215,6 +218,25 @@ function SourceChip({ source, className }: { source: AmountSource; className?: s
     </span>
   );
 }
+
+const eurTxt = (n: number) => `${n.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+/** Τι σημαίνει κάθε διόρθωση, σε απλή γλώσσα. */
+const FIX_TEXT = (f: TotalsFix): React.ReactNode => {
+  switch (f.kind) {
+    case 'fees_to_line': return <>Οι επιβαρύνσεις (<strong>{eurTxt(f.amount)}</strong>, π.χ. μεταφορικά ή ασφάλιστρα) δεν είναι γραμμή — στο SoftOne στέλνονται μόνο γραμμές, οπότε θα χάνονταν.</>;
+    case 'set_fees': return <>Η διαφορά των <strong>{eurTxt(f.diff)}</strong> είναι συνήθως μεταφορικά, ασφάλιστρα ή τέλη που δεν διαβάστηκαν χωριστά.</>;
+    case 'set_vat': return <>Οι γραμμές δεν έχουν ΦΠΑ και η διαφορά (<strong>{eurTxt(f.vat)}</strong>) είναι ακριβώς ΦΠΑ {f.rate}%.</>;
+    case 'set_total': return <>Αν το Γενικό Σύνολο διαβάστηκε λάθος, το σωστό με βάση τα υπόλοιπα είναι <strong>{eurTxt(f.total)}</strong>.</>;
+    case 'set_net': return <>Αν οι γραμμές είναι σωστές, η Καθαρή αξία πρέπει να είναι <strong>{eurTxt(f.net)}</strong>.</>;
+  }
+};
+const FIX_ACTION = (f: TotalsFix): string => ({
+  fees_to_line: 'Μετάφερέ τες σε γραμμή',
+  set_fees: 'Γράψ\' τη στις επιβαρύνσεις',
+  set_vat: `Βάλε ΦΠΑ ${f.kind === 'set_vat' ? f.rate : ''}%`,
+  set_total: 'Διόρθωσε το Γενικό Σύνολο',
+  set_net: 'Διόρθωσε την Καθαρή αξία',
+}[f.kind]);
 
 /** Ποσό με την πηγή του, για τους ελέγχους συμφωνίας. */
 function SourcedAmount({ source, value }: { source: AmountSource; value: string }) {
@@ -442,15 +464,41 @@ export function OcrRowDetail({
 
 
   const tNet = toNum(form.subtotal), tVat = toNum(form.vatAmount), tTotal = toNum(form.totalAmount);
-  const tSum = (tNet ?? 0) + (tVat ?? 0);
+  const tFees = toNum(form.otherCharges);
+  // Οι επιβαρύνσεις μπορεί να είναι ΜΕΣΑ στο σύνολο (μεταφορικά CIF) ή ΕΞΩ (τέλη στο πληρωτέο).
+  const tBase = (tNet ?? 0) + (tVat ?? 0);
+  const tSum = tFees && tTotal != null && Math.abs(tBase + tFees - tTotal) <= 0.02 ? tBase + tFees : tBase;
   const totalsBothPresent = tNet != null && tVat != null;
   const totalsOk = totalsBothPresent && tTotal != null && Math.abs(tSum - tTotal) <= 0.02;
 
   // Full invoice reconciliation: lines→net, VAT per rate (multi-VAT), grand total.
   const recon = React.useMemo(
-    () => reconcileInvoice({ items, subtotal: form.subtotal, vatAmount: form.vatAmount, totalAmount: form.totalAmount }),
-    [items, form.subtotal, form.vatAmount, form.totalAmount],
+    () => reconcileInvoice({ items, subtotal: form.subtotal, vatAmount: form.vatAmount, totalAmount: form.totalAmount, otherCharges: form.otherCharges }),
+    [items, form.subtotal, form.vatAmount, form.totalAmount, form.otherCharges],
   );
+
+  const fixes = React.useMemo(() => totalsFixes(recon, items), [recon, items]);
+  /** Μία διόρθωση με ένα κλικ — αλλάζει ΜΟΝΟ τη φόρμα· η αποθήκευση μένει στον χρήστη. */
+  function applyFix(f: TotalsFix) {
+    if (f.kind === 'fees_to_line') {
+      // Η καταχώριση στέλνει ΓΡΑΜΜΕΣ: χωρίς γραμμή, οι επιβαρύνσεις θα χάνονταν από το SoftOne.
+      const rates = items.map((l) => toNum(l.vatRate)).filter((r): r is number => r != null);
+      const rate = rates.length ? String(rates.sort((a, b) => rates.filter((x) => x === b).length - rates.filter((x) => x === a).length)[0]) : '';
+      const amt = fmt2(f.amount);
+      setItems((arr) => [...arr, { ...EMPTY_LINE, name: 'Μεταφορικά / επιβαρύνσεις', quantity: '1', price: amt, total: amt, vatRate: rate }]);
+      setForm((x) => ({ ...x, subtotal: fmt2((toNum(x.subtotal) ?? recon.sumNet) + f.amount), otherCharges: '' }));
+      toast.success('Οι επιβαρύνσεις έγιναν γραμμή', { description: 'Αντιστοίχισέ τη (π.χ. μεταφορικά ή στην αξία του παγίου) και πάτα «Αποθήκευση».' });
+    } else if (f.kind === 'set_fees') {
+      setField('otherCharges', fmt2(f.amount));
+    } else if (f.kind === 'set_vat') {
+      setItems((arr) => arr.map((l) => ({ ...l, vatRate: String(f.rate) })));
+      setField('vatAmount', fmt2(f.vat));
+    } else if (f.kind === 'set_total') {
+      setField('totalAmount', fmt2(f.total));
+    } else if (f.kind === 'set_net') {
+      setField('subtotal', fmt2(f.net));
+    }
+  }
 
   function setField(key: string, v: string) { setForm((f) => ({ ...f, [key]: v })); }
   function blurFmt(key: string) { setForm((f) => ({ ...f, [key]: fmt2(f[key]) })); }
@@ -614,7 +662,7 @@ export function OcrRowDetail({
             className="col-span-3 mt-0.5 flex items-center justify-between gap-2 rounded-md px-2 py-0.5 text-[length:var(--fs-11)] font-semibold">
             <span className="inline-flex items-center gap-1">
               {totalsOk ? <FiCheck className="size-3.5" /> : <FiAlertCircle className="size-3.5" />}
-              Καθαρή + ΦΠΑ {totalsOk ? '= Σύνολο' : tTotal != null ? '≠ Σύνολο' : ''}
+              Καθαρή + ΦΠΑ{tFees ? ' + επιβαρ.' : ''} {totalsOk ? '= Σύνολο' : tTotal != null ? '≠ Σύνολο' : ''}
             </span>
             <span className="font-mono tabular-nums">{fmt2(tSum)}{!totalsOk && tTotal != null && ` / ${fmt2(tTotal)}`}</span>
           </div>
@@ -998,9 +1046,28 @@ export function OcrRowDetail({
                     got={fmtMoney(recon.sumNet)} exp={recon.subtotal != null ? fmtMoney(recon.subtotal) : '—'} />
                   <CheckRow ok={recon.vatOk} label="ΦΠΑ γραμμών = ΦΠΑ παραστατικού"
                     got={fmtMoney(recon.vatComputed)} exp={recon.vatField != null ? fmtMoney(recon.vatField) : '—'} />
-                  <CheckRow ok={recon.totalOk} label="Καθαρή + ΦΠΑ = Γενικό Σύνολο"
+                  <CheckRow ok={recon.totalOk} label={recon.feesField ? 'Καθαρή + ΦΠΑ + επιβαρύνσεις = Γενικό Σύνολο' : 'Καθαρή + ΦΠΑ = Γενικό Σύνολο'}
                     got={recon.totalComputed != null ? fmtMoney(recon.totalComputed) : '—'} exp={recon.totalField != null ? fmtMoney(recon.totalField) : '—'} />
                 </div>
+                {!ro && fixes.length > 0 && (
+                  <div role="region" aria-label="Τι να κάνεις" className="rounded-lg border border-amber-300 bg-amber-50/70 px-3 py-2 dark:border-amber-700 dark:bg-amber-950/30">
+                    <p className="text-[length:var(--fs-12)] font-bold text-amber-900 dark:text-amber-200">Τι να κάνεις</p>
+                    <ul className="mt-1 space-y-1.5">
+                      {fixes.map((f) => (
+                        <li key={f.kind} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[length:var(--fs-12)] text-foreground">
+                          <span className="min-w-0 flex-1">{FIX_TEXT(f)}</span>
+                          <button type="button" onClick={() => applyFix(f)}
+                            className="inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1 rounded-md bg-sisyphus-500 px-2.5 text-[length:var(--fs-12)] font-semibold text-white hover:bg-sisyphus-600">
+                            {FIX_ACTION(f)}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-1.5 text-[length:var(--fs-11)] text-muted-foreground">
+                      Έλεγξε πρώτα το πρωτότυπο{!showPdf && <> (<button type="button" onClick={togglePdf} className="cursor-pointer font-semibold text-sisyphus-700 underline dark:text-sisyphus-300">άνοιγμα</button>)</>}. Οι αλλαγές μένουν στη φόρμα μέχρι να πατήσεις «Αποθήκευση».
+                    </p>
+                  </div>
+                )}
               </div>
               {totalsBox}
             </div>

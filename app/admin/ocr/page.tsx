@@ -1,3 +1,4 @@
+import { withFeesFromDocument } from '@/lib/ocr/canonical';
 import { FiFileText } from 'react-icons/fi';
 import { detectUtility, utilityInputFromDocument } from '@/lib/ocr/utility-bills';
 import { lineCoverage } from '@/lib/ocr/coverage';
@@ -48,7 +49,7 @@ export default async function AdminOcrPage() {
   const seriesRows: SeriesOption[] = await loadSeriesOptions(docs);
 
   const rows: OcrRow[] = docs.map((d) => {
-    const data = (d.extractedData ?? {}) as any;
+    const data = withFeesFromDocument((d.extractedData ?? {}) as Record<string, unknown>, d.document) as any;
     // The latest template run, cached on the document by the runner (spec §15.4/§15.7).
     const rf = (d.reviewFlags ?? null) as Partial<ReviewFlags> | null;
     return {

@@ -326,6 +326,7 @@ export const LEGACY_KEY_TO_PATH: Record<string, string> = Object.assign(Object.c
   subtotal: 'totals.net',
   vatAmount: 'totals.vatAmount',
   totalAmount: 'totals.total',
+  otherCharges: 'totals.fees',
   'items.code': 'lines.code',
   'items.name': 'lines.name',
   'items.quantity': 'lines.quantity',
@@ -541,7 +542,7 @@ export function fromLegacy(
     },
     lines,
     totals: {
-      net: f.subtotal, vatAmount: f.vatAmount, total, payable: total,
+      net: f.subtotal, vatAmount: f.vatAmount, fees: f.otherCharges, total, payable: total,
       derived: Array.isArray(f.totalsFromLines)
         ? TOTAL_KEYS.filter((k) => (f.totalsFromLines as unknown[]).includes(TOTAL_LEGACY_KEY[k]))
         : undefined,
@@ -551,6 +552,15 @@ export function fromLegacy(
     notes: kind === 'general' ? (custom.summary ?? null) : null,
     custom,
   }, kind);
+}
+
+/**
+ * Οι ΕΠΙΒΑΡΥΝΣΕΙΣ για τη φόρμα, και σε παραστατικά που εξήχθησαν πριν φτάσουν στο `extractedData`
+ * (`otherCharges`): τις παίρνει από το κανονικό JSON. Χωρίς αυτό ένα CIF «δεν έκλεινε».
+ */
+export function withFeesFromDocument<T extends Record<string, unknown>>(extracted: T, document: unknown): T {
+  const fees = (document as { totals?: { fees?: unknown } } | null)?.totals?.fees;
+  return extracted.otherCharges == null && typeof fees === 'number' ? { ...extracted, otherCharges: fees } : extracted;
 }
 
 /** Κανονικό έγγραφο → τα σημερινά flat κλειδιά του `extractedData` (συμβατότητα). */
@@ -592,6 +602,9 @@ export function toLegacy(document: DocumentJson): Record<string, unknown> {
     out.subtotal = document.totals.net;
     out.vatAmount = document.totals.vatAmount;
     out.totalAmount = document.totals.total;
+    // Επιβαρύνσεις (μεταφορικά, ασφάλιστρα, τέλη): μέρος του Γενικού Συνόλου — χωρίς αυτές στη φόρμα,
+    // ένα τιμολόγιο CIF φαινόταν «δεν κλείνει».
+    if (document.totals.fees != null) out.otherCharges = document.totals.fees;
     // ΟΧΙ ΑΠΟ ΤΟ ΧΑΡΤΙ: η φόρμα τα δείχνει με άλλο χρώμα («υπολογίστηκε από τις γραμμές»).
     if (document.totals.derived?.length) out.totalsFromLines = document.totals.derived.map((k) => TOTAL_LEGACY_KEY[k]);
     out.bankAccounts = document.payment.ibans.map((b) => ({ bank: b.bank, iban: b.iban }));
@@ -681,9 +694,18 @@ export function reconcileDocument(document: DocumentJson): { document: DocumentJ
   const t = document.totals;
   const net = t.net ?? (hasLines ? rec.sumNet : null);
   const vatAmount = t.vatAmount ?? (rec.vatGroups.length ? rec.vatComputed : null);
+  // ΕΠΙΒΑΡΥΝΣΕΙΣ: ΜΕΣΑ Ή ΕΞΩ ΑΠΟ ΤΟ ΣΥΝΟΛΟ; Και τα δύο τυπώνονται. Τα «τέλη/χαρτόσημο» μπαίνουν
+  // συχνά ΜΕΤΑ το Γενικό Σύνολο (στο Πληρωτέο)· τα μεταφορικά ενός τιμολογίου CIF είναι ΜΕΣΑ
+  // (167.000 + 6.500 = 173.500). Κρίνουμε από το τι κλείνει — όχι από υπόθεση. Πριν, το Πληρωτέο
+  // πρόσθετε τις επιβαρύνσεις και όταν ήταν ήδη μέσα («πληρωτέο 180.000 €»).
+  const fees = t.fees ?? 0;
   const total = t.total ?? (net != null && vatAmount != null ? round2(net + vatAmount) : null);
-  const payable = t.payable
-    ?? (total != null ? round2(total - (t.withholding ?? 0) + (t.fees ?? 0)) : null);
+  const feesInTotal = fees > 0 && total != null && net != null
+    && Math.abs(total - (net + (vatAmount ?? 0) + fees)) <= 0.02;
+  const payableOf = (tot: number) => round2(tot - (t.withholding ?? 0) + (feesInTotal ? 0 : fees));
+  const doubled = feesInTotal && t.payable != null && total != null
+    && Math.abs(t.payable - (total + fees - (t.withholding ?? 0))) <= 0.02;
+  const payable = (doubled ? null : t.payable) ?? (total != null ? payableOf(total) : null);
 
   // ΤΙ ΣΥΜΠΛΗΡΩΣΑΜΕ ΕΜΕΙΣ. Νέο κενό που γέμισε ⇒ «από τις γραμμές». Ένα ήδη σημαδεμένο κρατά το
   // σημάδι ΜΟΝΟ όσο συμφωνεί ακόμη με τις γραμμές: αν ο χρήστης γράψει άλλη τιμή, είναι πλέον δική του.
@@ -693,7 +715,7 @@ export function reconcileDocument(document: DocumentJson): { document: DocumentJ
     net: hasLines ? rec.sumNet : null,
     vatAmount: rec.vatGroups.length ? rec.vatComputed : null,
     total: net != null && vatAmount != null ? round2(net + vatAmount) : null,
-    payable: total != null ? round2(total - (t.withholding ?? 0) + (t.fees ?? 0)) : null,
+    payable: total != null ? payableOf(total) : null,
   };
   const now: Record<TotalKey, number | null> = { net, vatAmount, total, payable };
   const derived = TOTAL_KEYS.filter((k) => (t[k] == null && now[k] != null) || (prev.has(k) && near(now[k], expected[k])));

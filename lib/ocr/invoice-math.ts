@@ -82,18 +82,21 @@ export interface Reconciliation {
   vatOk: boolean | null;
   totalComputed: number | null;
   totalField: number | null;
+  /** Επιβαρύνσεις (μεταφορικά, ασφάλιστρα, τέλη) — μέρος του Γενικού Συνόλου, όχι των γραμμών. */
+  feesField: number | null;
   totalOk: boolean | null;
   hasMultipleRates: boolean;
 }
 
 export function reconcileInvoice(data: {
-  items?: RawLine[]; subtotal?: unknown; vatAmount?: unknown; totalAmount?: unknown;
+  items?: RawLine[]; subtotal?: unknown; vatAmount?: unknown; totalAmount?: unknown; otherCharges?: unknown;
 }): Reconciliation {
   const items = Array.isArray(data.items) ? data.items : [];
   const sumNet = round2(items.reduce((s, l) => s + lineNet(l), 0));
   const subtotal = n(data.subtotal);
   const vatField = n(data.vatAmount);
   const totalField = n(data.totalAmount);
+  const feesField = n(data.otherCharges);
 
   // Group line nets by VAT rate, compute VAT per group (multi-VAT aware).
   const byRate = new Map<number, number>();
@@ -118,12 +121,55 @@ export function reconcileInvoice(data: {
 
   const baseNet = subtotal ?? sumNet;
   const baseVat = vatField ?? vatComputed;
-  const totalComputed = round2(baseNet + baseVat);
+  // ΜΕ ΤΙΣ ΕΠΙΒΑΡΥΝΣΕΙΣ: ένα τιμολόγιο CIF (167.000 € γραμμές + 6.500 € μεταφορικά = 173.500 €)
+  // έβγαινε «δεν κλείνει», ενώ ήταν σωστά διαβασμένο. Οι επιβαρύνσεις μπορεί να είναι και ΕΞΩ από το
+  // Γενικό Σύνολο (τέλη στο Πληρωτέο): δεκτό ό,τι από τα δύο κλείνει.
+  const withoutFees = round2(baseNet + baseVat);
+  const withFees = round2(withoutFees + (feesField ?? 0));
+  const totalComputed = feesField && totalField != null && Math.abs(withFees - totalField) <= tol(totalField, extra) ? withFees : withoutFees;
   const totalOk = totalField != null ? Math.abs(totalComputed - totalField) <= tol(totalField, extra) : null;
 
   return {
     sumNet, subtotal, linesVsSubtotal,
     vatGroups, vatComputed, vatField, vatOk,
-    totalComputed, totalField, totalOk, hasMultipleRates,
+    totalComputed, totalField, totalOk, hasMultipleRates, feesField,
   };
+}
+
+const STANDARD_VAT = [24, 13, 6, 17, 9, 4];
+
+export type TotalsFix =
+  /** Οι επιβαρύνσεις δεν είναι γραμμή ⇒ δεν καταχωρούνται: μετάφερέ τες σε γραμμή. */
+  | { kind: 'fees_to_line'; amount: number }
+  /** Η διαφορά είναι μεταφορικά/τέλη: γράψε τη στις επιβαρύνσεις. */
+  | { kind: 'set_fees'; amount: number; diff: number }
+  /** Οι γραμμές δεν έχουν ΦΠΑ και η διαφορά ταιριάζει με συντελεστή: βάλε τον. */
+  | { kind: 'set_vat'; rate: number; vat: number }
+  /** Το Γενικό Σύνολο διαβάστηκε λάθος: βάλε το υπολογισμένο. */
+  | { kind: 'set_total'; total: number }
+  /** Η καθαρή αξία διαβάστηκε λάθος: βάλε το άθροισμα των γραμμών. */
+  | { kind: 'set_net'; net: number };
+
+/**
+ * «ΤΙ ΝΑ ΚΑΝΩ;» — συγκεκριμένες διορθώσεις για ένα παραστατικό που δεν κλείνει, με τη σειρά που
+ * είναι πιθανότερες. Ένας έλεγχος που λέει μόνο «≠» αφήνει τον χρήστη χωρίς επιλογή.
+ */
+export function totalsFixes(rec: Reconciliation, items: RawLine[]): TotalsFix[] {
+  const out: TotalsFix[] = [];
+  const fees = rec.feesField ?? 0;
+  // Επιβαρύνσεις χωρίς γραμμή: η καταχώριση στο SoftOne στέλνει ΓΡΑΜΜΕΣ — θα χάνονταν.
+  if (fees > 0.005) out.push({ kind: 'fees_to_line', amount: round2(fees) });
+  if (rec.linesVsSubtotal && !rec.linesVsSubtotal.ok) out.push({ kind: 'set_net', net: rec.sumNet });
+  if (rec.totalOk === false && rec.totalField != null && rec.totalComputed != null) {
+    const diff = round2(rec.totalField - rec.totalComputed);
+    const base = rec.subtotal ?? rec.sumNet;
+    const noVat = items.length > 0 && items.every((l) => { const r = n(l.vatRate); return r == null || r === 0; });
+    const rate = noVat && base > 0 && (rec.vatField ?? 0) === 0
+      ? STANDARD_VAT.find((r) => Math.abs(base * r / 100 - diff) <= Math.max(0.05, diff * 0.002))
+      : undefined;
+    if (rate != null) out.push({ kind: 'set_vat', rate, vat: diff });
+    if (diff > 0) out.push({ kind: 'set_fees', amount: round2(fees + diff), diff });
+    out.push({ kind: 'set_total', total: rec.totalComputed });
+  }
+  return out;
 }
