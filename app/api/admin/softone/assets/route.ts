@@ -30,6 +30,9 @@ const Body = z.object({
   mtrAcn: z.number().int().positive(),
   mtrCategory: z.number().int().positive().nullable(),
   vat: z.string().trim().min(1).max(20),
+  /** Φορολογικός συντελεστής απόσβεσης (%) για ΑΥΤΟ το πάγιο — `null` = της λογιστικής κατηγορίας. */
+  depreciationRate: z.number().min(0).max(100).nullable().optional(),
+  immediateDepreciation: z.boolean().optional(),
   /** Γραμμή παραστατικού που αντιστοιχίζεται αμέσως στο νέο πάγιο. */
   lineId: z.string().min(1).optional(),
   dryRun: z.boolean().optional(),
@@ -46,7 +49,10 @@ export async function POST(req: Request) {
     const asset = await createAsset(input);
     await logAudit({
       userId: u.id, userEmail: u.email, action: 'ocr.item.create_softone', resource: 'softone_asset', resourceId: String(asset.mtrl),
-      metadata: { kind: 'asset', code: asset.code, name: asset.name, mtrAcn: input.mtrAcn, mtrCategory: input.mtrCategory, vat: input.vat, lineId: lineId ?? null },
+      metadata: {
+        kind: 'asset', code: asset.code, name: asset.name, mtrAcn: input.mtrAcn, mtrCategory: input.mtrCategory, vat: input.vat, lineId: lineId ?? null,
+        depreciationRate: input.depreciationRate ?? null, immediateDepreciation: input.immediateDepreciation ?? false, depreciationRead: asset.depreciation,
+      },
     }).catch(() => null);
     const line = lineId ? await assignLineAsset(lineId, asset.mtrl) : null;
     return NextResponse.json({ ok: true, asset, line });

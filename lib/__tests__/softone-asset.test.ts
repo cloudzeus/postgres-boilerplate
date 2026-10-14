@@ -21,7 +21,7 @@ vi.mock('@/lib/settings', () => ({
   setSetting: async () => {},
 }));
 
-import { buildAssetPayload, softoneCreateAsset, type CreateAssetInput } from '@/lib/softone';
+import { buildAssetPayload, softoneAssetDepreciation, softoneCreateAsset, type CreateAssetInput } from '@/lib/softone';
 
 type Call = { service: string; body: Record<string, unknown> };
 let calls: Call[] = [];
@@ -59,6 +59,22 @@ describe('buildAssetPayload', () => {
         MTRCATEGORY: 1005, ACNMSK: '14.03.00',
       }] },
     });
+  });
+});
+
+describe('απόσβεση ανά πάγιο (ASST)', () => {
+  it('με συντελεστή: γραμμή ASST με φορολογικό συντελεστή και εφάπαξ απόσβεση', () => {
+    const p = buildAssetPayload({ ...input, depreciation: { rate: 20, immediate: false } });
+    expect(p.DATA.ASST).toEqual([{ ASSDEPR11: 20, ASSIMMEDDEPR: 0 }]);
+    expect(buildAssetPayload({ ...input, depreciation: { rate: 20, immediate: true } }).DATA.ASST?.[0].ASSIMMEDDEPR).toBe(1);
+  });
+  it('χωρίς συντελεστή: καμία γραμμή ASST (ισχύει της κατηγορίας)', () => {
+    expect(buildAssetPayload(input).DATA.ASST).toBeUndefined();
+  });
+  it('διαβάζει πίσω ό,τι κράτησε το SoftOne', async () => {
+    queue.push({ success: true, data: [['9001', '20', '0']] });
+    await expect(softoneAssetDepreciation(9001)).resolves.toEqual({ rate: 20, immediate: false });
+    expect(calls[0].body).toMatchObject({ service: 'GetTable', TABLE: 'ASST' });
   });
 });
 

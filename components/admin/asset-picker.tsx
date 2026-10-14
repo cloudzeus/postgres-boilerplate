@@ -2,10 +2,14 @@
 
 import * as React from 'react';
 import { toast } from 'sonner';
-import { FiLoader, FiPlusCircle, FiSearch } from 'react-icons/fi';
+import { FiAlertTriangle, FiLoader, FiPlusCircle, FiSearch } from 'react-icons/fi';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { BTN_GHOST, BTN_PRIMARY } from '@/components/admin/bulk-ui';
 import { guessAssetCategories } from '@/lib/ocr/asset-code';
+import { DEPRECIATION_SOURCE, LOW_VALUE_LIMIT, depreciationAdvice, legalClassForGl, legalClassForLine } from '@/lib/ocr/depreciation';
+import { Term } from '@/components/admin/help/term';
+
+const eur = (n: number) => `${n.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
 export interface AssetPick { mtrl: number; code: string; name: string }
 
@@ -81,12 +85,14 @@ type FormData = {
  * λογαριασμούς· ο κωδικός προτείνεται ως «λογαριασμός αγορών + αύξων». Τίποτα δεν φεύγει χωρίς το
  * ρητό «Δημιουργία στο SoftOne».
  */
-export function CreateAssetDialog({ open, onOpenChange, lineId, lineName, lineVatRate, onCreated }: {
+export function CreateAssetDialog({ open, onOpenChange, lineId, lineName, lineVatRate, lineAmount, onCreated }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   lineId: string;
   lineName: string | null;
   lineVatRate: string | number | null;
+  /** Η αξία κτήσης (σύνολο γραμμής) — για την ετήσια απόσβεση και το όριο των 1.500 €. */
+  lineAmount?: number | null;
   onCreated: (a: AssetPick) => void;
 }) {
   const [data, setData] = React.useState<FormData | null>(null);
@@ -98,16 +104,22 @@ export function CreateAssetDialog({ open, onOpenChange, lineId, lineName, lineVa
   const [code, setCode] = React.useState('');
   const [codeTouched, setCodeTouched] = React.useState(false);
   const [vat, setVat] = React.useState('');
+  /** Φορολογικός συντελεστής για ΑΥΤΟ το πάγιο — προτείνεται του νόμου, ο χρήστης τον αλλάζει. */
+  const [rate, setRate] = React.useState('');
+  const [rateTouched, setRateTouched] = React.useState(false);
+  const [immediate, setImmediate] = React.useState(false);
 
   React.useEffect(() => {
     if (!open) return;
-    setError(null); setName(lineName ?? ''); setCodeTouched(false);
+    setError(null); setName(lineName ?? ''); setCodeTouched(false); setRateTouched(false); setImmediate(false);
     fetch('/api/admin/softone/assets/lookups')
       .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.message ?? 'Οι κατηγορίες δεν φορτώθηκαν.'); return d as FormData; })
       .then((d) => {
         setData(d);
         const g = guessAssetCategories(lineName, d.glCategories, d.categories);
-        setMtrAcn(g.mtrAcn);
+        // Χωρίς οικογένεια από την περιγραφή: η κατηγορία του ΝΟΜΟΥ διαλέγει λογιστική κατηγορία (π.χ. φορτηγό → ΦΙΧ).
+        const cls = legalClassForLine(lineName);
+        setMtrAcn(g.mtrAcn ?? (cls ? d.glCategories.find((x) => legalClassForGl(x.name, x.acnmsk) === cls)?.mtrAcn ?? null : null));
         setMtrCategory(g.mtrCategory);
         const rate = lineVatRate == null || lineVatRate === '' ? null : Number(lineVatRate);
         const v = rate != null && Number.isFinite(rate) ? d.vatByRate[rate] : undefined;
@@ -123,18 +135,37 @@ export function CreateAssetDialog({ open, onOpenChange, lineId, lineName, lineVa
   }, [data, mtrAcn, codeTouched]);
 
   const gl = data?.glCategories.find((g) => g.mtrAcn === mtrAcn);
-  const ready = !!name.trim() && mtrAcn != null && !!code.trim() && !!vat && !busy;
+  const advice = React.useMemo(
+    () => (data ? depreciationAdvice({ lineName: name || lineName, amount: lineAmount, gl }) : null),
+    [data, name, lineName, lineAmount, gl],
+  );
+  // Νέα πρόταση (άλλη κατηγορία/περιγραφή) ⇒ νέος συντελεστής, εκτός αν ο χρήστης τον έγραψε ο ίδιος.
+  React.useEffect(() => {
+    if (rateTouched) return;
+    setRate(advice ? String(advice.rate) : gl?.depreciation != null ? String(gl.depreciation) : '');
+  }, [advice, gl, rateTouched]);
+  const rateNum = rate.trim() === '' ? null : Number(rate.replace(',', '.'));
+  const rateOk = rateNum == null || (Number.isFinite(rateNum) && rateNum >= 0 && rateNum <= 100);
+  const amount = lineAmount != null && Number.isFinite(lineAmount) ? Math.abs(lineAmount) : null;
+  const lowValue = amount != null && amount > 0 && amount < LOW_VALUE_LIMIT;
+  const ready = !!name.trim() && mtrAcn != null && !!code.trim() && !!vat && rateOk && !busy;
 
   const create = async () => {
     setBusy(true); setError(null);
     try {
       const r = await fetch('/api/admin/softone/assets', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code.trim(), name: name.trim(), mtrAcn, mtrCategory, vat, lineId }),
+        body: JSON.stringify({
+          code: code.trim(), name: name.trim(), mtrAcn, mtrCategory, vat, lineId,
+          depreciationRate: rateNum, immediateDepreciation: lowValue && immediate,
+        }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { setError(d.message ?? 'Η δημιουργία απέτυχε.'); return; }
-      toast.success(`Δημιουργήθηκε το πάγιο ${d.asset.code} «${d.asset.name}»`, { description: 'Η γραμμή αντιστοιχίστηκε στο νέο πάγιο.' });
+      toast.success(`Δημιουργήθηκε το πάγιο ${d.asset.code} «${d.asset.name}»`, {
+        description: `Η γραμμή αντιστοιχίστηκε στο νέο πάγιο.${d.asset.depreciation?.rate != null ? ` Συντελεστής απόσβεσης στο SoftOne: ${d.asset.depreciation.rate}%.` : ''}`,
+      });
+      if (d.asset.depreciationWarning) toast.warning(d.asset.depreciationWarning);
       onCreated(d.asset);
     } catch {
       setError('Σφάλμα δικτύου — το πάγιο δεν δημιουργήθηκε.');
@@ -165,8 +196,68 @@ export function CreateAssetDialog({ open, onOpenChange, lineId, lineName, lineVa
                   <option key={g.mtrAcn} value={g.mtrAcn}>{g.name}{g.acnmsk ? ` · ${g.acnmsk}` : ''}{g.depreciation ? ` · απόσβεση ${g.depreciation}%` : ''}</option>
                 ))}
               </select>
-              <p className="text-caption text-muted-foreground">Ορίζει τον λογαριασμό παγίου και τον συντελεστή απόσβεσης.</p>
+              <p className="text-caption text-muted-foreground">Ορίζει τον λογαριασμό παγίου και τον προεπιλεγμένο συντελεστή απόσβεσης.</p>
             </div>
+
+            {/* ── Απόσβεση: ο συντελεστής του ΝΟΜΟΥ, σε ευρώ και χρόνια, όχι μόνο ποσοστό ── */}
+            <fieldset className="space-y-2 rounded-lg border border-border p-3">
+              <legend className="px-1 text-[length:var(--fs-12)] font-semibold text-foreground">
+                <Term k="apostesi" /> (φορολογική)
+              </legend>
+              {advice ? (
+                <p className="text-[length:var(--fs-12)] text-foreground">
+                  Ο νόμος ορίζει <strong>{advice.rate}%</strong> τον χρόνο για «{advice.label}»
+                  <span className="text-muted-foreground"> ({DEPRECIATION_SOURCE})</span>.
+                  {advice.annual != null && advice.years != null && (
+                    <> Για αξία {eur(amount ?? 0)}: <strong>≈ {eur(advice.annual)} τον χρόνο</strong>, σε περίπου {advice.years} χρόνια.</>
+                  )}
+                </p>
+              ) : (
+                <p className="text-[length:var(--fs-12)] text-muted-foreground">
+                  Δεν αναγνωρίσαμε την κατηγορία του νόμου — ισχύει ο συντελεστής της λογιστικής κατηγορίας. Ρώτα τον λογιστή αν δεν είσαι σίγουρος.
+                </p>
+              )}
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="space-y-1">
+                  <span className={LABEL}>Συντελεστής για αυτό το πάγιο</span>
+                  <span className="relative block w-32">
+                    <input
+                      inputMode="decimal" value={rate}
+                      onChange={(e) => { setRate(e.target.value); setRateTouched(true); }}
+                      aria-invalid={!rateOk}
+                      className={`${INPUT} pr-7 text-right font-mono tabular-nums`}
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[length:var(--fs-13)] text-muted-foreground">%</span>
+                  </span>
+                </label>
+                {advice && rateTouched && rateNum !== advice.rate && (
+                  <button type="button" onClick={() => { setRate(String(advice.rate)); setRateTouched(false); }}
+                    className="min-h-10 cursor-pointer rounded-md px-2 text-[length:var(--fs-12)] font-semibold text-sisyphus-700 hover:bg-sisyphus-500/10 dark:text-sisyphus-300">
+                    Επαναφορά στο {advice.rate}% του νόμου
+                  </button>
+                )}
+              </div>
+              {!rateOk && <p role="alert" className="text-[length:var(--fs-12)] text-rose-700">Γράψε ποσοστό από 0 έως 100.</p>}
+              {gl?.depreciation != null && rateNum != null && rateOk && gl.depreciation !== rateNum && (
+                <p className="flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-[length:var(--fs-12)] text-amber-900">
+                  <FiAlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+                  <span>
+                    Η κατηγορία «{gl.name}» στο SoftOne έχει <strong>{gl.depreciation}%</strong>
+                    {advice && gl.depreciation !== advice.rate ? ' (παλιός συντελεστής, πριν τον Ν.4172/2013)' : ''}.
+                    Σε αυτό το πάγιο θα γραφτεί <strong>{rateNum}%</strong> — η κατηγορία δεν αλλάζει.
+                  </span>
+                </p>
+              )}
+              {lowValue && (
+                <label className="flex cursor-pointer items-start gap-2 rounded-md bg-muted/50 px-2.5 py-2 text-[length:var(--fs-12)] text-foreground">
+                  <input type="checkbox" checked={immediate} onChange={(e) => setImmediate(e.target.checked)} className="mt-0.5 size-4" />
+                  <span>
+                    <strong>Εφάπαξ απόσβεση φέτος.</strong> Η αξία είναι κάτω από {eur(LOW_VALUE_LIMIT)}: ο νόμος επιτρέπει να αποσβεστεί
+                    ολόκληρη στη χρήση απόκτησης (άρθρο 24 παρ. 7 ΚΦΕ). Προαιρετικό — ρώτα τον λογιστή.
+                  </span>
+                </label>
+              )}
+            </fieldset>
             <div className="space-y-1">
               <label htmlFor="asset-cat" className={LABEL}>Εμπορική κατηγορία (προαιρετικά)</label>
               <select id="asset-cat" value={mtrCategory ?? ''} onChange={(e) => setMtrCategory(e.target.value ? Number(e.target.value) : null)} className={INPUT}>

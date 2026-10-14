@@ -19,6 +19,7 @@ import {
 } from '@/lib/ocr/purchase-purpose';
 import type { PurposeAiAnswer } from '@/lib/ocr/purpose-ai';
 import { PurposeStep } from './purpose-step';
+import { depreciationAdvice } from '@/lib/ocr/depreciation';
 import { CreateRegistryEntryModal } from '@/components/admin/create-registry-entry-modal';
 import { AssetSearch, CreateAssetDialog, type AssetPick } from '@/components/admin/asset-picker';
 import { lineKindFits, lineKindsReason } from '@/lib/ocr/resolution-plan';
@@ -466,11 +467,23 @@ export function LineMatchCell({
               <div className="rounded-lg bg-muted/50 px-3 py-2 text-[length:var(--fs-12)] text-foreground">
                 <p><strong>Τι θα γίνει:</strong> {PURPOSE_OUTCOME[TILES[tile].purpose]}</p>
                 {TILES[tile].accountingNote && <p className="mt-1 text-muted-foreground">{TILES[tile].accountingNote}</p>}
-                {TILES[tile].purpose === 'asset' && (
-                  <p className="mt-1 text-muted-foreground">
-                    Τι σημαίνει <Term k="pagio" /> και <Term k="apostesi" />;
-                  </p>
-                )}
+                {TILES[tile].purpose === 'asset' && (() => {
+                  const dep = depreciationAdvice({ lineName, amount: lineTotal, gl: null });
+                  return (
+                    <>
+                      {dep && (
+                        <p className="mt-1 text-foreground">
+                          <strong>Απόσβεση:</strong> {dep.rate}% τον χρόνο, όπως ορίζει ο νόμος για «{dep.label}»
+                          {dep.annual != null && dep.years != null && <> — ≈ {dep.annual.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € τον χρόνο, για περίπου {dep.years} χρόνια</>}.
+                          {dep.lowValue && <> Αξία κάτω από 1.500 €: μπορεί να αποσβεστεί και ολόκληρη φέτος.</>}
+                        </p>
+                      )}
+                      <p className="mt-1 text-muted-foreground">
+                        Τι σημαίνει <Term k="pagio" /> και <Term k="apostesi" />;
+                      </p>
+                    </>
+                  );
+                })()}
               </div>
 
               {TILES[tile].purpose === 'asset' && (
@@ -706,6 +719,7 @@ export function LineMatchCell({
         lineId={lineId}
         lineName={lineName ?? null}
         lineVatRate={lineVatRate ?? null}
+        lineAmount={lineTotal ?? null}
         onCreated={(a) => { setCreatingAsset(false); assetPicked(a); }}
       />
 

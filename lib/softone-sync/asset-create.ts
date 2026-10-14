@@ -8,7 +8,7 @@ import 'server-only';
 import { prisma } from '@/lib/db';
 import { getSetting } from '@/lib/settings';
 import {
-  SoftoneError, softoneAssetUnitTemplate, softoneCreateAsset, softoneFetchAssetLookups, buildAssetPayload,
+  SoftoneError, softoneAssetDepreciation, softoneAssetUnitTemplate, softoneCreateAsset, softoneFetchAssetLookups, buildAssetPayload,
   type AssetLookups, type CreateAssetInput,
 } from '@/lib/softone';
 import { nextAssetCode } from '@/lib/ocr/asset-code';
@@ -57,6 +57,10 @@ export interface AssetCreateRequest {
   mtrAcn: number;
   mtrCategory: number | null;
   vat: string;
+  /** Φορολογικός συντελεστής απόσβεσης (%) — συνήθως ο του άρθρου 24 ΚΦΕ. `null` = της κατηγορίας. */
+  depreciationRate?: number | null;
+  /** Εφάπαξ απόσβεση στη χρήση απόκτησης (μόνο για αξία κάτω από 1.500 €). */
+  immediateDepreciation?: boolean;
 }
 
 /** Χτίζει το payload (για προεπισκόπηση και για εγγραφή) — χωρίς να γράψει τίποτα. */
@@ -73,12 +77,22 @@ export async function planAsset(req: AssetCreateRequest): Promise<CreateAssetInp
   if (!units) throw new AssetCreateError('no_template', 'Δεν βρέθηκε υπάρχον πάγιο για να αντιγραφούν οι μονάδες μέτρησης.');
   const input: CreateAssetInput = {
     code: req.code, name: req.name, mtrAcn: req.mtrAcn, mtrCategory: req.mtrCategory, vat: req.vat, acnmsk: gl.acnmsk, units,
+    // Στέλνουμε συντελεστή ΜΟΝΟ όταν διαφέρει από της κατηγορίας ή ζητήθηκε εφάπαξ απόσβεση — αλλιώς
+    // το SoftOne τον παίρνει από την κατηγορία, και καλύτερα να μην αγγίζουμε ό,τι ήδη ισχύει.
+    depreciation: (req.depreciationRate != null && req.depreciationRate !== gl.depreciation) || req.immediateDepreciation
+      ? { rate: req.depreciationRate ?? gl.depreciation ?? 0, immediate: !!req.immediateDepreciation }
+      : null,
   };
   return { ...input, payload: buildAssetPayload(input) };
 }
 
 /** Δημιουργεί το πάγιο στο SoftOne και το γράφει αμέσως στον καθρέφτη. */
-export async function createAsset(req: AssetCreateRequest): Promise<{ mtrl: number; code: string; name: string }> {
+export async function createAsset(req: AssetCreateRequest): Promise<{
+  mtrl: number; code: string; name: string;
+  /** Ό,τι διαβάστηκε πίσω από το SoftOne· `depreciationWarning` όταν δεν κράτησε τον συντελεστή. */
+  depreciation: { rate: number | null; immediate: boolean } | null;
+  depreciationWarning: string | null;
+}> {
   const plan = await planAsset(req);
   let mtrl: number;
   try {
@@ -89,5 +103,14 @@ export async function createAsset(req: AssetCreateRequest): Promise<{ mtrl: numb
   }
   const data = { code: plan.code, name: plan.name, vat: plan.vat, mtrAcn: plan.mtrAcn, mtrCategory: plan.mtrCategory, acnmsk: plan.acnmsk, isActive: true, syncedAt: new Date() };
   await prisma.softoneAsset.upsert({ where: { mtrl }, update: data, create: { mtrl, ...data } });
-  return { mtrl, code: plan.code, name: plan.name };
+  const depreciation = await softoneAssetDepreciation(mtrl).catch(() => null);
+  let depreciationWarning: string | null = null;
+  if (plan.depreciation && depreciation) {
+    if (depreciation.rate !== plan.depreciation.rate) {
+      depreciationWarning = `Το SoftOne κράτησε συντελεστή ${depreciation.rate ?? '—'}% αντί για ${plan.depreciation.rate}% — διόρθωσέ τον στην καρτέλα του παγίου.`;
+    } else if (depreciation.immediate !== plan.depreciation.immediate) {
+      depreciationWarning = 'Το SoftOne δεν κράτησε την εφάπαξ απόσβεση — όρισέ την στην καρτέλα του παγίου.';
+    }
+  }
+  return { mtrl, code: plan.code, name: plan.name, depreciation, depreciationWarning };
 }

@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { FiCopy, FiRefreshCw, FiSearch, FiAlertTriangle, FiCheckCircle, FiExternalLink, FiPlus } from 'react-icons/fi';
 import { BTN_GHOST, BTN_PRIMARY } from '@/components/admin/bulk-ui';
 import { OpenAccountDialog, type OpenRequest } from '@/components/admin/open-account-dialog';
+import { DepreciationAudit } from './depreciation-audit';
 import type { ChartRow, MissingAccount, ScanNeed, ScanNeeds, UtilityGap } from '@/lib/ocr/accounts-overview';
 import type { AccountStatus } from '@/lib/ocr/account-check';
 
@@ -350,6 +351,8 @@ export function AccountsClient({
           </ul>
         </section>
       )}
+
+      <DepreciationAudit />
 
       {/* 3. ΟΛΟ ΤΟ ΣΧΕΔΙΟ */}
       <section aria-labelledby="chart-h" className={SECTION}>

@@ -2612,10 +2612,16 @@ export interface CreateAssetInput {
   acnmsk: string | null;
   /** Μονάδες μέτρησης από υπάρχον πάγιο της εγκατάστασης (MTRUNIT1/3/4). */
   units: { mtrunit1: string; mtrunit3: string | null; mtrunit4: string | null };
+  /**
+   * Φορολογικός συντελεστής απόσβεσης ΑΥΤΟΥ του παγίου (`ASST.ASSDEPR11`) και εφάπαξ απόσβεση στη
+   * χρήση (`ASST.ASSIMMEDDEPR`, για αξία κάτω από 1.500 €). Χωρίς αυτό το SoftOne κρατά τον
+   * συντελεστή της λογιστικής κατηγορίας — που συχνά είναι ο παλιός του Π.Δ. 299/2003.
+   */
+  depreciation?: { rate: number; immediate: boolean } | null;
 }
 
 /** Το ακριβές setData νέου παγίου (και για προεπισκόπηση). */
-export function buildAssetPayload(input: CreateAssetInput): { OBJECT: 'ASSET'; KEY: ''; DATA: { ASSET: Record<string, unknown>[] } } {
+export function buildAssetPayload(input: CreateAssetInput): { OBJECT: 'ASSET'; KEY: ''; DATA: { ASSET: Record<string, unknown>[]; ASST?: Record<string, unknown>[] } } {
   const row: Record<string, unknown> = {
     CODE: input.code,
     NAME: input.name,
@@ -2630,7 +2636,25 @@ export function buildAssetPayload(input: CreateAssetInput): { OBJECT: 'ASSET'; K
   };
   if (input.mtrCategory != null) row.MTRCATEGORY = input.mtrCategory;
   if (input.acnmsk) row.ACNMSK = input.acnmsk;
+  if (input.depreciation) {
+    return {
+      OBJECT: 'ASSET', KEY: '',
+      DATA: { ASSET: [row], ASST: [{ ASSDEPR11: input.depreciation.rate, ASSIMMEDDEPR: input.depreciation.immediate ? 1 : 0 }] },
+    };
+  }
   return { OBJECT: 'ASSET', KEY: '', DATA: { ASSET: [row] } };
+}
+
+/**
+ * Ό,τι ΠΡΑΓΜΑΤΙΚΑ κράτησε το SoftOne για την απόσβεση ενός παγίου. Το `success:true` του setData
+ * δεν το αποδεικνύει — διαβάζουμε πάντα πίσω. `null` όταν η ανάγνωση δεν γίνεται.
+ */
+export async function softoneAssetDepreciation(mtrl: number): Promise<{ rate: number | null; immediate: boolean } | null> {
+  const rows = await softoneGetTable('ASST', ['MTRL', 'ASSDEPR11', 'ASSIMMEDDEPR'], `MTRL=${mtrl}`).catch(() => null);
+  const r = rows?.find((x) => Number(x.MTRL) === mtrl);
+  if (!r) return null;
+  const rate = Number(r.ASSDEPR11);
+  return { rate: str(r.ASSDEPR11) !== '' && Number.isFinite(rate) ? rate : null, immediate: Number(r.ASSIMMEDDEPR) === 1 };
 }
 
 /**
