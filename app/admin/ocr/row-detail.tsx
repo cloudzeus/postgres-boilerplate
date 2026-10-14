@@ -784,15 +784,16 @@ export function OcrRowDetail({
                   const wide = formW >= 896;
                   const wideCols = !row ? (formW >= 384 ? 'grid-cols-6' : 'grid-cols-6')
                     : showCode
-                      ? (wide ? 'grid-cols-[7rem_minmax(0,1fr)_4.5rem_4.5rem_6rem_5rem_4rem_6.5rem]' : 'grid-cols-[5rem_minmax(0,1fr)_3.5rem_4rem_5rem_4rem_3.5rem_5.5rem]')
-                      : (wide ? 'grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_6rem_5rem_4rem_6.5rem]' : 'grid-cols-[minmax(0,1fr)_3.5rem_4rem_5rem_4rem_3.5rem_5.5rem]');
+                      // Η ΠΕΡΙΓΡΑΦΗ ΠΑΙΡΝΕΙ ΤΟΝ ΧΩΡΟ: ποσότητα, έκπτωση και ΦΠΑ είναι 2–4 ψηφία.
+                      ? (wide ? 'grid-cols-[6rem_minmax(0,1fr)_3.25rem_3.25rem_5.5rem_3.25rem_2.75rem_6rem]' : 'grid-cols-[4.5rem_minmax(0,1fr)_2.75rem_2.75rem_4.5rem_2.75rem_2.5rem_5rem]')
+                      : (wide ? 'grid-cols-[minmax(0,1fr)_3.25rem_3.25rem_5.5rem_3.25rem_2.75rem_6rem]' : 'grid-cols-[minmax(0,1fr)_2.75rem_2.75rem_4.5rem_2.75rem_2.5rem_5rem]');
                   const CAP = cn('block text-[length:var(--fs-10)] font-semibold uppercase tracking-wide text-muted-foreground', row && 'sr-only');
                   const SMALL = row ? 'col-span-1 row-start-1' : cn(formW >= 384 ? 'col-span-1' : 'col-span-2', 'order-3');
                   // Ρητή στήλη για ΚΑΘΕ πεδίο στο φαρδύ — η αυτόματη τοποθέτηση του grid έβαζε τη μονάδα
                   // στη θέση της περιγραφής. Στατικές κλάσεις (ο JIT δεν βλέπει δυναμικές).
                   const COL = ['', 'col-start-1', 'col-start-2', 'col-start-3', 'col-start-4', 'col-start-5', 'col-start-6', 'col-start-7', 'col-start-8'];
                   const at = (n: number) => (row ? COL[showCode ? n : n - 1] : '');
-                  const ICON_BTN = 'inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground outline-none hover:bg-sisyphus-500/10 hover:text-sisyphus-700 focus-visible:ring-2 focus-visible:ring-sisyphus-500 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-sisyphus-300';
+                  const ICON_BTN = 'inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground outline-none hover:bg-sisyphus-500/10 hover:text-sisyphus-700 focus-visible:ring-2 focus-visible:ring-sisyphus-500 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-sisyphus-300';
                   const TEXT_BTN = 'inline-flex min-h-6 cursor-pointer items-center gap-0.5 rounded px-1 font-medium hover:bg-sisyphus-500/10 hover:text-sisyphus-700 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-sisyphus-300';
                   /** Οι ενέργειες μιας γραμμής: εικονίδια (tablet/desktop) ή λέξεις (κινητό). */
                   const lineActions = (it: LineItem, i: number, iconOnly: boolean) => {
@@ -827,7 +828,7 @@ export function OcrRowDetail({
                           {!iconOnly && 'Διαγραφή'}
                         </button>
                         {!la.consistent && (
-                          <span title="Ποσότητα × τιμή − έκπτωση δεν δίνει το σύνολο" className={cn('inline-flex items-center gap-0.5 font-semibold text-amber-800 dark:text-amber-300', iconOnly ? 'size-7 justify-center' : 'ml-1')}>
+                          <span title="Ποσότητα × τιμή − έκπτωση δεν δίνει το σύνολο" className={cn('inline-flex items-center gap-0.5 font-semibold text-amber-800 dark:text-amber-300', iconOnly ? 'size-6 justify-center' : 'ml-1')}>
                             <FiAlertCircle aria-hidden className="size-3.5" />{!iconOnly && 'ποσότητα × τιμή ≠ σύνολο'}
                             {iconOnly && <span className="sr-only">Ποσότητα × τιμή ≠ σύνολο</span>}
                           </span>
@@ -845,20 +846,22 @@ export function OcrRowDetail({
                         <span className="text-right">Ποσ.</span>
                         <span className="text-right">Τιμή</span>
                         <span className="text-right">Έκπτ.</span>
-                        <span className="text-right">ΦΠΑ%</span>
+                        <span className="text-right">ΦΠΑ</span>
                         <span className="text-right">Σύνολο</span>
                       </div>
                       {items.length === 0 ? (
                         <p className="px-3 py-5 text-center text-[length:var(--fs-12)] text-muted-foreground">Δεν υπάρχουν γραμμές.</p>
                       ) : (
-                        <ol className={cn('divide-y divide-border [&_input]:px-1.5 [&_input]:text-[length:var(--fs-12)] [&_textarea]:text-[length:var(--fs-12)]', row ? '[&_input]:h-7' : '[&_input]:h-8')}>
+                        <ol className={cn('divide-y divide-border [&_input]:px-1.5', row
+                          ? '[&_input]:h-6 [&_input]:text-[length:var(--fs-11-5)] [&_textarea]:text-[length:var(--fs-11-5)]'
+                          : '[&_input]:h-8 [&_input]:text-[length:var(--fs-12)] [&_textarea]:text-[length:var(--fs-12)]')}>
                           {items.map((it, i) => {
                             const la = analyzeLine(it);
                             const dTitle = la.discountKind === 'percent' ? 'Έκπτωση επί τοις %' : la.discountKind === 'amount' ? 'Έκπτωση ως ποσό' : undefined;
                             const lineCf = (it.customFields ?? null) as Record<string, unknown> | null;
                             return (
-                              <li key={i} className={cn('px-2', row ? 'py-0.5' : 'py-1.5', !la.consistent ? 'bg-amber-500/5' : i % 2 ? 'bg-muted/20' : '')}>
-                                <div className={cn('grid grid-cols-6 items-start gap-x-1.5 gap-y-1', wideCols)}>
+                              <li key={i} className={cn('px-2', row ? 'py-px' : 'py-1.5', !la.consistent ? 'bg-amber-500/5' : i % 2 ? 'bg-muted/20' : '')}>
+                                <div className={cn('grid grid-cols-6 items-start gap-x-1 gap-y-1', wideCols)}>
                                   {/* Περιγραφή: πρώτη στο στενό, δεύτερη (μετά τον κωδικό) στο φαρδύ. */}
                                   <label className={cn('min-w-0', row ? 'col-span-1 row-start-1' : 'order-1 col-span-4', at(2))}>
                                     <span className={CAP}>Περιγραφή · γραμμή {i + 1}</span>
@@ -867,7 +870,7 @@ export function OcrRowDetail({
                                         rows={1} value={it.name} disabled={ro}
                                         aria-label={`Περιγραφή γραμμής ${i + 1}`}
                                         onChange={(e) => setLine(i, 'name', e.target.value)}
-                                        className={cn(INPUT_CLS, 'h-auto min-w-0 flex-1 resize-none py-[0.3rem] leading-snug [field-sizing:content]', row ? 'min-h-7' : 'min-h-8')}
+                                        className={cn(INPUT_CLS, 'h-auto min-w-0 flex-1 resize-none leading-snug [field-sizing:content]', row ? 'min-h-6 py-[0.15rem]' : 'min-h-8 py-[0.3rem]')}
                                       />
                                       {/* Tablet/desktop: οι ενέργειες ΣΤΗΝ ΙΔΙΑ ΣΕΙΡΑ, ως μικρά εικονίδια — μια
                                           δεύτερη σειρά κάτω από κάθε είδος διπλασίαζε το ύψος σε τιμολόγια 200 γραμμών. */}
