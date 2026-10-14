@@ -145,6 +145,12 @@ const customRecord = z.preprocess((v) => (isObj(v) ? v : {}), z.record(z.string(
 const nobj = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (isObj(v) ? v : {}), inner);
 
+/** Τα σύνολα που μπορεί να συμπληρώσει η εφαρμογή από τις γραμμές. */
+export const TOTAL_KEYS = ['net', 'vatAmount', 'total', 'payable'] as const;
+export type TotalKey = (typeof TOTAL_KEYS)[number];
+/** Σύνολο → κλειδί του παλιού `extractedData` (ό,τι διαβάζει η φόρμα). */
+export const TOTAL_LEGACY_KEY: Record<TotalKey, string> = { net: 'subtotal', vatAmount: 'vatAmount', total: 'totalAmount', payable: 'payableAmount' };
+
 const Party = nobj(z.object({
   name: nstr, vat: nstr, doy: nstr, profession: nstr, address: nstr, city: nstr,
   zip: nstr, country: nstr, phone: nstr, email: nstr, gemi: nstr, code: nstr,
@@ -172,6 +178,14 @@ export const DocumentSchema = z.object({
   lines: objArray(Line),
   totals: nobj(z.object({
     net: nnum, discount: nnum, vatAmount: nnum, withholding: nnum, fees: nnum, total: nnum, payable: nnum,
+    /**
+     * Ποια σύνολα ΔΕΝ διαβάστηκαν από το χαρτί αλλά ΣΥΜΠΛΗΡΩΘΗΚΑΝ από τις γραμμές
+     * (`reconcileDocument`). Χωρίς αυτό, ένα υπολογισμένο σύνολο φαινόταν στη φόρμα σαν τυπωμένο.
+     */
+    derived: z.preprocess(
+      (v) => (Array.isArray(v) ? v.filter((x) => (TOTAL_KEYS as readonly unknown[]).includes(x)) : undefined),
+      z.array(z.enum(TOTAL_KEYS)).optional(),
+    ),
   })),
   vatBreakdown: objArray(z.object({ rate: nnum, net: nnum, vat: nnum })),
   digital: nobj(z.object({ mark: nstr, uid: nstr, authCode: nstr, provider: nstr, qr: nbool })),
@@ -445,7 +459,7 @@ const LEGACY_ITEM_KEYS = new Set([
 ]);
 const HANDLED_LEGACY_KEYS = new Set([
   ...Object.keys(LEGACY_KEY_TO_PATH).filter((k) => !k.startsWith('items.')),
-  'items', 'bankAccounts', 'customFields',
+  'items', 'bankAccounts', 'customFields', 'totalsFromLines',
 ]);
 
 /** Μια γραμμή του παλιού `items[]` → γραμμή του κανονικού εγγράφου. */
@@ -526,7 +540,12 @@ export function fromLegacy(
       address: f.customerAddress,
     },
     lines,
-    totals: { net: f.subtotal, vatAmount: f.vatAmount, total, payable: total },
+    totals: {
+      net: f.subtotal, vatAmount: f.vatAmount, total, payable: total,
+      derived: Array.isArray(f.totalsFromLines)
+        ? TOTAL_KEYS.filter((k) => (f.totalsFromLines as unknown[]).includes(TOTAL_LEGACY_KEY[k]))
+        : undefined,
+    },
     digital: { mark: f.aadeMark },
     payment: { ibans: Array.isArray(f.bankAccounts) ? f.bankAccounts : [] },
     notes: kind === 'general' ? (custom.summary ?? null) : null,
@@ -573,6 +592,8 @@ export function toLegacy(document: DocumentJson): Record<string, unknown> {
     out.subtotal = document.totals.net;
     out.vatAmount = document.totals.vatAmount;
     out.totalAmount = document.totals.total;
+    // ΟΧΙ ΑΠΟ ΤΟ ΧΑΡΤΙ: η φόρμα τα δείχνει με άλλο χρώμα («υπολογίστηκε από τις γραμμές»).
+    if (document.totals.derived?.length) out.totalsFromLines = document.totals.derived.map((k) => TOTAL_LEGACY_KEY[k]);
     out.bankAccounts = document.payment.ibans.map((b) => ({ bank: b.bank, iban: b.iban }));
     out.items = document.lines.map((line) => ({
       code: line.code,
@@ -657,16 +678,30 @@ export function reconcileDocument(document: DocumentJson): { document: DocumentJ
   });
 
   const hasLines = document.lines.length > 0;
-  const net = document.totals.net ?? (hasLines ? rec.sumNet : null);
-  const vatAmount = document.totals.vatAmount ?? (rec.vatGroups.length ? rec.vatComputed : null);
-  const total = document.totals.total ?? (net != null && vatAmount != null ? round2(net + vatAmount) : null);
-  const payable = document.totals.payable
-    ?? (total != null ? round2(total - (document.totals.withholding ?? 0) + (document.totals.fees ?? 0)) : null);
+  const t = document.totals;
+  const net = t.net ?? (hasLines ? rec.sumNet : null);
+  const vatAmount = t.vatAmount ?? (rec.vatGroups.length ? rec.vatComputed : null);
+  const total = t.total ?? (net != null && vatAmount != null ? round2(net + vatAmount) : null);
+  const payable = t.payable
+    ?? (total != null ? round2(total - (t.withholding ?? 0) + (t.fees ?? 0)) : null);
+
+  // ΤΙ ΣΥΜΠΛΗΡΩΣΑΜΕ ΕΜΕΙΣ. Νέο κενό που γέμισε ⇒ «από τις γραμμές». Ένα ήδη σημαδεμένο κρατά το
+  // σημάδι ΜΟΝΟ όσο συμφωνεί ακόμη με τις γραμμές: αν ο χρήστης γράψει άλλη τιμή, είναι πλέον δική του.
+  const near = (a: number | null, b: number | null) => a != null && b != null && Math.abs(a - b) <= 0.02;
+  const prev = new Set(t.derived ?? []);
+  const expected: Record<TotalKey, number | null> = {
+    net: hasLines ? rec.sumNet : null,
+    vatAmount: rec.vatGroups.length ? rec.vatComputed : null,
+    total: net != null && vatAmount != null ? round2(net + vatAmount) : null,
+    payable: total != null ? round2(total - (t.withholding ?? 0) + (t.fees ?? 0)) : null,
+  };
+  const now: Record<TotalKey, number | null> = { net, vatAmount, total, payable };
+  const derived = TOTAL_KEYS.filter((k) => (t[k] == null && now[k] != null) || (prev.has(k) && near(now[k], expected[k])));
 
   return {
     document: {
       ...document,
-      totals: { ...document.totals, net, vatAmount, total, payable },
+      totals: { ...document.totals, net, vatAmount, total, payable, derived: derived.length ? derived : undefined },
       vatBreakdown: document.vatBreakdown.length
         ? document.vatBreakdown
         : rec.vatGroups.map((g) => ({ rate: g.rate, net: g.net, vat: g.vat })),

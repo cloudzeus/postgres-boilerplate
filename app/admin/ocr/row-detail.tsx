@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { FiSend, FiSave, FiExternalLink, FiAlertCircle, FiPlus, FiTrash2, FiRotateCcw, FiCheck, FiPlusCircle, FiMaximize2, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import { FiSend, FiSave, FiExternalLink, FiAlertCircle, FiPlus, FiTrash2, FiRotateCcw, FiCheck, FiPlusCircle, FiMaximize2, FiChevronLeft, FiChevronRight, FiFileText, FiList, FiEdit3, FiGitBranch } from 'react-icons/fi';
 import { CreateRegistryEntryModal } from '@/components/admin/create-registry-entry-modal';
 import { cn } from '@/lib/utils';
 import { SerialChips } from '@/components/admin/serial-chips';
@@ -15,6 +15,7 @@ import { docTypeOf } from '@/lib/ocr/canonical';
 import { objectsForSosource, defaultPostingTarget } from '@/lib/ocr/posting-target';
 import { registryKindForSeries, LINE_KIND_LABEL } from '@/lib/ocr/resolution-plan';
 import { LineAllocations, type AllocationRow } from './[id]/line-allocations';
+import { emitStartSplit } from '@/components/admin/doc-lines-events';
 import type { AllocationKind } from '@/lib/ocr/line-allocation';
 import type { MatchKind } from '@/lib/ocr/line-match';
 import { SoftoneChecksStrip } from '@/components/admin/softone-checks-strip';
@@ -44,16 +45,36 @@ interface FieldSpec { key: string; label: string; required?: boolean; numeric?: 
  * ό,τι φτιάχνεται με interpolation δεν παράγεται ποτέ — το πλέγμα θα κατέρρεε σιωπηλά.
  * Στο `sm` υπάρχουν μόνο δύο πλάτη (μισό / ολόκληρο), γιατί σε 640px τα δωδέκατα είναι ψίχουλα.
  */
-const SPAN_CLS: Record<number, string> = {
-  3:  'col-span-full sm:col-span-3 lg:col-span-3',
-  4:  'col-span-full sm:col-span-3 lg:col-span-4',
-  5:  'col-span-full sm:col-span-3 lg:col-span-5',
-  6:  'col-span-full sm:col-span-6 lg:col-span-6',
-  7:  'col-span-full sm:col-span-6 lg:col-span-7',
-  12: 'col-span-full',
+// ΜΕ ΒΑΣΗ ΤΟ ΠΛΑΤΟΣ ΤΗΣ ΦΟΡΜΑΣ, ΟΧΙ ΤΗΣ ΟΘΟΝΗΣ: με το πρωτότυπο ανοιχτό, σε οθόνη 1024 η φόρμα έχει
+// ~310px — το `lg:grid-cols-12` έβαζε ΑΦΜ και ΔΟΥ σε κουτάκια των 50px. Το πλάτος το μετρά
+// `useElementWidth` (Tailwind 3.4 χωρίς container queries)· οι κλάσεις είναι στατικές.
+type FormSize = 'narrow' | 'mid' | 'wide';
+const formSizeOf = (w: number): FormSize => (w >= 768 ? 'wide' : w >= 448 ? 'mid' : 'narrow');
+const SPAN_CLS: Record<FormSize, Record<number, string>> = {
+  narrow: { 3: 'col-span-full', 4: 'col-span-full', 5: 'col-span-full', 6: 'col-span-full', 7: 'col-span-full', 12: 'col-span-full' },
+  mid: { 3: 'col-span-3', 4: 'col-span-3', 5: 'col-span-3', 6: 'col-span-6', 7: 'col-span-6', 12: 'col-span-full' },
+  wide: { 3: 'col-span-3', 4: 'col-span-4', 5: 'col-span-5', 6: 'col-span-6', 7: 'col-span-7', 12: 'col-span-full' },
 };
 /** Το πλέγμα που διαβάζουν οι παραπάνω κλάσεις. Ένα σημείο, για να μη διαφωνήσουν ποτέ. */
-const GRID_CLS = 'grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-6 lg:grid-cols-12';
+const GRID_CLS: Record<FormSize, string> = {
+  narrow: 'grid grid-cols-1 gap-x-3 gap-y-2',
+  mid: 'grid grid-cols-6 gap-x-3 gap-y-2',
+  wide: 'grid grid-cols-12 gap-x-3 gap-y-2',
+};
+
+/** Το πλάτος ενός στοιχείου, ζωντανά (ResizeObserver). */
+function useElementWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
+  const ref = React.useRef<T>(null);
+  const [w, setW] = React.useState(1200);
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([e]) => setW(Math.round(e.contentRect.width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, w];
+}
 
 const FIELD_SPECS: Record<string, FieldSpec[]> = {
   // Σειρά ΑΝΑΓΝΩΣΗΣ τιμολογίου: πρώτα ΤΙ είναι το χαρτί (αριθμός/ημερομηνία), μετά ΠΟΙΟΣ το
@@ -158,15 +179,62 @@ const BADGE_STYLE = {
   neutral: { backgroundColor: '#f3f4f6', color: '#374151', borderColor: '#d1d5db' }, // gray-100 / gray-700 / gray-300
 } as const;
 
+/**
+ * ΑΠΟ ΠΟΥ ΕΡΧΕΤΑΙ ΚΑΘΕ ΠΟΣΟ. Τρεις πηγές, τρία χρώματα — και ΠΑΝΤΑ εικονίδιο + λέξη, ποτέ μόνο χρώμα:
+ *   scan   — διαβάστηκε από το χαρτί (μπλε)·
+ *   lines  — υπολογίστηκε από τις γραμμές (μωβ): είτε έλεγχος, είτε σύνολο που έλειπε από το χαρτί·
+ *   edited — το άλλαξε ο χρήστης σε αυτή την καρτέλα (πορτοκαλί).
+ * Πριν, ένα σύνολο που η εφαρμογή ΣΥΜΠΛΗΡΩΣΕ από τις γραμμές φαινόταν ίδιο με ένα τυπωμένο.
+ */
+type AmountSource = 'scan' | 'lines' | 'edited';
+const SOURCE_META: Record<AmountSource, { label: string; short: string; icon: React.ReactNode; chip: string; bar: string }> = {
+  scan: {
+    label: 'Διαβάστηκε από το παραστατικό', short: 'από το χαρτί', icon: <FiFileText aria-hidden className="size-3" />,
+    chip: 'border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-700 dark:bg-sky-950/50 dark:text-sky-200',
+    bar: 'border-l-sky-500',
+  },
+  lines: {
+    label: 'Υπολογίστηκε από τις γραμμές', short: 'από τις γραμμές', icon: <FiList aria-hidden className="size-3" />,
+    chip: 'border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-700 dark:bg-violet-950/50 dark:text-violet-200',
+    bar: 'border-l-violet-500',
+  },
+  edited: {
+    label: 'Το άλλαξες εσύ — δεν έχει αποθηκευτεί', short: 'διόρθωση', icon: <FiEdit3 aria-hidden className="size-3" />,
+    chip: 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-200',
+    bar: 'border-l-amber-500',
+  },
+};
+
+function SourceChip({ source, className }: { source: AmountSource; className?: string }) {
+  const m = SOURCE_META[source];
+  return (
+    <span title={m.label} className={cn('inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-px text-[length:var(--fs-10)] font-semibold normal-case tracking-normal', m.chip, className)}>
+      {m.icon}{m.short}
+    </span>
+  );
+}
+
+/** Ποσό με την πηγή του, για τους ελέγχους συμφωνίας. */
+function SourcedAmount({ source, value }: { source: AmountSource; value: string }) {
+  return (
+    <span title={SOURCE_META[source].label} className={cn('inline-flex items-center gap-1 rounded border px-1.5 py-px font-mono tabular-nums', SOURCE_META[source].chip)}>
+      {SOURCE_META[source].icon}{value}
+    </span>
+  );
+}
+
 function CheckRow({ ok, label, got, exp }: { ok: boolean | null | undefined; label: string; got: string; exp: string }) {
   const style = ok == null ? BADGE_STYLE.neutral : ok ? BADGE_STYLE.ok : BADGE_STYLE.fail;
   return (
-    <div style={style} className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-[length:var(--fs-11)] font-semibold">
+    <div style={style} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-md border px-2.5 py-1.5 text-[length:var(--fs-11)] font-semibold">
       <span className="inline-flex items-center gap-1.5">
         {ok ? <FiCheck className="size-3.5" /> : <FiAlertCircle className={cn('size-3.5', ok == null && 'opacity-60')} />}
         {label}
       </span>
-      <span className="font-mono tabular-nums">{got}{ok === false ? ` ≠ ${exp}` : ''}</span>
+      <span className="inline-flex flex-wrap items-center gap-1">
+        <SourcedAmount source="lines" value={got} />
+        {ok === false && <><span aria-hidden>≠</span><SourcedAmount source="scan" value={exp} /></>}
+      </span>
     </div>
   );
 }
@@ -356,6 +424,21 @@ export function OcrRowDetail({
   }, []);
   const linesNet = items.reduce((sum, it) => sum + (toNum(it.total) ?? 0), 0);
 
+  const [formRef, formW] = useElementWidth<HTMLDivElement>();
+  const formSize = formSizeOf(formW);
+
+  /** Τα σύνολα που η εξαγωγή ΣΥΜΠΛΗΡΩΣΕ από τις γραμμές (`totals.derived` του κανονικού JSON). */
+  const fromLines = React.useMemo(
+    () => new Set<string>(Array.isArray(data.totalsFromLines) ? data.totalsFromLines : []),
+    [row.id], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const sourceOf = (key: string): AmountSource | null => {
+    if ((form[key] ?? '') !== (initialForm[key] ?? '')) return 'edited';
+    if (!String(form[key] ?? '').trim()) return null;
+    return fromLines.has(key) ? 'lines' : 'scan';
+  };
+
+
   const tNet = toNum(form.subtotal), tVat = toNum(form.vatAmount), tTotal = toNum(form.totalAmount);
   const tSum = (tNet ?? 0) + (tVat ?? 0);
   const totalsBothPresent = tNet != null && tVat != null;
@@ -470,7 +553,7 @@ export function OcrRowDetail({
   const field = (s: FieldSpec) => {
     const invalid = s.required && !String(form[s.key] ?? '').trim();
     return (
-      <label key={s.key} className={cn('flex min-w-0 flex-col gap-0.5', SPAN_CLS[s.span ?? 12] ?? SPAN_CLS[12])}>
+      <label key={s.key} className={cn('flex min-w-0 flex-col gap-0.5', SPAN_CLS[formSize][s.span ?? 12] ?? SPAN_CLS[formSize][12])}>
         <span className={LABEL_CLS}>{s.label}{s.required && <span className="ml-0.5 text-dg-red-500">*</span>}</span>
         {s.textarea ? (
           <textarea rows={s.key === 'fullText' ? 8 : 2} disabled={ro}
@@ -492,31 +575,42 @@ export function OcrRowDetail({
   const totalsBox = byGroup('totals').length > 0 ? (
     <div className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-card">
       <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">
-        Σύνολα
+        Σύνολα παραστατικού
       </header>
       <div className="space-y-1 p-3">
         {byGroup('totals').map((s) => {
           const grand = s.key === 'totalAmount';
+          const src = sourceOf(s.key);
           return (
             <React.Fragment key={s.key}>
               {grand && <div className="my-1.5 border-t border-dotted border-muted-foreground/50" />}
-              <div className={cn('flex items-center justify-between gap-3 rounded-md px-2 py-1', grand && 'bg-sisyphus-500/10')}>
-                <span className={cn('text-[length:var(--fs-12)]', grand ? 'font-bold text-sisyphus-700 dark:text-sisyphus-300' : 'font-medium text-foreground')}>
-                  {s.label}
+              <div className={cn('flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md px-2 py-1', grand && 'bg-sisyphus-500/10')}>
+                <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <span className={cn('text-[length:var(--fs-12)]', grand ? 'font-bold text-sisyphus-700 dark:text-sisyphus-300' : 'font-medium text-foreground')}>
+                    {s.label}
+                  </span>
+                  {src && <SourceChip source={src} />}
                 </span>
                 <input
                   type="text" inputMode="decimal" disabled={ro}
+                  aria-label={`${s.label}${src ? ` — ${SOURCE_META[src].label}` : ''}`}
                   value={form[s.key] ?? ''} onChange={(e) => setField(s.key, e.target.value)} onBlur={() => blurFmt(s.key)}
                   className={cn(
-                    'w-[140px] rounded-md border border-input bg-background px-2 py-1 text-right font-mono text-[length:var(--fs-12)] tabular-nums text-foreground transition',
+                    'h-9 w-[140px] rounded-md border border-input border-l-4 bg-background px-2 text-right font-mono text-[length:var(--fs-13)] tabular-nums text-foreground transition',
                     'focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60',
-                    grand && 'border-sisyphus-500/50 font-bold text-sisyphus-700 dark:text-sisyphus-300',
+                    src ? SOURCE_META[src].bar : 'border-l-input',
+                    grand && 'font-bold text-sisyphus-700 dark:text-sisyphus-300',
                   )}
                 />
               </div>
             </React.Fragment>
           );
         })}
+        {[...fromLines].some((k) => sourceOf(k) === 'lines') && (
+          <p className="pt-1 text-[length:var(--fs-11)] text-muted-foreground">
+            Τα σύνολα με <SourceChip source="lines" className="mx-0.5 align-middle" /> δεν βρέθηκαν στο χαρτί — η εφαρμογή τα υπολόγισε από τις γραμμές. Έλεγξέ τα με το πρωτότυπο.
+          </p>
+        )}
         {totalsBothPresent && (
           <div style={totalsOk ? BADGE_STYLE.ok : BADGE_STYLE.fail}
             className="mt-1 flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[length:var(--fs-11)] font-semibold">
@@ -636,12 +730,12 @@ export function OcrRowDetail({
               των γραμμών έπρεπε να αλλάξεις καρτέλα και να το θυμάσαι. Τώρα η καρτέλα διαβάζεται
               όπως το ίδιο το χαρτί, από πάνω προς τα κάτω: ΤΙ είναι → ΠΟΙΟΣ το έκοψε → ΤΙ λέει →
               ΠΟΣΟ κάνει. */}
-          <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
+          <div ref={formRef} className="flex min-h-0 flex-1 flex-col gap-3 p-3">
             {isInvoice ? (
               <>
                 {/* Ο αριθμός και η ημερομηνία ΠΑΝΩ από τον εκδότη — έτσι είναι και το χαρτί. */}
                 <Section title="Παραστατικό" right={<MissingBadge n={missingIn('meta')} />}>
-                  <div className={cn(GRID_CLS, 'p-3')}>{byGroup('meta').map(field)}</div>
+                  <div className={cn(GRID_CLS[formSize], 'p-3')}>{byGroup('meta').map(field)}</div>
                 </Section>
                 {/* Εκδότης — ΜΟΝΟΣ του. Ο λήπτης είναι ΠΑΝΤΑ η εταιρεία που τρέχει την εφαρμογή
                     (το σύστημα καταχωρεί μόνο εισερχόμενα), οπότε μια κάρτα «Πελάτης» ζητούσε από
@@ -651,12 +745,12 @@ export function OcrRowDetail({
                     η διάκριση τιμολογίου/απόδειξης (`lib/ocr/canonical.ts`) και ο εντοπισμός
                     αντιστροφής εκδότη/λήπτη στη λίστα. */}
                 <Section title="Εκδότης" accent right={<MissingBadge n={missingIn('issuer')} />}>
-                  <div className={cn(GRID_CLS, 'p-3')}>{byGroup('issuer').map(field)}</div>
+                  <div className={cn(GRID_CLS[formSize], 'p-3')}>{byGroup('issuer').map(field)}</div>
                 </Section>
               </>
             ) : (
               <Section title="Στοιχεία" accent right={<MissingBadge n={missingIn('main')} />}>
-                <div className={cn(GRID_CLS, 'p-3')}>{byGroup('main').map(field)}</div>
+                <div className={cn(GRID_CLS[formSize], 'p-3')}>{byGroup('main').map(field)}</div>
               </Section>
             )}
 
@@ -673,101 +767,183 @@ export function OcrRowDetail({
                   </button>
                 )}
               >
-                <div className="w-full">
-                  <table className="w-full table-fixed">
-                    <thead className="border-b border-border bg-sisyphus-500/10 text-left text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-sisyphus-700 dark:text-sisyphus-300">
-                      <tr>
-                        <th className="px-3 py-1.5">Κωδ.</th>
-                        <th className="px-3 py-1.5">Περιγραφή</th>
-                        <th className="w-[5rem] px-3 py-1.5">Μονάδα</th>
-                        <th className="w-[5.375rem] px-3 py-1.5 text-right">Ποσ.</th>
-                        <th className="w-[6.875rem] px-3 py-1.5 text-right">Τιμή</th>
-                        <th className="w-[6rem] px-3 py-1.5 text-right">Έκπτ.</th>
-                        <th className="w-[4.875rem] px-3 py-1.5 text-right">ΦΠΑ %</th>
-                        <th className="w-[7.375rem] px-3 py-1.5 text-right">Σύνολο</th>
-                        {!ro && <th className="w-[4.5rem] px-2 py-1.5" />}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {items.length === 0 ? (
-                        <tr><td colSpan={ro ? 8 : 9} className="px-3 py-5 text-center text-[length:var(--fs-12)] text-muted-foreground">Δεν υπάρχουν γραμμές.</td></tr>
-                      ) : items.map((it, i) => {
-                        const la = analyzeLine(it);
-                        const dTitle = la.discountKind === 'percent' ? 'Έκπτωση επί τοις %' : la.discountKind === 'amount' ? 'Έκπτωση ως ποσό' : undefined;
-                        const lineCf = (it.customFields ?? null) as Record<string, unknown> | null;
-                        return (
-                        <React.Fragment key={i}>
-                        <tr className={cn('hover:bg-sisyphus-500/5', !la.consistent ? 'bg-amber-500/5' : 'odd:bg-muted/20')}>
-                          <td className="px-1.5 py-1"><CellInput value={it.code} onChange={(v) => setLine(i, 'code', v)} disabled={ro} className="font-mono" /></td>
-                          <td className="px-1.5 py-1">
-                            <CellInput value={it.name} onChange={(v) => setLine(i, 'name', v)} disabled={ro} />
-                            {/* Ζωντανά από το κείμενο: διορθώνεις τον σειριακό, αλλάζει και η ετικέτα. */}
-                            <SerialChips serials={extractSerials(it.name)} />
-                          </td>
-                          <td className="px-1.5 py-1"><CellInput value={it.unit} onChange={(v) => setLine(i, 'unit', v)} disabled={ro} /></td>
-                          <td className="px-1.5 py-1"><CellInput value={it.quantity} onChange={(v) => setLine(i, 'quantity', v)} disabled={ro} numeric align="right" /></td>
-                          <td className="px-1.5 py-1"><CellInput value={it.price} onChange={(v) => setLine(i, 'price', v)} disabled={ro} numeric align="right" /></td>
-                          <td className="px-1.5 py-1" title={dTitle}><CellInput value={it.discount} onChange={(v) => setLine(i, 'discount', v)} disabled={ro} numeric align="right" className={cn(la.discountKind === 'percent' && 'text-sisyphus-700 dark:text-sisyphus-300')} /></td>
-                          <td className="px-1.5 py-1"><CellInput value={it.vatRate} onChange={(v) => setLine(i, 'vatRate', v)} disabled={ro} numeric align="right" /></td>
-                          <td className="px-1.5 py-1"><CellInput value={it.total} onChange={(v) => setLine(i, 'total', v)} disabled={ro} numeric align="right"
-                            className={cn('font-semibold', !la.consistent && 'border-amber-400 bg-amber-50 dark:bg-amber-950/30')} /></td>
-                          {!ro && (
-                            <td className="px-2 py-1">
-                              <div className="flex items-center justify-center gap-0.5">
-                                {/* ΟΧΙ γυμνό «+»: το εικονίδιο μόνο του δεν λέει ούτε τι δημιουργεί
-                                    ούτε πού. Τώρα κουβαλά το όνομα του μητρώου που ζητά η σειρά. */}
-                                <button type="button" disabled={lineKind == null}
-                                  onClick={() => lineKind && setCreateLine({ code: it.code, name: it.name, kind: lineKind, vat: it.vatRate })}
-                                  title={lineKind == null
-                                    ? 'Διάλεξε πρώτα σειρά παραστατικού — αυτή ορίζει σε ποιο μητρώο πρέπει να δείχνει η γραμμή'
-                                    : `Δημιουργία νέας εγγραφής «${LINE_KIND_LABEL[lineKind]}» στο SoftOne από αυτή τη γραμμή`}
-                                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[length:var(--fs-11)] font-medium text-muted-foreground transition hover:bg-sisyphus-500/10 hover:text-sisyphus-600 disabled:opacity-40">
-                                  <FiPlusCircle className="size-3.5" />
-                                  {/* ΠΑΝΤΑ ορατό: κρυμμένο κάτω από `xl` ξανάγινε γυμνό «+», που
-                                      είναι ακριβώς το πρόβλημα που λύνουμε. */}
-                                  <span>{lineKind ? LINE_KIND_LABEL[lineKind] : 'Μητρώο'}</span>
-                                </button>
-                                <button type="button" onClick={() => removeLine(i)} title="Διαγραφή γραμμής"
-                                  className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-dg-red-500/10 hover:text-dg-red-500">
-                                  <FiTrash2 className="size-3.5" />
-                                </button>
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                        {/* Ο ΕΠΙΜΕΡΙΣΜΟΣ ΚΑΙ ΕΔΩ. Μέχρι τώρα ζούσε μόνο στη σελίδα του
-                            παραστατικού: ο χρήστης έβλεπε τη γραμμή, ήθελε να τη σπάσει σε δύο
-                            λογαριασμούς, και δεν υπήρχε τίποτα να πατήσει. */}
+                {/* ΠΡΟΣΑΡΜΟΣΤΙΚΗ ΔΙΑΤΑΞΗ ΜΕ ΒΑΣΗ ΤΟ ΠΛΑΤΟΣ ΤΟΥ ΚΟΥΤΙΟΥ (container query, όχι της οθόνης —
+                    η ίδια καρτέλα ζει σε πλήρη σελίδα και σε στενή λίστα):
+                      • tablet/desktop (≥40rem): ΜΙΑ σειρά ανά είδος, όλες οι στήλες (φαρδύτερες από 56rem)·
+                      • στενό: ΔΥΟ σειρές ανά είδος — η περιγραφή σε όλο το πλάτος (χωρίς κόψιμο) με το
+                        σύνολο δίπλα, και από κάτω τα αριθμητικά με μικρή ετικέτα.
+                    Ποτέ κάρτες και ποτέ οριζόντια κύλιση: ένα τιμολόγιο μπορεί να έχει 200 γραμμές.
+                    Οι ενέργειες της γραμμής είναι μικρά γράμματα κάτω από την περιγραφή, όχι στήλη. */}
+                {(() => {
+                  const showCode = items.some((it) => it.code.trim());
+                  // Μία σειρά από 640px (tablet) — στενές στήλες· από 896px (desktop) φαρδύτερες.
+                  // Κάτω από 640px: δύο σειρές ανά είδος. Στατικές κλάσεις, επιλογή σε JS.
+                  const row = formW >= 640;
+                  const wide = formW >= 896;
+                  const wideCols = !row ? (formW >= 384 ? 'grid-cols-6' : 'grid-cols-6')
+                    : showCode
+                      ? (wide ? 'grid-cols-[7rem_minmax(0,1fr)_4.5rem_4.5rem_6rem_5rem_4rem_6.5rem]' : 'grid-cols-[5rem_minmax(0,1fr)_3.5rem_4rem_5rem_4rem_3.5rem_5.5rem]')
+                      : (wide ? 'grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_6rem_5rem_4rem_6.5rem]' : 'grid-cols-[minmax(0,1fr)_3.5rem_4rem_5rem_4rem_3.5rem_5.5rem]');
+                  const CAP = cn('block text-[length:var(--fs-10)] font-semibold uppercase tracking-wide text-muted-foreground', row && 'sr-only');
+                  const SMALL = row ? 'col-span-1 row-start-1' : cn(formW >= 384 ? 'col-span-1' : 'col-span-2', 'order-3');
+                  // Ρητή στήλη για ΚΑΘΕ πεδίο στο φαρδύ — η αυτόματη τοποθέτηση του grid έβαζε τη μονάδα
+                  // στη θέση της περιγραφής. Στατικές κλάσεις (ο JIT δεν βλέπει δυναμικές).
+                  const COL = ['', 'col-start-1', 'col-start-2', 'col-start-3', 'col-start-4', 'col-start-5', 'col-start-6', 'col-start-7', 'col-start-8'];
+                  const at = (n: number) => (row ? COL[showCode ? n : n - 1] : '');
+                  const ICON_BTN = 'inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground outline-none hover:bg-sisyphus-500/10 hover:text-sisyphus-700 focus-visible:ring-2 focus-visible:ring-sisyphus-500 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-sisyphus-300';
+                  const TEXT_BTN = 'inline-flex min-h-6 cursor-pointer items-center gap-0.5 rounded px-1 font-medium hover:bg-sisyphus-500/10 hover:text-sisyphus-700 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:text-sisyphus-300';
+                  /** Οι ενέργειες μιας γραμμής: εικονίδια (tablet/desktop) ή λέξεις (κινητό). */
+                  const lineActions = (it: LineItem, i: number, iconOnly: boolean) => {
+                    const createLabel = lineKind == null
+                      ? 'Διάλεξε πρώτα σειρά παραστατικού — αυτή ορίζει σε ποιο μητρώο πρέπει να δείχνει η γραμμή'
+                      : `Νέα ${LINE_KIND_LABEL[lineKind].toLowerCase()} στο SoftOne από αυτή τη γραμμή`;
+                    const la = analyzeLine(it);
+                    return (
+                      <>
+                        <button type="button" disabled={lineKind == null} title={createLabel} aria-label={createLabel}
+                          onClick={() => lineKind && setCreateLine({ code: it.code, name: it.name, kind: lineKind, vat: it.vatRate })}
+                          className={iconOnly ? ICON_BTN : TEXT_BTN}>
+                          <FiPlusCircle aria-hidden className="size-3.5" />
+                          {!iconOnly && <>Νέα {lineKind ? LINE_KIND_LABEL[lineKind].toLowerCase() : 'εγγραφή'}</>}
+                        </button>
                         {saved.get(i) && (
-                          <LineAllocations
-                            key={`${saved.get(i)!.id}-alloc`}
-                            lineId={saved.get(i)!.id}
-                            lineTotal={toNum(it.total) ?? null}
-                            canManage={!ro}
-                            colSpan={ro ? 8 : 9}
-                            kind={allocKind}
-                            initial={saved.get(i)!.allocations}
-                          />
+                          <>
+                            {!iconOnly && <span aria-hidden>·</span>}
+                            <button type="button" disabled={toNum(it.total) == null}
+                              onClick={() => emitStartSplit(saved.get(i)!.id)}
+                              title="Μοίρασμα σε κατηγορίες εξόδου" aria-label="Μοίρασμα σε κατηγορίες εξόδου"
+                              className={iconOnly ? ICON_BTN : TEXT_BTN}>
+                              <FiGitBranch aria-hidden className="size-3.5" />
+                              {!iconOnly && 'Μοίρασμα'}
+                            </button>
+                          </>
                         )}
-                        {hasLineCustomFields(lineCf) && (
-                          <tr className="bg-sisyphus-500/5">
-                            <td colSpan={ro ? 8 : 9} className="px-3 py-1.5 text-[length:var(--fs-11)] text-muted-foreground">
-                              <LineCustomFields cf={lineCf} />
-                            </td>
-                          </tr>
+                        {!iconOnly && <span aria-hidden>·</span>}
+                        <button type="button" onClick={() => removeLine(i)} title="Διαγραφή γραμμής" aria-label={`Διαγραφή γραμμής ${i + 1}`}
+                          className={cn(iconOnly ? ICON_BTN : TEXT_BTN, 'hover:bg-dg-red-500/10 hover:text-dg-red-500')}>
+                          <FiTrash2 aria-hidden className="size-3.5" />
+                          {!iconOnly && 'Διαγραφή'}
+                        </button>
+                        {!la.consistent && (
+                          <span title="Ποσότητα × τιμή − έκπτωση δεν δίνει το σύνολο" className={cn('inline-flex items-center gap-0.5 font-semibold text-amber-800 dark:text-amber-300', iconOnly ? 'size-7 justify-center' : 'ml-1')}>
+                            <FiAlertCircle aria-hidden className="size-3.5" />{!iconOnly && 'ποσότητα × τιμή ≠ σύνολο'}
+                            {iconOnly && <span className="sr-only">Ποσότητα × τιμή ≠ σύνολο</span>}
+                          </span>
                         )}
-                        </React.Fragment>
-                        ); })}
-                    </tbody>
-                    <tfoot className="border-t border-border bg-muted/50">
-                      <tr className="text-[length:var(--fs-12)]">
-                        <td colSpan={ro ? 7 : 8} className="px-3 py-1.5 text-right font-semibold text-foreground">Άθροισμα γραμμών (καθαρό)</td>
-                        <td className="px-3 py-1.5 text-right font-bold tabular-nums text-foreground">{fmtMoney(linesNet)}</td>
-                        {!ro && <td />}
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
+                      </>
+                    );
+                  };
+                  return (
+                    <div>
+                      {/* Κεφαλίδα μόνο στο φαρδύ — στο στενό κάθε πεδίο έχει τη δική του ετικέτα. */}
+                      <div className={cn('gap-1.5 border-b border-border bg-sisyphus-500/10 px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-sisyphus-700 dark:text-sisyphus-300', row ? 'grid' : 'hidden', wideCols)}>
+                        {showCode && <span>Κωδ.</span>}
+                        <span>Περιγραφή</span>
+                        <span>Μον.</span>
+                        <span className="text-right">Ποσ.</span>
+                        <span className="text-right">Τιμή</span>
+                        <span className="text-right">Έκπτ.</span>
+                        <span className="text-right">ΦΠΑ%</span>
+                        <span className="text-right">Σύνολο</span>
+                      </div>
+                      {items.length === 0 ? (
+                        <p className="px-3 py-5 text-center text-[length:var(--fs-12)] text-muted-foreground">Δεν υπάρχουν γραμμές.</p>
+                      ) : (
+                        <ol className={cn('divide-y divide-border [&_input]:px-1.5 [&_input]:text-[length:var(--fs-12)] [&_textarea]:text-[length:var(--fs-12)]', row ? '[&_input]:h-7' : '[&_input]:h-8')}>
+                          {items.map((it, i) => {
+                            const la = analyzeLine(it);
+                            const dTitle = la.discountKind === 'percent' ? 'Έκπτωση επί τοις %' : la.discountKind === 'amount' ? 'Έκπτωση ως ποσό' : undefined;
+                            const lineCf = (it.customFields ?? null) as Record<string, unknown> | null;
+                            return (
+                              <li key={i} className={cn('px-2', row ? 'py-0.5' : 'py-1.5', !la.consistent ? 'bg-amber-500/5' : i % 2 ? 'bg-muted/20' : '')}>
+                                <div className={cn('grid grid-cols-6 items-start gap-x-1.5 gap-y-1', wideCols)}>
+                                  {/* Περιγραφή: πρώτη στο στενό, δεύτερη (μετά τον κωδικό) στο φαρδύ. */}
+                                  <label className={cn('min-w-0', row ? 'col-span-1 row-start-1' : 'order-1 col-span-4', at(2))}>
+                                    <span className={CAP}>Περιγραφή · γραμμή {i + 1}</span>
+                                    <span className="flex items-start gap-0.5">
+                                      <textarea
+                                        rows={1} value={it.name} disabled={ro}
+                                        aria-label={`Περιγραφή γραμμής ${i + 1}`}
+                                        onChange={(e) => setLine(i, 'name', e.target.value)}
+                                        className={cn(INPUT_CLS, 'h-auto min-w-0 flex-1 resize-none py-[0.3rem] leading-snug [field-sizing:content]', row ? 'min-h-7' : 'min-h-8')}
+                                      />
+                                      {/* Tablet/desktop: οι ενέργειες ΣΤΗΝ ΙΔΙΑ ΣΕΙΡΑ, ως μικρά εικονίδια — μια
+                                          δεύτερη σειρά κάτω από κάθε είδος διπλασίαζε το ύψος σε τιμολόγια 200 γραμμών. */}
+                                      {row && !ro && lineActions(it, i, true)}
+                                    </span>
+                                    <SerialChips serials={extractSerials(it.name)} />
+                                  </label>
+                                  <label className={cn(row ? 'col-span-1 row-start-1' : 'order-2 col-span-2', at(8))}>
+                                    <span className={cn(CAP, 'text-right')}>Σύνολο</span>
+                                    <CellInput value={it.total} onChange={(v) => setLine(i, 'total', v)} disabled={ro} numeric align="right"
+                                      className={cn('font-semibold', !la.consistent && 'border-amber-400 bg-amber-50 dark:bg-amber-950/30')} />
+                                  </label>
+                                  {showCode && (
+                                    <label className={cn(SMALL, at(1))}>
+                                      <span className={CAP}>Κωδ.</span>
+                                      <CellInput value={it.code} onChange={(v) => setLine(i, 'code', v)} disabled={ro} className="font-mono" />
+                                    </label>
+                                  )}
+                                  <label className={cn(SMALL, at(3))}>
+                                    <span className={CAP}>Μον.</span>
+                                    <CellInput value={it.unit} onChange={(v) => setLine(i, 'unit', v)} disabled={ro} />
+                                  </label>
+                                  <label className={cn(SMALL, at(4))}>
+                                    <span className={cn(CAP, 'text-right')}>Ποσ.</span>
+                                    <CellInput value={it.quantity} onChange={(v) => setLine(i, 'quantity', v)} disabled={ro} numeric align="right" />
+                                  </label>
+                                  <label className={cn(SMALL, at(5))}>
+                                    <span className={cn(CAP, 'text-right')}>Τιμή</span>
+                                    <CellInput value={it.price} onChange={(v) => setLine(i, 'price', v)} disabled={ro} numeric align="right" />
+                                  </label>
+                                  <label className={cn(SMALL, at(6))} title={dTitle}>
+                                    <span className={cn(CAP, 'text-right')}>Έκπτ.</span>
+                                    <CellInput value={it.discount} onChange={(v) => setLine(i, 'discount', v)} disabled={ro} numeric align="right"
+                                      className={cn(la.discountKind === 'percent' && 'text-sisyphus-700 dark:text-sisyphus-300')} />
+                                  </label>
+                                  <label className={cn(SMALL, at(7))}>
+                                    <span className={cn(CAP, 'text-right')}>ΦΠΑ%</span>
+                                    <CellInput value={it.vatRate} onChange={(v) => setLine(i, 'vatRate', v)} disabled={ro} numeric align="right" />
+                                  </label>
+                                  {/* Κινητό: οι ενέργειες σε δική τους μικρή σειρά, με λέξεις. */}
+                                  {!row && !ro && (
+                                    <div className="order-4 col-span-full flex flex-wrap items-center gap-x-1 text-[length:var(--fs-10)] text-muted-foreground">
+                                      {lineActions(it, i, false)}
+                                    </div>
+                                  )}
+                                </div>
+                                {saved.get(i) && (
+                                  <div className="mt-1">
+                                    <LineAllocations
+                                      key={`${saved.get(i)!.id}-alloc`}
+                                      lineId={saved.get(i)!.id}
+                                      lineTotal={toNum(it.total) ?? null}
+                                      canManage={!ro}
+                                      colSpan={8}
+                                      kind={allocKind}
+                                      layout="block"
+                                      hideIdle
+                                      initial={saved.get(i)!.allocations}
+                                    />
+                                  </div>
+                                )}
+                                {hasLineCustomFields(lineCf) && (
+                                  <div className="mt-1 rounded bg-sisyphus-500/5 px-2 py-1 text-[length:var(--fs-11)] text-muted-foreground">
+                                    <LineCustomFields cf={lineCf} />
+                                  </div>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      )}
+                      <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/50 px-3 py-1.5 text-[length:var(--fs-12)]">
+                        <span className="inline-flex items-center gap-1.5 font-semibold text-foreground">Άθροισμα γραμμών (καθαρό) <SourceChip source="lines" /></span>
+                        <span className="font-bold tabular-nums text-violet-800 dark:text-violet-200">{fmtMoney(linesNet)}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </Section>
             )}
 
@@ -776,12 +952,21 @@ export function OcrRowDetail({
                 ΚΕΝΗ σε κάθε παραστατικό. Και οι τρεις έλεγχοι συμφωνίας ήταν κρυμμένοι στην
                 καρτέλα «Γραμμές» — δηλαδή ο αριθμός και ο έλεγχός του δεν φαίνονταν ποτέ μαζί.
                 Τώρα το κενό γεμίζει με αυτό ακριβώς που ελέγχει τα σύνολα. */}
-            <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-2">
+            {/* Υπόμνημα: τα ίδια τα σήματα λένε την πηγή («από το χαρτί», «από τις γραμμές»), οπότε μία
+                γραμμή αρκεί — η πλήρης εξήγηση είναι στο tooltip του καθενός. */}
+            <p className="flex flex-wrap items-center gap-1.5 text-[length:var(--fs-11)] text-muted-foreground" aria-label="Υπόμνημα χρωμάτων">
+              <span className="font-semibold text-foreground">Πηγή ποσών:</span>
+              <SourceChip source="scan" /><SourceChip source="lines" /><SourceChip source="edited" />
+            </p>
+            {/* Δύο στήλες με βάση το πλάτος του ΚΟΥΤΙΟΥ, όχι της οθόνης: με το πρωτότυπο ανοιχτό η φόρμα
+                έχει ~310px σε οθόνη 1024 και το `lg:grid-cols-2` τη στρίμωχνε σε δύο στήλες των 150px. */}
+            <div className={cn('grid items-start gap-3', formW >= 704 ? 'grid-cols-2' : 'grid-cols-1')}>
               <div className="space-y-3">
                 {recon.vatGroups.length > 0 && (
                   <div className="overflow-hidden rounded-lg border border-border">
-                    <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">
-                      ΦΠΑ ανά συντελεστή{recon.hasMultipleRates && <span className="ml-1.5 font-semibold text-sisyphus-600">• πολλαπλά</span>}
+                    <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/50 px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">
+                      <span>ΦΠΑ ανά συντελεστή{recon.hasMultipleRates && <span className="ml-1.5 font-semibold text-sisyphus-600">• πολλαπλά</span>}</span>
+                      <SourceChip source="lines" />
                     </header>
                     <table className="w-full text-[length:var(--fs-12)]">
                       <thead className="text-left text-[length:var(--fs-11)] text-muted-foreground">
@@ -797,7 +982,7 @@ export function OcrRowDetail({
                         ))}
                       </tbody>
                       <tfoot className="border-t border-border bg-muted/30 font-semibold">
-                        <tr><td className="px-3 py-1">Σύνολο ΦΠΑ (υπολ.)</td><td /><td className="px-3 py-1 text-right tabular-nums">{fmtMoney(recon.vatComputed)}</td></tr>
+                        <tr><td className="px-3 py-1">Σύνολο ΦΠΑ από τις γραμμές</td><td /><td className="px-3 py-1 text-right tabular-nums text-violet-800 dark:text-violet-200">{fmtMoney(recon.vatComputed)}</td></tr>
                       </tfoot>
                     </table>
                   </div>
@@ -805,7 +990,7 @@ export function OcrRowDetail({
                 <div className="space-y-1.5">
                   <CheckRow ok={recon.linesVsSubtotal?.ok ?? null} label="Άθροισμα γραμμών = Καθαρή αξία"
                     got={fmtMoney(recon.sumNet)} exp={recon.subtotal != null ? fmtMoney(recon.subtotal) : '—'} />
-                  <CheckRow ok={recon.vatOk} label="Υπολ. ΦΠΑ = δηλωμένο ΦΠΑ"
+                  <CheckRow ok={recon.vatOk} label="ΦΠΑ γραμμών = ΦΠΑ παραστατικού"
                     got={fmtMoney(recon.vatComputed)} exp={recon.vatField != null ? fmtMoney(recon.vatField) : '—'} />
                   <CheckRow ok={recon.totalOk} label="Καθαρή + ΦΠΑ = Γενικό Σύνολο"
                     got={recon.totalComputed != null ? fmtMoney(recon.totalComputed) : '—'} exp={recon.totalField != null ? fmtMoney(recon.totalField) : '—'} />

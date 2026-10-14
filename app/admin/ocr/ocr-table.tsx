@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { type ColumnDef } from '@tanstack/react-table';
-import { FiMoreVertical, FiFile, FiExternalLink, FiSend, FiTrash2, FiEye, FiUserPlus, FiRefreshCw, FiSearch, FiCheck, FiChevronDown, FiChevronRight, FiAlertCircle, FiCheckCircle, FiAlertTriangle, FiSlash, FiRotateCcw, FiPlay } from 'react-icons/fi';
+import { FiMoreVertical, FiFile, FiExternalLink, FiSend, FiTrash2, FiEye, FiUserPlus, FiRefreshCw, FiSearch, FiCheck, FiChevronDown, FiChevronRight, FiAlertCircle, FiCheckCircle, FiAlertTriangle, FiSlash, FiRotateCcw, FiPlay, FiFileText } from 'react-icons/fi';
 import { SoftoneAfmDialog } from '@/components/admin/softone-afm-dialog';
 import { OcrDayProblemsModal } from '@/components/admin/ocr-day-problems-modal';
 import { DataTable } from '@/components/ui/data-table';
@@ -141,6 +141,12 @@ function localDayKey(iso: string) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${d.getFullYear()}-${m}-${day}`;
+}
+
+/** «25-9-2026» — η ημερομηνία στο κινητό, όπου το ολογράφως τύλιγε σε τρεις γραμμές. */
+function shortDayLabel(key: string) {
+  const [y, m, d] = key.split('-').map(Number);
+  return `${d}-${m}-${y}`;
 }
 
 /** Greek long date label from a YYYY-MM-DD key, parsed as local date. */
@@ -900,10 +906,17 @@ export function OcrTable({
                 >
                   {ctx.collapsed ? <FiChevronRight className="size-3.5" /> : <FiChevronDown className="size-3.5" />}
                 </button>
-                <span className="capitalize">{label}</span>
-                <span className="inline-flex items-center gap-1 rounded-full bg-sisyphus-500/10 px-2 py-0.5 text-[length:var(--fs-10)] font-semibold uppercase tracking-wide text-sisyphus-600">
-                  {count} {count === 1 ? 'σκανάρισμα' : 'σκαναρίσματα'}
-                  {unique !== count && <span className="text-muted-foreground">· {unique} μοναδικά</span>}
+                {/* ΚΙΝΗΤΟ = ΑΡΙΘΜΟΙ: «25-9-2026» και σκέτοι αριθμοί στα σήματα. Ολογράφως η μέρα και
+                    οι λέξεις τύλιγαν την κεφαλίδα σε τρεις γραμμές. */}
+                <span className="whitespace-nowrap tabular-nums md:hidden" title={label}>{shortDayLabel(key)}</span>
+                <span className="hidden capitalize md:inline">{label}</span>
+                <span
+                  title={`${count} ${count === 1 ? 'σκανάρισμα' : 'σκαναρίσματα'}${unique !== count ? ` · ${unique} μοναδικά` : ''}`}
+                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-sisyphus-500/10 px-2 py-0.5 text-[length:var(--fs-10)] font-semibold uppercase tracking-wide text-sisyphus-600"
+                >
+                  <FiFileText aria-hidden className="size-3 md:hidden" />
+                  {count}<span className="hidden md:inline"> {count === 1 ? 'σκανάρισμα' : 'σκαναρίσματα'}</span>
+                  {unique !== count && <span className="hidden text-muted-foreground md:inline">· {unique} μοναδικά</span>}
                 </span>
                 {pending > 0 && (
                   <button
@@ -911,9 +924,9 @@ export function OcrTable({
                     onClick={() => setProblemsDay({ label, rows: dayRows })}
                     className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[length:var(--fs-10)] font-semibold"
                     style={{ backgroundColor: '#FFF8EE', color: '#92400E', borderColor: '#FCD9A8' }}
-                    title="Δες προβλήματα & λύσεις"
+                    title={`${pending} ${pending === 1 ? 'εκκρεμότητα' : 'εκκρεμότητες'} — δες προβλήματα & λύσεις`}
                   >
-                    <FiAlertCircle className="size-3" /> {pending} {pending === 1 ? 'εκκρεμότητα' : 'εκκρεμότητες'}
+                    <FiAlertCircle className="size-3" /> {pending}<span className="hidden md:inline"> {pending === 1 ? 'εκκρεμότητα' : 'εκκρεμότητες'}</span>
                   </button>
                 )}
                 <div className="ml-auto">

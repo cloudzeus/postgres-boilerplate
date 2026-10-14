@@ -568,3 +568,38 @@ describe('legacyKeyToPath — κλειδιά που μολύνουν prototype',
     expect((LEGACY_KEY_TO_PATH as Record<string, unknown>).__proto__).toBeUndefined();
   });
 });
+
+import { reconcileDocument as reconcileForDerived, toLegacy as toLegacyForDerived, fromLegacy as fromLegacyForDerived, normalizeDocument as normalizeForDerived } from '../canonical';
+
+describe('totals.derived — ποια σύνολα συμπληρώθηκαν από τις γραμμές', () => {
+  const base = (totals: Record<string, unknown>) => normalizeForDerived({
+    kind: 'invoice',
+    lines: [{ name: 'Α', quantity: 1, unitPrice: 100, vatRate: 24, net: 100 }, { name: 'Β', quantity: 2, unitPrice: 25, vatRate: 24, net: 50 }],
+    totals,
+  });
+
+  it('τυπωμένα σύνολα: κανένα σημάδι', () => {
+    const { document } = reconcileForDerived(base({ net: 150, vatAmount: 36, total: 186 }));
+    expect(document.totals.derived ?? []).not.toContain('net');
+    expect(document.totals.derived ?? []).not.toContain('total');
+  });
+
+  it('κενά σύνολα: συμπληρώνονται ΚΑΙ σημαδεύονται', () => {
+    const { document } = reconcileForDerived(base({}));
+    expect(document.totals).toMatchObject({ net: 150, vatAmount: 36, total: 186 });
+    expect(document.totals.derived).toEqual(expect.arrayContaining(['net', 'vatAmount', 'total']));
+    // Φτάνει στη φόρμα ως παλιά κλειδιά.
+    expect(toLegacyForDerived(document).totalsFromLines).toEqual(expect.arrayContaining(['subtotal', 'vatAmount', 'totalAmount']));
+  });
+
+  it('το σημάδι επιβιώνει την αποθήκευση· φεύγει όταν ο χρήστης γράψει άλλη τιμή', () => {
+    const first = reconcileForDerived(base({})).document;
+    const legacy = toLegacyForDerived(first);
+    const again = reconcileForDerived(normalizeForDerived(fromLegacyForDerived(legacy))).document;
+    expect(again.totals.derived).toEqual(expect.arrayContaining(['net', 'total']));
+    const edited = reconcileForDerived(normalizeForDerived(fromLegacyForDerived({ ...legacy, subtotal: 140 }))).document;
+    expect(edited.totals.derived ?? []).not.toContain('net');
+    // Το totalsFromLines δεν καταλήγει σε ειδικό πεδίο.
+    expect(edited.custom).not.toHaveProperty('totalsFromLines');
+  });
+});

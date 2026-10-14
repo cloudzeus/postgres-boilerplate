@@ -199,8 +199,12 @@ function AccountPicker({
 }
 
 export function LineAllocations({
-  lineId, lineTotal, canManage, initial, colSpan, kind,
+  lineId, lineTotal, canManage, initial, colSpan, kind, layout = 'row', hideIdle = false,
 }: {
+  /** Χωρίς επιμερισμό και χωρίς πρόταση: τίποτα (ο καλών δείχνει δικό του «Μοίρασμα»). */
+  hideIdle?: boolean;
+  /** `row` = γραμμή πίνακα (κάτω από τη γραμμή του παραστατικού)· `block` = μέσα σε κάρτα (στενή οθόνη). */
+  layout?: 'row' | 'block';
   lineId: string;
   /**
    * Ο ΚΟΣΜΟΣ του παραστατικού, από τη σειρά του: `LINEITEM` χρεοπιστώσεις (διπλογραφικά) ή
@@ -222,7 +226,7 @@ export function LineAllocations({
   React.useEffect(() => { setRows(initial); setDirty(false); }, [initial]);
   /** Η γραμμή επιμερισμού για την οποία δημιουργείται νέα κατηγορία εξόδου. */
   const [creatingFor, setCreatingFor] = React.useState<number | null>(null);
-  const rootRef = React.useRef<HTMLTableRowElement>(null);
+  const rootRef = React.useRef<HTMLElement>(null);
 
   // Ο οδηγός αντιστοίχισης είπε «αφορά πολλά μαζί»: ξεκινάμε το σπάσιμο στα δύο (50/50) — ο χρήστης
   // διαλέγει κατηγορίες και αλλάζει τα ποσά· η δεύτερη γραμμή κλείνει μόνη της.
@@ -403,13 +407,46 @@ export function LineAllocations({
 
   if (!canManage && rows.length === 0) return null;
 
-  return (
-    <tr ref={rootRef} className="bg-sisyphus-500/5">
-      <td colSpan={colSpan} className="px-3 py-2">
-        <div className="flex flex-col gap-1.5">
+  // ΚΕΝΟ = ΔΙΑΚΡΙΤΙΚΟ. Η πλήρης λωρίδα («ΛΟΓΑΡΙΑΣΜΟΣ ΔΑΠΑΝΗΣ» + κουμπί) κάτω από ΚΑΘΕ γραμμή
+  // διπλασίαζε το ύψος του πίνακα με κεφαλίδες χωρίς περιεχόμενο. Χωρίς επιμερισμό και χωρίς πρόταση
+  // μένει ένα μικρό κουμπί· η λωρίδα ανοίγει όταν υπάρχει κάτι να δείξει.
+  const idle = rows.length === 0 && !hint && !hw && !shape;
+  const idleButton = (
+    <button
+      type="button" onClick={addRow} disabled={busy || lineTotal == null}
+      title={lineTotal == null ? 'Η γραμμή δεν έχει σύνολο' : 'Μοίρασε το ποσό της γραμμής σε περισσότερες κατηγορίες εξόδου'}
+      className="inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 text-[length:var(--fs-11)] font-semibold text-muted-foreground transition hover:bg-sisyphus-500/10 hover:text-sisyphus-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-sisyphus-300"
+    >
+      <FiPlus className="size-3" aria-hidden /> Μοίρασμα σε κατηγορίες εξόδου
+    </button>
+  );
+  const modal = kind === 'LINEITEM' ? (
+    <CreateRegistryEntryModal
+      open={creatingFor != null}
+      onOpenChange={(o) => { if (!o) setCreatingFor(null); }}
+      kind="lineitem"
+      onCreated={(m) => {
+        if (creatingFor != null && m.lin != null) {
+          update(creatingFor, { registryMtrl: m.lin, kind, accountCode: m.code, accountName: m.name });
+        }
+        setCreatingFor(null);
+      }}
+    />
+  ) : null;
+  const wrap = (body: React.ReactNode, tone: string) => layout === 'block'
+    ? <div ref={rootRef as React.RefObject<HTMLDivElement>} className={cn('rounded-md', tone)}>{body}{modal}</div>
+    : (
+      <tr ref={rootRef as React.RefObject<HTMLTableRowElement>} className={tone}>
+        <td colSpan={colSpan} className={idle ? 'px-3 py-0.5' : 'px-3 py-2'}>{body}{modal}</td>
+      </tr>
+    );
+  if (idle) return canManage && !hideIdle ? wrap(idleButton, '') : null;
+
+  return wrap(
+        <div className={cn('flex flex-col gap-1.5', layout === 'block' && 'p-2')}>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[length:var(--fs-12)] font-extrabold uppercase tracking-wide text-foreground">
-              Λογαριασμός δαπάνης {rows.length > 1 ? `— επιμερισμός σε ${rows.length}` : ''}
+            <span className="text-[length:var(--fs-12)] font-bold text-foreground">
+              {rows.length > 1 ? `Μοίρασμα σε ${rows.length} κατηγορίες εξόδου` : 'Κατηγορία εξόδου της γραμμής'}
             </span>
             {canManage && (
               <div className="flex items-center gap-1.5">
@@ -418,7 +455,7 @@ export function LineAllocations({
                   title={lineTotal == null ? 'Η γραμμή δεν έχει σύνολο' : undefined}
                   className="inline-flex h-6 items-center gap-1 rounded-md border border-sisyphus-500/40 px-2 text-[length:var(--fs-11)] font-semibold text-sisyphus-700 transition hover:bg-sisyphus-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-sisyphus-300"
                 >
-                  <FiPlus className="size-3" /> Προσθήκη γραμμής επιμερισμού
+                  <FiPlus className="size-3" /> Προσθήκη κομματιού
                 </button>
                 {dirty && (
                   <button
@@ -573,21 +610,7 @@ export function LineAllocations({
               </span>
             </div>
           )}
-        </div>
-        {kind === 'LINEITEM' && (
-          <CreateRegistryEntryModal
-            open={creatingFor != null}
-            onOpenChange={(o) => { if (!o) setCreatingFor(null); }}
-            kind="lineitem"
-            onCreated={(m) => {
-              if (creatingFor != null && m.lin != null) {
-                update(creatingFor, { registryMtrl: m.lin, kind, accountCode: m.code, accountName: m.name });
-              }
-              setCreatingFor(null);
-            }}
-          />
-        )}
-      </td>
-    </tr>
+        </div>,
+    'bg-sisyphus-500/5',
   );
 }
