@@ -51,15 +51,16 @@ interface FieldSpec { key: string; label: string; required?: boolean; numeric?: 
 type FormSize = 'narrow' | 'mid' | 'wide';
 const formSizeOf = (w: number): FormSize => (w >= 768 ? 'wide' : w >= 448 ? 'mid' : 'narrow');
 const SPAN_CLS: Record<FormSize, Record<number, string>> = {
-  narrow: { 3: 'col-span-full', 4: 'col-span-full', 5: 'col-span-full', 6: 'col-span-full', 7: 'col-span-full', 12: 'col-span-full' },
-  mid: { 3: 'col-span-3', 4: 'col-span-3', 5: 'col-span-3', 6: 'col-span-6', 7: 'col-span-6', 12: 'col-span-full' },
-  wide: { 3: 'col-span-3', 4: 'col-span-4', 5: 'col-span-5', 6: 'col-span-6', 7: 'col-span-7', 12: 'col-span-full' },
+  narrow: { 2: 'col-span-full', 3: 'col-span-full', 4: 'col-span-full', 5: 'col-span-full', 6: 'col-span-full', 7: 'col-span-full', 12: 'col-span-full' },
+  mid: { 2: 'col-span-3', 3: 'col-span-3', 4: 'col-span-3', 5: 'col-span-3', 6: 'col-span-6', 7: 'col-span-6', 12: 'col-span-full' },
+  wide: { 2: 'col-span-2', 3: 'col-span-3', 4: 'col-span-4', 5: 'col-span-5', 6: 'col-span-6', 7: 'col-span-7', 12: 'col-span-full' },
 };
 /** Το πλέγμα που διαβάζουν οι παραπάνω κλάσεις. Ένα σημείο, για να μη διαφωνήσουν ποτέ. */
 const GRID_CLS: Record<FormSize, string> = {
-  narrow: 'grid grid-cols-1 gap-x-3 gap-y-2',
-  mid: 'grid grid-cols-6 gap-x-3 gap-y-2',
-  wide: 'grid grid-cols-12 gap-x-3 gap-y-2',
+  // Συμπαγές: μικρά κενά, και στο tablet/desktop χαμηλότερα πεδία (28px).
+  narrow: 'grid grid-cols-1 gap-x-2 gap-y-1.5',
+  mid: 'grid grid-cols-6 gap-x-2 gap-y-1.5 [&_input]:h-7',
+  wide: 'grid grid-cols-12 gap-x-2 gap-y-1.5 [&_input]:h-7',
 };
 
 /** Το πλάτος ενός στοιχείου, ζωντανά (ResizeObserver). */
@@ -84,13 +85,14 @@ const FIELD_SPECS: Record<string, FieldSpec[]> = {
     { key: 'date',               label: 'Ημερομηνία',   required: true, span: 4, group: 'meta' },
     { key: 'aadeMark',           label: 'ΜΑΡΚ ΑΑΔΕ',    span: 4, group: 'meta' },
 
-    { key: 'companyName',        label: 'Επωνυμία',     required: true, span: 6, group: 'issuer' },
-    { key: 'vatNumber',          label: 'ΑΦΜ',          required: true, span: 3, group: 'issuer' },
-    { key: 'companyDoy',         label: 'ΔΟΥ',          span: 3, group: 'issuer' },
-    { key: 'companyAddress',     label: 'Διεύθυνση',    span: 7, group: 'issuer' },
-    { key: 'companyProfession',  label: 'Δραστηριότητα', span: 5, group: 'issuer' },
-    { key: 'companyPhone',       label: 'Τηλέφωνο',     span: 5, group: 'issuer' },
-    { key: 'companyEmail',       label: 'Email',        span: 7, group: 'issuer' },
+    // ΔΥΟ σειρές στο φαρδύ (5+2+2+3 / 5+4+3): ο εκδότης έπιανε τρεις, με το email μόνο του.
+    { key: 'companyName',        label: 'Επωνυμία',     required: true, span: 5, group: 'issuer' },
+    { key: 'vatNumber',          label: 'ΑΦΜ',          required: true, span: 2, group: 'issuer' },
+    { key: 'companyDoy',         label: 'ΔΟΥ',          span: 2, group: 'issuer' },
+    { key: 'companyPhone',       label: 'Τηλέφωνο',     span: 3, group: 'issuer' },
+    { key: 'companyAddress',     label: 'Διεύθυνση',    span: 5, group: 'issuer' },
+    { key: 'companyProfession',  label: 'Δραστηριότητα', span: 4, group: 'issuer' },
+    { key: 'companyEmail',       label: 'Email',        span: 3, group: 'issuer' },
     // Ο ΛΗΠΤΗΣ δεν είναι πεδίο φόρμας: είναι πάντα η εταιρεία που τρέχει την εφαρμογή.
     // Τα `customer*` εξακολουθούν να εξάγονται και να αποθηκεύονται — απλώς δεν ζητούνται εδώ.
     { key: 'subtotal',           label: 'Καθαρή αξία',  required: true, numeric: true, group: 'totals' },
@@ -735,7 +737,7 @@ export function OcrRowDetail({
               <>
                 {/* Ο αριθμός και η ημερομηνία ΠΑΝΩ από τον εκδότη — έτσι είναι και το χαρτί. */}
                 <Section title="Παραστατικό" right={<MissingBadge n={missingIn('meta')} />}>
-                  <div className={cn(GRID_CLS[formSize], 'p-3')}>{byGroup('meta').map(field)}</div>
+                  <div className={cn(GRID_CLS[formSize], 'px-2.5 py-2')}>{byGroup('meta').map(field)}</div>
                 </Section>
                 {/* Εκδότης — ΜΟΝΟΣ του. Ο λήπτης είναι ΠΑΝΤΑ η εταιρεία που τρέχει την εφαρμογή
                     (το σύστημα καταχωρεί μόνο εισερχόμενα), οπότε μια κάρτα «Πελάτης» ζητούσε από
@@ -745,12 +747,12 @@ export function OcrRowDetail({
                     η διάκριση τιμολογίου/απόδειξης (`lib/ocr/canonical.ts`) και ο εντοπισμός
                     αντιστροφής εκδότη/λήπτη στη λίστα. */}
                 <Section title="Εκδότης" accent right={<MissingBadge n={missingIn('issuer')} />}>
-                  <div className={cn(GRID_CLS[formSize], 'p-3')}>{byGroup('issuer').map(field)}</div>
+                  <div className={cn(GRID_CLS[formSize], 'px-2.5 py-2')}>{byGroup('issuer').map(field)}</div>
                 </Section>
               </>
             ) : (
               <Section title="Στοιχεία" accent right={<MissingBadge n={missingIn('main')} />}>
-                <div className={cn(GRID_CLS[formSize], 'p-3')}>{byGroup('main').map(field)}</div>
+                <div className={cn(GRID_CLS[formSize], 'px-2.5 py-2')}>{byGroup('main').map(field)}</div>
               </Section>
             )}
 
