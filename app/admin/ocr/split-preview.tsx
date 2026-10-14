@@ -8,7 +8,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { FiScissors, FiCheck, FiLoader, FiAlertTriangle, FiX } from 'react-icons/fi';
+import { FiScissors, FiCheck, FiLoader, FiAlertTriangle, FiX, FiZap } from 'react-icons/fi';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { segmentsOf } from '@/lib/ocr/split';
@@ -19,7 +19,18 @@ export interface SplitPreviewData {
   pageCount: number;
   hasTextLayer: boolean;
   suggested: number[];
-  pages: { index: number; thumbUrl: string }[];
+  /** Πώς βρέθηκαν τα όρια: από το κείμενο, από ανάλυση των σελίδων (AI), ή κανένα σήμα (ένα ανά σελίδα). */
+  method?: 'text' | 'vision' | 'per_page';
+  visionError?: string | null;
+  pages: {
+    index: number;
+    thumbUrl: string;
+    /** Ό,τι διάβασε η ανάλυση στη σελίδα — για να φαίνεται με μια ματιά ποιο παραστατικό είναι. */
+    info?: {
+      kind: string | null; issuerName: string | null; docNumber: string | null; date: string | null;
+      total: number | null; pageOf: { page: number; of: number } | null;
+    } | null;
+  }[];
   fileName: string;
   /** Ο τύπος που διάλεξε ο χρήστης στη φόρμα — ισχύει για κάθε παραστατικό της στοίβας. */
   docType: ExtractDocType;
@@ -121,13 +132,23 @@ export function OcrSplitPreview({ data, onCancel }: { data: SplitPreviewData; on
         </div>
       </header>
 
-      {!data.hasTextLayer && (
+      {data.method === 'vision' && (
+        <p className="flex items-start gap-2 border-b border-border bg-sisyphus-500/[0.07] px-5 py-2.5 text-[length:var(--fs-12)] text-foreground">
+          <FiZap className="mt-0.5 size-4 shrink-0 text-sisyphus-600" />
+          <span>
+            Τα όρια βρέθηκαν με <strong>ανάλυση των σελίδων</strong>: εκδότης, αριθμός και «σελ. k από N» σε κάθε σελίδα.
+            Κάτω από κάθε παραστατικό φαίνεται τι αναγνωρίστηκε — έλεγξε και άλλαξε όποιο ψαλίδι χρειάζεται.
+          </span>
+        </p>
+      )}
+      {data.method !== 'vision' && !data.hasTextLayer && (
         <p className="flex items-start gap-2 border-b border-border bg-amber-500/10 px-5 py-2.5 text-[length:var(--fs-12)] text-amber-900 dark:text-amber-200">
           <FiAlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span>
-            Το PDF είναι σαρωμένο (χωρίς κείμενο), οπότε δεν υπάρχουν ενδείξεις για το πού αλλάζει
+            Το PDF είναι σαρωμένο (χωρίς κείμενο){data.visionError ? ' και η ανάλυση των σελίδων δεν ολοκληρώθηκε' : ''}, οπότε δεν υπάρχουν ενδείξεις για το πού αλλάζει
             παραστατικό. Η πρόταση είναι <strong>ένα παραστατικό ανά σελίδα</strong> — έλεγξε τις
             σελίδες και ένωσε όσες ανήκουν στο ίδιο παραστατικό κλείνοντας το ψαλίδι.
+            {data.visionError && <span className="mt-0.5 block text-[length:var(--fs-11)] opacity-80">{data.visionError}</span>}
           </span>
         </p>
       )}
@@ -186,6 +207,21 @@ export function OcrSplitPreview({ data, onCancel }: { data: SplitPreviewData; on
                     <span className="mt-0.5 block text-[length:var(--fs-9)] font-bold uppercase leading-tight tracking-wider text-sisyphus-600">
                       Παραστατικό {segIndex + 1}, σελ. {seg.from + 1}
                       {seg.to > seg.from ? `-${seg.to + 1}` : ''}
+                    </span>
+                  )}
+                  {page.info && (isFirstOfSegment ? (page.info.issuerName || page.info.docNumber) : page.info.pageOf) && (
+                    <span className="mt-0.5 block text-[length:var(--fs-10)] leading-tight text-foreground/80" title={[page.info.issuerName, page.info.docNumber, page.info.date].filter(Boolean).join(' · ')}>
+                      {isFirstOfSegment ? (
+                        <>
+                          <span className="block truncate font-medium">{page.info.issuerName ?? '—'}</span>
+                          <span className="block truncate">
+                            {page.info.docNumber ? `#${page.info.docNumber}` : ''}
+                            {page.info.total != null ? ` · ${page.info.total.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : ''}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="block">συνέχεια · σελ. {page.info.pageOf!.page}/{page.info.pageOf!.of}</span>
+                      )}
                     </span>
                   )}
                 </figcaption>

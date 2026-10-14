@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 
-const { db, rbac, bunny, text } = vi.hoisted(() => ({
+const { db, rbac, bunny, text, vision } = vi.hoisted(() => ({
   db: {
     ocrBatch: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
     ocrDocument: { create: vi.fn(), count: vi.fn() },
@@ -13,12 +13,15 @@ const { db, rbac, bunny, text } = vi.hoisted(() => ({
   rbac: { requirePermission: vi.fn() },
   bunny: { bunnyUploadPrivate: vi.fn(), bunnyDownload: vi.fn() },
   text: { extractPageTexts: vi.fn() },
+  vision: { analyzePagesForSplit: vi.fn() },
 }));
 
 vi.mock('@/lib/db', () => ({ prisma: db }));
 vi.mock('@/lib/rbac', () => rbac);
 vi.mock('@/lib/bunny', () => bunny);
 vi.mock('@/lib/ocr/pdf-text', () => text);
+// Η ανάλυση εικόνας είναι κλήση σε μοντέλο — εδώ ελέγχεται μόνο πώς τη χρησιμοποιεί το route.
+vi.mock('@/lib/ocr/split-vision', () => vision);
 
 import { POST as splitPreview } from '@/app/api/admin/ocr/split-preview/route';
 import { POST as split } from '@/app/api/admin/ocr/split/route';
@@ -53,9 +56,35 @@ beforeEach(() => {
   let seq = 0;
   db.ocrDocument.create.mockImplementation(async () => ({ id: `doc${++seq}` }));
   text.extractPageTexts.mockResolvedValue([]);
+  vision.analyzePagesForSplit.mockResolvedValue(null);
 });
 
 describe('POST /api/admin/ocr/split-preview', () => {
+  it('σαρωμένο PDF με ανάλυση σελίδων → όρια από τα σήματα και ετικέτες ανά σελίδα', async () => {
+    text.extractPageTexts.mockResolvedValue(['', '', '', '']);
+    const info = (issuerName: string | null) => ({ kind: 'invoice', issuerName, docNumber: null, date: null, total: null, pageOf: null });
+    vision.analyzePagesForSplit.mockResolvedValue({
+      model: 'google/gemini-2.5-flash',
+      signals: [
+        { startsNew: true, docNumber: 'A1', pageOf: { page: 1, of: 2 } },
+        { startsNew: false, docNumber: 'A1', pageOf: { page: 2, of: 2 } },
+        { startsNew: true, docNumber: 'B7' },
+        { blank: true },
+      ],
+      info: [info('Εκδότης Α'), info('Εκδότης Α'), info('Εκδότης Β'), info(null)],
+    });
+    const body = await (await splitPreview(previewReq(await makePdf(4)))).json();
+    expect(body).toMatchObject({ method: 'vision', suggested: [0, 2], visionError: null });
+    expect(body.pages[2].info.issuerName).toBe('Εκδότης Β');
+  });
+
+  it('αποτυχία ανάλυσης → ένα ανά σελίδα, με το μήνυμα', async () => {
+    text.extractPageTexts.mockResolvedValue(['', '']);
+    vision.analyzePagesForSplit.mockResolvedValue({ error: 'OpenRouter: 402 · Google: 403' });
+    const body = await (await splitPreview(previewReq(await makePdf(2)))).json();
+    expect(body).toMatchObject({ method: 'per_page', suggested: [0, 1], visionError: 'OpenRouter: 402 · Google: 403' });
+  });
+
   it('ανεβάζει ΜΙΑ φορά το πρωτότυπο, μετράει σελίδες και προτείνει κοψίματα', async () => {
     text.extractPageTexts.mockResolvedValue([
       'ΑΦΜ: 999863881 Αριθμός: 17 Σελίδα 1 από 2',

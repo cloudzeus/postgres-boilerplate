@@ -256,9 +256,13 @@ export function OcrUploadForm() {
                   <FiLoader className="size-5 animate-spin text-sisyphus-600" />
                 </span>
                 <p className="text-sm font-semibold text-sisyphus-600">
-                  {multiDoc ? 'Προετοιμασία σελίδων…' : 'Ανάλυση μέσω AI…'}
+                  {multiDoc ? 'Ανάλυση σελίδων…' : 'Ανάλυση μέσω AI…'}
                 </p>
-                {open && (
+                {multiDoc ? (
+                  <p className="text-[length:var(--fs-11)] text-muted-foreground">
+                    Εντοπισμός του πού αρχίζει κάθε παραστατικό. Σε σαρωμένο PDF διαρκεί 20–60 δευτερόλεπτα.
+                  </p>
+                ) : open && (
                   <p className="text-[length:var(--fs-11)] text-muted-foreground">
                     Εξαγωγή πεδίων, line items, και σχηματισμός JSON. Διαρκεί 5-25 δευτερόλεπτα.
                   </p>

@@ -171,3 +171,90 @@ export function normalizeCuts(starts: number[], pageCount: number): number[] {
   }
   return [...set].sort((a, b) => a - b);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Διαχωρισμός από ΣΗΜΑΤΑ ανά σελίδα (κείμενο ή ανάλυση εικόνας)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Τι ξέρουμε για μία σελίδα, από όποια πηγή (text layer ή ανάλυση της εικόνας από το μοντέλο).
+ * Κάθε πεδίο είναι προαιρετικό: «δεν ξέρω» ≠ «όχι».
+ */
+export interface PageSignal {
+  /** Η γνώμη του μοντέλου «εδώ αρχίζει νέο παραστατικό» — το ΑΣΘΕΝΕΣΤΕΡΟ σήμα, μόνο για ισοπαλίες. */
+  startsNew?: boolean | null;
+  issuerAfm?: string | null;
+  /** Ο αριθμός παραστατικού, όπως τυπώνεται (κανονικοποιείται εδώ). */
+  docNumber?: string | null;
+  /** «σελ. k από N». */
+  pageOf?: { page: number; of: number } | null;
+  /** Κενή σελίδα (πίσω όψη, διαχωριστικό) — πάει πάντα με το προηγούμενο. */
+  blank?: boolean;
+}
+
+const numberKey = (s: string | null | undefined): string | null => {
+  const k = String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^\p{Lu}\p{N}]/gu, '');
+  return k && /\p{N}/u.test(k) ? k : null;
+};
+
+/**
+ * Πού αρχίζει κάθε παραστατικό, από σήματα ανά σελίδα. Ίδια φιλοσοφία με το `suggestSplits`
+ * (συντηρητικά, το τυπωμένο υπερισχύει της γνώμης):
+ *   1. κενή σελίδα → συνέχεια·
+ *   2. «σελ. 1 από N» → νέο· «σελ. k από N», k>1 → συνέχεια·
+ *   3. αριθμός παραστατικού: διαφορετικός → νέο, ίδιος (με ίδιο ή άγνωστο ΑΦΜ) → συνέχεια·
+ *   4. ΑΦΜ εκδότη διαφορετικό → νέο·
+ *   5. αλλιώς η γνώμη του μοντέλου (`startsNew`)· χωρίς γνώμη → συνέχεια.
+ */
+export function suggestSplitsFromSignals(signals: PageSignal[]): number[] {
+  const n = signals.length;
+  if (n <= 0) return [];
+  const starts: number[] = [0];
+  let curNumber = numberKey(signals[0]?.docNumber);
+  let curAfm = signals[0]?.issuerAfm ?? null;
+
+  for (let i = 1; i < n; i++) {
+    const s = signals[i] ?? {};
+    const number = numberKey(s.docNumber);
+    const afm = s.issuerAfm ?? null;
+    let isStart: boolean;
+    if (s.blank) isStart = false;
+    else if (s.pageOf?.page === 1) isStart = true;
+    else if (s.pageOf && s.pageOf.page > 1) isStart = false;
+    else if (number && curNumber && number !== curNumber) isStart = true;
+    else if (number && curNumber && number === curNumber && (!afm || !curAfm || afm === curAfm)) isStart = false;
+    else if (afm && curAfm && afm !== curAfm) isStart = true;
+    else isStart = s.startsNew === true;
+
+    if (isStart) {
+      starts.push(i);
+      curNumber = number;
+      curAfm = afm;
+    } else {
+      curNumber ??= number;
+      curAfm ??= afm;
+    }
+  }
+  return starts;
+}
+
+/** Τα σήματα της σελίδας από το text layer (για συγχώνευση με την ανάλυση εικόνας). */
+export function textSignalOf(text: string): PageSignal {
+  if (!String(text ?? '').trim()) return {};
+  return { docNumber: documentNumberOf(text), issuerAfm: issuerAfmOf(text), pageOf: pageMarkerOf(text) };
+}
+
+/**
+ * Συγχώνευση: ό,τι τυπώνεται στο κείμενο (ακριβές) υπερισχύει· τα κενά τα συμπληρώνει η ανάλυση
+ * εικόνας, που φέρνει και τη «γνώμη» `startsNew` και την ένδειξη κενής σελίδας.
+ */
+export function mergeSignals(text: PageSignal, vision: PageSignal | null | undefined): PageSignal {
+  const v = vision ?? {};
+  return {
+    docNumber: text.docNumber ?? v.docNumber ?? null,
+    issuerAfm: text.issuerAfm ?? v.issuerAfm ?? null,
+    pageOf: text.pageOf ?? v.pageOf ?? null,
+    startsNew: v.startsNew ?? null,
+    blank: v.blank ?? false,
+  };
+}

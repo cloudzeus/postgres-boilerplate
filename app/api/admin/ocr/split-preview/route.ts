@@ -4,7 +4,8 @@ import { requirePermission } from '@/lib/rbac';
 import { bunnyUploadPrivate } from '@/lib/bunny';
 import { extractPageTexts } from '@/lib/ocr/pdf-text';
 import { pdfPageCount } from '@/lib/ocr/split-pdf';
-import { suggestSplits, MAX_SPLIT_PAGES } from '@/lib/ocr/split';
+import { suggestSplits, suggestSplitsFromSignals, mergeSignals, textSignalOf, MAX_SPLIT_PAGES } from '@/lib/ocr/split';
+import { analyzePagesForSplit, type PageInfo } from '@/lib/ocr/split-vision';
 import { MAX_SPLIT_BYTES, MAX_SPLIT_MB } from '@/lib/ocr/limits';
 import { isPdfBuffer } from '@/lib/ocr/rasterize';
 
@@ -91,20 +92,40 @@ export async function POST(req: Request) {
     data: { sourceKey, sourceName: file.name || 'source.pdf', sourcePages: pageCount },
   });
 
-  // Το text layer δίνει τα σήματα του διαχωρισμού. Σαρωμένο PDF δεν έχει — και τότε η πρόταση
-  // γίνεται «ένα παραστατικό ανά σελίδα», που το λέμε ρητά στη διεπαφή.
+  // Το text layer δίνει τα σήματα του διαχωρισμού δωρεάν. Όταν λείπει έστω και από μία σελίδα
+  // (σαρωμένο PDF), ΜΙΑ κλήση στο μοντέλο αναλύει όλες τις σελίδες (`lib/ocr/split-vision.ts`) και
+  // τα σήματά της συμπληρώνουν όσα δεν δίνει το κείμενο. Αν η ανάλυση αποτύχει, μένει η παλιά
+  // πρόταση (κείμενο, ή «ένα ανά σελίδα»), που το λέμε ρητά στη διεπαφή.
   const texts = await extractPageTexts(buffer, pageCount);
   const pages = Array.from({ length: pageCount }, (_, i) => ({ text: texts[i] ?? '' }));
   const hasTextLayer = pages.some((p) => p.text.trim() !== '');
-  const suggested = suggestSplits(pages);
+  const fullTextLayer = pages.every((p) => p.text.trim().length >= 40);
+
+  let suggested = suggestSplits(pages);
+  let method: 'text' | 'vision' | 'per_page' = hasTextLayer ? 'text' : 'per_page';
+  let info: PageInfo[] | null = null;
+  let visionError: string | null = null;
+  if (!fullTextLayer && pageCount > 1) {
+    const vision = await analyzePagesForSplit(buffer, pageCount);
+    if (vision && 'signals' in vision) {
+      suggested = suggestSplitsFromSignals(pages.map((p, i) => mergeSignals(textSignalOf(p.text), vision.signals[i])));
+      method = 'vision';
+      info = vision.info;
+    } else if (vision && 'error' in vision) {
+      visionError = vision.error;
+    }
+  }
 
   return NextResponse.json({
     batchId: batch.id,
     pageCount,
     hasTextLayer,
     suggested,
+    method,
+    visionError,
     pages: pages.map((_, index) => ({
       index,
+      info: info?.[index] ?? null,
       // Η μικρογραφία φτιάχνεται ΤΕΜΠΕΛΙΚΑ, όταν ο browser ζητήσει την εικόνα: 100 renders μέσα
       // στο ίδιο αίτημα θα κρατούσαν τον χρήστη να κοιτάει έναν φορτωτή για λεπτά.
       thumbUrl: `/api/admin/ocr/batches/${batch.id}/page-image?page=${index}&scale=2`,
