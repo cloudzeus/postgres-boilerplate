@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { FiCopy, FiRefreshCw, FiSearch, FiAlertTriangle, FiCheckCircle, FiExternalLink, FiPlus } from 'react-icons/fi';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { BTN_GHOST, BTN_PRIMARY } from '@/components/admin/bulk-ui';
-import type { ChartRow, MissingAccount, UtilityGap } from '@/lib/ocr/accounts-overview';
+import type { ChartRow, MissingAccount, ScanNeed, ScanNeeds, UtilityGap } from '@/lib/ocr/accounts-overview';
 import type { AccountStatus } from '@/lib/ocr/account-check';
 
 const STATUS_TEXT: Partial<Record<AccountStatus, string>> = {
@@ -128,12 +128,22 @@ function OpenAccountDialog({ req, onClose, onDone }: { req: OpenRequest | null; 
   );
 }
 
+const NEED_STATUS: Record<ScanNeed['status'], { text: string; cls: string }> = {
+  open_account: { text: 'Λείπει λογαριασμός', cls: 'border-amber-300 bg-amber-50 text-amber-800' },
+  activate: { text: 'Υπάρχει ανενεργή', cls: 'border-sky-200 bg-sky-50 text-sky-700' },
+  create_registry: { text: 'Λείπει μητρώο', cls: 'border-violet-200 bg-violet-50 text-violet-700' },
+  no_account: { text: 'Χωρίς λογαριασμό', cls: 'border-rose-200 bg-rose-50 text-rose-700' },
+  registry: { text: 'Έτοιμο', cls: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
+};
+const REGISTRY_WORD = (n: ScanNeed) => (n.world === 'lin' ? 'χρεοπίστωση' : n.world === 'pur' ? 'έξοδο' : 'χρεοπίστωση ή έξοδο');
+
 export function AccountsClient({
-  missing, chartSynced, gaps, chart, syncedAt, canSync,
+  missing, chartSynced, gaps, scan, chart, syncedAt, canSync,
 }: {
   missing: MissingAccount[];
   chartSynced: boolean;
   gaps: UtilityGap[];
+  scan: ScanNeeds;
   chart: ChartRow[];
   syncedAt: string | null;
   canSync: boolean;
@@ -184,6 +194,7 @@ export function AccountsClient({
   const toCreate = [
     ...missing.filter((m) => m.status === 'not_in_chart' && m.account).map((m) => ({ code: m.account!, name: m.proposedName })),
     ...gaps.flatMap((g) => (g.toOpen ? [g.toOpen] : [])),
+    ...scan.needs.flatMap((n) => (n.status === 'open_account' && n.toOpen ? [n.toOpen] : [])),
   ].filter((a, i, arr) => arr.findIndex((b) => b.code === a.code) === i);
   const copyForSoftone = async () => {
     const text = toCreate.map((a) => `${a.code}\t${a.name ?? ''}`).join('\n');
@@ -211,6 +222,107 @@ export function AccountsClient({
         και μετά η εφαρμογή ελέγχει ότι το σχέδιο απέκτησε ακριβώς έναν λογαριασμό. Οι <strong>χρεοπιστώσεις</strong> δημιουργούνται
         από τη γραμμή του παραστατικού.
       </p>
+
+      {/* 0. ΑΠΟ ΤΑ ΣΚΑΝΑΡΙΣΜΑΤΑ */}
+      <section aria-labelledby="scan-h" className={SECTION}>
+        <header className="border-b border-border px-4 py-3">
+          <h2 id="scan-h" className={H2}>Από τα σκαναρισμένα: λογαριασμοί που χρειάζονται</h2>
+          <p className={MUTED}>
+            Οι γραμμές των ανοιχτών παραστατικών που δεν έχουν ακόμη στόχο, ανά κατηγορία δαπάνης και ΦΠΑ: ποιος λογαριασμός του σχεδίου
+            τους ταιριάζει, ποιος λείπει για άνοιγμα, και αν υπάρχει ήδη χρεοπίστωση ή έξοδο — ενεργή ή ανενεργή.
+          </p>
+        </header>
+        {scan.needs.length === 0 ? (
+          <p className="flex items-center gap-2 px-4 py-4 text-[length:var(--fs-13)] text-emerald-700">
+            <FiCheckCircle className="size-4" aria-hidden /> Όλες οι γραμμές με αναγνωρίσιμη κατηγορία έχουν ήδη στόχο.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {scan.needs.map((n) => {
+              const st = NEED_STATUS[n.status];
+              return (
+                <li key={`${n.family}|${n.vatRate}|${n.world}`} className="grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto] md:items-start">
+                  <div>
+                    <p className="text-[length:var(--fs-13)] font-semibold text-foreground">
+                      {n.label}{n.vatRate != null ? ` · ${n.vatRate}%` : ''}
+                    </p>
+                    <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[length:var(--fs-11)] font-semibold ${st.cls}`}>{st.text}</span>
+                  </div>
+                  <div className="min-w-0 space-y-1.5 text-[length:var(--fs-12)]">
+                    {n.samples.length > 0 && <p className="truncate text-muted-foreground" title={n.samples.join(' · ')}>«{n.samples.join('» · «')}»</p>}
+                    <div className="text-muted-foreground"><DocLinks docs={n.docs} /></div>
+                    {n.status === 'registry' && n.registry && (
+                      <p className="text-foreground">
+                        Υπάρχει {n.registry.kind === 'lineitem' ? 'χρεοπίστωση' : 'έξοδο'} <span className="font-mono font-semibold">{n.registry.code}</span> {n.registry.name}
+                        {n.registry.account && <span className="text-muted-foreground"> → {n.registry.account}</span>}.
+                        <span className="text-muted-foreground"> Αντιστοίχισε μία γραμμή σε αυτό — η μνήμη συμπληρώνει τις υπόλοιπες.</span>
+                      </p>
+                    )}
+                    {n.status === 'activate' && n.inactive.length > 0 && (
+                      <ul className="space-y-1 rounded-md border border-sky-500/30 bg-sky-500/[0.05] px-2.5 py-2">
+                        {n.inactive.map((it) => (
+                          <li key={it.mtrl} className="flex flex-wrap items-center justify-between gap-2">
+                            <span><span className="font-mono font-semibold text-foreground">{it.code}</span> <span className="text-muted-foreground">{it.name}</span></span>
+                            {canSync && (
+                              <button type="button" className={BTN_GHOST} disabled={activating != null} onClick={() => activate(it.mtrl, it.code)}>
+                                {activating === it.mtrl ? 'Ενεργοποίηση…' : 'Ενεργοποίηση'}
+                              </button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {n.status === 'create_registry' && (
+                      <p className="text-foreground">
+                        Ο λογαριασμός υπάρχει — δημιούργησε {REGISTRY_WORD(n)} από μία γραμμή του παραστατικού («Αντιστοίχιση» → «Δημιουργία νέας εγγραφής»)
+                        με λογαριασμό <span className="font-mono font-semibold">{n.suggestions[0]?.code}</span>.
+                      </p>
+                    )}
+                    {n.status === 'open_account' && n.toOpen && (
+                      <div>
+                        <p className="inline-flex flex-wrap items-center gap-1 text-amber-800">
+                          <FiAlertTriangle className="size-3" aria-hidden />
+                          Λείπει για ΦΠΑ {n.toOpen.vatRate}%: <span className="font-mono font-semibold">{n.toOpen.code}</span> · {n.toOpen.name}
+                          <span className="text-muted-foreground"> · κάτω από {n.toOpen.parent}</span>
+                        </p>
+                        {openBtn({ code: n.toOpen.code, name: n.toOpen.name, vatRate: n.toOpen.vatRate })}
+                      </div>
+                    )}
+                    {n.status === 'no_account' && (
+                      <p className="text-rose-700">Κανένας κινούμενος λογαριασμός του σχεδίου δεν ταιριάζει — χρειάζεται απόφαση του λογιστή για τον λογαριασμό.</p>
+                    )}
+                    {n.suggestions.length > 0 && n.status !== 'registry' && (
+                      <ul className="flex flex-wrap gap-1.5" aria-label="Λογαριασμοί του σχεδίου που ταιριάζουν">
+                        {n.suggestions.map((s) => (
+                          <li key={s.code} className="rounded-md border border-border bg-background px-2 py-0.5">
+                            <span className="font-mono font-semibold text-foreground">{s.code}</span>
+                            <span className="text-muted-foreground"> {s.name}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <p className="text-[length:var(--fs-12)] tabular-nums text-muted-foreground md:text-right">
+                    {n.lines} γραμμ{n.lines === 1 ? 'ή' : 'ές'} · {n.docs.length} παραστ.
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {scan.unclassified.lines > 0 && (
+          <div className="flex flex-wrap items-start justify-between gap-2 border-t border-border bg-muted/30 px-4 py-3 text-[length:var(--fs-12)]">
+            <div className="min-w-0 space-y-1">
+              <p className="font-semibold text-foreground">
+                {scan.unclassified.lines} γραμμ{scan.unclassified.lines === 1 ? 'ή' : 'ές'} χωρίς αναγνωρίσιμη κατηγορία δαπάνης
+              </p>
+              <p className="truncate text-muted-foreground" title={scan.unclassified.samples.join(' · ')}>«{scan.unclassified.samples.join('» · «')}»</p>
+              <div className="text-muted-foreground"><DocLinks docs={scan.unclassified.docs} /></div>
+            </div>
+            <Link href="/admin/ocr/new-items" className={BTN_GHOST}>Είδη & έξοδα <FiExternalLink className="size-3" aria-hidden /></Link>
+          </div>
+        )}
+      </section>
 
       {/* 1. ΤΙ ΛΕΙΠΕΙ */}
       <section aria-labelledby="missing-h" className={SECTION}>

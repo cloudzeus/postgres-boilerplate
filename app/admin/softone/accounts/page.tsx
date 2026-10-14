@@ -1,6 +1,6 @@
 import { requirePermission, hasPermission } from '@/lib/rbac';
 import { PageHeader } from '@/components/admin/page-header';
-import { loadChartRows, loadMissingAccounts, loadUtilityGaps } from '@/lib/ocr/accounts-overview';
+import { loadChartRows, loadMissingAccounts, loadScanNeeds, loadUtilityGaps } from '@/lib/ocr/accounts-overview';
 import { AccountsClient } from './accounts-client';
 
 export const dynamic = 'force-dynamic';
@@ -11,8 +11,8 @@ export const dynamic = 'force-dynamic';
  */
 export default async function AccountsPage() {
   await requirePermission('metadata.read');
-  const [missing, gaps, chart, canSync] = await Promise.all([
-    loadMissingAccounts(), loadUtilityGaps(), loadChartRows(), hasPermission('metadata.manage'),
+  const [missing, gaps, scan, chart, canSync] = await Promise.all([
+    loadMissingAccounts(), loadUtilityGaps(), loadScanNeeds(), loadChartRows(), hasPermission('metadata.manage'),
   ]);
   return (
     <div className="space-y-5 p-6">
@@ -25,6 +25,7 @@ export default async function AccountsPage() {
         missing={missing.rows}
         chartSynced={missing.chartSynced}
         gaps={gaps}
+        scan={scan}
         chart={chart.rows}
         syncedAt={chart.syncedAt?.toISOString() ?? null}
         canSync={canSync}
