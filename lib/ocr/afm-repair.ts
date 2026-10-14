@@ -94,3 +94,15 @@ export function namesMatch(a: string | null | undefined, b: string | null | unde
   const firstA = [...A][0], firstB = [...B][0];
   return common.length * 2 >= small.size && (B.has(firstA) || A.has(firstB));
 }
+
+/**
+ * Ο ΠΑΡΑΛΗΠΤΗΣ ΔΕΝ ΕΙΝΑΙ ΕΚΔΟΤΗΣ. Σε κάθε τιμολόγιο αγοράς είναι τυπωμένο και το δικό ΜΑΣ ΑΦΜ (ως
+ * πελάτη) — έγκυρο, υπαρκτό στην ΑΑΔΕ, και ακριβώς το λάθος που δεν πρέπει να «ανακτηθεί»: στο
+ * `tim01_GTP.jpg` η ανάκτηση πρότεινε ως εκδότη την «ΑΦΟΙ ΚΟΛΛΕΡΗ ΙΚΕ» (099095556), που ήταν ο
+ * παραλήπτης. Αφαιρεί από τα υποψήφια τα ΑΦΜ του παραλήπτη και το δικό μας.
+ */
+export function withoutRecipient(candidates: readonly string[], excluded: readonly (string | null | undefined)[]): string[] {
+  const norm = (v: string | null | undefined) => String(v ?? '').replace(/\D+/g, '').slice(-9);
+  const out = new Set(excluded.map(norm).filter((x) => x.length === 9));
+  return candidates.filter((c) => !out.has(norm(c)));
+}

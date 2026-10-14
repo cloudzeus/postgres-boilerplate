@@ -172,11 +172,69 @@ export async function loadSoftoneConfig(): Promise<SoftoneConfig> {
   };
 }
 
-/** POST a payload and decode the gzip + cp1253 JSON response. */
+/**
+ * ΑΝΑΓΝΩΣΕΙΣ: υπηρεσίες που δεν γράφουν τίποτα, άρα επαναλαμβάνονται ακίνδυνα. Ό,τι ΔΕΝ είναι εδώ
+ * (setData, delData, eInvoice, changePassword…) στέλνεται ΜΙΑ φορά — μια δεύτερη αποστολή μπορεί
+ * να γράψει δεύτερη εγγραφή.
+ */
+const READ_SERVICES = new Set([
+  'gettable', 'getbrowserinfo', 'getbrowserdata', 'getdata', 'getselectordata', 'selectorfields', 'sqldata',
+  'getobjects', 'getobjecttables', 'gettablefields', 'getformdesign', 'getdialog', 'getreportinfo',
+  'getreportdata', 'calculate', 'getsystemparams', 'getwebmenu', 'ping', 'login', 'authenticate',
+]);
+/** Μια ανάγνωση που δεν απαντά σε τόσο χρόνο έχει κολλήσει (στη μέτρηση απαντούν σε ~0,2″). */
+const READ_TIMEOUT_MS = 15_000;
+const PING_TIMEOUT_MS = 8_000;
+/** Οι εγγραφές μπορεί να είναι νόμιμα αργές (νέο παραστατικό με πολλές γραμμές). */
+const WRITE_TIMEOUT_MS = 90_000;
+/** Μετά από τόση αδράνεια, η ανοιχτή σύνδεση keep-alive μπορεί να έχει κλείσει σιωπηλά. */
+const IDLE_WARMUP_MS = 20_000;
+const SLOW_CALL_MS = 3_000;
+let lastOkAt = 0;
+/** Μόνο για tests: ορίζει πότε απάντησε τελευταία φορά το SoftOne (για το «ζέσταμα» πριν από εγγραφή). */
+export function __setSoftoneLastOkAt(at: number): void { lastOkAt = at; }
+
+const isTimeout = (e: unknown) => (e as { name?: string })?.name === 'TimeoutError' || (e as { name?: string })?.name === 'AbortError';
+
+/**
+ * POST a payload and decode the gzip + cp1253 JSON response.
+ *
+ * ΓΙΑΤΙ ΧΡΟΝΙΚΟ ΟΡΙΟ ΚΑΙ ΕΠΑΝΑΛΗΨΗ. Μετρημένο στον dev server: μετά από λίγα λεπτά αδράνειας η
+ * φόρτωση του «Νέο πάγιο» έκανε 38″ και η δημιουργία 43″, ενώ οι ίδιες κλήσεις από νέο process
+ * απαντούσαν σε 0,2″. Η πρώτη κλήση έπεφτε σε σύνδεση keep-alive που είχε κλείσει σιωπηλά από την
+ * άλλη πλευρά, και το `fetch` (χωρίς όριο) περίμενε το λειτουργικό να την εγκαταλείψει. Τώρα:
+ * οι ΑΝΑΓΝΩΣΕΙΣ κόβονται στα 15″ και ξαναστέλνονται μία φορά (σε νέα σύνδεση — η κομμένη
+ * καταστρέφεται)· πριν από ΕΓΓΡΑΦΗ μετά από αδράνεια στέλνεται ένα `ping`, ώστε η εγγραφή να φύγει
+ * από ζωντανή σύνδεση. Η εγγραφή ΠΟΤΕ δεν ξαναστέλνεται αυτόματα.
+ */
 export async function softoneFetch<T = Record<string, unknown>>(
   endpoint: string,
   payload: object,
 ): Promise<T> {
+  const service = String((payload as { service?: unknown; SERVICE?: unknown }).service ?? (payload as { SERVICE?: unknown }).SERVICE ?? '').toLowerCase();
+  const isRead = READ_SERVICES.has(service);
+  if (!isRead && Date.now() - lastOkAt > IDLE_WARMUP_MS) {
+    // Ζεσταίνει (ή αντικαθιστά) τη σύνδεση. Αποτυχία εδώ δεν σταματά τίποτα — η εγγραφή θα πει την αλήθεια.
+    await softoneFetch(endpoint, { service: 'ping' }).catch(() => null);
+  }
+  const attempts = isRead ? 2 : 1;
+  for (let attempt = 1; ; attempt++) {
+    const started = Date.now();
+    try {
+      const out = await softoneFetchOnce<T>(endpoint, payload, service === 'ping' ? PING_TIMEOUT_MS : isRead ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS);
+      lastOkAt = Date.now();
+      const ms = lastOkAt - started;
+      if (ms > SLOW_CALL_MS) console.warn(`[softone] ${service || '?'} αργή απάντηση: ${ms}ms`);
+      return out;
+    } catch (e) {
+      const retryable = isRead && attempt < attempts && e instanceof SoftoneTransportError && e.phase !== 'not_sent' && e.httpStatus == null;
+      if (!retryable) throw e;
+      console.warn(`[softone] ${service} απέτυχε μετά από ${Date.now() - started}ms (${(e as Error).message.slice(0, 80)}) — νέα προσπάθεια`);
+    }
+  }
+}
+
+async function softoneFetchOnce<T>(endpoint: string, payload: object, timeoutMs: number): Promise<T> {
   let res: Response;
   try {
     res = await fetch(endpoint, {
@@ -184,12 +242,16 @@ export async function softoneFetch<T = Record<string, unknown>>(
       headers: { 'Content-Type': 'application/json', 'Accept-Encoding': 'gzip' },
       body: JSON.stringify(payload),
       cache: 'no-store',
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (e) {
+    const host = (() => { try { return new URL(endpoint).host; } catch { return endpoint; } })();
+    if (isTimeout(e)) {
+      throw new SoftoneTransportError(`Το SoftOne (${host}) δεν απάντησε σε ${Math.round(timeoutMs / 1000)}″.`, 'unknown', null, { cause: e });
+    }
     // Δίκτυο/DNS/TLS: το SoftOne δεν απάντησε καν. Τυποποιείται, για να μην μπερδευτεί
     // αργότερα με αποτυχία της τοπικής βάσης.
     const code = networkCode(e);
-    const host = (() => { try { return new URL(endpoint).host; } catch { return endpoint; } })();
     throw new SoftoneTransportError(
       `Το SoftOne (${host}) δεν απάντησε: ${(e as Error).message}`,
       code && NEVER_SENT_CODES.has(code) ? 'not_sent' : 'unknown',
@@ -199,7 +261,16 @@ export async function softoneFetch<T = Record<string, unknown>>(
   }
 
   // Always ArrayBuffer — res.text()/res.json() assume UTF-8 and corrupt Greek.
-  let buf = Buffer.from(await res.arrayBuffer());
+  let buf: Buffer;
+  try {
+    buf = Buffer.from(await res.arrayBuffer());
+  } catch (e) {
+    const host = (() => { try { return new URL(endpoint).host; } catch { return endpoint; } })();
+    throw new SoftoneTransportError(
+      isTimeout(e) ? `Το SoftOne (${host}) δεν ολοκλήρωσε την απάντηση σε ${Math.round(timeoutMs / 1000)}″.` : `Η απάντηση του SoftOne (${host}) διακόπηκε: ${(e as Error).message}`,
+      'unknown', null, { cause: e },
+    );
+  }
   if (res.headers.get('content-encoding') === 'gzip') {
     // Some hosts/proxies auto-decompress; guard with the gzip magic bytes.
     if (buf[0] === 0x1f && buf[1] === 0x8b) buf = Buffer.from(gunzipSync(buf));

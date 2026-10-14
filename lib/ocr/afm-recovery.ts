@@ -19,7 +19,8 @@ import { renderPage } from '@/lib/ocr/rasterize';
 import { callVisionLLM, resolveCfg, parseJsonLoose } from '@/lib/ocr/extract';
 import { parseAfm2Info } from '@/lib/aade-parse';
 import { isValidAfm } from '@/lib/ocr/validate';
-import { afmRepairCandidates, namesMatch } from '@/lib/ocr/afm-repair';
+import { afmRepairCandidates, namesMatch, withoutRecipient } from '@/lib/ocr/afm-repair';
+import { resolveOwnAfm } from '@/lib/ocr/own-afm';
 import { buildSoftoneMatch, alignTraderToTarget } from '@/lib/ocr/softone-match';
 
 /** Πόσες κλήσεις ΑΑΔΕ το πολύ ανά παραστατικό — κάθε υποψήφιο είναι μία. */
@@ -60,8 +61,9 @@ const REREAD_PROMPT = [
   'Η εικόνα είναι η πρώτη σελίδα ελληνικού εμπορικού παραστατικού (τιμολόγιο, απόδειξη, λογαριασμός).',
   'Βρες τον ΕΚΔΟΤΗ (αυτόν που ΕΚΟΨΕ το παραστατικό — συνήθως το λογότυπο και τα στοιχεία στην κορυφή)',
   'και ΟΛΑ τα ΑΦΜ που είναι τυπωμένα στη σελίδα.',
+  'ΠΡΟΣΟΧΗ: ο ΠΑΡΑΛΗΠΤΗΣ/ΠΕΛΑΤΗΣ (ενότητα «Στοιχεία πελάτη», «Προς», «Αγοραστής») ΔΕΝ είναι ο εκδότης — δώσ\' τον χωριστά.',
   'ΑΝΤΕΓΡΑΨΕ ΤΑ ΨΗΦΙΑ ΑΚΡΙΒΩΣ ΟΠΩΣ ΕΙΝΑΙ ΤΥΠΩΜΕΝΑ. ΜΗΝ τα διορθώσεις, ΜΗΝ συμπληρώσεις ψηφία που δεν φαίνονται.',
-  'Απάντησε ΜΟΝΟ με JSON: {"issuer_name": "...", "issuer_afm": "...", "all_afms": ["...", "..."]}',
+  'Απάντησε ΜΟΝΟ με JSON: {"issuer_name": "...", "issuer_afm": "...", "recipient_name": "...", "recipient_afm": "...", "all_afms": ["...", "..."]}',
   'Αν κάτι δεν διαβάζεται, βάλε null. Χωρίς markdown, χωρίς εξηγήσεις.',
 ].join('\n');
 
@@ -93,11 +95,14 @@ export async function recoverIssuerAfm(
   if (!doc) return { ...base, status: 'no_file', message: 'Το παραστατικό δεν βρέθηκε.' };
 
   const ed = (doc.extractedData ?? {}) as Record<string, unknown>;
-  const canon = (doc.document ?? null) as { issuer?: { name?: string | null; vat?: string | null } } | null;
+  const canon = (doc.document ?? null) as {
+    issuer?: { name?: string | null; vat?: string | null };
+    recipient?: { name?: string | null; vat?: string | null };
+  } | null;
   const storedName = (canon?.issuer?.name ?? (ed.companyName as string | undefined) ?? '').trim() || null;
 
   // ── 1. Επανάγνωση ────────────────────────────────────────────────────────────────────────
-  let reread: { issuer_name?: unknown; issuer_afm?: unknown; all_afms?: unknown } = {};
+  let reread: { issuer_name?: unknown; issuer_afm?: unknown; recipient_name?: unknown; recipient_afm?: unknown; all_afms?: unknown } = {};
   try {
     const file = await bunnyDownload(doc.storageKey);
     const page = await renderPage(Buffer.isBuffer(file) ? file : Buffer.from(file), doc.mimeType, 0);
@@ -106,11 +111,26 @@ export async function recoverIssuerAfm(
   } catch (e) {
     return { ...base, status: 'no_file', message: `Το αρχείο δεν ξαναδιαβάστηκε: ${(e as Error).message}` };
   }
-  const rereadAfm = digits(reread.issuer_afm) || null;
-  const rereadName = typeof reread.issuer_name === 'string' ? reread.issuer_name.trim() || null : null;
-  const names = [storedName, rereadName].filter((n): n is string => !!n);
+  // Ο παραλήπτης (συνήθως εμείς): από το παραστατικό, από την επανάγνωση και το δικό μας ΑΦΜ.
+  const ownAfm = await resolveOwnAfm().catch(() => null);
+  const recipientAfms = [canon?.recipient?.vat, ed.customerVatNumber as string | undefined, digits(reread.recipient_afm), ownAfm];
+  const recipientNames = [canon?.recipient?.name, ed.customerName as string | undefined, typeof reread.recipient_name === 'string' ? reread.recipient_name : null]
+    .filter((n): n is string => !!n && !!n.trim());
+  const isRecipientName = (n: string | null | undefined) => !!n && recipientNames.some((r) => namesMatch(r, n));
+
+  const rereadAfmRaw = digits(reread.issuer_afm) || null;
+  // Το μοντέλο μπέρδεψε τον παραλήπτη με τον εκδότη: ούτε το ΑΦΜ ούτε η επωνυμία του μετρούν.
+  const rereadAfm = rereadAfmRaw && withoutRecipient([rereadAfmRaw], recipientAfms).length ? rereadAfmRaw : null;
+  const rereadNameRaw = typeof reread.issuer_name === 'string' ? reread.issuer_name.trim() || null : null;
+  const rereadName = isRecipientName(rereadNameRaw) ? null : rereadNameRaw;
+  const names = [storedName, rereadName].filter((n): n is string => !!n && !isRecipientName(n));
   if (names.length === 0) {
-    return { ...base, rereadAfm, status: 'no_name', message: 'Δεν υπάρχει επωνυμία εκδότη για να επιβεβαιωθεί το ΑΦΜ στην ΑΑΔΕ.' };
+    return {
+      ...base, rereadAfm, status: 'no_name',
+      message: rereadNameRaw && !rereadName
+        ? `Η επανάγνωση βρήκε μόνο τον παραλήπτη («${rereadNameRaw}») — ο εκδότης δεν διαβάζεται στη σελίδα. Συμπλήρωσε επωνυμία και ΑΦΜ εκδότη από το χαρτί.`
+        : 'Δεν υπάρχει επωνυμία εκδότη για να επιβεβαιωθεί το ΑΦΜ στην ΑΑΔΕ.',
+    };
   }
 
   // ── 2. Υποψήφια, με σειρά πιθανότητας ────────────────────────────────────────────────────
@@ -122,15 +142,16 @@ export async function recoverIssuerAfm(
   ];
   const queue: { afm: string; source: RecoveryAttempt['source'] }[] = [];
   const seen = new Set<string>();
-  for (const a of fromPage) if (!seen.has(a)) { seen.add(a); queue.push({ afm: a, source: 'reread' }); }
-  for (const a of repaired) if (!seen.has(a)) { seen.add(a); queue.push({ afm: a, source: 'repair' }); }
+  for (const a of withoutRecipient(fromPage, recipientAfms)) if (!seen.has(a)) { seen.add(a); queue.push({ afm: a, source: 'reread' }); }
+  for (const a of withoutRecipient(repaired, recipientAfms)) if (!seen.has(a)) { seen.add(a); queue.push({ afm: a, source: 'repair' }); }
 
   // ── 3. Επιβεβαίωση ΑΑΔΕ ──────────────────────────────────────────────────────────────────
   const tried: RecoveryAttempt[] = [];
   let hit: RecoveryAttempt | null = null;
   for (const c of queue.slice(0, MAX_AADE_CHECKS)) {
     const n = await aadeName(c.afm);
-    const match = !!n && names.some((x) => namesMatch(x, n));
+    // Επωνυμία της ΑΑΔΕ ίδια με του παραλήπτη ⇒ ΔΕΝ είναι ο εκδότης, ό,τι κι αν «ταιριάζει».
+    const match = !!n && !isRecipientName(n) && names.some((x) => namesMatch(x, n));
     const att = { ...c, aadeName: n, match };
     tried.push(att);
     if (match) { hit = att; break; }

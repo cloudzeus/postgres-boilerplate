@@ -40,3 +40,13 @@ describe('namesMatch', () => {
     ['ENTERSOFT ΑΝΩΝΥΜΗ ΕΤΑΙΡΕΙΑ', 'ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΕΩΡΓΙΟΣ'],
   ])('ΑΛΛΗ εταιρεία, ας μοιράζονται λέξεις: «%s» ≠ «%s»', (a, b) => expect(namesMatch(a, b)).toBe(false));
 });
+
+import { withoutRecipient } from '../afm-repair';
+
+describe('withoutRecipient — ο παραλήπτης δεν είναι εκδότης', () => {
+  it('αφαιρεί το ΑΦΜ του παραλήπτη και το δικό μας, ανεξάρτητα από πρόθεμα EL/κενά', () => {
+    expect(withoutRecipient(['099095556', '094019245'], ['EL099095556', null])).toEqual(['094019245']);
+    expect(withoutRecipient(['099095556'], [' 099 095 556 '])).toEqual([]);
+    expect(withoutRecipient(['094019245'], [undefined, '', '123'])).toEqual(['094019245']);
+  });
+});
