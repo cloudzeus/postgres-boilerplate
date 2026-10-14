@@ -228,7 +228,7 @@ function SourcedAmount({ source, value }: { source: AmountSource; value: string 
 function CheckRow({ ok, label, got, exp }: { ok: boolean | null | undefined; label: string; got: string; exp: string }) {
   const style = ok == null ? BADGE_STYLE.neutral : ok ? BADGE_STYLE.ok : BADGE_STYLE.fail;
   return (
-    <div style={style} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-md border px-2.5 py-1.5 text-[length:var(--fs-11)] font-semibold">
+    <div style={style} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 rounded-md border px-2 py-0.5 text-[length:var(--fs-11)] font-semibold">
       <span className="inline-flex items-center gap-1.5">
         {ok ? <FiCheck className="size-3.5" /> : <FiAlertCircle className={cn('size-3.5', ok == null && 'opacity-60')} />}
         {label}
@@ -574,54 +574,55 @@ export function OcrRowDetail({
       όχι σε μια καρτέλα μακριά από τα πεδία που φταίνε. */
   const missingIn = (g: Group) => byGroup(g).filter((s) => s.required && !String(form[s.key] ?? '').trim()).length;
 
+  /**
+   * ΣΥΝΟΛΑ — ΠΛΕΓΜΑ 3 ΣΤΗΛΩΝ: ετικέτα | πηγή | τιμή. Με flex + justify-between κάθε σειρά
+   * στοιχιζόταν μόνη της: τα σήματα πηγής κάθονταν σε άλλο ύψος ανάλογα με το μήκος της ετικέτας και
+   * το «Γενικό Σύνολο» έπεφτε σε δεύτερη σειρά. Κοινές στήλες = ίδια ευθεία για όλες τις σειρές.
+   */
   const totalsBox = byGroup('totals').length > 0 ? (
-    <div className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-card">
-      <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">
+    <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-card">
+      <header className="border-b border-border bg-muted/50 px-3 py-1 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">
         Σύνολα παραστατικού
       </header>
-      <div className="space-y-1 p-3">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_8.5rem] items-center gap-x-2 gap-y-1 px-3 py-2">
         {byGroup('totals').map((s) => {
           const grand = s.key === 'totalAmount';
           const src = sourceOf(s.key);
           return (
             <React.Fragment key={s.key}>
-              {grand && <div className="my-1.5 border-t border-dotted border-muted-foreground/50" />}
-              <div className={cn('flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md px-2 py-1', grand && 'bg-sisyphus-500/10')}>
-                <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  <span className={cn('text-[length:var(--fs-12)]', grand ? 'font-bold text-sisyphus-700 dark:text-sisyphus-300' : 'font-medium text-foreground')}>
-                    {s.label}
-                  </span>
-                  {src && <SourceChip source={src} />}
-                </span>
-                <input
-                  type="text" inputMode="decimal" disabled={ro}
-                  aria-label={`${s.label}${src ? ` — ${SOURCE_META[src].label}` : ''}`}
-                  value={form[s.key] ?? ''} onChange={(e) => setField(s.key, e.target.value)} onBlur={() => blurFmt(s.key)}
-                  className={cn(
-                    'h-9 w-[140px] rounded-md border border-input border-l-4 bg-background px-2 text-right font-mono text-[length:var(--fs-13)] tabular-nums text-foreground transition',
-                    'focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60',
-                    src ? SOURCE_META[src].bar : 'border-l-input',
-                    grand && 'font-bold text-sisyphus-700 dark:text-sisyphus-300',
-                  )}
-                />
-              </div>
+              {grand && <div className="col-span-3 my-0.5 border-t border-dotted border-muted-foreground/50" />}
+              <span className={cn('truncate text-[length:var(--fs-12)]', grand ? 'font-bold text-sisyphus-700 dark:text-sisyphus-300' : 'font-medium text-foreground')}>
+                {s.label}
+              </span>
+              <span className="justify-self-end">{src && <SourceChip source={src} />}</span>
+              <input
+                type="text" inputMode="decimal" disabled={ro}
+                aria-label={`${s.label}${src ? ` — ${SOURCE_META[src].label}` : ''}`}
+                value={form[s.key] ?? ''} onChange={(e) => setField(s.key, e.target.value)} onBlur={() => blurFmt(s.key)}
+                className={cn(
+                  'h-7 w-full rounded-md border border-input border-l-4 bg-background px-2 text-right font-mono text-[length:var(--fs-12)] tabular-nums text-foreground transition',
+                  'focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60',
+                  src ? SOURCE_META[src].bar : 'border-l-input',
+                  grand && 'font-bold text-sisyphus-700 dark:text-sisyphus-300',
+                )}
+              />
             </React.Fragment>
           );
         })}
-        {[...fromLines].some((k) => sourceOf(k) === 'lines') && (
-          <p className="pt-1 text-[length:var(--fs-11)] text-muted-foreground">
-            Τα σύνολα με <SourceChip source="lines" className="mx-0.5 align-middle" /> δεν βρέθηκαν στο χαρτί — η εφαρμογή τα υπολόγισε από τις γραμμές. Έλεγξέ τα με το πρωτότυπο.
-          </p>
-        )}
         {totalsBothPresent && (
           <div style={totalsOk ? BADGE_STYLE.ok : BADGE_STYLE.fail}
-            className="mt-1 flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[length:var(--fs-11)] font-semibold">
+            className="col-span-3 mt-0.5 flex items-center justify-between gap-2 rounded-md px-2 py-0.5 text-[length:var(--fs-11)] font-semibold">
             <span className="inline-flex items-center gap-1">
               {totalsOk ? <FiCheck className="size-3.5" /> : <FiAlertCircle className="size-3.5" />}
-              Καθαρή + ΦΠΑ {totalsOk ? '= Σύνολο ✓' : tTotal != null ? '≠ Σύνολο' : ''}
+              Καθαρή + ΦΠΑ {totalsOk ? '= Σύνολο' : tTotal != null ? '≠ Σύνολο' : ''}
             </span>
             <span className="font-mono tabular-nums">{fmt2(tSum)}{!totalsOk && tTotal != null && ` / ${fmt2(tTotal)}`}</span>
           </div>
+        )}
+        {[...fromLines].some((k) => sourceOf(k) === 'lines') && (
+          <p className="col-span-3 text-[length:var(--fs-11)] text-muted-foreground">
+            Με <SourceChip source="lines" className="mx-0.5 align-middle" />: δεν βρέθηκαν στο χαρτί — υπολογίστηκαν από τις γραμμές. Έλεγξέ τα με το πρωτότυπο.
+          </p>
         )}
       </div>
     </div>
@@ -969,30 +970,30 @@ export function OcrRowDetail({
               <div className="space-y-3">
                 {recon.vatGroups.length > 0 && (
                   <div className="overflow-hidden rounded-lg border border-border">
-                    <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/50 px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">
+                    <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/50 px-3 py-1 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">
                       <span>ΦΠΑ ανά συντελεστή{recon.hasMultipleRates && <span className="ml-1.5 font-semibold text-sisyphus-600">• πολλαπλά</span>}</span>
                       <SourceChip source="lines" />
                     </header>
                     <table className="w-full text-[length:var(--fs-12)]">
                       <thead className="text-left text-[length:var(--fs-11)] text-muted-foreground">
-                        <tr><th className="px-3 py-1 font-semibold">Συντ/στής</th><th className="px-3 py-1 text-right font-semibold">Καθαρή</th><th className="px-3 py-1 text-right font-semibold">ΦΠΑ</th></tr>
+                        <tr><th className="px-3 py-0.5 font-semibold">Συντ/στής</th><th className="px-3 py-0.5 text-right font-semibold">Καθαρή</th><th className="px-3 py-0.5 text-right font-semibold">ΦΠΑ</th></tr>
                       </thead>
                       <tbody className="divide-y divide-border">
                         {recon.vatGroups.map((g) => (
                           <tr key={g.rate}>
-                            <td className="px-3 py-1 tabular-nums">{g.rate}%</td>
-                            <td className="px-3 py-1 text-right tabular-nums">{fmtMoney(g.net)}</td>
-                            <td className="px-3 py-1 text-right tabular-nums">{fmtMoney(g.vat)}</td>
+                            <td className="px-3 py-0.5 tabular-nums">{g.rate}%</td>
+                            <td className="px-3 py-0.5 text-right tabular-nums">{fmtMoney(g.net)}</td>
+                            <td className="px-3 py-0.5 text-right tabular-nums">{fmtMoney(g.vat)}</td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot className="border-t border-border bg-muted/30 font-semibold">
-                        <tr><td className="px-3 py-1">Σύνολο ΦΠΑ από τις γραμμές</td><td /><td className="px-3 py-1 text-right tabular-nums text-violet-800 dark:text-violet-200">{fmtMoney(recon.vatComputed)}</td></tr>
+                        <tr><td colSpan={2} className="px-3 py-0.5">Σύνολο ΦΠΑ από τις γραμμές</td><td className="px-3 py-0.5 text-right tabular-nums text-violet-800 dark:text-violet-200">{fmtMoney(recon.vatComputed)}</td></tr>
                       </tfoot>
                     </table>
                   </div>
                 )}
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   <CheckRow ok={recon.linesVsSubtotal?.ok ?? null} label="Άθροισμα γραμμών = Καθαρή αξία"
                     got={fmtMoney(recon.sumNet)} exp={recon.subtotal != null ? fmtMoney(recon.subtotal) : '—'} />
                   <CheckRow ok={recon.vatOk} label="ΦΠΑ γραμμών = ΦΠΑ παραστατικού"
