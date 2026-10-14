@@ -21,7 +21,12 @@ COPY prisma ./prisma
 # into every stage, and `npm ci` then silently skips devDependencies — the build
 # dies later with «Cannot find module 'autoprefixer'». The dev packages never
 # reach the runtime image: only .next/standalone is copied into stage 3.
-RUN npm ci --include=dev
+# Ανθεκτικό σε ασταθές δίκτυο του build server: επαναλήψεις με μεγάλο timeout (ένα ECONNRESET στη
+# μέση της λήψης έριχνε όλο το deploy), και cache του npm σε BuildKit mount ώστε τα επόμενα builds
+# να κατεβάζουν μόνο ό,τι άλλαξε. Η cache ΔΕΝ μπαίνει στο image.
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --include=dev --prefer-offline --no-audit --no-fund \
+      --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 
 # 2) builder — generate Prisma client + build Next.js (produces .next/standalone).
 FROM node:22-slim AS builder
