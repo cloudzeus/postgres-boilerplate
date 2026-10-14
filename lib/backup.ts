@@ -35,10 +35,8 @@ async function runPg(bin: string, args: string[], env: NodeJS.ProcessEnv, input?
 }
 
 export async function runBackup(opts: { trigger: 'cron' | 'manual'; userId?: string | null }) {
-  // pg_dump / pg_restore ΑΠΕΥΘΕΙΑΣ στο Postgres: μέσω PgBouncer (transaction mode) δεν κρατούν
-  // session, snapshot ή COPY — βλ. `DIRECT_URL` στο README/`.env`.
-  const dbUrl = process.env.DIRECT_URL || process.env.DATABASE_URL;
-  if (!dbUrl) throw new Error('DIRECT_URL / DATABASE_URL not set');
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) throw new Error('DATABASE_URL not set');
   const db = parseDbUrl(dbUrl);
 
   // Priority: explicit setting → PG_DUMP env → first Homebrew install we find → PATH.
@@ -116,10 +114,8 @@ export async function pruneOldBackups(retention: number) {
 }
 
 export async function restoreBackup(id: string) {
-  // pg_dump / pg_restore ΑΠΕΥΘΕΙΑΣ στο Postgres: μέσω PgBouncer (transaction mode) δεν κρατούν
-  // session, snapshot ή COPY — βλ. `DIRECT_URL` στο README/`.env`.
-  const dbUrl = process.env.DIRECT_URL || process.env.DATABASE_URL;
-  if (!dbUrl) throw new Error('DIRECT_URL / DATABASE_URL not set');
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) throw new Error('DATABASE_URL not set');
   const db = parseDbUrl(dbUrl);
 
   const record = await prisma.dbBackup.findUnique({ where: { id } });
