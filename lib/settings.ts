@@ -75,9 +75,10 @@ export const SETTING_CATALOG: SettingDef[] = [
   { key: 'ai.deepseekApiKey', category: 'ai', label: 'DeepSeek API Key', type: 'password', isSecret: true },
   { key: 'ai.deepseekUrl',    category: 'ai', label: 'DeepSeek API URL', type: 'url',      defaultValue: 'https://api.deepseek.com/v1/chat/completions' },
   { key: 'ai.deepseekTextModel', category: 'ai', label: 'DeepSeek text model (digital PDF / text OCR)', type: 'text', defaultValue: 'deepseek-chat' },
-  { key: 'ai.visionApiKey',   category: 'ai', label: 'Vision OCR API Key (Gemini/DeepInfra/OpenAI)', type: 'password', isSecret: true, description: 'Για scanned images. Default: Gemini 2.0 Flash. Αν κενό, διαβάζεται από GEMINI_API_KEY στο .env.' },
-  { key: 'ai.visionUrl',      category: 'ai', label: 'Vision OCR endpoint',     type: 'url',  defaultValue: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions' },
-  { key: 'ai.visionModel',    category: 'ai', label: 'Vision OCR model',        type: 'text', defaultValue: 'gemini-2.5-flash' },
+  { key: 'ai.openrouterApiKey', category: 'ai', label: 'OpenRouter API Key (vision OCR)', type: 'password', isSecret: true, description: 'Όταν υπάρχει (εδώ ή ως OPENROUTER_API_KEY στο .env), η ανάγνωση εγγράφων περνά από το OpenRouter με τα ίδια μοντέλα Gemini (google/…). Αν κενό, χρησιμοποιείται το Google AI Studio.' },
+  { key: 'ai.visionApiKey',   category: 'ai', label: 'Vision OCR API Key (Google AI Studio/DeepInfra/OpenAI)', type: 'password', isSecret: true, description: 'Μόνο όταν ΔΕΝ χρησιμοποιείται OpenRouter. Αν κενό, διαβάζεται από GEMINI_API_KEY στο .env.' },
+  { key: 'ai.visionUrl',      category: 'ai', label: 'Vision OCR endpoint',     type: 'url',  description: 'Κενό = αυτόματα: OpenRouter όταν υπάρχει κλειδί του, αλλιώς Google AI Studio.' },
+  { key: 'ai.visionModel',    category: 'ai', label: 'Vision OCR model',        type: 'text', defaultValue: 'gemini-2.5-flash', description: 'Σκέτο όνομα (gemini-2.5-flash)· στο OpenRouter γίνεται αυτόματα google/gemini-2.5-flash.' },
   {
     key: 'ocr.useIssuerExample',
     category: 'ai',

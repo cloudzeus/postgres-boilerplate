@@ -2,7 +2,8 @@
 // Same OpenAI-compatible call shape as app/api/admin/ocr/[id]/read-region (now delegated here).
 import 'server-only';
 import sharp from 'sharp';
-import { getSetting } from '@/lib/settings';
+import { resolveVisionEndpoint } from '@/lib/ai/vision-config';
+import { providerHeaders, providerModel } from '@/lib/ai/vision-provider';
 import { logAiUsage, providerFromUrl } from '@/lib/ai/usage';
 import { fetchWithRetry } from '@/lib/ocr/fetch-retry';
 import { buildModelChain, tryModels } from '@/lib/ocr/model-fallback';
@@ -13,8 +14,6 @@ import { padBbox, type Bbox, type TemplateValueType } from './schema';
 // re-exported here because the adaptive read is the only thing that needs it and this is where that
 // read is defined.
 export { cropBoxToPage } from './geometry';
-
-const DEFAULT_VISION_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 
 type VisionConfig = { key: string; url: string; models: string[] };
 
@@ -31,12 +30,9 @@ export function resetVisionConfigCache(): void {
 
 async function visionConfig(): Promise<VisionConfig> {
   if (cached && Date.now() - cached.at < VISION_CONFIG_TTL_MS) return cached.cfg;
-  const key = (await getSetting<string>('ai.visionApiKey')) ?? process.env.GEMINI_API_KEY ?? '';
-  const url = (await getSetting<string>('ai.visionUrl')) ?? DEFAULT_VISION_URL;
-  const model = (await getSetting<string>('ai.visionModel')) ?? 'gemini-2.5-flash';
-  const fallbackRaw = (await getSetting<string>('ai.visionFallbackModels')) ?? '';
-  const fallbacks = fallbackRaw.split(/[,\s;]+/).map((s) => s.trim()).filter(Boolean);
-  if (!key) throw new Error('Δεν έχει ρυθμιστεί κλειδί vision (ai.visionApiKey)');
+  // Ίδια πηγή με την ανάγνωση εγγράφων: OpenRouter όταν υπάρχει κλειδί του, αλλιώς Google AI Studio.
+  const { url, key, model, fallbacks } = await resolveVisionEndpoint();
+  if (!key) throw new Error('Δεν έχει ρυθμιστεί κλειδί vision (OPENROUTER_API_KEY / ai.visionApiKey)');
   const cfg: VisionConfig = { key, url, models: buildModelChain(model, fallbacks) };
   cached = { at: Date.now(), cfg };
   return cfg;
@@ -84,7 +80,7 @@ export type UsageRef = { refType: string; refId: string };
  */
 export async function callVision(crop: Buffer, system: string, operation: string, ref?: UsageRef, mime = 'image/png', modelOverride?: string): Promise<CallResult> {
   const cfg = await visionConfig();
-  const models = modelOverride ? buildModelChain(modelOverride, cfg.models) : cfg.models;
+  const models = modelOverride ? buildModelChain(providerModel(modelOverride, cfg.url), cfg.models) : cfg.models;
   return tryModels(models, async (model) => {
     // NOTE: every failure path in here must RETURN `{ ok: false }` rather than
     // throw — a throw escapes tryModels and skips the remaining fallback models.
@@ -95,7 +91,7 @@ export async function callVision(crop: Buffer, system: string, operation: string
     try {
       res = await fetchWithRetry(cfg.url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.key}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.key}`, ...providerHeaders(cfg.url) },
         body: JSON.stringify({
           model, temperature: 0,
           messages: [

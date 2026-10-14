@@ -1,6 +1,8 @@
 import sharp from 'sharp';
 import { getSetting } from '@/lib/settings';
 import { buildSystemPrompt, resolveDocType, type ExtractDocType, type SupportedLang } from '@/lib/ocr/templates';
+import { resolveVisionEndpoint } from '@/lib/ai/vision-config';
+import { isGoogleAiStudio, isOpenRouter, providerHeaders, providerModel, supportsPdfNative } from '@/lib/ai/vision-provider';
 import { logAiUsage, providerFromUrl, type AiScope } from '@/lib/ai/usage';
 import { qualityScore } from '@/lib/ocr/validate';
 import {
@@ -118,22 +120,13 @@ export async function resolveCfg(): Promise<DeepSeekCfg> {
   const textKey = (await getSetting<string>('ai.deepseekApiKey')) ?? process.env.DEEPSEEK_API_KEY ?? '';
   const textUrl = (await getSetting<string>('ai.deepseekUrl'))    ?? process.env.DEEPSEEK_API_URL ?? 'https://api.deepseek.com/v1/chat/completions';
   const textModel = (await getSetting<string>('ai.deepseekTextModel')) ?? 'deepseek-chat';
-  // Vision: prefer Gemini (cheapest, OpenAI-compatible). Falls back to DeepInfra/OpenAI tokens if set.
-  const visionKey = (await getSetting<string>('ai.visionApiKey'))
-    ?? process.env.GEMINI_API_KEY
-    ?? process.env.DEEPINFRA_TOKEN
-    ?? process.env.OPENAI_API_KEY
-    ?? '';
-  const visionUrl = (await getSetting<string>('ai.visionUrl'))
-    ?? 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-  const visionModel = (await getSetting<string>('ai.visionModel'))
-    ?? 'gemini-2.5-flash';
-  // On sustained per-model overload (Gemini 503 UNAVAILABLE), fall back to a
-  // different model with a separate capacity pool. Configurable via setting
-  // `ai.visionFallbackModels` (comma-separated); empty string disables fallback.
-  const fallbackRaw = await getSetting<string>('ai.visionFallbackModels');
-  const visionFallbackModels = (fallbackRaw ?? 'gemini-2.0-flash,gemini-2.5-flash-lite')
-    .split(',').map((s) => s.trim()).filter(Boolean);
+  // Vision: ΕΝΑ σημείο απόφασης για πάροχο/κλειδί/μοντέλα (`lib/ai/vision-config.ts`) — OpenRouter όταν
+  // υπάρχει κλειδί του, αλλιώς Google AI Studio. Τα μοντέλα έρχονται ήδη στο όνομα του παρόχου.
+  const vision = await resolveVisionEndpoint();
+  const visionKey = vision.key;
+  const visionUrl = vision.url;
+  const visionModel = vision.model;
+  const visionFallbackModels = vision.fallbacks;
   return { textKey, textUrl, textModel, visionKey, visionUrl, visionModel, visionFallbackModels };
 }
 
@@ -340,7 +333,7 @@ export async function callTextViaVision(
   if (!cfg.visionKey) throw new Error('Vision API key is not configured (settings: ai.visionApiKey).');
   const res = await fetchWithRetry(cfg.visionUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.visionKey}` },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.visionKey}`, ...providerHeaders(cfg.visionUrl) },
     body: JSON.stringify({
       model: cfg.visionModel,
       temperature: 0,
@@ -382,10 +375,10 @@ export async function callGeminiPdfNative(
   usageScope: AiScope = 'OCR_VISION',
 ): Promise<{ content: string; tokens: number | null; model: string }> {
   if (!cfg.visionKey) throw new Error('Vision API key not configured.');
-  if (!cfg.visionUrl.includes('generativelanguage.googleapis.com')) {
+  if (!isGoogleAiStudio(cfg.visionUrl)) {
     throw new Error('Native PDF path requires Gemini provider.');
   }
-  const primary = modelOverride ?? cfg.visionModel;
+  const primary = providerModel(modelOverride ?? cfg.visionModel, cfg.visionUrl);
   const pdfB64 = pdfBuffer.toString('base64');
   return tryModels(buildModelChain(primary, cfg.visionFallbackModels), async (model) => {
     try {
@@ -423,18 +416,78 @@ export async function callGeminiPdfNative(
   });
 }
 
+/**
+ * PDF ολόκληρο στο OpenRouter, ως `file` part (OpenAI-compatible). Με `pdf.engine: 'native'` το PDF
+ * περνά αυτούσιο στο μοντέλο (τα Gemini διαβάζουν κείμενο + εικόνες) — χρεώνεται ως tokens εισόδου,
+ * χωρίς το επί πληρωμή OCR του OpenRouter και χωρίς rasterize ανά σελίδα.
+ */
+export async function callOpenRouterPdf(
+  cfg: DeepSeekCfg, system: string, pdfBuffer: Buffer, modelOverride?: string,
+  usageScope: AiScope = 'OCR_VISION',
+): Promise<{ content: string; tokens: number | null; model: string }> {
+  if (!cfg.visionKey) throw new Error('Δεν έχει ρυθμιστεί κλειδί OpenRouter (OPENROUTER_API_KEY ή ai.openrouterApiKey).');
+  const primary = providerModel(modelOverride ?? cfg.visionModel, cfg.visionUrl);
+  const fileData = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
+  return tryModels(buildModelChain(primary, cfg.visionFallbackModels), async (model) => {
+    try {
+      const res = await fetchWithRetry(cfg.visionUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.visionKey}`, ...providerHeaders(cfg.visionUrl) },
+        body: JSON.stringify({
+          model,
+          temperature: 0.1,
+          response_format: { type: 'json_object' },
+          plugins: [{ id: 'file-parser', pdf: { engine: 'native' } }],
+          messages: [
+            { role: 'system', content: system },
+            {
+              role: 'user',
+              content: [
+                { type: 'file', file: { filename: 'document.pdf', file_data: fileData } },
+                { type: 'text', text: 'Execute JSON data extraction from this PDF.' },
+              ],
+            },
+          ],
+        }),
+      }, { label: `pdf:${model}` });
+      if (!res.ok) return { ok: false, error: new Error(`OpenRouter PDF ${res.status}: ${(await res.text()).slice(0, 300)}`) };
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content ?? '';
+      const u = data?.usage ?? {};
+      void logAiUsage({
+        scope: modelOverride && usageScope === 'OCR_VISION' ? 'OCR_VISION_RETRY' : usageScope,
+        provider: 'openrouter', model, operation: 'ocr.pdf_native',
+        inputTokens: u.prompt_tokens ?? 0, outputTokens: u.completion_tokens ?? 0,
+        totalTokens: u.total_tokens ?? 0,
+      });
+      return { ok: true, value: { content: String(content), tokens: u.total_tokens ?? null, model } };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  });
+}
+
+/** PDF ολόκληρο στον πάροχο vision — Google AI Studio (native API) ή OpenRouter (file part). */
+export function callPdfNative(
+  cfg: DeepSeekCfg, system: string, pdfBuffer: Buffer, modelOverride?: string, usageScope: AiScope = 'OCR_VISION',
+) {
+  return isOpenRouter(cfg.visionUrl)
+    ? callOpenRouterPdf(cfg, system, pdfBuffer, modelOverride, usageScope)
+    : callGeminiPdfNative(cfg, system, pdfBuffer, modelOverride, usageScope);
+}
+
 export async function callVisionLLM(
   cfg: DeepSeekCfg, system: string, imageBase64: string, mimeType: string,
   modelOverride?: string, usageScope: AiScope = 'OCR_VISION',
 ) {
   if (!cfg.visionKey) throw new Error('Vision API key is not configured (settings: ai.visionApiKey).');
-  const primary = modelOverride ?? cfg.visionModel;
+  const primary = providerModel(modelOverride ?? cfg.visionModel, cfg.visionUrl);
   const dataUrl = `data:${mimeType};base64,${imageBase64}`;
   return tryModels(buildModelChain(primary, cfg.visionFallbackModels), async (model) => {
     try {
       const res = await fetchWithRetry(cfg.visionUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.visionKey}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.visionKey}`, ...providerHeaders(cfg.visionUrl) },
         body: JSON.stringify({
           model,
           temperature: 0.1,
@@ -534,7 +587,7 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
 
     // Auto-retry once with the upgraded model if too many required fields are missing.
     if (missingRequired(document, input.docType) >= RETRY_MISSING_THRESHOLD
-        && cfg.visionModel !== UPGRADED_VISION_MODEL) {
+        && cfg.visionModel !== providerModel(UPGRADED_VISION_MODEL, cfg.visionUrl)) {
       try {
         const retry = await callVisionLLM(cfg, system, b64, enhanced.mimeType, UPGRADED_VISION_MODEL);
         const retryDoc = toDocument(parseJsonLoose(retry.content), input.docType, ownAfm);
@@ -657,9 +710,9 @@ async function runDigitalPdf(
 async function runScannedPdf(
   cfg: DeepSeekCfg, system: string, buffer: Buffer, docType: ExtractDocType, started: number,
 ): Promise<ExtractResult> {
-  // Fast path: Gemini accepts PDFs natively (text + images) — skip rasterization.
-  if (cfg.visionUrl.includes('generativelanguage.googleapis.com')) {
-    const out = await callGeminiPdfNative(cfg, system, buffer);
+  // Fast path: Gemini (μέσω Google ή OpenRouter) δέχεται το PDF αυτούσιο (κείμενο + εικόνες) — χωρίς rasterize.
+  if (supportsPdfNative(cfg.visionUrl)) {
+    const out = await callPdfNative(cfg, system, buffer);
     const ownAfm = await resolveOwnAfm();
     let document = toDocument(parseJsonLoose(out.content), docType, ownAfm);
     let model = out.model;
@@ -667,9 +720,9 @@ async function runScannedPdf(
     let passes = 1;
     let retried = false;
     if (missingRequired(document, docType) >= RETRY_MISSING_THRESHOLD
-        && cfg.visionModel !== UPGRADED_VISION_MODEL) {
+        && cfg.visionModel !== providerModel(UPGRADED_VISION_MODEL, cfg.visionUrl)) {
       try {
-        const r = await callGeminiPdfNative(cfg, system, buffer, UPGRADED_VISION_MODEL);
+        const r = await callPdfNative(cfg, system, buffer, UPGRADED_VISION_MODEL);
         const retryDoc = toDocument(parseJsonLoose(r.content), docType, ownAfm);
         passes = 2;
         if (score(retryDoc, docType) < score(document, docType)) {
@@ -705,7 +758,7 @@ async function runScannedPdf(
 
   // Auto-retry only the pages we actually need, with the upgraded model.
   if (missingRequired(merged, docType) >= RETRY_MISSING_THRESHOLD
-      && cfg.visionModel !== UPGRADED_VISION_MODEL) {
+      && cfg.visionModel !== providerModel(UPGRADED_VISION_MODEL, cfg.visionUrl)) {
     try {
       const retryPages = await Promise.all(
         enhanced.map((p) => callVisionLLM(cfg, system, p.buffer.toString('base64'), p.mimeType, UPGRADED_VISION_MODEL)),

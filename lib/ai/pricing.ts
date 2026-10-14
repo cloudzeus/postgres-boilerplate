@@ -47,6 +47,10 @@ const PREFIX_FALLBACKS: Array<[string, PricingEntry]> = [
 export function getPricing(model: string): PricingEntry | null {
   if (!model) return null;
   if (PRICING[model]) return PRICING[model];
+  // OpenRouter: `google/gemini-2.5-flash-lite` = ίδια τιμή με το σκέτο όνομα (πριν το prefix match
+  // πιάσει λάθος το `gemini-2.5-flash`). Τα `-001` του OpenRouter επίσης φεύγουν.
+  const bare = model.replace(/^[a-z0-9-]+\//i, '').replace(/-0\d\d$/, '');
+  if (bare !== model && PRICING[bare]) return PRICING[bare];
   for (const [prefix, entry] of PREFIX_FALLBACKS) {
     if (model.includes(prefix)) return entry;
   }

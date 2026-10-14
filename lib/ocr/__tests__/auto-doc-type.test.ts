@@ -15,7 +15,8 @@ vi.mock('@/lib/ocr/fetch-retry', () => net);
 vi.mock('@/lib/ai/usage', () => usage);
 vi.mock('@/lib/ocr/own-afm', () => own);
 vi.mock('@/lib/settings', () => ({
-  getSetting: vi.fn(async (key: string) => (key.endsWith('ApiKey') ? 'test-key' : undefined)),
+  // Χωρίς κλειδί OpenRouter: το test ελέγχει τη διαδρομή Google AI Studio (σκέτα ονόματα μοντέλων).
+  getSetting: vi.fn(async (key: string) => (key.endsWith('ApiKey') && key !== 'ai.openrouterApiKey' ? 'test-key' : undefined)),
 }));
 
 import { extractDocument } from '../extract';
