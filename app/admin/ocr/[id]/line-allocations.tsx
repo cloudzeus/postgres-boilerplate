@@ -17,7 +17,8 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { FiPlus, FiTrash2, FiSave, FiSearch, FiAlertCircle, FiCheck, FiZap } from 'react-icons/fi';
 import { cn } from '@/lib/utils';
-import { emitDocLinesChanged } from '@/components/admin/doc-lines-events';
+import { emitDocLinesChanged, useStartSplit } from '@/components/admin/doc-lines-events';
+import { CreateRegistryEntryModal } from '@/components/admin/create-registry-entry-modal';
 import { percentOf, validateAllocations } from '@/lib/ocr/line-allocation';
 
 export type AllocationKind = 'LINEITEM' | 'SXACCOUNT';
@@ -46,12 +47,14 @@ const CELL =
 
 /** Αναζήτηση χρεοπίστωσης — ο κωδικός της ΕΙΝΑΙ ο λογαριασμός γενικής. */
 function AccountPicker({
-  value, label, disabled, searchType, onPick,
+  value, label, disabled, searchType, onPick, onCreate,
 }: {
   value: number | null; label: string | null; disabled?: boolean;
   /** Ποιο μητρώο ψάχνουμε — το ορίζει ο ΠΡΟΟΡΙΣΜΟΣ του παραστατικού, όχι ο χρήστης. */
   searchType: 'lineitems' | 'sxaccounts';
   onPick: (hit: Hit) => void;
+  /** Δημιουργία νέας κατηγορίας εξόδου ΕΠΙ ΤΟΠΟΥ, όταν δεν υπάρχει αυτή που ψάχνει ο χρήστης. */
+  onCreate?: () => void;
 }) {
   const [q, setQ] = React.useState('');
   const [hits, setHits] = React.useState<Hit[]>([]);
@@ -144,7 +147,7 @@ function AccountPicker({
         {loading ? (
           <p className="px-2 py-3 text-[length:var(--fs-11)] text-muted-foreground">Αναζήτηση…</p>
         ) : hits.length === 0 ? (
-          <p className="px-2 py-3 text-[length:var(--fs-11)] text-muted-foreground">Καμία χρεοπίστωση.</p>
+          <p className="px-2 py-3 text-[length:var(--fs-11)] text-muted-foreground">Καμία κατηγορία εξόδου.</p>
         ) : hits.map((h) => (
           <button
             key={h.id} type="button"
@@ -156,6 +159,15 @@ function AccountPicker({
           </button>
         ))}
       </div>
+      {onCreate && (
+        <button
+          type="button"
+          onClick={() => { setOpen(false); onCreate(); }}
+          className="mt-1 flex min-h-9 w-full items-center gap-1.5 rounded-md border-t border-border px-2 pt-1 text-left text-[length:var(--fs-12)] font-semibold text-sisyphus-700 hover:bg-sisyphus-500/10 dark:text-sisyphus-300"
+        >
+          <FiPlus className="size-3.5" aria-hidden /> Δεν υπάρχει; Νέα κατηγορία εξόδου
+        </button>
+      )}
     </div>,
     document.body,
   ) : null;
@@ -176,7 +188,7 @@ function AccountPicker({
               )}
             </>
           ) : (
-            <span className="truncate">{searchType === 'sxaccounts' ? 'Επίλεξε λογαριασμό εξόδων…' : 'Επίλεξε λογαριασμό δαπάνης…'}</span>
+            <span className="truncate">{searchType === 'sxaccounts' ? 'Επίλεξε λογαριασμό εξόδων…' : 'Επίλεξε κατηγορία εξόδου…'}</span>
           )}
         </span>
         <FiSearch className="size-3.5 shrink-0 opacity-60" />
@@ -208,6 +220,23 @@ export function LineAllocations({
   const [dirty, setDirty] = React.useState(false);
 
   React.useEffect(() => { setRows(initial); setDirty(false); }, [initial]);
+  /** Η γραμμή επιμερισμού για την οποία δημιουργείται νέα κατηγορία εξόδου. */
+  const [creatingFor, setCreatingFor] = React.useState<number | null>(null);
+  const rootRef = React.useRef<HTMLTableRowElement>(null);
+
+  // Ο οδηγός αντιστοίχισης είπε «αφορά πολλά μαζί»: ξεκινάμε το σπάσιμο στα δύο (50/50) — ο χρήστης
+  // διαλέγει κατηγορίες και αλλάζει τα ποσά· η δεύτερη γραμμή κλείνει μόνη της.
+  useStartSplit(lineId, () => {
+    if (!canManage || lineTotal == null) return;
+    if (rows.length === 0) {
+      setDirty(true);
+      setRows([0, 1].map((i) => ({
+        order: i, registryMtrl: 0, accountCode: null, accountName: null, kind,
+        percent: 50, amount: round2(((lineTotal ?? 0) * 50) / 100),
+      })));
+    }
+    requestAnimationFrame(() => rootRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+  });
 
   /**
    * ΠΡΟΤΑΣΗ από τη μνήμη: «το προηγούμενο τιμολόγιο του ίδιου εκδότη με αυτή τη γραμμή πήγε εκεί».
@@ -375,7 +404,7 @@ export function LineAllocations({
   if (!canManage && rows.length === 0) return null;
 
   return (
-    <tr className="bg-sisyphus-500/5">
+    <tr ref={rootRef} className="bg-sisyphus-500/5">
       <td colSpan={colSpan} className="px-3 py-2">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-2">
@@ -496,6 +525,7 @@ export function LineAllocations({
                 disabled={!canManage || busy}
                 searchType={kind === 'SXACCOUNT' ? 'sxaccounts' : 'lineitems'}
                 onPick={(h) => update(i, { registryMtrl: h.id, kind, accountCode: h.code, accountName: h.name })}
+                onCreate={kind === 'LINEITEM' && canManage ? () => setCreatingFor(i) : undefined}
               />
               <div className="relative">
                 <input
@@ -544,6 +574,19 @@ export function LineAllocations({
             </div>
           )}
         </div>
+        {kind === 'LINEITEM' && (
+          <CreateRegistryEntryModal
+            open={creatingFor != null}
+            onOpenChange={(o) => { if (!o) setCreatingFor(null); }}
+            kind="lineitem"
+            onCreated={(m) => {
+              if (creatingFor != null && m.lin != null) {
+                update(creatingFor, { registryMtrl: m.lin, kind, accountCode: m.code, accountName: m.name });
+              }
+              setCreatingFor(null);
+            }}
+          />
+        )}
       </td>
     </tr>
   );

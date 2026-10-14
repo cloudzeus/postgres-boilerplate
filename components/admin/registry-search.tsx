@@ -56,6 +56,7 @@ export function RegistrySearch({
   label = 'Άλλο είδος/έξοδο…',
   id = 'registry-search',
   category,
+  initialQuery,
 }: {
   kind: RegistryKind;
   onPick: (pick: RegistryPick) => void | Promise<void>;
@@ -64,8 +65,12 @@ export function RegistrySearch({
   id?: string;
   /** Μόνο για `lineitem`: MTRCATEGORY που στενεύει την αναζήτηση σε μία κατηγορία δαπάνης. */
   category?: number | null;
+  /** Λέξη με την οποία ξεκινά η αναζήτηση (π.χ. «καύσιμα» από την κατηγορία που διάλεξε ο χρήστης). */
+  initialQuery?: string | null;
 }) {
-  const [q, setQ] = React.useState('');
+  const [q, setQ] = React.useState(initialQuery ?? '');
+  // Νέα αφετηρία (άλλη κατηγορία στον οδηγό) ⇒ νέα αναζήτηση.
+  React.useEffect(() => { setQ(initialQuery ?? ''); }, [initialQuery]);
   const [results, setResults] = React.useState<Result[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [failed, setFailed] = React.useState(false);

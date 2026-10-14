@@ -23,12 +23,12 @@ const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCa
  * SoftOne. Αντιστοιχίζουμε με το ΟΝΟΜΑ της κατηγορίας (όχι με id/σύντμηση της εγκατάστασης), ώστε η
  * πρόταση να δουλεύει σε κάθε εγκατάσταση με ελληνικό λογιστικό σχέδιο.
  */
-const ASSET_FAMILIES: { line: RegExp; gl: RegExp; category: RegExp }[] = [
-  { line: /MACBOOK|LAPTOP|NOTEBOOK|\bNB\b|\bPC\b|Η\/Υ|ΥΠΟΛΟΓΙΣΤ|SERVER|MONITOR|ΟΘΟΝ|PRINTER|ΕΚΤΥΠΩΤ|IPAD|TABLET|ΦΩΤΟΤΥΠ/, gl: /ΗΛΕΚΤΡΟΝ|ΥΠΟΛΟΓ|Η\/Υ/, category: /Η\/Υ|ΗΛΕΚΤΡΟΝ|ΥΠΟΛΟΓ/ },
-  { line: /ΚΙΝΗΤΟ|ΤΗΛΕΦΩΝ|PHONE|ΤΗΛΕΠΙΚ|ROUTER|SWITCH|FAX/, gl: /ΤΗΛΕΠΙΚ/, category: /ΤΗΛΕΠΙΚ/ },
-  { line: /REACTOR|ΑΝΤΙΔΡΑΣΤ|CONDENSER|ΣΥΜΠΥΚΝ|EXCHANGER|ΕΝΑΛΛΑΚΤ|DECANT|COLUMN|COIL|PUMP|ΑΝΤΛΙ|ΜΗΧΑΝ|COMPRESSOR|ΣΥΜΠΙΕΣΤ|BY ?PASS|TANK|ΔΕΞΑΜΕΝ|ΚΛΙΜΑΤΙΣΤ/, gl: /ΜΗΧΑΝ/, category: /ΜΗΧΑΝ/ },
-  { line: /ΕΠΙΠΛ|ΚΑΡΕΚΛ|ΚΑΘΙΣΜ|ΠΟΛΥΘΡΟΝ|DESK|CHAIR|ΕΡΜΑΡ|ΝΤΟΥΛΑΠ|ΤΡΑΠΕΖ/, gl: /ΕΠΙΠΛ/, category: /ΔΙΟΙΚΗΣ|ΕΠΙΠΛ/ },
-  { line: /ΑΥΤΟΚΙΝΗΤ|ΟΧΗΜΑ|\bVAN\b|TRUCK|ΦΟΡΤΗΓ|ΕΠΙΒΑΤΙΚ/, gl: /ΜΕΤΑΦΟΡΙΚ.*ΕΙΧ|ΜΕΤΑΦΟΡΙΚ/, category: /ΟΧΗΜ/ },
+const ASSET_FAMILIES: { label: string; line: RegExp; gl: RegExp; category: RegExp }[] = [
+  { label: 'υπολογιστή ή ηλεκτρονική συσκευή', line: /MACBOOK|LAPTOP|NOTEBOOK|\bNB\b|\bPC\b|Η\/Υ|ΥΠΟΛΟΓΙΣΤ|SERVER|MONITOR|ΟΘΟΝ|PRINTER|ΕΚΤΥΠΩΤ|IPAD|TABLET|ΦΩΤΟΤΥΠ/, gl: /ΗΛΕΚΤΡΟΝ|ΥΠΟΛΟΓ|Η\/Υ/, category: /Η\/Υ|ΗΛΕΚΤΡΟΝ|ΥΠΟΛΟΓ/ },
+  { label: 'τηλέφωνο ή εξοπλισμό δικτύου', line: /ΚΙΝΗΤΟ|ΤΗΛΕΦΩΝ|PHONE|ΤΗΛΕΠΙΚ|ROUTER|SWITCH|FAX/, gl: /ΤΗΛΕΠΙΚ/, category: /ΤΗΛΕΠΙΚ/ },
+  { label: 'μηχάνημα', line: /REACTOR|ΑΝΤΙΔΡΑΣΤ|CONDENSER|ΣΥΜΠΥΚΝ|EXCHANGER|ΕΝΑΛΛΑΚΤ|DECANT|COLUMN|COIL|PUMP|ΑΝΤΛΙ|ΜΗΧΑΝ|COMPRESSOR|ΣΥΜΠΙΕΣΤ|BY ?PASS|TANK|ΔΕΞΑΜΕΝ|ΚΛΙΜΑΤΙΣΤ/, gl: /ΜΗΧΑΝ/, category: /ΜΗΧΑΝ/ },
+  { label: 'έπιπλο', line: /ΕΠΙΠΛ|ΚΑΡΕΚΛ|ΚΑΘΙΣΜ|ΠΟΛΥΘΡΟΝ|DESK|CHAIR|ΕΡΜΑΡ|ΝΤΟΥΛΑΠ|ΤΡΑΠΕΖ/, gl: /ΕΠΙΠΛ/, category: /ΔΙΟΙΚΗΣ|ΕΠΙΠΛ/ },
+  { label: 'όχημα', line: /ΑΥΤΟΚΙΝΗΤ|ΟΧΗΜΑ|\bVAN\b|TRUCK|ΦΟΡΤΗΓ|ΕΠΙΒΑΤΙΚ/, gl: /ΜΕΤΑΦΟΡΙΚ.*ΕΙΧ|ΜΕΤΑΦΟΡΙΚ/, category: /ΟΧΗΜ/ },
 ];
 
 /** Πρόταση λογιστικής και εμπορικής κατηγορίας από την περιγραφή της γραμμής. `null` = δεν ξέρουμε. */
@@ -44,4 +44,24 @@ export function guessAssetCategories(
     mtrAcn: gl.find((g) => fam.gl.test(fold(g.name)))?.mtrAcn ?? null,
     mtrCategory: categories.find((c) => fam.category.test(fold(c.name)))?.mtrCategory ?? null,
   };
+}
+
+/**
+ * Λέξεις ΕΡΓΑΣΙΑΣ: «Αλλαγή αντλίας», «Καθαρισμός κλιματιστικού», «Επισκευή μοτέρ» αναφέρουν
+ * εξοπλισμό, αλλά αγοράζουμε τη ΔΟΥΛΕΙΑ, όχι το πάγιο. Τότε δεν προτείνουμε πάγιο.
+ */
+const WORK_WORDS = /ΕΠΙΣΚΕΥ|ΣΥΝΤΗΡΗΣ|ΒΛΑΒ|ΑΛΛΑΓΗ|ΑΝΤΙΚΑΤΑΣΤΑΣ|ΚΑΘΑΡΙΣΜ|ΕΡΓΑΣΙ|ΤΟΠΟΘΕΤΗΣ|ΕΓΚΑΤΑΣΤΑΣ|ΜΕΤΑΦΟΡ|ΥΠΗΡΕΣΙ|ΕΝΟΙΚΙ|ΜΙΣΘΩΣ|ΜΙΣΘΩΜ|ΑΠΟΚΑΤΑΣΤΑΣ|ΡΥΘΜΙΣ|SERVICE|REPAIR|RENT|LEASE/;
+
+/** Κάτω από αυτό το ποσό ένας «εξοπλισμός» είναι συνήθως αναλώσιμο (καλώδιο, ποντίκι), όχι πάγιο. */
+export const ASSET_MIN_AMOUNT = 150;
+
+/**
+ * Μοιάζει η γραμμή με αγορά ΕΞΟΠΛΙΣΜΟΥ (πάγιο); Επιστρέφει τι μοιάζει («υπολογιστή…») για την
+ * εξήγηση στον χρήστη, ή `null`. Συντηρητικό: εργασίες πάνω σε εξοπλισμό και μικρά ποσά εξαιρούνται.
+ */
+export function assetLikeLabel(lineName: string | null | undefined, amount?: number | null): string | null {
+  const t = fold(lineName ?? '');
+  if (!t || WORK_WORDS.test(t)) return null;
+  if (amount != null && Number.isFinite(amount) && Math.abs(amount) < ASSET_MIN_AMOUNT) return null;
+  return ASSET_FAMILIES.find((f) => f.line.test(t))?.label ?? null;
 }

@@ -62,3 +62,27 @@ export function useFocusLine(lineId: string, onFocus: () => void): void {
     return () => window.removeEventListener(FOCUS, handler);
   }, [lineId]);
 }
+
+/**
+ * «Μοίρασε ΑΥΤΗ τη γραμμή» — από τον οδηγό αντιστοίχισης («Αφορά πολλά μαζί») προς τον επιμερισμό
+ * της ίδιας γραμμής, που ζει σε άλλη σειρά του πίνακα.
+ */
+const START_SPLIT = 'ocr:start-split';
+
+export function emitStartSplit(lineId: string): void {
+  if (typeof window === 'undefined' || !lineId) return;
+  window.dispatchEvent(new CustomEvent(START_SPLIT, { detail: { lineId } }));
+}
+
+export function useStartSplit(lineId: string, onStart: () => void): void {
+  const ref = React.useRef(onStart);
+  ref.current = onStart;
+  React.useEffect(() => {
+    if (!lineId) return;
+    const handler = (e: Event) => {
+      if ((e as CustomEvent<{ lineId?: string }>).detail?.lineId === lineId) ref.current();
+    };
+    window.addEventListener(START_SPLIT, handler);
+    return () => window.removeEventListener(START_SPLIT, handler);
+  }, [lineId]);
+}

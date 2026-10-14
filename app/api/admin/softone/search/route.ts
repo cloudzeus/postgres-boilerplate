@@ -78,12 +78,14 @@ export async function GET(req: Request) {
         isActive: true,
         ...(onlyTrader ? { trdr } : {}),
       },
-      take: 25, orderBy: { name: 'asc' },
+      // Το κείμενο φιλτράρεται ΜΕΤΑ, στη μνήμη (τόνοι, τελικό σίγμα) — ένα `take` εδώ έκοβε τη
+      // λίστα πριν το φίλτρο και η αναζήτηση έδειχνε πάντα τα ίδια 25.
+      orderBy: { name: 'asc' },
       select: { prjc: true, code: true, name: true, trdr: true },
     });
     return NextResponse.json({
       scope: onlyTrader ? 'trader' : 'all',
-      results: rows.map((r) => ({
+      results: rows.filter((r) => matchesQuery(q, r.code, r.name)).slice(0, 25).map((r) => ({
         id: r.prjc, code: r.code, name: r.name,
         sub: ['έργο', r.trdr ? `συναλλασσόμενος ${r.trdr}` : null].filter(Boolean).join(' · '),
       })),
@@ -109,11 +111,11 @@ export async function GET(req: Request) {
       where: {
         isActive: true, postable: true,
       },
-      take: 25, orderBy: { code: 'asc' },
+      orderBy: { code: 'asc' },
       select: { acnt: true, code: true, name: true, grade: true },
     });
     return NextResponse.json({
-      results: rows.map((r) => ({
+      results: rows.filter((r) => matchesQuery(q, r.code, r.name)).slice(0, 25).map((r) => ({
         id: r.acnt, code: r.code, name: r.name,
         sub: ['λογαριασμός γενικής', r.grade != null ? `βαθμίδα ${r.grade}` : null].filter(Boolean).join(' · '),
       })),
@@ -196,12 +198,12 @@ export async function GET(req: Request) {
       where: {
         isActive: true,
       },
-      take: 25, orderBy: { name: 'asc' },
+      orderBy: { name: 'asc' },
       select: { expn: true, code: true, name: true, vat: true, classTypeX: true, classCategoryX: true },
     });
     const label = await classificationLabeller();
     return NextResponse.json({
-      results: rows.map((r) => {
+      results: rows.filter((r) => matchesQuery(q, r.code, r.name)).slice(0, 25).map((r) => {
         // Για παραστατικά που ΛΑΜΒΑΝΟΥΜΕ ισχύει το ζεύγος χαρακτηρισμού ΕΞΟΔΩΝ (…X).
         const cls = label({ classType: r.classTypeX, classCategory: r.classCategoryX });
         return {

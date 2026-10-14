@@ -15,6 +15,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { RegistrySearch } from '@/components/admin/registry-search';
+import { OpenAccountDialog, type OpenRequest } from '@/components/admin/open-account-dialog';
+import { vatOfAccount } from '@/lib/ocr/scan-accounts';
 import { matchUnit, unitOptions } from '@/lib/ocr/unit-match';
 import { LINE_KIND_LABEL } from '@/lib/ocr/resolution-plan';
 import { parseLisourceType } from '@/lib/ocr/lineitem-create';
@@ -113,11 +115,19 @@ function Note({ children, tone = 'warn' }: { children: React.ReactNode; tone?: '
 }
 
 /** Μικρό combobox πάνω στο λογιστικό σχέδιο — μόνο ΚΙΝΟΥΜΕΝΟΙ λογαριασμοί (τους φιλτράρει ο server). */
+/** Πλήρης κωδικός λογαριασμού που κινείται (4 επίπεδα), π.χ. 64.00.00.0006. */
+const FULL_ACCOUNT = /^\d{2}\.\d{2}\.\d{2}\.\d{4}$/;
+
 function AccountPicker({
-  id, value, onPick, disabled,
-}: { id: string; value: string; onPick: (a: { code: string; name: string }) => void; disabled?: boolean }) {
+  id, value, onPick, disabled, onMissing,
+}: {
+  id: string; value: string; onPick: (a: { code: string; name: string }) => void; disabled?: boolean;
+  /** Ο χρήστης έγραψε πλήρη κωδικό που ΔΕΝ υπάρχει στο σχέδιο — προσφέρουμε άνοιγμα επί τόπου. */
+  onMissing?: (code: string) => void;
+}) {
   const [q, setQ] = React.useState('');
   const [rows, setRows] = React.useState<{ id: number; code: string; name: string }[]>([]);
+  const [searched, setSearched] = React.useState('');
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
 
@@ -128,7 +138,7 @@ function AccountPicker({
     const h = setTimeout(() => {
       fetch(`/api/admin/softone/search?type=accounts&q=${encodeURIComponent(term)}`)
         .then((r) => (r.ok ? r.json() : { results: [] }))
-        .then((d) => { if (!ignore) { setRows(d.results ?? []); setOpen(true); } })
+        .then((d) => { if (!ignore) { setRows(d.results ?? []); setSearched(term); setOpen(true); } })
         .catch(() => { if (!ignore) setRows([]); });
     }, 250);
     return () => { ignore = true; clearTimeout(h); };
@@ -166,6 +176,15 @@ function AccountPicker({
             </li>
           ))}
         </ul>
+      )}
+      {onMissing && FULL_ACCOUNT.test(q.trim()) && searched === q.trim() && !rows.some((r) => r.code === q.trim()) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/[0.06] px-2.5 py-1.5 text-[length:var(--fs-12)] text-foreground">
+          <span>Ο <span className="font-mono">{q.trim()}</span> δεν υπάρχει στο λογιστικό σχέδιο.</span>
+          <button type="button" onClick={() => onMissing(q.trim())}
+            className="inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md bg-sisyphus-500 px-2.5 font-semibold text-white hover:bg-sisyphus-600">
+            Άνοιγμα στο SoftOne
+          </button>
+        </div>
       )}
     </div>
   );
@@ -215,6 +234,8 @@ export function CreateRegistryEntryModal({
   const [templateIssue, setTemplateIssue] = React.useState<string | null>(null);
   const [account, setAccount] = React.useState<{ code: string; name: string | null }>({ code: '', name: null });
   const [accountVerdict, setAccountVerdict] = React.useState<AccountVerdict | null>(null);
+  /** Άνοιγμα λογαριασμού που λείπει, χωρίς να φύγει ο χρήστης από τη δημιουργία. */
+  const [openReq, setOpenReq] = React.useState<OpenRequest | null>(null);
   const proposed = React.useRef<string | null>(null);
   const [f, setF] = React.useState<FormState>({ code: '', name: '', vat: '', unit: '', price: '', group: '', category: '' });
 
@@ -581,11 +602,32 @@ export function CreateRegistryEntryModal({
                 <AccountPicker
                   id="lineitem-account" value={account.code}
                   onPick={(a) => { setAccount({ code: a.code, name: a.name }); void revalidate(a.code); }}
+                  onMissing={(code) => setOpenReq({ code, name: f.name, vatRate: vatOfAccount(code) })}
                 />
+                <p className="text-[length:var(--fs-11)] text-muted-foreground">
+                  Δεν υπάρχει ο λογαριασμός που χρειάζεσαι; Γράψε ολόκληρο τον κωδικό (π.χ. 64.00.00.0006) και άνοιξέ τον από εδώ.
+                </p>
                 {accountVerdict && (accountOk
                   ? <Note tone="ok">Ο λογαριασμός υπάρχει στο σχέδιο και κινείται.</Note>
                   : <Note tone={accountVerdict.status === 'unknown' ? 'warn' : 'bad'}>{accountVerdict.message ?? accountVerdict.status}</Note>
                 )}
+                {accountVerdict?.status === 'not_in_chart' && FULL_ACCOUNT.test(account.code) && (
+                  <button type="button"
+                    onClick={() => setOpenReq({ code: account.code, name: f.name, vatRate: vatOfAccount(account.code) })}
+                    className="inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-md bg-sisyphus-500 px-3 text-[length:var(--fs-12)] font-semibold text-white hover:bg-sisyphus-600">
+                    Άνοιγμα του {account.code} στο SoftOne
+                  </button>
+                )}
+                <OpenAccountDialog
+                  req={openReq}
+                  onClose={() => setOpenReq(null)}
+                  onDone={(code) => {
+                    const name = openReq?.name ?? null;
+                    setOpenReq(null);
+                    setAccount({ code, name });
+                    void revalidate(code);
+                  }}
+                />
               </section>
             )}
 

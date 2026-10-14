@@ -169,6 +169,7 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
                       lineVatRate={it.vatRate == null ? null : String(it.vatRate)}
                       /* Η μονάδα ΔΕΝ είναι στήλη της βάσης — ζει στο κανονικό JSON (`lines.unit`). */
                       lineUnit={(line.unit ?? null) as string | null}
+                      lineTotal={it.total == null ? null : Number(it.total)}
                       suggestion={match.suggestions?.[it.id] ?? null}
                     />
                     {match.lineAccounts?.[it.rowIndex] && (
