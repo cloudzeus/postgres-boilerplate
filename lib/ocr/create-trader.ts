@@ -16,9 +16,10 @@ import { prisma } from '@/lib/db';
 import { logAudit } from '@/lib/audit';
 import { applyTraderToDocs, TRADER_KIND_LABEL } from '@/lib/ocr/queues';
 import {
-  softoneCreateTrader, softoneFetchCountries, matchCountryId,
+  softoneCreateTrader, softoneFetchCountries, softoneGetTable, matchCountryId,
   TRADER_KIND_SODTYPE, type SoftoneCountry,
 } from '@/lib/softone';
+import { normalizeAfm } from '@/lib/ocr/validate';
 
 export type TraderKind = 'supplier' | 'creditor' | 'debtor';
 
@@ -38,6 +39,28 @@ export interface CreateTraderJob {
 export interface CreateTraderResult {
   ok: true; trdr: number; code: string; name: string; afm: string;
   kind: string; country: string; docsUpdated: number; warnings: string[];
+  /** Υπήρχε ΗΔΗ καρτέλα με αυτόν τον ΑΦΜ: δεν δημιουργήθηκε νέα, τα παραστατικά συνδέθηκαν σε αυτήν. */
+  existing?: boolean;
+}
+
+/**
+ * Η καρτέλα που ΗΔΗ υπάρχει για αυτόν τον ΑΦΜ και τύπο: πρώτα ο καθρέφτης, μετά ζωντανά το SoftOne
+ * (μια καρτέλα που φτιάχτηκε έξω από την εφαρμογή δεν είναι ακόμη στον καθρέφτη).
+ */
+export async function findExistingTrader(vat: string, sodtype: number): Promise<{ trdr: number; code: string; name: string } | null> {
+  const key = normalizeAfm(vat);
+  if (!key) return null;
+  const local = await prisma.softoneTrader.findMany({
+    where: { sodtype, isActive: true, afm: { contains: key } },
+    select: { trdr: true, code: true, name: true, afm: true },
+    orderBy: { trdr: 'asc' },
+  });
+  const hit = local.find((t) => normalizeAfm(t.afm) === key);
+  if (hit) return { trdr: hit.trdr, code: hit.code ?? '', name: hit.name };
+  // Ο κωδικός είναι μόνο γράμματα/ψηφία (normalizeAfm) — ασφαλής μέσα στο φίλτρο.
+  const live = await softoneGetTable('TRDR', ['TRDR', 'CODE', 'NAME', 'AFM', 'ISACTIVE'], `AFM='${key}' AND SODTYPE=${sodtype}`).catch(() => []);
+  const l = live.find((r) => r.ISACTIVE !== '0' && normalizeAfm(r.AFM) === key);
+  return l ? { trdr: Number(l.TRDR), code: l.CODE, name: l.NAME } : null;
 }
 
 export async function createTraderInSoftone(job: CreateTraderJob): Promise<CreateTraderResult> {
@@ -48,10 +71,37 @@ export async function createTraderInSoftone(job: CreateTraderJob): Promise<Creat
   const countries: SoftoneCountry[] = await softoneFetchCountries().catch(() => []);
   const warnings = matchCountryId(input.country, countries) ? [] : ['country_not_found'];
 
-  const { trdr, code } = await softoneCreateTrader(kind, input, countries);
-
   const label = TRADER_KIND_LABEL[kind];
   const sodtype = TRADER_KIND_SODTYPE[kind];
+
+  // ΠΟΤΕ ΔΕΥΤΕΡΗ ΚΑΡΤΕΛΑ ΓΙΑ ΤΟΝ ΙΔΙΟ ΑΦΜ. Στις 15/10 φτιάχτηκε δεύτερη «Α ΜΑΡΓΑΡΙΤΗΣ ΙΚΕ» (958)
+  // ενώ υπήρχε η 955 μία ώρα νωρίτερα — και τα τιμολόγιά της θα περνούσαν τον έλεγχο διπλών, που
+  // ψάχνει ανά καρτέλα. Αν υπάρχει, ΣΥΝΔΕΟΥΜΕ αντί να δημιουργήσουμε.
+  const existing = await findExistingTrader(input.afm || afm, sodtype)
+    ?? (normalizeAfm(input.afm) !== normalizeAfm(afm) ? await findExistingTrader(afm, sodtype) : null);
+  if (existing) {
+    await prisma.softoneTrader.upsert({
+      where: { trdr: existing.trdr },
+      update: {},
+      create: { trdr: existing.trdr, code: existing.code, name: existing.name, afm: input.afm, sodtype, kind: label, isActive: true },
+    }).catch(() => null);
+    const docsUpdated = await applyTraderToDocs(
+      afm, { trdr: existing.trdr, code: existing.code, name: existing.name, kind: label, sodtype }, { vatId: input.afm },
+    );
+    if (actor) {
+      await logAudit({
+        userId: actor.id, userEmail: actor.email,
+        action: 'ocr.trader.link_existing', resource: 'softone_trader', resourceId: String(existing.trdr),
+        metadata: { afm, vatId: input.afm, kind, code: existing.code, name: existing.name, docsUpdated },
+      }).catch(() => null);
+    }
+    return {
+      ok: true, trdr: existing.trdr, code: existing.code, name: existing.name, afm: input.afm, kind: label,
+      country: input.country, docsUpdated, warnings: [...warnings, 'already_exists'], existing: true,
+    };
+  }
+
+  const { trdr, code } = await softoneCreateTrader(kind, input, countries);
   const mirror = {
     code, name: input.name, afm: input.afm, sodtype, kind: label, isActive: true,
     doy: input.irsData, profession: input.profession,

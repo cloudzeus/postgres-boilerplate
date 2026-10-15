@@ -184,9 +184,15 @@ export function CreateTraderDialog({
         toast.success('Ετοιμάστηκε το object — δεν στάλθηκε τίποτα στο SoftOne.');
         return;
       }
-      toast.success(`Δημιουργήθηκε ${text.nom}: ${d.name}${d.code ? ` (${d.code})` : ''}`, {
-        description: d.docsUpdated > 1 ? `Συνδέθηκε σε ${d.docsUpdated} παραστατικά του ίδιου ΑΦΜ.` : undefined,
-      });
+      if (d.existing) {
+        toast.info(`Υπήρχε ήδη ${text.nom}: ${d.name}${d.code ? ` (${d.code})` : ''}`, {
+          description: 'Δεν δημιουργήθηκε δεύτερη καρτέλα για τον ίδιο ΑΦΜ — το παραστατικό συνδέθηκε στην υπάρχουσα.',
+        });
+      } else {
+        toast.success(`Δημιουργήθηκε ${text.nom}: ${d.name}${d.code ? ` (${d.code})` : ''}`, {
+          description: d.docsUpdated > 1 ? `Συνδέθηκε σε ${d.docsUpdated} παραστατικά του ίδιου ΑΦΜ.` : undefined,
+        });
+      }
       onCreated?.({ trdr: d.trdr, code: d.code, name: d.name, docsUpdated: d.docsUpdated ?? 0 });
       onOpenChange(false);
     } catch {

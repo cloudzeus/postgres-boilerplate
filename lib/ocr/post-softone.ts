@@ -1,5 +1,6 @@
 // lib/ocr/post-softone.ts — SERVER. One place for "post this document to SoftOne" (route + template runner).
 import 'server-only';
+import { findDuplicatePosting } from '@/lib/ocr/duplicate-post';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getSetting } from '@/lib/settings';
@@ -26,7 +27,7 @@ const vatRateOf = (v: unknown): number | null => {
 /** Ο διακόπτης ασφαλείας. Κλειστός = καμία εγγραφή δεν φεύγει προς το SoftOne (μόνο dry-run). */
 export const POSTING_ENABLED_KEY = 'softone.postingEnabled';
 
-export type PostErrorCode = 'not_found' | 'posting_disabled' | 'already_posted' | BlockerCode;
+export type PostErrorCode = 'not_found' | 'posting_disabled' | 'already_posted' | 'duplicate' | BlockerCode;
 
 export class PostError extends Error {
   constructor(public code: PostErrorCode, message: string) {
@@ -74,6 +75,7 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   account_is_mask: 'Η χρεοπίστωση έχει μάσκα λογαριασμού (με *) αντί για συγκεκριμένο λογαριασμό γενικής — η εφαρμογή δεν μπορεί ακόμη να διαλέξει λογαριασμό μέσα στη μάσκα',
   posting_disabled: 'Η καταχώριση είναι απενεργοποιημένη (Ρυθμίσεις → Διασυνδέσεις)',
   already_posted: 'Έχει ήδη καταχωριστεί στο SoftOne',
+  duplicate: 'Το ίδιο τιμολόγιο (ίδιος ΑΦΜ εκδότη και αριθμός) έχει ήδη καταχωριστεί',
 };
 
 /**
@@ -521,6 +523,13 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
   if ((await getSetting<boolean>(POSTING_ENABLED_KEY)) !== true) {
     // Σκόπιμα ΠΡΙΝ από οποιαδήποτε εγγραφή: ένα κλειστό σύστημα δεν αλλάζει καν `postStatus`.
     throw new PostError('posting_disabled', POST_ERROR_TEXT.posting_disabled);
+  }
+  // ΤΟ ΙΔΙΟ ΧΑΡΤΙ ΔΕΝ ΚΑΤΑΧΩΡΙΖΕΤΑΙ ΔΥΟ ΦΟΡΕΣ — με ΑΦΜ + αριθμό, όχι με καρτέλα (βλ. duplicate-post.ts).
+  const dup = await findDuplicatePosting({ id, afm: document.issuer.vat, type: document.type, date: document.date });
+  if (dup) {
+    throw new PostError('duplicate', dup.where === 'app'
+      ? `${POST_ERROR_TEXT.duplicate} από το «${dup.fileName ?? 'άλλο αρχείο'}»${dup.ref ? ` (SoftOne ${dup.ref})` : ''}. Αν είναι διπλό ανέβασμα, διάγραψέ το.`
+      : `${POST_ERROR_TEXT.duplicate} στο SoftOne${dup.ref ? ` (${dup.ref})` : ''} — πιθανώς σε άλλη καρτέλα του ίδιου προμηθευτή.`);
   }
 
   await prisma.ocrDocument.update({ where: { id }, data: { postStatus: 'PENDING' } });

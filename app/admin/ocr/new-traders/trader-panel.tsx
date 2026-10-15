@@ -624,7 +624,9 @@ export function TraderPanel({
       }
       onResolved(
         group.afm,
-        `Δημιουργήθηκε ${d.name}${d.code ? ` (κωδ. ${d.code})` : ''} — ενημερώθηκαν ${d.docsUpdated} παραστατικά`,
+        d.existing
+          ? `Υπήρχε ήδη καρτέλα ${d.name}${d.code ? ` (κωδ. ${d.code})` : ''} με αυτόν τον ΑΦΜ — δεν δημιουργήθηκε νέα· συνδέθηκαν ${d.docsUpdated} παραστατικά`
+          : `Δημιουργήθηκε ${d.name}${d.code ? ` (κωδ. ${d.code})` : ''} — ενημερώθηκαν ${d.docsUpdated} παραστατικά`,
       );
     } catch {
       setFailure('Σφάλμα δικτύου — δοκίμασε ξανά.');
