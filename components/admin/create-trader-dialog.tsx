@@ -13,6 +13,7 @@ import type { TaxOfficeMapping } from '@/lib/tax-office';
 import { cn } from '@/lib/utils';
 import { VAT_COUNTRY_CODES, isValidAfm, vatCountry } from '@/lib/ocr/validate';
 import { countryLabel } from '@/lib/countries';
+import { EXTRA_COUNTRY_NAMES_EL } from '@/lib/country-detect';
 import { KadField, kadPayload, useKadRemoved, type TraderKads } from '@/components/admin/kad-field';
 
 type Preview = {
@@ -25,7 +26,7 @@ type Preview = {
 };
 
 /** Οι χώρες με γνωστό πρόθεμα ΑΦΜ (εκτός Ελλάδας — αυτή δεν ζητείται εδώ). Το «XI» είναι πρόθεμα, όχι χώρα. */
-const COUNTRY_OPTIONS = [...VAT_COUNTRY_CODES].filter((c) => c !== 'XI')
+const COUNTRY_OPTIONS = [...new Set([...VAT_COUNTRY_CODES, ...Object.keys(EXTRA_COUNTRY_NAMES_EL)])].filter((c) => c !== 'XI')
   .sort((a, b) => countryLabel(a).localeCompare(countryLabel(b), 'el'));
 
 type CodeSuggestion = { code: string | null; source: 'pattern' | 'mask' | 'none'; taken: number; stale: boolean };
@@ -48,7 +49,7 @@ type CodeSuggestion = { code: string | null; source: 'pattern' | 'mask' | 'none'
  * ⚠️ Το `setData` φεύγει **μόνο** όταν ο χρήστης ξετσεκάρει τη «Δοκιμή» και πατήσει «Δημιουργία».
  */
 export function CreateTraderDialog({
-  open, onOpenChange, afm, kind, fallbackName, reason, onCreated,
+  open, onOpenChange, afm, kind, fallbackName, reason, onCreated, countryHint,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -56,6 +57,8 @@ export function CreateTraderDialog({
   /** Ο τύπος που **επιβάλλει** η σειρά του παραστατικού. */
   kind: TraderKindName;
   fallbackName?: string | null;
+  /** Η χώρα του εκδότη όπως τη γράφει το παραστατικό (διεύθυνση/«Χώρα») — προσυμπληρώνεται. */
+  countryHint?: string | null;
   /** Η ελληνική αιτιολογία του προορισμού — γιατί αυτός ο τύπος. */
   reason?: string | null;
   onCreated?: (m: { trdr: number; code: string; name: string; docsUpdated: number }) => void;
@@ -116,7 +119,7 @@ export function CreateTraderDialog({
     if (!open) return;
     const initAfm = (afm || '').toUpperCase().replace(/[\s.\-/]/g, '');
     setAfmInput(initAfm);
-    setCountryPick('');
+    setCountryPick(countryHint && countryHint !== 'GR' ? countryHint : '');
     setName(fallbackName || '');
     // Η «Δοκιμή» ξεκινά ΑΝΟΙΧΤΗ μέχρι να μάθουμε τον διακόπτη — ποτέ δεν υποθέτουμε «στείλ' το».
     setCode(''); setData(null); setError(null); setDryPayload(null); setDryRun(true);
@@ -125,9 +128,11 @@ export function CreateTraderDialog({
     // Ξένος εκδότης (πρόθεμα χώρας): η ΑΑΔΕ δεν έχει θέση — καμία κλήση, κανένα σφάλμα.
     const initCountry = vatCountry(initAfm);
     if (initCountry && initCountry !== 'GR') return;
+    // Ξένος από τη διεύθυνση του παραστατικού (ΑΦΜ χωρίς πρόθεμα): επίσης χωρίς ΑΑΔΕ.
+    if (countryHint && countryHint !== 'GR' && !isValidAfm(initAfm)) return;
     const greek = initAfm.replace(/^(EL|GR)/, '');
     if (/^\d{9}$/.test(greek) && isValidAfm(greek)) void runLookup(greek);
-  }, [open, afm, fallbackName, runLookup]);
+  }, [open, afm, fallbackName, countryHint, runLookup]);
 
   /**
    * Η «Δοκιμή» ΑΚΟΛΟΥΘΕΙ τον διακόπτη `softone.postingEnabled`.
@@ -218,6 +223,12 @@ export function CreateTraderDialog({
           description: d.docsUpdated > 1 ? `Συνδέθηκε σε ${d.docsUpdated} παραστατικά του ίδιου ΑΦΜ.` : undefined,
         });
       }
+      if (Array.isArray(d.warnings) && d.warnings.includes('country_not_found') && d.country && d.country !== 'GR') {
+        toast.warning(`Η χώρα ${d.country} δεν υπάρχει στο μητρώο χωρών του SoftOne.`, {
+          description: 'Η καρτέλα δημιουργήθηκε με την προεπιλεγμένη χώρα της SoftOne — διόρθωσέ τη μέσα στην καρτέλα ή πρόσθεσε τη χώρα στο μητρώο.',
+          duration: 12000,
+        });
+      }
       if (Array.isArray(d.warnings) && d.warnings.includes('kad_not_saved')) {
         toast.warning('Ο ΚΑΔ δεν αποθηκεύτηκε στο SoftOne.', {
           description: 'Η καρτέλα δημιουργήθηκε· συμπλήρωσε τον ΚΑΔ μέσα στο SoftOne (Επιπλέον στοιχεία → Κ.Α.Δ.).',
@@ -270,7 +281,10 @@ export function CreateTraderDialog({
 
           {!prefixCountry && afmInput && !isValidAfm(cleanAfm) && (
             <label className="grid gap-1.5">
-              <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Χώρα εκδότη <span className="text-destructive">*</span></span>
+              <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">
+                Χώρα εκδότη <span className="text-destructive">*</span>
+                {countryHint && countryPick === countryHint && <span className="font-normal"> · από τη διεύθυνση του παραστατικού</span>}
+              </span>
               <select
                 value={countryPick}
                 onChange={(e) => { setCountryPick(e.target.value); setError(null); setData(null); }}

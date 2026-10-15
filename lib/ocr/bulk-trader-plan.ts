@@ -94,6 +94,12 @@ export function planRow(g: PlanInput): PlanRow {
     return { ...base, country: vat.country, status: 'ready', reason: `Ξένος (${vat.country}) — με πρόθεμα χώρας`, selected: true };
   }
 
+  // Η χώρα βρέθηκε στο ίδιο το παραστατικό (διεύθυνση/«Χώρα»): ξένος, έτοιμος — εκτός αν το όνομα
+  // είναι ελληνικό (τότε είναι λάθος ανάγνωσης ΑΦΜ, όχι ξένος).
+  if (g.country && g.country !== 'GR' && !GREEK.test(name)) {
+    return { ...base, country: g.country, status: 'ready', reason: `Ξένος (${g.country}) — χώρα από τη διεύθυνση του παραστατικού`, selected: true };
+  }
+
   const digits = g.afm.replace(/\D+/g, '');
   // Ελληνικό όνομα με ΑΦΜ που δεν περνά τον έλεγχο: λάθος ανάγνωσης, όχι ξένος.
   if (GREEK.test(name) || (digits.length <= 9 && /^\d+$/.test(g.afm) && !guessCountry(name))) {

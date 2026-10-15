@@ -260,7 +260,7 @@ describe('applyTraderToDocs', () => {
     expect(db.ocrDocument.findUnique).not.toHaveBeenCalled();
     // Τα εκκρεμή έγγραφα του ΑΦΜ διαβάζονται με το indexed `issuerAfm` και μόνο τα πεδία σειράς.
     expect(db.ocrDocument.findMany.mock.calls[0][0]).toMatchObject({
-      where: { status: 'COMPLETED', softoneTrdr: null, issuerAfm: '094073495' },
+      where: { status: 'COMPLETED', softoneTrdr: null, issuerAfm: { in: ['094073495'] } },
       select: { id: true, seriesSource: true, softoneSeries: true },
     });
     const arg = db.ocrDocument.updateMany.mock.calls[0][0];
@@ -347,6 +347,12 @@ describe('applyTraderToDocs', () => {
       // …και ο συναλλασσόμενος ταξιδεύει στο ΙΔΙΟ update, δηλαδή στο ίδιο transaction.
       expect(arg.data).toMatchObject({ softoneTrdr: 5001, softoneCode: 'Π.0009', softoneName: 'MÜLLER GMBH' });
       expect(db.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('βρίσκει και παραστατικά που έχουν ΗΔΗ το πρόθεμα (π.χ. δεύτερο ανέβασμα του ίδιου εκδότη)', async () => {
+      await applyTraderToDocs('144960040', { trdr: 5001, code: null, name: 'X', kind: 'Προμηθευτής' }, { vatId: 'DE144960040' });
+      const where = db.ocrDocument.findMany.mock.calls[0][0].where;
+      expect(where.issuerAfm.in).toEqual(expect.arrayContaining(['144960040', 'DE144960040']));
     });
 
     it('ίδιο ΑΦΜ μετά την κανονικοποίηση → απλό updateMany, χωρίς ανάγνωση εγγράφου', async () => {

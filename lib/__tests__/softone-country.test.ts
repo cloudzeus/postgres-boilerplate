@@ -19,6 +19,23 @@ describe('matchCountryId', () => {
     expect(matchCountryId('de', COUNTRIES)).toBe('1004');
     expect(matchCountryId('CH', COUNTRIES)).toBe('1099');
   });
+  it('με το ΟΝΟΜΑ πρώτα — και ποτέ σύντμηση που ανήκει σε άλλη χώρα (μητρώο σαν της Demo)', () => {
+    const DEMO: SoftoneCountry[] = [
+      { id: '1000', shortcut: 'EL', name: 'Ελλάδα', intcode: '', intercode: '' },
+      { id: '1002', shortcut: 'IT', name: 'Ιταλία', intcode: '', intercode: '' },
+      { id: '1004', shortcut: 'IS', name: 'Ισπανία', intcode: '', intercode: '' },
+      { id: '1006', shortcut: '1006', name: 'Γερμανία', intcode: '', intercode: '' },
+      { id: '1012', shortcut: 'NL', name: 'NetherLands', intcode: '', intercode: '' },
+      { id: '1001', shortcut: 'US', name: 'Η.Π.Α. /U.S.A.', intcode: '', intercode: '' },
+    ];
+    expect(matchCountryId('GR', DEMO)).toBe('1000');
+    expect(matchCountryId('DE', DEMO)).toBe('1006');
+    expect(matchCountryId('ES', DEMO)).toBe('1004');
+    expect(matchCountryId('IS', DEMO)).toBeNull();   // «IS» είναι η Ισπανία εκεί — όχι Ισλανδία
+    expect(matchCountryId('NL', DEMO)).toBe('1012');
+    expect(matchCountryId('US', DEMO)).toBe('1001');
+  });
+
   it('null για άγνωστο ή μη ISO-2', () => {
     expect(matchCountryId('PT', COUNTRIES)).toBeNull();
     expect(matchCountryId('ΚΥΠΡΟΣ', COUNTRIES)).toBeNull();

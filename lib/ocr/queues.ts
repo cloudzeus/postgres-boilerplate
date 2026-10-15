@@ -1,7 +1,9 @@
 import 'server-only';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
-import { normalizeAfm, vatCountry } from '@/lib/ocr/validate';
+import { isValidAfm, normalizeAfm, vatCountry } from '@/lib/ocr/validate';
+import { countryInText } from '@/lib/country-detect';
+import { guessCountry } from '@/lib/ocr/bulk-trader-plan';
 import { splitGluedAddress } from '@/lib/ocr/address';
 import { refreshDocTallies, matchDocItems, detectUtilityForItems } from '@/lib/ocr/softone-match';
 import { classifyUtilityCharge, utilityMemoryKey, UTILITY_CHARGE_LABEL, UTILITY_KIND_LABEL } from '@/lib/ocr/utility-bills';
@@ -221,6 +223,8 @@ const TRADER_DOCS_SAMPLE = 10;
 interface TraderAcc {
   afm: string;
   names: Map<string, number>;
+  /** Η χώρα που γράφει η διεύθυνση του παραστατικού (για ΑΦΜ χωρίς πρόθεμα). */
+  countryHint: string | null;
   doy: string | null;
   profession: string | null;
   address: string | null;
@@ -406,7 +410,7 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
     let g = acc.get(afm);
     if (!g) {
       g = {
-        afm, names: new Map(), doy: null, profession: null, address: null, phone: null, email: null,
+        afm, names: new Map(), countryHint: null, doy: null, profession: null, address: null, phone: null, email: null,
         docCount: 0, total: 0, lastDate: null, thumbUrl: null, seriesKinds: [], invoiceKinds: [],
         needs: new Map(), unknownSeriesDocs: 0, docs: [],
       };
@@ -420,6 +424,7 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
     // Οι κολλημένες γραμμές του OCR σπάνε εδώ, ώστε η κάρτα και το geocoding
     // να δουν κανονική διεύθυνση.
     g.address ??= splitGluedAddress(str(ed.companyAddress) ?? '') || null;
+    g.countryHint ??= countryInText(str(ed.companyCountry)) ?? countryInText(str(ed.companyAddress));
     g.phone ??= str(ed.companyPhone);
     g.email ??= str(ed.companyEmail);
     g.thumbUrl ??= doc.thumbUrl ?? null;
@@ -458,7 +463,11 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
       ignored.push({ afm: g.afm, name: topName(g.names), reason: ignoredReason.get(g.afm) ?? null });
       continue;
     }
-    const country = vatCountry(g.afm);
+    // Η χώρα: από το πρόθεμα του ΑΦΜ· για ΑΦΜ χωρίς πρόθεμα που ΔΕΝ είναι έγκυρο ελληνικό, από ό,τι
+    // γράφει το παραστατικό (διεύθυνση) ή η νομική μορφή — ώστε ένας ιταλός εκδότης να μη ζητά ΑΑΔΕ.
+    //   Μόνο ΞΕΝΗ χώρα από υπόδειξη: «Ελλάδα» στη διεύθυνση δεν κάνει έγκυρο ένα άκυρο ΑΦΜ.
+    const hinted = isValidAfm(g.afm) ? null : g.countryHint ?? guessCountry(topName(g.names));
+    const country = vatCountry(g.afm) ?? (hinted && hinted !== 'GR' ? hinted : null);
     const missing: MissingTraderKind[] = [...g.needs.values()]
       .sort((a, b) => b.docCount - a.docCount)
       .map((n) => {
@@ -583,15 +592,18 @@ export async function applyTraderToDocs(
   const sodtypeOf = new Map(cardRows.map((c) => [c.trdr, c.sodtype]));
 
   // ── 1. Εκκρεμή έγγραφα (χωρίς συναλλασσόμενο) ────────────────────────
+  // ΚΑΙ ΜΕ ΤΙΣ ΔΥΟ ΜΟΡΦΕΣ ΑΦΜ: ένα παραστατικό του ίδιου εκδότη μπορεί να έχει ήδη το πρόθεμα
+  // (π.χ. δεύτερο ανέβασμα, ή διαβάστηκε «IT…» από την αρχή) — αλλιώς έμενε ασύνδετο δίπλα σε μια
+  // καρτέλα που μόλις φτιάχτηκε γι' αυτό.
   const pending = await prisma.ocrDocument.findMany({
-    where: { status: 'COMPLETED', softoneTrdr: null, issuerAfm: target },
+    where: { status: 'COMPLETED', softoneTrdr: null, issuerAfm: { in: afmForms } },
     select: { id: true, seriesSource: true, softoneSeries: true },
   });
 
   // ── 2. Ήδη συνδεδεμένα που ζητούν ΑΥΤΟΝ τον τύπο αλλά δείχνουν αλλού ──
   const linked = ownSodtype == null ? [] : await prisma.ocrDocument.findMany({
     where: {
-      status: 'COMPLETED', issuerAfm: target,
+      status: 'COMPLETED', issuerAfm: { in: afmForms },
       softoneTrdr: { not: null }, softoneSeries: { not: null }, seriesSource: { not: null },
       postStatus: { not: 'POSTED' },
     },

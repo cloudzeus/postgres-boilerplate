@@ -3,6 +3,8 @@ import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { getSetting } from '@/lib/settings';
 import { normalizeAfm } from '@/lib/ocr/validate';
+import { detectIssuerCountry } from '@/lib/country-detect';
+import { guessCountry } from '@/lib/ocr/bulk-trader-plan';
 import { postingTargetsForSeries, seriesKey } from '@/lib/ocr/required-trader-kind';
 import { describeTargetShort, SODTYPE_FOR_OBJECT } from '@/lib/ocr/posting-target';
 import { requiredTraderForTarget, allowedLineKinds, lineKindsReason } from '@/lib/ocr/resolution-plan';
@@ -30,7 +32,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const doc = await prisma.ocrDocument.findUnique({
     where: { id },
     select: {
-      extractedData: true,
+      extractedData: true, document: true,
       softoneSeries: true, seriesSource: true,
       softoneDocExists: true, softoneDocRef: true, softoneDocChecked: true,
       softoneTrdr: true, softoneCode: true, softoneName: true, softoneKind: true, softoneChecked: true,
@@ -49,6 +51,14 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   if (!doc) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
   const ed = (doc.extractedData ?? {}) as Record<string, unknown>;
+  const iss = ((doc.document ?? {}) as { issuer?: Record<string, unknown> }).issuer ?? {};
+  const txt = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const issuer = {
+    name: txt(iss.name) ?? txt(ed.companyName),
+    country: txt(iss.country),
+    address: txt(iss.address) ?? txt(ed.companyAddress),
+    city: txt(iss.city),
+  };
   // Αντιστοιχισμένη = έχει είδος/υπηρεσία (MTRL), ΕΞΟΔΟ (EXPN) ή ΧΡΕΟΠΙΣΤΩΣΗ (LIN) — ίδιος
   // κανόνας με το `refreshDocTallies` και με την ουρά «Είδη & έξοδα».
   // «Χωρίς αντιστοίχιση» = η γραμμή δεν ξέρει πού πάει. Μια γραμμή με ΕΠΙΜΕΡΙΣΜΟ ξέρει — και
@@ -105,6 +115,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       trdr: doc.softoneTrdr,
       name: doc.softoneName, code: doc.softoneCode, kind: doc.softoneKind,
       afm: normalizeAfm(ed.vatNumber) ?? '',
+      /** Ο εκδότης ΟΠΩΣ ΤΟΝ ΓΡΑΦΕΙ το παραστατικό — για δημιουργία καρτέλας χωρίς να ξαναγραφτεί τίποτα. */
+      issuerName: issuer.name,
+      /** Η χώρα του εκδότη από το πεδίο «Χώρα» / τη διεύθυνση / τη νομική μορφή (`null` = άγνωστη). */
+      issuerCountry: detectIssuerCountry(issuer) ?? guessCountry(issuer.name),
       sodtype: linked?.sodtype ?? null,
       /** `null` = άγνωστη σειρά ⇒ δεν ξέρουμε τι καρτέλα θέλει, άρα δεν προτείνουμε καμία. */
       required,

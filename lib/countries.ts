@@ -1,3 +1,5 @@
+import { EXTRA_COUNTRY_NAMES_EL } from '@/lib/country-detect';
+
 /**
  * Ελληνικά ονόματα χωρών για τα προθέματα VAT που αναγνωρίζουμε
  * (`VAT_COUNTRY_CODES` στο `lib/ocr/validate.ts`) — client-safe, χωρίς εξαρτήσεις.
@@ -18,6 +20,6 @@ export const COUNTRY_NAMES_EL: Record<string, string> = {
 export function countryLabel(code: string | null | undefined): string {
   const c = String(code ?? '').trim().toUpperCase();
   if (!c) return '—';
-  const name = COUNTRY_NAMES_EL[c];
+  const name = COUNTRY_NAMES_EL[c] ?? EXTRA_COUNTRY_NAMES_EL[c];
   return name ? `${name} (${c})` : c;
 }

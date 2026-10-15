@@ -12,6 +12,7 @@ import { SODTYPE_FOR_TRADER_KIND, type TraderKindName } from '@/lib/ocr/posting-
 import { LINEITEM_COPY_FIELDS, LINEITEM_TEMPLATE_READ_FIELDS, parseLisourceType } from '@/lib/ocr/lineitem-create';
 import { nextTraderCode, type NextCodeResult } from '@/lib/trader-code';
 import { buildKadIndex, type KadIndex } from '@/lib/kad';
+import { countryInText } from '@/lib/country-detect';
 import { proposeItemCode, type ItemCodeKind, type ItemCodeProposal } from '@/lib/item-code';
 
 /**
@@ -1342,10 +1343,18 @@ export function matchCountryId(
   iso2: string | null | undefined,
   countries: SoftoneCountry[],
 ): string | null {
-  const target = String(iso2 ?? '').trim().toUpperCase();
+  const raw = String(iso2 ?? '').trim().toUpperCase();
+  const target = raw === 'EL' ? 'GR' : raw === 'UK' ? 'GB' : raw;
   if (!/^[A-Z]{2}$/.test(target)) return null;
+  // 1) Με το ΟΝΟΜΑ: οι συντμήσεις μιας εγκατάστασης δεν είναι αξιόπιστες (στη Demo η Ισπανία έχει
+  //    «IS» — τον κωδικό της Ισλανδίας — η Γερμανία «1006», η Ελλάδα «EL»).
+  const byName = countries.find((c) => countryInText(c.name) === target);
+  if (byName) return byName.id;
+  // 2) Με τη σύντμηση/κωδικό — ΜΟΝΟ αν το όνομα της γραμμής δεν δείχνει ΑΛΛΗ χώρα.
+  const aliases = target === 'GR' ? ['GR', 'EL'] : target === 'GB' ? ['GB', 'UK'] : [target];
   for (const key of ['shortcut', 'intcode', 'intercode'] as const) {
-    const hit = countries.find((c) => c[key] === target);
+    const hit = countries.find((c) => aliases.includes(String(c[key] ?? '').toUpperCase())
+      && (countryInText(c.name) ?? target) === target);
     if (hit) return hit.id;
   }
   return null;

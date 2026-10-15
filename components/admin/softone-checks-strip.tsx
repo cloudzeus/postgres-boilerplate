@@ -30,6 +30,8 @@ type Checks = {
   supplier: {
     checked: boolean; found: boolean; trdr: number | null;
     name: string | null; code: string | null; kind: string | null; afm: string;
+    /** Ο εκδότης όπως τον γράφει το παραστατικό και η χώρα του (από «Χώρα»/διεύθυνση). */
+    issuerName?: string | null; issuerCountry?: string | null;
     sodtype: number | null; required: RequiredTrader | null; mismatch: boolean;
   };
   items: {
@@ -100,6 +102,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
   if (!data) return null;
 
   const req = data.supplier.required;
+  const foreignCountry = foreignCountryOf(data.supplier.afm, data.supplier.issuerCountry);
   const dupTone: Tone = !data.duplicate.checked ? 'idle' : data.duplicate.exists ? 'danger' : 'ok';
   // Συνδεδεμένη καρτέλα ΛΑΘΟΣ τύπου δεν είναι «βρέθηκε»: είναι εμπόδιο, και πρέπει να το λέει εδώ.
   const supTone: Tone = data.supplier.mismatch ? 'danger'
@@ -242,7 +245,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                         και βλέπεις σε ποιο πεδίο του SoftOne κάθεται το κάθε στοιχείο. */}
                     {/* ΑΦΜ που λείπει ή δεν περνά τον έλεγχο: η ΑΑΔΕ δεν έχει τι να ψάξει — πρώτα
                         ξαναδιαβάζεται το αρχείο. Με σωστό ΑΦΜ εμφανίζεται κανονικά η εξακρίβωση. */}
-                    {!afmLooksValid(data.supplier.afm) && (
+                    {!foreignCountry && !afmLooksValid(data.supplier.afm) && (
                       <>
                         <AfmRecover docId={docId} onDone={() => { void load(); emitDocLinesChanged(docId); }} />
                         {/* Ένα ξένο ΑΦΜ ΧΩΡΙΣ πρόθεμα χώρας μοιάζει «μη έγκυρο ελληνικό». Δεν είναι
@@ -259,10 +262,11 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                     )}
                     {/* Ξένος εκδότης (πρόθεμα χώρας): η ΑΑΔΕ δεν τον ξέρει — καμία εξακρίβωση εκεί,
                         κατευθείαν δημιουργία με τη χώρα του ΑΦΜ. */}
-                    {isForeignAfm(data.supplier.afm) && req && (
+                    {foreignCountry && req && (
                       <div className="space-y-1">
                         <p className="text-[length:var(--fs-11)] text-muted-foreground">
-                          Εκδότης από {countryLabel(vatCountry(data.supplier.afm))} — δεν χρειάζεται έλεγχος στην ΑΑΔΕ.
+                          Εκδότης από {countryLabel(foreignCountry)}
+                          {isForeignAfm(data.supplier.afm) ? '' : ' (από τη διεύθυνση του παραστατικού)'} — δεν χρειάζεται έλεγχος στην ΑΑΔΕ.
                         </p>
                         <button
                           type="button" onClick={() => setCreatingTrader(true)}
@@ -272,7 +276,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                         </button>
                       </div>
                     )}
-                    {afmLooksValid(data.supplier.afm) && !isForeignAfm(data.supplier.afm) && (
+                    {!foreignCountry && afmLooksValid(data.supplier.afm) && (
                       <AadeVerifyPanel
                         afm={data.supplier.afm}
                         kind={req?.kind ?? null}
@@ -375,7 +379,8 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
           onOpenChange={setCreatingTrader}
           afm={data.supplier.afm}
           kind={req.kind}
-          fallbackName={data.supplier.name}
+          fallbackName={data.supplier.name ?? data.supplier.issuerName ?? null}
+          countryHint={foreignCountry}
           reason={data.target?.reason ?? null}
           onCreated={() => { setCreatingTrader(false); void load(); emitDocLinesChanged(docId); }}
         />
@@ -443,6 +448,18 @@ function SegmentAction({
 }
 
 /** Έγκυρο = ελληνικό που περνά τον έλεγχο, ή ξένο με πρόθεμα χώρας. Ό,τι άλλο θέλει επανάγνωση. */
+/**
+ * Η χώρα ενός ΞΕΝΟΥ εκδότη: από το πρόθεμα του ΑΦΜ· αλλιώς — όταν το ΑΦΜ ΔΕΝ είναι έγκυρο ελληνικό —
+ * από ό,τι γράφει το παραστατικό (χώρα/διεύθυνση). `null` = ελληνικός ή άγνωστος.
+ */
+function foreignCountryOf(afm: string | null | undefined, hinted: string | null | undefined): string | null {
+  const a = String(afm ?? '').trim();
+  const byPrefix = vatCountry(a);
+  if (byPrefix && byPrefix !== 'GR') return byPrefix;
+  if (!isValidAfm(a) && hinted && hinted !== 'GR') return hinted;
+  return null;
+}
+
 function isForeignAfm(afm: string | null | undefined): boolean {
   const c = vatCountry(String(afm ?? '').trim());
   return c != null && c !== 'GR';

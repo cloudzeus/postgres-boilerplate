@@ -59,7 +59,9 @@ export type SoftoneMatchFields = {
  * never throws (SoftOne errors leave `softoneChecked = null` so a re-extract retries).
  */
 export async function buildSoftoneMatch(vatNumber: unknown): Promise<SoftoneMatchFields> {
-  const afm = String(vatNumber ?? '').replace(/\D+/g, '');
+  // ΚΡΑΤΑ ΤΟ ΠΡΟΘΕΜΑ ΧΩΡΑΣ: το «IT01808880270» χωρίς γράμματα δεν βρίσκει ποτέ την καρτέλα που
+  // γράφτηκε με «IT…». Το `softoneFindTraderByAfm` ψάχνει μόνο του και τις δύο μορφές.
+  const afm = String(vatNumber ?? '').toUpperCase().replace(/[^0-9A-Z]+/g, '');
   const empty = { softoneTrdr: null, softoneCode: null, softoneName: null, softoneKind: null };
   if (!afm) return { ...empty, softoneChecked: new Date() };
   try {

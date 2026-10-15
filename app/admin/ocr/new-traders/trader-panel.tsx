@@ -628,6 +628,12 @@ export function TraderPanel({
         setFailure(d?.message ?? 'Η δημιουργία στο SoftOne απέτυχε.');
         return;
       }
+      if (Array.isArray(d.warnings) && d.warnings.includes('country_not_found') && d.country && d.country !== 'GR') {
+        toast.warning(`Η χώρα ${d.country} δεν υπάρχει στο μητρώο χωρών του SoftOne.`, {
+          description: 'Η καρτέλα δημιουργήθηκε με την προεπιλεγμένη χώρα της SoftOne — διόρθωσέ τη μέσα στην καρτέλα ή πρόσθεσε τη χώρα στο μητρώο.',
+          duration: 12000,
+        });
+      }
       if (Array.isArray(d.warnings) && d.warnings.includes('kad_not_saved')) {
         toast.warning('Η καρτέλα δημιουργήθηκε, αλλά ο ΚΑΔ δεν αποθηκεύτηκε στο SoftOne.', {
           description: 'Συμπλήρωσέ τον στην καρτέλα μέσα στο SoftOne (Επιπλέον στοιχεία → Κ.Α.Δ.).',
