@@ -30,6 +30,8 @@ export function OcrUploadForm() {
   // Πολυ-παραστατικό PDF: ο σαρωτής βγάζει ΕΝΑ αρχείο με όλη τη στοίβα της ημέρας.
   const [multiDoc, setMultiDoc] = useState(false);
   const [split, setSplit] = useState<SplitPreviewData | null>(null);
+  /** Τι κάνει τώρα η φόρμα: έλεγχος σελίδων ή ανάγνωση παραστατικού (για το μήνυμα αναμονής). */
+  const [phase, setPhase] = useState<'split' | 'ocr' | null>(null);
   /**
    * Συμπτυγμένη ΑΠΟ ΠΡΟΕΠΙΛΟΓΗ: η φόρμα ανεβάσματος είναι η ενέργεια της ημέρας, όχι της ώρας —
    * ο πίνακας των παραστατικών είναι. Ανοιχτή έτρωγε ~450px πριν φανεί η πρώτη γραμμή.
@@ -46,34 +48,47 @@ export function OcrUploadForm() {
     try { localStorage.setItem(PANEL_KEY, next ? '1' : '0'); } catch { /* ιδιωτική περιήγηση */ }
   }
 
-  async function handleSplitFile(file: File) {
+  /**
+   * Διαχωρισμός σελίδων. `auto`: κάθε PDF περνά πρώτα από εδώ — αν βρεθούν ΠΟΛΛΑ παραστατικά ο
+   * χρήστης βλέπει την προεπισκόπηση, αλλιώς επιστρέφει `false` και το ανέβασμα συνεχίζει κανονικά.
+   * (Πριν, ο διαχωρισμός ήθελε τον διακόπτη «πολλά παραστατικά», κρυμμένο σε κλειστή φόρμα· ένα PDF
+   * με 4 τιμολόγια διαβαζόταν ως ένα.) Σε αποτυχία του αυτόματου ελέγχου: κανονικό ανέβασμα.
+   */
+  async function handleSplitFile(file: File, auto: boolean): Promise<boolean> {
     setBusy(true);
+    setPhase('split');
     try {
       const fd = new FormData();
       fd.set('file', file);
       fd.set('language', language);
+      if (auto) fd.set('auto', '1');
       const res = await fetch('/api/admin/ocr/split-preview', { method: 'POST', body: fd });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (auto) return false;
+        throw new Error(json?.error ?? `HTTP ${res.status}`);
+      }
+      if (json.single) return false;
+      if (auto) toast.info(`Βρέθηκαν ${json.suggested?.length ?? 'πολλά'} παραστατικά στο αρχείο — έλεγξε τα κοψίματα και συνέχισε.`);
       setSplit({ ...json, fileName: file.name, docType });
+      return true;
     } catch (err: any) {
       toast.error(`Αποτυχία προεπισκόπησης: ${err?.message ?? err}`);
+      return true;
     } finally {
       setBusy(false);
+      setPhase(null);
       if (fileRef.current) fileRef.current.value = '';
     }
   }
 
   async function handleFile(file: File) {
-    // Το «πολλά παραστατικά» αφορά μόνο PDF· μια φωτογραφία είναι ένα παραστατικό.
-    if (multiDoc) {
-      if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
-        await handleSplitFile(file);
-        return;
-      }
-      toast.info('Ο διαχωρισμός αφορά μόνο PDF — το αρχείο ανεβαίνει ως ένα παραστατικό.');
-    }
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    // Κάθε PDF ελέγχεται για πολλά παραστατικά· μια φωτογραφία είναι ένα παραστατικό.
+    if (isPdf && (await handleSplitFile(file, !multiDoc))) return;
+    if (multiDoc && !isPdf) toast.info('Ο διαχωρισμός αφορά μόνο PDF — το αρχείο ανεβαίνει ως ένα παραστατικό.');
     setBusy(true);
+    setPhase('ocr');
     try {
       const fd = new FormData();
       fd.set('file', file);
@@ -91,6 +106,7 @@ export function OcrUploadForm() {
       toast.error(`Σφάλμα OCR: ${err?.message ?? err}`);
     } finally {
       setBusy(false);
+      setPhase(null);
       if (fileRef.current) fileRef.current.value = '';
     }
   }
@@ -108,7 +124,7 @@ export function OcrUploadForm() {
     UPLOAD_DOC_TYPE_LABELS[docType],
     SUPPORTED_LANGUAGES[language].label,
     pdfSource === 'auto' ? 'PDF αυτόματα' : pdfSource === 'digital' ? 'PDF ψηφιακό' : 'PDF σάρωση',
-    multiDoc ? 'πολλά παραστατικά' : null,
+    multiDoc ? 'πάντα διαχωρισμός' : null,
   ].filter(Boolean).join(' · ');
 
   // Όσο ο χρήστης ορίζει κοψίματα, η φόρμα παραχωρεί τη θέση της: δύο «πρωτεύουσες» ενέργειες
@@ -215,11 +231,11 @@ export function OcrUploadForm() {
             />
             <span>
               <span className="block text-[length:var(--fs-13)] font-medium text-foreground">
-                Το αρχείο περιέχει πολλά παραστατικά
+                Δείξε μου πάντα τις σελίδες πριν την ανάγνωση
               </span>
               <span className="block text-[length:var(--fs-11)] text-muted-foreground">
-                Μόνο για PDF, έως {MAX_SPLIT_MB} MB. Θα δεις πρώτα τις σελίδες και θα ορίσεις πού
-                κόβεται κάθε παραστατικό.
+                Ένα PDF με πολλά παραστατικά εντοπίζεται αυτόματα και θα δεις τα κοψίματα. Άναψέ το για να
+                ορίζεις τα κοψίματα σε κάθε PDF (έως {MAX_SPLIT_MB} MB).
               </span>
             </span>
           </label>
@@ -256,9 +272,9 @@ export function OcrUploadForm() {
                   <FiLoader className="size-5 animate-spin text-sisyphus-600" />
                 </span>
                 <p className="text-sm font-semibold text-sisyphus-600">
-                  {multiDoc ? 'Ανάλυση σελίδων…' : 'Ανάλυση μέσω AI…'}
+                  {phase === 'split' ? 'Έλεγχος αν το αρχείο έχει πολλά παραστατικά…' : 'Ανάλυση μέσω AI…'}
                 </p>
-                {multiDoc ? (
+                {phase === 'split' ? (
                   <p className="text-[length:var(--fs-11)] text-muted-foreground">
                     Εντοπισμός του πού αρχίζει κάθε παραστατικό. Σε σαρωμένο PDF διαρκεί 20–60 δευτερόλεπτα.
                   </p>

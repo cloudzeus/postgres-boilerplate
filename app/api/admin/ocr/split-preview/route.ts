@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
-import { bunnyUploadPrivate } from '@/lib/bunny';
+import { bunnyDelete, bunnyUploadPrivate } from '@/lib/bunny';
 import { extractPageTexts } from '@/lib/ocr/pdf-text';
 import { pdfPageCount } from '@/lib/ocr/split-pdf';
 import { suggestSplits, suggestSplitsFromSignals, mergeSignals, textSignalOf, MAX_SPLIT_PAGES } from '@/lib/ocr/split';
@@ -39,6 +39,13 @@ export async function POST(req: Request) {
   const form = await req.formData();
   const file = form.get('file');
   const language = String(form.get('language') ?? 'el');
+  /**
+   * `auto`: το κάλεσε το απλό ανέβασμα, όχι ο χρήστης. Αν το αρχείο είναι ΕΝΑ παραστατικό, η απάντηση
+   * είναι σκέτο `{ single: true }` — χωρίς φάκελο, χωρίς προεπισκόπηση — και το ανέβασμα συνεχίζει
+   * κανονικά. Πριν, ο διαχωρισμός γινόταν ΜΟΝΟ αν ο χρήστης άναβε από πριν «πολλά παραστατικά»
+   * (κρυμμένο σε κλειστή φόρμα): ένα PDF με 4 τιμολόγια διαβαζόταν ως ένα, με το πρώτο μόνο.
+   */
+  const auto = String(form.get('auto') ?? '') === '1';
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: 'file is required (multipart/form-data)' }, { status: 400 });
@@ -67,6 +74,8 @@ export async function POST(req: Request) {
   if (pageCount < 1) {
     return NextResponse.json({ error: 'Το PDF δεν έχει σελίδες.' }, { status: 422 });
   }
+  // Μία σελίδα = ένα παραστατικό· τίποτα να αναλυθεί.
+  if (auto && pageCount === 1) return NextResponse.json({ single: true, pageCount });
   if (pageCount > MAX_SPLIT_PAGES) {
     return NextResponse.json(
       {
@@ -114,6 +123,14 @@ export async function POST(req: Request) {
     } else if (vision && 'error' in vision) {
       visionError = vision.error;
     }
+  }
+
+  // Αυτόματος έλεγχος που βρήκε ΕΝΑ παραστατικό: ο φάκελος δεν χρειάζεται — σβήνεται, για να μη
+  // γεμίζει η λίστα φακέλων με άδειους από κάθε πολυσέλιδο τιμολόγιο.
+  if (auto && suggested.length <= 1) {
+    await bunnyDelete([sourceKey]).catch(() => null);
+    await prisma.ocrBatch.delete({ where: { id: batch.id } }).catch(() => null);
+    return NextResponse.json({ single: true, pageCount, method, visionError });
   }
 
   return NextResponse.json({

@@ -7,11 +7,11 @@ import { PDFDocument } from 'pdf-lib';
 
 const { db, rbac, bunny, text, vision } = vi.hoisted(() => ({
   db: {
-    ocrBatch: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
+    ocrBatch: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), delete: vi.fn() },
     ocrDocument: { create: vi.fn(), count: vi.fn() },
   },
   rbac: { requirePermission: vi.fn() },
-  bunny: { bunnyUploadPrivate: vi.fn(), bunnyDownload: vi.fn() },
+  bunny: { bunnyUploadPrivate: vi.fn(), bunnyDownload: vi.fn(), bunnyDelete: vi.fn() },
   text: { extractPageTexts: vi.fn() },
   vision: { analyzePagesForSplit: vi.fn() },
 }));
@@ -36,10 +36,11 @@ async function makePdf(n: number): Promise<Buffer> {
 
 const pagesOf = async (buf: Buffer) => (await PDFDocument.load(new Uint8Array(buf))).getPageCount();
 
-const previewReq = (file: Buffer, name = 'ΤΙΜΟΛΟΓΙΑ ΙΟΥΝΙΟΥ.pdf') => {
+const previewReq = (file: Buffer, name = 'ΤΙΜΟΛΟΓΙΑ ΙΟΥΝΙΟΥ.pdf', auto = false) => {
   const form = new FormData();
   form.set('file', new File([new Uint8Array(file)], name, { type: 'application/pdf' }));
   form.set('language', 'el');
+  if (auto) form.set('auto', '1');
   return new Request('http://localhost/api/admin/ocr/split-preview', { method: 'POST', body: form });
 };
 
@@ -50,6 +51,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   rbac.requirePermission.mockResolvedValue({ id: 'u1' });
   bunny.bunnyUploadPrivate.mockResolvedValue(undefined);
+  bunny.bunnyDelete.mockResolvedValue(undefined);
+  db.ocrBatch.delete.mockResolvedValue({ id: 'batch1' });
   db.ocrBatch.create.mockResolvedValue({ id: 'batch1' });
   db.ocrBatch.update.mockResolvedValue({ id: 'batch1' });
   db.ocrDocument.count.mockResolvedValue(0);
@@ -57,6 +60,34 @@ beforeEach(() => {
   db.ocrDocument.create.mockImplementation(async () => ({ id: `doc${++seq}` }));
   text.extractPageTexts.mockResolvedValue([]);
   vision.analyzePagesForSplit.mockResolvedValue(null);
+});
+
+describe('POST /api/admin/ocr/split-preview — αυτόματος έλεγχος από το απλό ανέβασμα', () => {
+  const sig = (n: number) => ({ model: 'm', signals: Array.from({ length: n }, () => ({ startsNew: true })), info: Array.from({ length: n }, () => null) });
+
+  it('μία σελίδα → «ένα παραστατικό» αμέσως, χωρίς φάκελο και χωρίς μοντέλο', async () => {
+    const body = await (await splitPreview(previewReq(await makePdf(1), 'x.pdf', true))).json();
+    expect(body).toEqual({ single: true, pageCount: 1 });
+    expect(db.ocrBatch.create).not.toHaveBeenCalled();
+    expect(vision.analyzePagesForSplit).not.toHaveBeenCalled();
+  });
+
+  it('πολυσέλιδο ΕΝΑ παραστατικό → single, και ο προσωρινός φάκελος σβήνεται', async () => {
+    text.extractPageTexts.mockResolvedValue(['', '']);
+    vision.analyzePagesForSplit.mockResolvedValue({ model: 'm', signals: [{ startsNew: true, docNumber: '9' }, { startsNew: false, docNumber: '9' }], info: [null, null] });
+    const body = await (await splitPreview(previewReq(await makePdf(2), 'x.pdf', true))).json();
+    expect(body).toMatchObject({ single: true, pageCount: 2 });
+    expect(db.ocrBatch.delete).toHaveBeenCalledWith({ where: { id: 'batch1' } });
+    expect(bunny.bunnyDelete).toHaveBeenCalledWith(['ocr/batches/batch1/source.pdf']);
+  });
+
+  it('IMG_0003: 4 σελίδες, 4 τιμολόγια → προεπισκόπηση με 4 κοψίματα', async () => {
+    text.extractPageTexts.mockResolvedValue(['', '', '', '']);
+    vision.analyzePagesForSplit.mockResolvedValue(sig(4));
+    const body = await (await splitPreview(previewReq(await makePdf(4), 'IMG_0003.pdf', true))).json();
+    expect(body).toMatchObject({ batchId: 'batch1', suggested: [0, 1, 2, 3], method: 'vision' });
+    expect(db.ocrBatch.delete).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /api/admin/ocr/split-preview', () => {
