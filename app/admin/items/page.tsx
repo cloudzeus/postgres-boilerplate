@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db';
 import { requirePermission, hasPermission } from '@/lib/rbac';
 import { getSetting } from '@/lib/settings';
 import { PageHeader } from '@/components/admin/page-header';
-import { classificationLabeller } from '@/lib/ocr/mydata-labels';
+import { cachedClassificationLabeller } from '@/lib/ocr/mydata-labels';
 import { ItemsTabs } from './items-tabs';
 import { checkAccounts } from '@/lib/ocr/account-check';
 
@@ -15,7 +15,7 @@ export default async function ItemsPage() {
     items, expenses, lineItems, lineCategories, classTypes, classCategories,
     costCenters, projects, projectStages,
     canManage, itemsLastSync, expensesLastSync, lineItemsLastSync, lineCategoriesLastSync, myDataClassesLastSync,
-    costCentersLastSync, projectsLastSync, projectStagesLastSync,
+    costCentersLastSync, projectsLastSync, projectStagesLastSync, chartRows,
   ] = await Promise.all([
     prisma.softoneItem.findMany({ orderBy: { name: 'asc' } }),
     prisma.softoneExpense.findMany({ orderBy: { name: 'asc' } }),
@@ -35,10 +35,11 @@ export default async function ItemsPage() {
     getSetting<string>('integrations.softoneCostCentersLastSync'),
     getSetting<string>('integrations.softoneProjectsLastSync'),
     getSetting<string>('integrations.softoneProjectStagesLastSync'),
+    // Ο έλεγχος λογαριασμού για ΟΛΕΣ τις χρεοπιστώσεις — ο ίδιος που τρέχει πριν την καταχώριση.
+    // Ολόκληρο το σχέδιο (~4.700 σύντομες γραμμές), ΜΑΖΙ με τα υπόλοιπα: φορτωνόταν μετά από αυτά,
+    // προσθέτοντας έναν ολόκληρο κύκλο βάσης στο άνοιγμα της σελίδας. Δεν φεύγει προς τον browser.
+    prisma.softoneAccount.findMany({ select: { code: true, name: true, isActive: true, postable: true } }),
   ]);
-  // Ο έλεγχος λογαριασμού για ΟΛΕΣ τις χρεοπιστώσεις — ο ίδιος που τρέχει πριν την καταχώριση.
-  // Εδώ φορτώνουμε ολόκληρο το σχέδιο (μερικές χιλιάδες σύντομες γραμμές, μία φορά ανά σελίδα).
-  const chartRows = await prisma.softoneAccount.findMany({ select: { code: true, name: true, isActive: true, postable: true } });
   const accountCheck = checkAccounts(
     lineItems.map((l, i) => ({
       rowIndex: i, path: 'LINLINES' as const, article: `${l.code} — ${l.name}`,
@@ -51,7 +52,7 @@ export default async function ItemsPage() {
 
   // Ο χαρακτηρισμός myDATA μεταφράζεται ΕΔΩ (server): οι λίστες είναι μικρές και το UI δείχνει
   // ελληνικά, όχι κωδικούς. Είναι ιδιότητα του μητρώου — η εφαρμογή δεν τον γράφει ποτέ.
-  const label = await classificationLabeller();
+  const label = await cachedClassificationLabeller();
   const categoryName = new Map(lineCategories.map((c) => [c.mtrCategory, c.name || c.code]));
   const lineItemsPerCategory = new Map<number, number>();
   for (const l of lineItems) {

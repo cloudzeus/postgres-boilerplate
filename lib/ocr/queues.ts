@@ -793,6 +793,22 @@ async function loadUnmatchedLines(): Promise<{
  * Προτάσεις υπολογίζονται μόνο για τις πρώτες `suggestFor` ομάδες — οι υπόλοιπες
  * τις ζητούν lazy από το `GET …/suggest`.
  */
+const SUGGEST_CONCURRENCY = 5;
+
+/** `Promise.all` με όριο ταυτόχρονων εργασιών· η σειρά των αποτελεσμάτων είναι η σειρά της εισόδου. */
+export async function mapWithLimit<T, R>(items: readonly T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), items.length) }, worker));
+  return out;
+}
+
 export async function loadItemQueue(opts: { suggestFor?: number } = {}): Promise<{
   groups: ItemQueueGroup[];
   total: number;
@@ -814,15 +830,19 @@ export async function loadItemQueue(opts: { suggestFor?: number } = {}): Promise
   // τις ετικέτες): μια ερώτηση ανά ομάδα θα ήταν δεκάδες round-trips σε κάθε φόρτωση σελίδας.
   const rememberedByKey = await loadRememberedAnalytics(grouped.map((g) => ({ afm: g.afm, pattern: g.pattern })));
 
+  // ΠΑΡΑΛΛΗΛΑ, με όριο: κάθε ομάδα κάνει δύο κύκλους ερωτημάτων (~130 ms)· σειριακά, 20 ομάδες
+  // κρατούσαν τη σελίδα «Είδη & έξοδα» ~2,5″ πριν απαντήσει. Το όριο κρατά τις ταυτόχρονες
+  // συνδέσεις μέσα στο pool (κάθε ομάδα ανοίγει έως 4 ερωτήματα μαζί).
+  const suggestionsFor = await mapWithLimit(grouped.slice(0, suggestFor), SUGGEST_CONCURRENCY,
+    (g) => suggestForGroup({ afm: g.afm, pattern: g.pattern, code: g.code, sample: g.sample }));
+
   const groups: ItemQueueGroup[] = [];
   for (let i = 0; i < grouped.length; i++) {
     const g = grouped[i];
     const groupLinesData = g.lineIds
       .map((id) => byId.get(id))
       .filter((l): l is UnmatchedLine => Boolean(l));
-    const suggestions = i < suggestFor
-      ? await suggestForGroup({ afm: g.afm, pattern: g.pattern, code: g.code, sample: g.sample })
-      : [];
+    const suggestions = suggestionsFor[i] ?? [];
     groups.push({
       key: g.key,
       afm: g.afm,
