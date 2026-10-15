@@ -1,6 +1,7 @@
 import { SerialChips } from '@/components/admin/serial-chips';
 import { extractSerials } from '@/lib/ocr/serials';
 import * as React from 'react';
+import { AmountsFixPanel } from '@/components/admin/amounts-fix-panel';
 import { Prisma } from '@prisma/client';
 import { FieldCorrection } from './field-correction';
 import { LineAllocations, type AllocationRow } from './line-allocations';
@@ -256,6 +257,22 @@ export function OcrResultView({ doc, match }: { doc: DocWithItems; match: LineMa
         {correction}
 
         <LinesTable doc={doc} data={data} match={match} />
+
+        {/* Τα ποσά δεν κλείνουν: ελεγμένες λύσεις + επανέλεγχος από το χαρτί, με αποθήκευση εδώ. */}
+        <AmountsFixPanel
+          docId={doc.id}
+          canManage={match.canManage}
+          input={{
+            items: doc.items.map((it) => ({
+              rowIndex: it.rowIndex,
+              quantity: it.quantity == null ? null : Number(it.quantity), price: it.price == null ? null : Number(it.price),
+              discount: it.discount == null ? null : Number(it.discount), vatRate: it.vatRate == null ? null : Number(it.vatRate),
+              total: it.total == null ? null : Number(it.total),
+            })),
+            subtotal: data.subtotal ?? null, vatAmount: data.vatAmount ?? null,
+            otherCharges: data.otherCharges ?? null, totalAmount: data.totalAmount ?? null,
+          }}
+        />
 
         <BankAccounts accounts={data.bankAccounts} />
         <CustomFieldsBlock data={data} />

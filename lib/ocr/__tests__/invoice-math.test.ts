@@ -78,27 +78,59 @@ describe('reconcileInvoice — mismatches', () => {
   });
 });
 
-import { reconcileInvoice as recon2, totalsFixes } from '../invoice-math';
+import { reconcileInvoice as recon2, totalsPlans, totalsClose, feesNotInLines } from '../invoice-math';
 
-describe('επιβαρύνσεις & «τι να κάνω»', () => {
-  const cif = [{ quantity: 1, price: 74000, total: 74000 }, { quantity: 1, price: 93000, total: 93000 }];
-  it('CIF: 167.000 γραμμές + 6.500 μεταφορικά = 173.500 ⇒ κλείνει', () => {
-    const r = recon2({ items: cif, subtotal: 167000, vatAmount: null, totalAmount: 173500, otherCharges: 6500 });
-    expect(r.totalOk).toBe(true);
-    // …αλλά οι επιβαρύνσεις δεν είναι γραμμή: πρόταση μεταφοράς.
-    expect(totalsFixes(r, cif)).toEqual([{ kind: 'fees_to_line', amount: 6500 }]);
+describe('«Τι να κάνεις» — μόνο λύσεις που κλείνουν', () => {
+  it('ΜΙΛΑΝΟΣ: έκπτωση 40% στη γραμμή + ΦΠΑ πάνω στο τέλος ανακύκλωσης· το τυπωμένο σύνολο μένει', () => {
+    const input = {
+      items: [{ quantity: 4, price: 120.5, discount: 0, vatRate: 24, total: 482 }],
+      subtotal: 289.2, vatAmount: 69.41, otherCharges: 4.6, totalAmount: 359.71,
+    };
+    expect(totalsClose(input)).toBe(false);
+    const [best] = totalsPlans(input);
+    expect(best.steps).toEqual([{ kind: 'line_discount', pct: 40 }, { kind: 'vat', mode: 'lines_fees' }]);
+    expect(best.result).toMatchObject({ vatAmount: 70.51, totalAmount: 359.71 });
+    expect(best.result.items[0]).toMatchObject({ total: 289.2, discount: 40 });
+    // Καμία πρόταση που δεν κλείνει.
+    for (const p of totalsPlans(input)) expect(totalsClose(p.result)).toBe(true);
   });
-  it('χωρίς επιβαρύνσεις: η διαφορά προτείνεται ως επιβάρυνση ή ως διόρθωση συνόλου', () => {
-    const r = recon2({ items: cif, subtotal: 167000, vatAmount: null, totalAmount: 173500 });
-    expect(r.totalOk).toBe(false);
-    expect(totalsFixes(r, cif)).toEqual([
-      { kind: 'set_fees', amount: 6500, diff: 6500 },
-      { kind: 'set_total', total: 167000 },
-    ]);
+
+  it('CIF: κλείνει ήδη ⇒ καμία διόρθωση· οι επιβαρύνσεις όμως δεν είναι γραμμή', () => {
+    const input = { items: [{ quantity: 1, price: 167000, total: 167000 }], subtotal: 167000, vatAmount: null, otherCharges: 6500, totalAmount: 173500 };
+    expect(recon2(input).totalOk).toBe(true);
+    expect(totalsPlans(input)).toEqual([]);
+    expect(feesNotInLines(input)).toBe(6500);
   });
-  it('γραμμές χωρίς ΦΠΑ και διαφορά = 24% ⇒ πρόταση ΦΠΑ 24%', () => {
-    const items = [{ quantity: 1, price: 100, total: 100 }];
-    const r = recon2({ items, subtotal: 100, vatAmount: null, totalAmount: 124 });
-    expect(totalsFixes(r, items)[0]).toEqual({ kind: 'set_vat', rate: 24, vat: 24 });
+
+  it('γραμμές χωρίς ΦΠΑ και σύνολο = καθαρή × 1,24 ⇒ ΦΠΑ 24%', () => {
+    const input = { items: [{ quantity: 1, price: 100, total: 100 }], subtotal: 100, vatAmount: null, otherCharges: null, totalAmount: 124 };
+    const [best] = totalsPlans(input);
+    expect(best.steps).toEqual([{ kind: 'vat_rate', rate: 24 }]);
+    expect(best.result.vatAmount).toBe(24);
+  });
+
+  it('ασυμφωνία που δεν εξηγείται με τίποτα γνωστό ⇒ καμία πρόταση (όχι μαντεψιές)', () => {
+    const input = { items: [{ quantity: 3, price: 7, total: 21 }], subtotal: 50, vatAmount: 3, otherCharges: null, totalAmount: 99 };
+    expect(totalsPlans(input).every((p) => totalsClose(p.result))).toBe(true);
+  });
+});
+
+describe('ποτέ πάνω σε τυπωμένες επιβαρύνσεις', () => {
+  it('ΜΙΛΑΝΟΣ: καμία πρόταση δεν αλλάζει τα 4,60 € επιβαρύνσεων', async () => {
+    const { totalsPlans: tp } = await import('../invoice-math');
+    const input = { items: [{ quantity: 4, price: 120.5, discount: 0, vatRate: 24, total: 482 }], subtotal: 289.2, vatAmount: 69.41, otherCharges: 4.6, totalAmount: 359.71 };
+    for (const p of tp(input)) expect(p.result.otherCharges).toBe(4.6);
+  });
+});
+
+describe('επανέλεγχος ΜΙΛΑΝΟΣ: η νέα ανάγνωση + εξήγηση κλείνει', () => {
+  it('καθαρή 293,80 (με το τέλος), ΦΠΑ 70,51, σύνολο 359,71, γραμμή 289,20 χωρίς έκπτωση ⇒ έκπτωση 40% + καθαρή = γραμμές', async () => {
+    const { totalsPlans: tp, totalsClose: tc } = await import('../invoice-math');
+    const input = { items: [{ quantity: 4, price: 120.5, discount: 0, vatRate: 24, total: 289.2 }], subtotal: 293.8, vatAmount: 70.51, otherCharges: 4.6, totalAmount: 359.71 };
+    expect(tc(input)).toBe(false);
+    const [best] = tp(input);
+    expect(best.steps).toEqual([{ kind: 'line_discount_from_total' }, { kind: 'net_from_lines' }]);
+    expect(best.result).toMatchObject({ subtotal: 289.2, vatAmount: 70.51, otherCharges: 4.6, totalAmount: 359.71 });
+    expect(best.result.items[0].discount).toBe(40);
   });
 });
