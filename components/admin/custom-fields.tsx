@@ -31,12 +31,17 @@ export function CustomValue({ view }: { view: CustomValueView }) {
 export function CustomFieldsBlock({ data }: { data: Record<string, unknown> | null | undefined }) {
   const entries = formatCustomFields((data?.customFields ?? {}) as Record<string, unknown>);
   if (entries.length === 0) return null;
+  // ΚΛΕΙΣΤΟ ΑΠΟ ΠΡΟΕΠΙΛΟΓΗ: τα ειδικά πεδία (υπόλοιπα, ώρες παράδοσης, διευθύνσεις…) είναι
+  // πληροφορία, όχι δουλειά — ανοιχτά έσπρωχναν κάτω τα σύνολα και τους ελέγχους. Η κεφαλίδα λέει
+  // πόσα είναι, ώστε να φαίνεται ότι υπάρχουν. `<details>`: πληκτρολόγιο και αναγνώστες οθόνης δωρεάν.
   return (
-    <section className="overflow-hidden rounded-lg border border-border bg-card">
-      <header className="border-b border-border bg-muted/50 px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">
+    <details className="group overflow-hidden rounded-lg border border-border bg-card">
+      <summary className="flex min-h-9 cursor-pointer list-none items-center gap-2 bg-muted/50 px-3 py-1.5 text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground transition hover:bg-muted">
+        <svg aria-hidden viewBox="0 0 24 24" className="size-3.5 shrink-0 transition-transform duration-200 group-open:rotate-90 motion-reduce:transition-none" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6" /></svg>
         Ειδικά πεδία
-      </header>
-      <dl className="grid grid-cols-1 gap-x-3 gap-y-1.5 p-3 sm:grid-cols-2">
+        <span className="rounded-full bg-background px-1.5 font-semibold normal-case tracking-normal text-muted-foreground">{entries.length}</span>
+      </summary>
+      <dl className="grid grid-cols-1 gap-x-3 gap-y-1.5 border-t border-border p-3 sm:grid-cols-2">
         {entries.map((e) => (
           <div key={e.key} className="flex min-w-0 flex-col">
             <dt className="text-[length:var(--fs-11)] font-semibold text-muted-foreground">{e.label}</dt>
@@ -44,7 +49,7 @@ export function CustomFieldsBlock({ data }: { data: Record<string, unknown> | nu
           </div>
         ))}
       </dl>
-    </section>
+    </details>
   );
 }
 

@@ -17,6 +17,9 @@ const ItemSchema = z.object({
   discount: z.number().nullable().optional(), vatRate: z.number().nullable().optional(),
   total: z.number().nullable().optional(),
   customFields: z.record(z.string(), z.any()).nullable().optional(),
+  // EAN / κωδικός κατασκευαστή — χωρίς αυτά το zod θα τα έσβηνε σε κάθε αποθήκευση από τη φόρμα.
+  ean: z.string().nullable().optional(),
+  mfrCode: z.string().nullable().optional(),
 });
 const PatchSchema = z.object({
   category: z.enum(['EXPENSE','INVOICE_IN','INVOICE_OUT','RECEIPT','CREDIT_NOTE','PAYROLL','TAX','OTHER']).nullable().optional(),

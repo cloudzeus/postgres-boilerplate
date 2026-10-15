@@ -1001,6 +1001,16 @@ export interface CreateItemInput {
   category?: string | null;    // MTRCATEGORY
   manufacturer?: string | null;// MTRMANFCTR
   brand?: string | null;       // MTRMARK
+  /** Barcode / EAN → `ITEM.CODE1` («Κωδ.Barcode»). */
+  code1?: string | null;
+  /** Κωδικός εργοστασίου / κατασκευαστή → `ITEM.CODE2`. */
+  code2?: string | null;
+  /**
+   * Ο προμηθευτής του τιμολογίου και ο ΔΙΚΟΣ ΤΟΥ κωδικός είδους, όπως τυπώνεται → `ITEM.MTRSUP`
+   * (συνήθης προμηθευτής) και μια γραμμή στους «Εναλλακτικούς κωδικούς προμηθευτών» (`MTRSUPCODE`).
+   * Ο κωδικός του προμηθευτή ΔΕΝ είναι ο κωδικός του είδους: αυτός ακολουθεί τη «Μορφή κωδικού».
+   */
+  supplier?: { trdr: number; code: string | null; name: string | null } | null;
 }
 
 /** Auxiliary lookup tables for the item-create form (combo boxes). */
@@ -1106,8 +1116,8 @@ export async function softoneLoadItemAux(): Promise<ItemAuxMeta> {
  * `MTRUNIT3/4` — μία μονάδα (`MTRUNIT1`) — οπότε δεν στέλνονται.
  */
 export function buildItemPayload(input: CreateItemInput):
-  | { OBJECT: 'ITEM'; KEY: ''; DATA: { ITEM: Record<string, unknown>[] } }
-  | { OBJECT: 'SERVICE'; KEY: ''; DATA: { SERVICE: Record<string, unknown>[] } } {
+  | { OBJECT: 'ITEM'; KEY: ''; DATA: { ITEM: Record<string, unknown>[]; MTRSUPCODE?: Record<string, unknown>[] } }
+  | { OBJECT: 'SERVICE'; KEY: ''; DATA: { SERVICE: Record<string, unknown>[]; MTRSUPCODE?: Record<string, unknown>[] } } {
   const row: Record<string, unknown> = {
     CODE: input.code,
     NAME: input.name,
@@ -1132,9 +1142,18 @@ export function buildItemPayload(input: CreateItemInput):
     if (input.manufacturer) row.MTRMANFCTR = input.manufacturer;
     if (input.brand) row.MTRMARK = input.brand;
   }
+  const code1 = String(input.code1 ?? '').trim();
+  const code2 = String(input.code2 ?? '').trim();
+  if (code1) row.CODE1 = code1;
+  if (code2) row.CODE2 = code2;
+  const sup = input.supplier && Number.isFinite(input.supplier.trdr) && input.supplier.trdr > 0 ? input.supplier : null;
+  if (sup) row.MTRSUP = sup.trdr;
+  const supCode = sup && String(sup.code ?? '').trim()
+    ? [{ TRDR: sup.trdr, MTRSUPCODE: String(sup.code).trim().slice(0, 50), ...(sup.name ? { MTRSUPNAME: String(sup.name).trim().slice(0, 128) } : {}) }]
+    : null;
   return input.isService
-    ? { OBJECT: 'SERVICE', KEY: '', DATA: { SERVICE: [row] } }
-    : { OBJECT: 'ITEM', KEY: '', DATA: { ITEM: [row] } };
+    ? { OBJECT: 'SERVICE', KEY: '', DATA: { SERVICE: [row], ...(supCode ? { MTRSUPCODE: supCode } : {}) } }
+    : { OBJECT: 'ITEM', KEY: '', DATA: { ITEM: [row], ...(supCode ? { MTRSUPCODE: supCode } : {}) } };
 }
 
 /**
@@ -1501,13 +1520,20 @@ export async function softoneNextItemCode(
  */
 export async function softoneNextTraderCode(
   kind: TraderKind,
-  opts: { mask?: string | null; fallbackCodes?: readonly string[] } = {},
+  opts: { mask?: string | null; erpMask?: string | null; fallbackCodes?: readonly string[] } = {},
 ): Promise<NextCodeResult & { stale: boolean }> {
+  // Με «Μορφή κωδικού» του SoftOne: το μοτίβο βγαίνει ΜΟΝΟ από κωδικούς που την τηρούν και η πρόταση
+  // την τηρεί κι αυτή (ίδια λογική με τα είδη, `proposeItemCode`).
+  const propose = (codes: readonly string[]): NextCodeResult => {
+    if (!opts.erpMask) return nextTraderCode(codes, { mask: opts.mask });
+    const p = proposeItemCode({ existing: codes, mask: opts.mask ?? null, erpMask: opts.erpMask });
+    return { code: p.code, source: p.source === 'supplier' ? 'pattern' : p.source, prefix: p.prefix, width: p.width, taken: p.taken };
+  };
   try {
     const codes = await softoneFetchTraderCodes(kind);
-    return { ...nextTraderCode(codes, { mask: opts.mask }), stale: false };
+    return { ...propose(codes), stale: false };
   } catch {
-    return { ...nextTraderCode(opts.fallbackCodes ?? [], { mask: opts.mask }), stale: true };
+    return { ...propose(opts.fallbackCodes ?? []), stale: true };
   }
 }
 

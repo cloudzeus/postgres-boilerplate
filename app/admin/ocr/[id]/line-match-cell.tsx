@@ -83,7 +83,7 @@ const EMPTY: AnalyticsValue = { id: null, label: null, source: null };
  */
 export function LineMatchCell({
   lineId, docId, match: initial, analytics: initialAnalytics, canManage, defaultKind, lineCategories, trdr,
-  target, lineCode, lineName, lineVatRate, lineUnit, lineTotal, suggestion,
+  target, lineCode, lineName, lineVatRate, lineUnit, lineTotal, lineEan, lineMfrCode, suggestion,
 }: {
   lineId: string;
   docId: string;
@@ -106,6 +106,9 @@ export function LineMatchCell({
   lineName?: string | null;
   lineVatRate?: string | number | null;
   lineUnit?: string | null;
+  /** Barcode (EAN) και κωδικός κατασκευαστή της γραμμής — για τη δημιουργία είδους. */
+  lineEan?: string | null;
+  lineMfrCode?: string | null;
   /** Το σύνολο της γραμμής — βοηθά να ξεχωρίσει ο εξοπλισμός (πάγιο) από τα μικροαντικείμενα. */
   lineTotal?: number | null;
   /** Έτοιμη πρόταση στόχου (οικογένεια δαπάνης / είδος χρέωσης) — ένα κλικ, και μαθαίνεται. */
@@ -735,6 +738,8 @@ export function LineMatchCell({
           initialName={lineName ?? match?.name ?? null}
           initialVatRate={lineVatRate ?? null}
           initialUnit={lineUnit ?? null}
+          initialEan={lineEan ?? null}
+          initialMfrCode={lineMfrCode ?? null}
           onCreated={(m) => {
             setCreating(false);
             setMatch({

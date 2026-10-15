@@ -17,6 +17,7 @@ import {
 import { RegistrySearch } from '@/components/admin/registry-search';
 import { OpenAccountDialog, type OpenRequest } from '@/components/admin/open-account-dialog';
 import { vatOfAccount } from '@/lib/ocr/scan-accounts';
+import { isValidGtin, lineEan } from '@/lib/ocr/ean';
 import { matchUnit, unitOptions } from '@/lib/ocr/unit-match';
 import { LINE_KIND_LABEL } from '@/lib/ocr/resolution-plan';
 import { parseLisourceType } from '@/lib/ocr/lineitem-create';
@@ -206,7 +207,7 @@ function AccountPicker({
  *  • Δεν αντιγράφει **χαρακτηρισμό myDATA** από το πρότυπο (δες `lib/ocr/lineitem-create.ts`).
  */
 export function CreateRegistryEntryModal({
-  open, onOpenChange, kind, lineId, initialCode, initialName, initialVatRate, initialUnit, onCreated,
+  open, onOpenChange, kind, lineId, initialCode, initialName, initialVatRate, initialUnit, initialEan, initialMfrCode, onCreated,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -218,6 +219,9 @@ export function CreateRegistryEntryModal({
   initialVatRate?: string | number | null;
   /** Η **τυπωμένη** μονάδα της γραμμής («KWh», «ΤΕΜ»). */
   initialUnit?: string | null;
+  /** Barcode (EAN) και κωδικός κατασκευαστή της γραμμής, όπως διαβάστηκαν. */
+  initialEan?: string | null;
+  initialMfrCode?: string | null;
   onCreated?: (m: { kind: MatchKind; mtrl: number | null; expn: number | null; lin: number | null; code: string; name: string }) => void;
 }) {
   const [meta, setMeta] = React.useState<Meta | null>(null);
@@ -238,6 +242,12 @@ export function CreateRegistryEntryModal({
   const [openReq, setOpenReq] = React.useState<OpenRequest | null>(null);
   const proposed = React.useRef<string | null>(null);
   const [f, setF] = React.useState<FormState>({ code: '', name: '', vat: '', unit: '', price: '', group: '', category: '' });
+  /** EAN → CODE1, κωδ. κατασκευαστή → CODE2, και ο κωδικός της γραμμής ως κωδικός ΠΡΟΜΗΘΕΥΤΗ. */
+  const [code1, setCode1] = React.useState('');
+  const [code2, setCode2] = React.useState('');
+  const [saveSupplierCode, setSaveSupplierCode] = React.useState(true);
+  /** Η «Μορφή κωδικού» του SoftOne για αυτό το μητρώο (π.χ. nnnnnnnnn). */
+  const [codeRule, setCodeRule] = React.useState<string | null>(null);
 
   const isItem = kind === 'product' || kind === 'service';
   // Η μονάδα ζει στο `MTRL`, άρα αφορά ΚΑΙ τη χρεοπίστωση· το έξοδο (`EXPN`) δεν έχει μονάδα.
@@ -273,7 +283,14 @@ export function CreateRegistryEntryModal({
     setCodeError(null); setCodeOffer(null); setCodeSource(null);
     setTemplate(null); setTemplateIssue(null);
     setAccount({ code: '', name: null }); setAccountVerdict(null);
-    setF({ code: initialCode ?? '', name: initialName ?? '', vat: '', unit: '', price: '', group: '', category: '' });
+    // Είδος/υπηρεσία: ο κωδικός της γραμμής είναι κωδικός ΠΡΟΜΗΘΕΥΤΗ — ο κωδικός του είδους
+    // ακολουθεί τη «Μορφή κωδικού» και την αρίθμηση (έρχεται από το next-code).
+    const itemKind = kind === 'product' || kind === 'service';
+    setF({ code: itemKind ? '' : initialCode ?? '', name: initialName ?? '', vat: '', unit: '', price: '', group: '', category: '' });
+    setCode1(lineEan(initialEan, initialCode) ?? '');
+    setCode2(initialMfrCode ?? '');
+    setSaveSupplierCode(true);
+    setCodeRule(null);
     proposed.current = null;
 
     fetch('/api/admin/softone/item-meta')
@@ -305,7 +322,7 @@ export function CreateRegistryEntryModal({
         setF((s) => ({ ...s, vat: vatHit?.id ?? '', unit: unitHit?.code ?? '' }));
       })
       .catch(() => setMeta(EMPTY_META));
-  }, [open, kind, initialCode, initialName, initialVatRate, initialUnit]);
+  }, [open, kind, initialCode, initialName, initialVatRate, initialUnit, initialEan, initialMfrCode]);
 
   /**
    * Προτεινόμενος κωδικός ΤΟΥ μητρώου που θα γραφτεί. Για χρεοπίστωση με επιλεγμένο λογαριασμό,
@@ -314,11 +331,13 @@ export function CreateRegistryEntryModal({
   React.useEffect(() => {
     if (!open) return;
     let ignore = false;
-    const sc = initialCode ? `&supplierCode=${encodeURIComponent(initialCode)}` : '';
+    // Είδος/υπηρεσία: ΟΧΙ ο κωδικός του προμηθευτή ως κωδικός είδους — αυτός πάει στους κωδικούς προμηθευτή.
+    const sc = initialCode && kind !== 'product' && kind !== 'service' ? `&supplierCode=${encodeURIComponent(initialCode)}` : '';
     const acc = kind === 'lineitem' && account.code ? `&account=${encodeURIComponent(account.code)}` : '';
     fetch(`/api/admin/ocr/new-items/next-code?kind=${kind}${sc}${acc}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { code?: string | null; source?: string } | null) => {
+      .then((d: { code?: string | null; source?: string; rule?: { mask?: string | null } } | null) => {
+        if (!ignore) setCodeRule(d?.rule?.mask ?? null);
         if (ignore || !d?.code) return;
         setCodeSource(d.source ?? null);
         setF((s) => (s.code === '' || s.code === proposed.current ? { ...s, code: d.code as string } : s));
@@ -392,9 +411,12 @@ export function CreateRegistryEntryModal({
     acnmsk: needsTemplate ? (account.code || null) : null,
     lineId: lineId ?? null,
     supplierCode: initialCode || null,
+    code1: isItem ? (code1.trim() || null) : null,
+    code2: isItem ? (code2.trim() || null) : null,
+    saveSupplierCode: isItem ? saveSupplierCode : undefined,
     dryRun: true,
     ...overrides,
-  }), [kind, f, hasUnit, isItem, needsTemplate, template, account.code, lineId, initialCode]);
+  }), [kind, f, hasUnit, isItem, needsTemplate, template, account.code, lineId, initialCode, code1, code2, saveSupplierCode]);
 
   /** Για χρεοπίστωση: διάβασε ζωντανά το πρότυπο και κρίνε το ΠΡΙΝ σταλεί οτιδήποτε. */
   const pickTemplate = async (p: { id: number; code: string; name: string }) => {
@@ -650,6 +672,10 @@ export function CreateRegistryEntryModal({
                           className="ml-1.5 cursor-pointer font-semibold underline">Χρήση του {codeOffer}</button>
                       )}
                     </span>
+                  ) : codeRule ? (
+                    <span className="text-[length:var(--fs-11)] text-muted-foreground">
+                      Κανόνας SoftOne για τον κωδικό: <span className="font-mono">{codeRule}</span> — η πρόταση τον τηρεί.
+                    </span>
                   ) : codeSource === 'account' ? (
                     <span className="text-[length:var(--fs-11)] text-muted-foreground">
                       Ο κωδικός ακολουθεί τον λογαριασμό γενικής — έτσι είναι φτιαγμένο το μητρώο αυτής
@@ -676,6 +702,37 @@ export function CreateRegistryEntryModal({
                 )}
               </div>
             </section>
+
+            {/* ΚΩΔΙΚΟΙ ΑΓΟΡΑΣ: κάθε κωδικός στη θέση του στο SoftOne — όχι όλοι στον κωδικό του είδους. */}
+            {isItem && (
+              <section className="space-y-3">
+                <p className="text-[length:var(--fs-10)] font-semibold uppercase tracking-wider text-muted-foreground">Κωδικοί αγοράς</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="grid gap-1.5">
+                    <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Barcode / EAN</span>
+                    <Input value={code1} onChange={(e) => setCode1(e.target.value)} inputMode="numeric" placeholder="π.χ. 5201234567894" className="h-9 font-mono text-[length:var(--fs-13)]" />
+                    {code1.trim() && !isValidGtin(code1) && (
+                      <span className="text-[length:var(--fs-11)] text-amber-800">Δεν μοιάζει με έγκυρο EAN (8/13 ψηφία με σωστό ψηφίο ελέγχου) — έλεγξέ το.</span>
+                    )}
+                  </label>
+                  <label className="grid gap-1.5">
+                    <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Κωδ. κατασκευαστή (εργοστασίου)</span>
+                    <Input value={code2} onChange={(e) => setCode2(e.target.value)} placeholder="part number" className="h-9 font-mono text-[length:var(--fs-13)]" />
+                  </label>
+                </div>
+                {initialCode && (
+                  <label className="flex cursor-pointer items-start gap-2 rounded-md bg-muted/50 px-2.5 py-2 text-[length:var(--fs-12)] text-foreground">
+                    <input type="checkbox" checked={saveSupplierCode} onChange={(e) => setSaveSupplierCode(e.target.checked)} className="mt-0.5 size-4" />
+                    <span>
+                      Καταχώριση του <span className="font-mono font-semibold">{initialCode}</span> ως <strong>κωδικού είδους του προμηθευτή</strong>.
+                      <span className="block text-[length:var(--fs-11)] text-muted-foreground">
+                        Μπαίνει στους «Εναλλακτικούς κωδικούς προμηθευτών» του είδους, μαζί με τον προμηθευτή ως συνήθη — έτσι το επόμενο τιμολόγιό του βρίσκει το είδος.
+                      </span>
+                    </span>
+                  </label>
+                )}
+              </section>
+            )}
 
             <section className="space-y-3">
               <p className="text-[length:var(--fs-10)] font-semibold uppercase tracking-wider text-muted-foreground">Ταξινόμηση (προαιρετικά)</p>

@@ -1,3 +1,4 @@
+import { softoneCodeRules } from '@/lib/softone-code-rules';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
@@ -204,7 +205,8 @@ async function suggest(kind: 'supplier' | 'creditor' | 'debtor'): Promise<string
     const mirror = await prisma.softoneTrader
       .findMany({ where: { sodtype: TRADER_KIND_SODTYPE[kind] }, select: { code: true } })
       .catch(() => [] as { code: string }[]);
-    const r = await softoneNextTraderCode(kind, { mask: mask ?? '', fallbackCodes: mirror.map((m) => m.code) });
+    const rules = await softoneCodeRules(kind);
+    const r = await softoneNextTraderCode(kind, { mask: mask ?? '', erpMask: rules.code, fallbackCodes: mirror.map((m) => m.code) });
     return r.code;
   } catch {
     return null;

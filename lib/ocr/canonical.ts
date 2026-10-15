@@ -9,6 +9,7 @@
 // `toLegacy` ώστε λίστα / row-detail / ουρές / doc-type / softone-match να συνεχίσουν να δουλεύουν
 // αμετάβλητα, και διαβάζονται πίσω με `fromLegacy` για τα έγγραφα που γράφτηκαν πριν από το plan 5.
 import { extractSerials } from '@/lib/ocr/serials';
+import { lineEan } from '@/lib/ocr/ean';
 import { z } from 'zod';
 import { normalizeAfm } from '@/lib/ocr/validate';
 import { reconcileInvoice } from '@/lib/ocr/invoice-math';
@@ -158,6 +159,10 @@ const Party = nobj(z.object({
 
 const Line = z.object({
   code: nstr, name: nstr, unit: nstr, quantity: nnum, unitPrice: nnum, discount: nnum,
+  /** Barcode (EAN/GTIN) της γραμμής → `ITEM.CODE1` όταν δημιουργείται είδος. */
+  ean: nstr.optional(),
+  /** Κωδικός κατασκευαστή / εργοστασίου (part number) → `ITEM.CODE2`. */
+  mfrCode: nstr.optional(),
   net: nnum, vatRate: nnum, vatAmount: nnum, total: nnum,
   /**
    * Σειριακοί αριθμοί (S/N) της γραμμής. Ζούσαν θαμμένοι στην περιγραφή και δεν φαίνονταν πουθενά.
@@ -456,7 +461,7 @@ export function coerceDocument(raw: unknown, docType?: CanonicalDocType): Docume
 const PROMOTED_ALWAYS = ['time', 'itemsCount'] as const;
 const PROMOTED_GENERAL = ['title', 'fullText', 'summary', 'keywords'] as const;
 const LEGACY_ITEM_KEYS = new Set([
-  'code', 'name', 'quantity', 'price', 'discount', 'vatRate', 'total', 'unit', 'customFields',
+  'code', 'name', 'quantity', 'price', 'discount', 'vatRate', 'total', 'unit', 'customFields', 'ean', 'mfrCode',
 ]);
 const HANDLED_LEGACY_KEYS = new Set([
   ...Object.keys(LEGACY_KEY_TO_PATH).filter((k) => !k.startsWith('items.')),
@@ -482,6 +487,8 @@ function lineFromLegacyItem(raw: unknown): Record<string, unknown> | null {
     quantity: raw.quantity ?? null,
     unitPrice: raw.price ?? null,
     discount: raw.discount ?? null,
+    ean: raw.ean ?? null,
+    mfrCode: raw.mfrCode ?? null,
     net,
     vatRate: rate,
     vatAmount,
@@ -614,6 +621,8 @@ export function toLegacy(document: DocumentJson): Record<string, unknown> {
       // Μόνο όταν υπάρχει: η στήλη `unit` δεν έχει legacy αντίστοιχο, και ένα `unit: null` θα
       // πρόσθετε θόρυβο σε κάθε γραμμή κάθε παλιού εγγράφου.
       ...(line.unit != null ? { unit: line.unit } : {}),
+      ...(line.ean != null ? { ean: line.ean } : {}),
+      ...(line.mfrCode != null ? { mfrCode: line.mfrCode } : {}),
       quantity: line.quantity,
       price: line.unitPrice,
       discount: line.discount,
@@ -658,7 +667,12 @@ export function normalizeDocument(raw: unknown): DocumentJson {
     dueDate: normalizeDate(doc.dueDate),
     issuer: { ...doc.issuer, vat: afm(doc.issuer.vat) },
     // Σειριακοί: ό,τι έδωσε το μοντέλο, αλλιώς ό,τι γράφει η ίδια η περιγραφή της γραμμής.
-    lines: doc.lines.map((l) => (l.serials.length ? l : { ...l, serials: extractSerials(l.name) })),
+    lines: doc.lines.map((l) => {
+      const withSerials = l.serials.length ? l : { ...l, serials: extractSerials(l.name) };
+      // Ο κωδικός της γραμμής είναι συχνά το ίδιο το barcode: έγκυρο GTIN ⇒ και EAN.
+      const ean = lineEan(withSerials.ean, withSerials.code);
+      return ean == null || ean === withSerials.ean ? withSerials : { ...withSerials, ean };
+    }),
     recipient: { ...doc.recipient, vat: afm(doc.recipient.vat) },
     references: {
       ...doc.references,

@@ -487,7 +487,7 @@ export function OcrRowDetail({
   }
   function addLine() { setItems((arr) => [...arr, { ...EMPTY_LINE }]); }
   function removeLine(idx: number) { setItems((arr) => arr.filter((_, i) => i !== idx)); }
-  const [createLine, setCreateLine] = React.useState<{ code: string; name: string; kind: MatchKind; vat: string } | null>(null);
+  const [createLine, setCreateLine] = React.useState<{ code: string; name: string; kind: MatchKind; vat: string; ean?: string | null; mfrCode?: string | null } | null>(null);
 
   /**
    * ΤΙ ΜΗΤΡΩΟ ΘΕΛΕΙ **ΑΥΤΟ** ΤΟ ΠΑΡΑΣΤΑΤΙΚΟ. Το κουμπί ήταν ένα γυμνό «+» που δημιουργούσε
@@ -520,6 +520,8 @@ export function OcrRowDetail({
         quantity: toNum(it.quantity), price: toNum(it.price), discount: toNum(it.discount),
         vatRate: toNum(it.vatRate), total: toNum(it.total),
         ...(it.customFields && Object.keys(it.customFields).length ? { customFields: it.customFields } : {}),
+        ...(it.ean ? { ean: it.ean } : {}),
+        ...(it.mfrCode ? { mfrCode: it.mfrCode } : {}),
       // Κρατάμε κάθε γραμμή που κουβαλάει ΕΣΤΩ ΕΝΑ στοιχείο. Το παλιό φίλτρο ζητούσε περιγραφή,
       // κωδικό ή σύνολο — και έσβηνε σιωπηλά γραμμή με μόνο ποσότητα και τιμή (ή μόνο μονάδα),
       // δηλαδή ακριβώς ό,τι μόλις είχε πληκτρολογήσει ο χρήστης. Φεύγει μόνο η ΕΝΤΕΛΩΣ κενή.
@@ -833,7 +835,7 @@ export function OcrRowDetail({
                     return (
                       <>
                         <button type="button" disabled={lineKind == null} title={createLabel} aria-label={createLabel}
-                          onClick={() => lineKind && setCreateLine({ code: it.code, name: it.name, kind: lineKind, vat: it.vatRate })}
+                          onClick={() => lineKind && setCreateLine({ code: it.code, name: it.name, kind: lineKind, vat: it.vatRate, ean: it.ean ?? null, mfrCode: it.mfrCode ?? null })}
                           className={iconOnly ? ICON_BTN : TEXT_BTN}>
                           <FiPlusCircle aria-hidden className="size-3.5" />
                           {!iconOnly && <>Νέα {lineKind ? LINE_KIND_LABEL[lineKind].toLowerCase() : 'εγγραφή'}</>}
@@ -1148,6 +1150,8 @@ export function OcrRowDetail({
         initialCode={createLine?.code}
         initialName={createLine?.name}
         initialVatRate={createLine?.vat}
+        initialEan={createLine?.ean ?? null}
+        initialMfrCode={createLine?.mfrCode ?? null}
         onCreated={() => { setCreateLine(null); router.refresh(); }}
       />
     </div>

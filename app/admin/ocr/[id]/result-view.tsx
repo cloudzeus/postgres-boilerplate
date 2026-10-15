@@ -171,6 +171,8 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
                       /* Η μονάδα ΔΕΝ είναι στήλη της βάσης — ζει στο κανονικό JSON (`lines.unit`). */
                       lineUnit={(line.unit ?? null) as string | null}
                       lineTotal={it.total == null ? null : Number(it.total)}
+                      lineEan={(line.ean ?? null) as string | null}
+                      lineMfrCode={(line.mfrCode ?? null) as string | null}
                       suggestion={match.suggestions?.[it.id] ?? null}
                     />
                     {match.lineAccounts?.[it.rowIndex] && (

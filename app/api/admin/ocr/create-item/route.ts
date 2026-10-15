@@ -12,7 +12,9 @@ import {
 } from '@/lib/softone';
 import { itemCodeMaskKey, ITEM_KIND_GENITIVE, type ItemCodeKind } from '@/lib/item-code';
 import { mirrorItemCodes } from '@/lib/item-code-mirror';
-import { getSetting } from '@/lib/settings';
+import { getSetting, setSetting } from '@/lib/settings';
+import { parseErpMaskError, itemErpMaskKey } from '@/lib/erp-mask';
+import { softoneCodeRules } from '@/lib/softone-code-rules';
 import { checkLineItemTemplate } from '@/lib/ocr/lineitem-create';
 import { requiredTraderKind } from '@/lib/ocr/required-trader-kind';
 import { loadAccountChart } from '@/lib/ocr/account-chart';
@@ -60,8 +62,14 @@ const Body = z.object({
   acnmskVat: z.string().trim().max(40).nullable().optional(),
   /** Η γραμμή που θα αντιστοιχιστεί αμέσως μετά. */
   lineId: z.string().trim().min(1).nullable().optional(),
-  /** Ο κωδικός που κουβαλά η γραμμή — για σωστή πρόταση μετά από 409. */
+  /** Ο κωδικός που κουβαλά η γραμμή — για σωστή πρόταση μετά από 409, και ως κωδικός ΠΡΟΜΗΘΕΥΤΗ. */
   supplierCode: z.string().trim().max(50).nullable().optional(),
+  /** Barcode / EAN (`ITEM.CODE1`). */
+  code1: z.string().trim().max(50).nullable().optional(),
+  /** Κωδικός εργοστασίου / κατασκευαστή (`ITEM.CODE2`). */
+  code2: z.string().trim().max(50).nullable().optional(),
+  /** Να γραφτεί ο κωδικός της γραμμής ως «κωδικός είδους προμηθευτή» (προεπιλογή: ναι, αν υπάρχει προμηθευτής). */
+  saveSupplierCode: z.boolean().optional(),
   dryRun: z.boolean().optional(),
 });
 
@@ -228,11 +236,21 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  // Ο ΠΡΟΜΗΘΕΥΤΗΣ του παραστατικού της γραμμής: ο κωδικός που τυπώνεται είναι ο ΔΙΚΟΣ ΤΟΥ κωδικός
+  // είδους — πάει στους «Εναλλακτικούς κωδικούς προμηθευτών», όχι στον κωδικό του είδους.
+  const lineDoc = b.lineId
+    ? await prisma.ocrInvoiceItem.findUnique({ where: { id: b.lineId }, select: { name: true, document: { select: { softoneTrdr: true } } } }).catch(() => null)
+    : null;
+  const supplierTrdr = lineDoc?.document?.softoneTrdr ?? null;
+  const supplier = supplierTrdr && b.saveSupplierCode !== false
+    ? { trdr: supplierTrdr, code: b.supplierCode || null, name: lineDoc?.name ?? null }
+    : null;
   const itemInput = {
     code: b.code, name: b.name, isService, vat, unit,
     price: b.price ?? null,
     group: b.group || null, category: b.category || null,
     manufacturer: b.manufacturer || null, brand: b.brand || null,
+    code1: b.code1 || null, code2: b.code2 || null, supplier,
   };
   if (b.dryRun) {
     return NextResponse.json({ dryRun: true, payload: { service: 'setData', ...buildItemPayload(itemInput) } });
@@ -249,8 +267,8 @@ export async function POST(req: Request) {
 
   await prisma.softoneItem.upsert({
     where: { mtrl },
-    update: { code: b.code, name: b.name, isService, isActive: true },
-    create: { mtrl, code: b.code, name: b.name, isService, isActive: true },
+    update: { code: b.code, name: b.name, isService, isActive: true, code1: b.code1 || null, code2: b.code2 || null },
+    create: { mtrl, code: b.code, name: b.name, isService, isActive: true, code1: b.code1 || null, code2: b.code2 || null },
   }).catch(() => null);
 
   return finish(b, u, { mtrl, code: b.code, name: b.name, kind, isService });
@@ -367,6 +385,22 @@ async function finish(
  */
 async function duplicateCode(e: unknown, kind: ItemCodeKind, b: Input): Promise<NextResponse | null> {
   const message = (e as Error).message;
+  // ΜΟΡΦΗ ΚΩΔΙΚΟΥ του SoftOne («…της μορφής nnnnnnnnn»): τη ΜΑΘΑΙΝΟΥΜΕ και δίνουμε ΑΜΕΣΩΣ κωδικό που
+  // την τηρεί. Πριν, αυτό το route δεν την ήξερε καθόλου — η πρόταση έμενε ίδια και ο χρήστης κολλούσε.
+  const learned = parseErpMaskError(message);
+  if (learned) {
+    await setSetting(itemErpMaskKey(kind), learned).catch(() => null);
+    clearItemCodeCache(kind);
+    const next = await suggestCode(kind, null);
+    return NextResponse.json(
+      {
+        error: 'code_mask', field: 'code', kind, mask: learned,
+        message: `Το SoftOne δέχεται κωδικό της μορφής ${learned}${next?.code ? ` — προτείνεται ο ${next.code}` : ''}.`,
+        suggestion: next?.code ?? null, stale: next?.stale ?? false,
+      },
+      { status: 422 },
+    );
+  }
   if (!isDuplicateCodeError(message)) return null;
   clearItemCodeCache(kind);
   const supplierCode = b.supplierCode && b.supplierCode !== b.code ? b.supplierCode : null;
@@ -387,11 +421,13 @@ async function suggestCode(
   kind: ItemCodeKind, supplierCode: string | null,
 ): Promise<{ code: string | null; stale: boolean } | null> {
   try {
-    const [mask, fallbackCodes] = await Promise.all([
+    const [mask, learned, fallbackCodes, rules] = await Promise.all([
       getSetting<string>(itemCodeMaskKey(kind), '').catch(() => ''),
+      getSetting<string>(itemErpMaskKey(kind), '').catch(() => ''),
       mirrorItemCodes(kind),
+      kind === 'expense' ? Promise.resolve({ code: null }) : softoneCodeRules(kind),
     ]);
-    const r = await softoneNextItemCode(kind, { mask: mask ?? '', supplierCode, fallbackCodes });
+    const r = await softoneNextItemCode(kind, { mask: mask ?? '', erpMask: rules.code || learned || null, supplierCode, fallbackCodes });
     return { code: r.code, stale: r.stale };
   } catch {
     return null;

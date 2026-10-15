@@ -1,3 +1,4 @@
+import { softoneCodeRules } from '@/lib/softone-code-rules';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
@@ -214,12 +215,13 @@ async function suggestCode(
   kind: ItemCodeKind, supplierCode: string | null,
 ): Promise<{ code: string | null; stale: boolean } | null> {
   try {
-    const [mask, erpMask, fallbackCodes] = await Promise.all([
+    const [mask, learned, fallbackCodes, rules] = await Promise.all([
       getSetting<string>(itemCodeMaskKey(kind), '').catch(() => ''),
       getSetting<string>(itemErpMaskKey(kind), '').catch(() => ''),
       mirrorItemCodes(kind),
+      kind === 'expense' ? Promise.resolve({ code: null }) : softoneCodeRules(kind),
     ]);
-    const r = await softoneNextItemCode(kind, { mask: mask ?? '', erpMask: erpMask || null, supplierCode, fallbackCodes });
+    const r = await softoneNextItemCode(kind, { mask: mask ?? '', erpMask: rules.code || learned || null, supplierCode, fallbackCodes });
     return { code: r.code, stale: r.stale };
   } catch {
     return null;

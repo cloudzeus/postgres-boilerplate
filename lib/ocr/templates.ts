@@ -85,7 +85,9 @@ export const TEMPLATE_SCHEMAS: Record<DocType, TemplateSchema> = {
   },
   "lines": [                    // one entry per printed line of goods/services; [] if the document has no line table
     {
-      "code": "string or null (ΚΩΔΙΚΟΣ)",
+      "code": "string or null (ΚΩΔΙΚΟΣ — the supplier's item code as printed)",
+      "ean": "string or null (BARCODE / EAN printed for THIS line, 8 or 13 digits; null if not printed)",
+      "mfrCode": "string or null (manufacturer's code / part number, ONLY if printed separately from ΚΩΔΙΚΟΣ)",
       "name": "string (ΠΕΡΙΓΡΑΦΗ)",
       "unit": "string or null (ΜΟΝΑΔΑ — ΤΕΜ, ΚΙΛΑ, ΩΡΕΣ…)",
       "quantity": number,

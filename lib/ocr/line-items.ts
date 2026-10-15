@@ -18,6 +18,9 @@ export interface LineItem {
    * και τα ειδικά πεδία θα κατέληγαν σε άλλο είδος.
    */
   customFields?: Record<string, unknown>;
+  /** Barcode / κωδικός κατασκευαστή: ΔΕΝ είναι στήλες της φόρμας — ταξιδεύουν μαζί με τη γραμμή. */
+  ean?: string | null;
+  mfrCode?: string | null;
 }
 
 export const EMPTY_LINE: LineItem = {
@@ -54,6 +57,8 @@ export function toLineItems(raw: unknown): LineItem[] {
     if (src.customFields && typeof src.customFields === 'object') {
       line.customFields = src.customFields as Record<string, unknown>;
     }
+    if (typeof src.ean === 'string' && src.ean) line.ean = src.ean;
+    if (typeof src.mfrCode === 'string' && src.mfrCode) line.mfrCode = src.mfrCode;
     return line;
   });
 }

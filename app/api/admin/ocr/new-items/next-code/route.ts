@@ -1,5 +1,6 @@
 import { itemErpMaskKey } from '@/lib/erp-mask';
 import { NextResponse } from 'next/server';
+import { softoneCodeRules } from '@/lib/softone-code-rules';
 import { z } from 'zod';
 import { requirePermission } from '@/lib/rbac';
 import { getSetting } from '@/lib/settings';
@@ -62,14 +63,20 @@ export async function GET(req: Request) {
     }
   }
 
-  const [mask, erpMask, fallbackCodes] = await Promise.all([
+  const [mask, learned, fallbackCodes, rules] = await Promise.all([
     getSetting<string>(itemCodeMaskKey(kind), '').catch(() => ''),
     // Η μάσκα που ΕΜΑΘΕ η εφαρμογή από απόρριψη του ERP (βλ. `lib/erp-mask.ts`).
     getSetting<string>(itemErpMaskKey(kind), '').catch(() => ''),
     mirrorItemCodes(kind),
+    // Ο ΚΑΝΟΝΑΣ του SoftOne («Μορφή κωδικού»), διαβασμένος ΠΡΙΝ — όχι μετά από απόρριψη.
+    kind === 'expense' ? Promise.resolve({ code: null, known: false }) : softoneCodeRules(kind),
   ]);
+  const erpMask = rules.code || learned || null;
 
-  const res = await softoneNextItemCode(kind, { mask: mask ?? '', erpMask: erpMask || null, supplierCode, fallbackCodes });
+  const res = await softoneNextItemCode(kind, { mask: mask ?? '', erpMask, supplierCode, fallbackCodes });
 
-  return NextResponse.json({ kind, ...res });
+  return NextResponse.json({
+    kind, ...res,
+    rule: { mask: erpMask, source: rules.code ? 'softone' : learned ? 'learned' : null, known: rules.known },
+  });
 }
