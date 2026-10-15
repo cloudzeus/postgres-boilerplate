@@ -1,4 +1,6 @@
 'use client';
+import { toast } from 'sonner';
+import { confirmAction } from '@/components/ui/confirm-dialog';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { FiPlus, FiEdit2, FiTrash2, FiMoreVertical, FiBriefcase } from 'react-icons/fi';
@@ -27,8 +29,8 @@ export function BusinessTypesClient({ rows, canManage }: { rows: BusinessTypeRow
     const res = await fetch('/api/admin/business-types/resolve', { method: 'POST' });
     setResyncing(false);
     const json = await res.json().catch(() => ({}));
-    if (!res.ok) { alert(json.error ?? 'Σφάλμα'); return; }
-    alert(`Ενημερώθηκαν ${json.changed ?? 0} εταιρίες.`);
+    if (!res.ok) { toast.error(json.error ?? 'Σφάλμα'); return; }
+    toast.success(`Ενημερώθηκαν ${json.changed ?? 0} εταιρίες.`);
     router.refresh();
   }
 
@@ -45,9 +47,9 @@ export function BusinessTypesClient({ rows, canManage }: { rows: BusinessTypeRow
     close(); router.refresh();
   }
   async function remove(r: BusinessTypeRow) {
-    if (!confirm(`Διαγραφή μορφής «${r.name}»;`)) return;
+    if (!(await confirmAction(`Διαγραφή μορφής «${r.name}»;`))) return;
     const res = await fetch(`/api/admin/business-types/${r.id}`, { method: 'DELETE' });
-    if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? 'Σφάλμα'); return; }
+    if (!res.ok) { toast.error((await res.json().catch(() => ({}))).error ?? 'Σφάλμα'); return; }
     router.refresh();
   }
   const open = creating || editing !== null;

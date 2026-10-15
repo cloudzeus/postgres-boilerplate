@@ -4,6 +4,7 @@
 // πεδία με τα χρώματα του προτύπου, και πλαϊνό πάνελ με τη σελίδα του αρχείου και τα κουτιά που
 // διαβάστηκαν. Polling μόνο όσο η εργασία κινείται — μόλις τελειώσει, η σελίδα ησυχάζει.
 
+import { confirmAction } from '@/components/ui/confirm-dialog';
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -61,7 +62,7 @@ export function JobDetailClient({ initial, canManage }: { initial: JobDetail; ca
   }, [active, job.id]);
 
   const cancel = async () => {
-    if (!confirm('Ακύρωση της εργασίας;\nΌσα αρχεία διαβάστηκαν μένουν — τα υπόλοιπα δεν θα ξεκινήσουν.')) return;
+    if (!(await confirmAction('Ακύρωση της εργασίας;\nΌσα αρχεία διαβάστηκαν μένουν — τα υπόλοιπα δεν θα ξεκινήσουν.'))) return;
     try {
       const out = await templatesApi.jobs.cancel(job.id);
       toast.success(out.pending ? `Ακυρώθηκε — ${out.pending} αρχεία δεν θα διαβαστούν` : 'Ακυρώθηκε');

@@ -1,5 +1,6 @@
 'use client';
 
+import { confirmAction } from '@/components/ui/confirm-dialog';
 import * as React from 'react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -27,9 +28,9 @@ export function OutboxTable({ initial }: { initial: OutboxRow[] }) {
   async function act(id: string, action: 'retry' | 'cancel') {
     // Η ΕΠΑΝΑΛΗΨΗ ΘΕΛΕΙ ΡΗΤΗ ΒΕΒΑΙΩΣΗ. Δεν ρωτάμε «είσαι σίγουρος;» για το τυπικό: ρωτάμε το
     // ΣΥΓΚΕΚΡΙΜΕΝΟ πράγμα που μόνο ο χρήστης μπορεί να ξέρει — αν η εγγραφή υπάρχει ήδη εκεί.
-    if (action === 'retry' && !confirm(
+    if (action === 'retry' && !(await confirmAction(
       'Έλεγξες στο SoftOne ότι η εγγραφή ΔΕΝ υπάρχει;\n\nΑν υπάρχει και σταλεί ξανά, θα δημιουργηθεί ΔΕΥΤΕΡΗ.',
-    )) return;
+    ))) return;
     setBusy(id);
     try {
       const r = await fetch(`/api/admin/softone/outbox/${id}`, {

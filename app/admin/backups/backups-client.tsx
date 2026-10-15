@@ -1,5 +1,6 @@
 'use client';
 
+import { confirmAction } from '@/components/ui/confirm-dialog';
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -38,7 +39,7 @@ export function BackupsClient({ backups, retention }: { backups: Backup[]; reten
   }
 
   async function restore(id: string, filename: string) {
-    if (!confirm(`Είσαι σίγουρος; Θα επαναφερθεί η βάση από το ${filename}.\n\nΌλα τα τρέχοντα δεδομένα θα αντικατασταθούν.`)) return;
+    if (!(await confirmAction(`Είσαι σίγουρος; Θα επαναφερθεί η βάση από το ${filename}.\n\nΌλα τα τρέχοντα δεδομένα θα αντικατασταθούν.`))) return;
     setMsg(null); setBusyId(id);
     try {
       const res = await fetch(`/api/admin/backups/${id}/restore`, { method: 'POST' });
@@ -52,7 +53,7 @@ export function BackupsClient({ backups, retention }: { backups: Backup[]; reten
   }
 
   async function remove(id: string, filename: string) {
-    if (!confirm(`Διαγραφή backup ${filename};`)) return;
+    if (!(await confirmAction(`Διαγραφή backup ${filename};`))) return;
     setBusyId(id);
     try {
       await fetch(`/api/admin/backups/${id}`, { method: 'DELETE' });

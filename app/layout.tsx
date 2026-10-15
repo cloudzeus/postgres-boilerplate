@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { ConfirmHost } from '@/components/ui/confirm-dialog';
 import { Inter, Manrope } from 'next/font/google';
 import './globals.css';
 import { Toaster } from 'sonner';
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="el" className={`${inter.variable} ${manrope.variable}`}>
       <body className="min-h-screen bg-background text-foreground antialiased">
         <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
+        <ConfirmHost />
         <Toaster
           position="top-right"
           toastOptions={{

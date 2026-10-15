@@ -1,5 +1,6 @@
 'use client';
 
+import { confirmAction } from '@/components/ui/confirm-dialog';
 import * as React from 'react';
 import {
   FiFolder, FiFolderPlus, FiUpload, FiImage, FiFile, FiTrash2,
@@ -78,14 +79,14 @@ export function MediaBrowser({ pickerMode, onPick, acceptImagesOnly }: Props) {
   };
 
   const deleteFile = async (id: string) => {
-    if (!confirm('Διαγραφή αρχείου;')) return;
+    if (!(await confirmAction('Διαγραφή αρχείου;'))) return;
     const res = await fetch(`/api/admin/media/${id}`, { method: 'DELETE' });
     if (res.ok) { toast.success('Διαγράφηκε'); fetchList(); }
     else toast.error('Αποτυχία');
   };
 
   const deleteFolder = async (id: string) => {
-    if (!confirm('Διαγραφή φακέλου και όλων των περιεχομένων;')) return;
+    if (!(await confirmAction('Διαγραφή φακέλου και όλων των περιεχομένων;'))) return;
     const res = await fetch(`/api/admin/media/folders/${id}`, { method: 'DELETE' });
     if (res.ok) { toast.success('Διαγράφηκε'); fetchList(); }
     else toast.error('Αποτυχία');

@@ -112,6 +112,11 @@ export interface GroupHeaderCtx {
   toggleCollapsed: () => void;
 }
 
+/** Κατώτατο πλάτος στήλης (px) — αρκετό για μια λέξη ή ένα ποσό. */
+const MIN_COL = 64;
+/** Αποθηκευμένο πλάτος κάτω από αυτό είναι σίγουρα λάθος σύρσιμο (καμία στήλη δεν δηλώνει < 32). */
+const MIN_STORED = 32;
+
 export function DataTable<TData, TValue>({
   columns,
   data,
@@ -195,7 +200,14 @@ export function DataTable<TData, TValue>({
     if (sizeKey) {
       try {
         const stored = window.localStorage.getItem(sizeKey);
-        if (stored) setColumnSizing(JSON.parse(stored));
+        // Πλάτη κάτω από το ελάχιστο (π.χ. 25px από ένα παλιό λάθος σύρσιμο, όταν το κατώτατο ήταν
+        // 20) ΑΓΝΟΟΥΝΤΑΙ: αλλιώς η στήλη έμενε στριμωγμένη για πάντα και φαινόταν «χαλασμένη».
+        if (stored) {
+          const parsed = JSON.parse(stored) as Record<string, unknown>;
+          const clean: ColumnSizingState = {};
+          for (const [k, v] of Object.entries(parsed)) if (typeof v === 'number' && v >= MIN_STORED) clean[k] = v;
+          setColumnSizing(clean);
+        }
       } catch {}
     }
     setHydrated(true);
@@ -261,7 +273,10 @@ export function DataTable<TData, TValue>({
         size: 32, enableResizing: false, enableSorting: false, enableHiding: false,
       } as ColumnDef<TData, TValue>);
     }
-    return [...cols, ...columns];
+    // Κατώτατο πλάτος ΑΝΑ ΣΤΗΛΗ: το 20px της βιβλιοθήκης επέτρεπε να «εξαφανιστεί» μια στήλη με ένα
+    // σύρσιμο (η «Παραστατικό» έμεινε 25px). Κατώτατο = min(64, δηλωμένο πλάτος), ώστε οι μικρές
+    // στήλες (επιλογή 32, ενέργειες 48) να μη φουσκώνουν.
+    return [...cols, ...columns].map((c) => (c.minSize != null ? c : { ...c, minSize: Math.min(MIN_COL, c.size ?? 150) }));
   }, [columns, expandable, enableSelection]);
 
   /**
@@ -333,6 +348,72 @@ export function DataTable<TData, TValue>({
     getExpandedRowModel: getExpandedRowModel(),
     initialState: { pagination: { pageSize } },
   });
+
+  /**
+   * ΠΛΑΤΟΣ ΣΤΗΛΗΣ ΣΤΟ DOM. Δύο κανόνες, γιατί αλλιώς το resize «δεν έκανε τίποτα»:
+   *  • Η ελαστική στήλη (`growColumnId`) δεν δηλώνει πλάτος — παίρνει το περίσσευμα.
+   *  • Όταν δεν χωράει τίποτα (`mustShrink`), τα πλάτη γίνονται ελαστικά — ΕΚΤΟΣ από όσες στήλες
+   *    έχει ρυθμίσει ο ίδιος ο χρήστης (υπάρχουν στο `columnSizing`): η επιλογή του νικάει.
+   */
+  const widthStyle = (colId: string, size: number): React.CSSProperties | undefined => {
+    if (colId === growColumnId) return undefined;
+    if (mustShrink && !Object.prototype.hasOwnProperty.call(columnSizing, colId)) return undefined;
+    return { width: rem(size) };
+  };
+
+  /**
+   * RESIZE — δικός μας χειρισμός για ΟΛΕΣ τις στήλες (ο handler της βιβλιοθήκης, σε `table-layout:
+   * fixed` με ελαστική στήλη, έριχνε τη στήλη στο 0 — έτσι η «Παραστατικό» είχε μείνει 25px).
+   *  • Κανονική στήλη: αλλάζει η ΙΔΙΑ· τη διαφορά την απορροφά η ελαστική στήλη, ο πίνακας χωράει.
+   *  • Ελαστική στήλη: αφού παίρνει ό,τι περισσεύει, «πιο φαρδιά» σημαίνει «η ΕΠΟΜΕΝΗ στήλη πιο
+   *    στενή» (ή η προηγούμενη, αν είναι τελευταία). Σε κάθε περίπτωση το όριο ακολουθεί τον δείκτη.
+   */
+  const [resizingId, setResizingId] = React.useState<string | null>(null);
+  const resizeTarget = (colId: string) => {
+    if (colId !== growColumnId) {
+      const col = table.getColumn(colId);
+      return col ? { col, sign: 1 } : null;
+    }
+    const cols = table.getVisibleLeafColumns();
+    const idx = cols.findIndex((c) => c.id === colId);
+    // Η πρώτη επόμενη στήλη που έχει ΠΕΡΙΘΩΡΙΟ να στενέψει (αν η αμέσως επόμενη είναι ήδη στο ελάχιστο).
+    const room = (c: (typeof cols)[number]) => c.getSize() > Math.max(c.columnDef.minSize ?? MIN_COL, MIN_COL) + 4;
+    const afterAll = cols.slice(idx + 1).filter((c) => c.getCanResize());
+    const after = afterAll.find(room) ?? afterAll[0];
+    if (after) return { col: after, sign: -1 };
+    const before = [...cols.slice(0, idx)].reverse().find((c) => c.getCanResize());
+    return before ? { col: before, sign: 1 } : null;
+  };
+  const startResize = (colId: string) => (e: React.MouseEvent | React.TouchEvent) => {
+    const target = resizeTarget(colId);
+    if (!target) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const { col, sign } = target;
+    const x0 = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    // Από το ΠΡΑΓΜΑΤΙΚΟ πλάτος στην οθόνη (σε ελαστικό πίνακα διαφέρει από το δηλωμένο).
+    const th = (e.currentTarget as HTMLElement).closest('table')?.querySelector<HTMLElement>(`th[data-col="${col.id}"]`);
+    const start = th ? th.getBoundingClientRect().width : col.getSize();
+    const min = Math.max(col.columnDef.minSize ?? MIN_COL, Math.min(MIN_COL, col.columnDef.size ?? MIN_COL));
+    const max = col.columnDef.maxSize ?? 900;
+    setResizingId(colId);
+    const move = (ev: MouseEvent | TouchEvent) => {
+      const x = 'touches' in ev ? ev.touches[0].clientX : ev.clientX;
+      const next = Math.min(max, Math.max(min, Math.round(start + sign * (x - x0))));
+      setColumnSizing((s) => ({ ...s, [col.id]: next }));
+    };
+    const up = () => {
+      setResizingId(null);
+      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
+      window.removeEventListener('touchmove', move); window.removeEventListener('touchend', up);
+    };
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    window.addEventListener('touchmove', move, { passive: true }); window.addEventListener('touchend', up);
+  };
+  const resetResize = (colId: string) => {
+    const target = resizeTarget(colId);
+    if (target) setColumnSizing((s) => { const n = { ...s }; delete n[target.col.id]; return n; });
+  };
 
   const totalRows = table.getFilteredRowModel().rows.length;
   const currentPage = table.getState().pagination.pageIndex + 1;
@@ -471,7 +552,8 @@ export function DataTable<TData, TValue>({
                       <th
                         key={header.id}
                         colSpan={header.colSpan}
-                        style={mustShrink || header.column.id === growColumnId ? undefined : { width: rem(header.getSize()) }}
+                        data-col={header.column.id}
+                        style={widthStyle(header.column.id, header.getSize())}
                         className="relative h-8 px-2.5 text-left font-semibold text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground dark:text-muted-foreground select-none"
                       >
                         {!header.isPlaceholder && (
@@ -491,12 +573,16 @@ export function DataTable<TData, TValue>({
                         )}
                         {header.column.getCanResize() && (
                           <div
-                            onDoubleClick={() => header.column.resetSize()}
-                            onMouseDown={header.getResizeHandler()}
-                            onTouchStart={header.getResizeHandler()}
+                            role="separator" aria-orientation="vertical" aria-label="Αλλαγή πλάτους στήλης (διπλό κλικ: επαναφορά)"
+                            onDoubleClick={() => resetResize(header.column.id)}
+                            onMouseDown={startResize(header.column.id)}
+                            onTouchStart={startResize(header.column.id)}
+                            onClick={(e) => e.stopPropagation()}
                             className={cn(
-                              'absolute right-0 top-0 h-full w-1 cursor-col-resize select-none touch-none bg-transparent hover:bg-primary/40 transition-colors',
-                              header.column.getIsResizing() && 'bg-primary',
+                              // Πιάνεται εύκολα: 8px ζώνη στο όριο, ορατή γραμμή 2px στο hover/σύρσιμο.
+                              'absolute -right-1 top-0 z-10 flex h-full w-2 cursor-col-resize select-none touch-none justify-center',
+                              'after:block after:h-full after:w-0.5 after:bg-transparent after:transition-colors hover:after:bg-primary/50',
+                              resizingId === header.column.id && 'after:bg-primary',
                             )}
                           />
                         )}
@@ -553,7 +639,7 @@ export function DataTable<TData, TValue>({
                         return (
                           <td
                             key={cell.id}
-                            style={mustShrink || cell.column.id === growColumnId ? undefined : { width: rem(cell.column.getSize()) }}
+                            style={widthStyle(cell.column.id, cell.column.getSize())}
                             className={cn(
                               'h-[var(--row-h)] px-[var(--row-px)] text-[length:var(--fs-12)] text-foreground',
                               isActions ? 'overflow-visible text-center' : 'truncate',

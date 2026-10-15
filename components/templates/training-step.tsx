@@ -7,6 +7,7 @@
 // επιβεβαιώνει τι ΕΠΡΕΠΕ να διαβάσει, και η συμφωνία των δύο είναι ο βαθμός εκπαίδευσης — το κατώφλι
 // που πρέπει να περάσει ένα πρότυπο πριν ενεργοποιηθεί.
 
+import { confirmAction } from '@/components/ui/confirm-dialog';
 import * as React from 'react';
 import Link from 'next/link';
 import { FiBookOpen, FiCheckCircle, FiInfo, FiPlay, FiUploadCloud } from 'react-icons/fi';
@@ -130,7 +131,7 @@ export function TrainingStep() {
   };
 
   const remove = async (sampleId: string) => {
-    if (!confirm('Διαγραφή του δείγματος;')) return;
+    if (!(await confirmAction('Διαγραφή του δείγματος;'))) return;
     setBusyId(sampleId);
     try {
       const out = await templatesApi.samples.remove(dto.id, sampleId);

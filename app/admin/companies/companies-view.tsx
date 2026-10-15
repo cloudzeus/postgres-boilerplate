@@ -1,5 +1,6 @@
 'use client';
 
+import { confirmAction } from '@/components/ui/confirm-dialog';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { ColumnDef } from '@tanstack/react-table';
@@ -1133,7 +1134,7 @@ function BranchesPanel({ companyId }: { companyId: string }) {
   React.useEffect(() => { load(); }, [load]);
 
   const remove = async (b: Branch) => {
-    if (!confirm(`Διαγραφή υποκαταστήματος "${b.name}";`)) return;
+    if (!(await confirmAction(`Διαγραφή υποκαταστήματος "${b.name}";`))) return;
     const res = await fetch(`/api/admin/companies/${companyId}/branches/${b.id}`, { method: 'DELETE' });
     if (res.ok) { toast.success('Διαγράφηκε'); load(); }
     else toast.error('Αποτυχία');
@@ -1367,7 +1368,7 @@ function ContactsPanel({ companyId }: { companyId: string }) {
   React.useEffect(() => { load(); }, [load]);
 
   const remove = async (c: Contact) => {
-    if (!confirm(`Διαγραφή επαφής "${c.fullName}";`)) return;
+    if (!(await confirmAction(`Διαγραφή επαφής "${c.fullName}";`))) return;
     const res = await fetch(`/api/admin/companies/${companyId}/contacts/${c.id}`, { method: 'DELETE' });
     if (res.ok) { toast.success('Διαγράφηκε'); load(); }
     else toast.error('Αποτυχία');
@@ -1460,7 +1461,7 @@ function ContactDialog({
   };
   const removeAvatar = async () => {
     if (!companyId || !contact?.id || !form.avatarUrl) return;
-    if (!confirm('Διαγραφή avatar;')) return;
+    if (!(await confirmAction('Διαγραφή avatar;'))) return;
     const res = await fetch(`/api/admin/companies/${companyId}/contacts/${contact.id}/avatar`, { method: 'DELETE' });
     if (res.ok) { refreshAvatar(null); toast.success('Διαγράφηκε'); }
     else toast.error('Αποτυχία');
@@ -1654,7 +1655,7 @@ function ChannelsPanel({ companyId, compact = false }: { companyId: string; comp
   };
 
   const remove = async (id: string) => {
-    if (!confirm('Διαγραφή καναλιού;')) return;
+    if (!(await confirmAction('Διαγραφή καναλιού;'))) return;
     const res = await fetch(`/api/admin/companies/${companyId}/channels/${id}`, { method: 'DELETE' });
     if (res.ok) { toast.success('Διαγράφηκε'); load(); }
     else toast.error('Αποτυχία');
@@ -2368,7 +2369,7 @@ function LogoBlock({
 
   const remove = async () => {
     if (!companyId || !logoUrl) return;
-    if (!confirm('Διαγραφή λογότυπου;')) return;
+    if (!(await confirmAction('Διαγραφή λογότυπου;'))) return;
     const res = await fetch(`/api/admin/companies/${companyId}/logo`, { method: 'DELETE' });
     if (res.ok) { onChange(null); toast.success('Διαγράφηκε'); }
     else toast.error('Αποτυχία διαγραφής');
@@ -2452,7 +2453,7 @@ function DocumentsPanel({
   React.useEffect(() => { load(); }, [load]);
 
   const remove = async (doc: DocRow) => {
-    if (!confirm(`Διαγραφή εγγράφου "${doc.title}";`)) return;
+    if (!(await confirmAction(`Διαγραφή εγγράφου "${doc.title}";`))) return;
     const res = await fetch(`/api/admin/companies/${companyId}/documents/${doc.id}`, { method: 'DELETE' });
     if (res.ok) { toast.success('Διαγράφηκε'); load(); }
     else toast.error('Αποτυχία');

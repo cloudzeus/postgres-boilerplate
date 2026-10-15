@@ -1,5 +1,6 @@
 'use client';
 
+import { confirmAction } from '@/components/ui/confirm-dialog';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { FiShield, FiUsers, FiKey, FiLock, FiSettings, FiTrash2, FiCheck } from 'react-icons/fi';
@@ -75,7 +76,7 @@ export function RolesList({ items, permissions }: { items: RoleItem[]; permissio
               <Button
                 variant="ghost" size="icon-sm" className="shrink-0"
                 onClick={async () => {
-                  if (!confirm(`Διαγραφή ρόλου ${role.name};`)) return;
+                  if (!(await confirmAction(`Διαγραφή ρόλου ${role.name};`))) return;
                   const res = await fetch(`/api/admin/roles/${role.id}`, { method: 'DELETE' });
                   if (res.ok) { toast.success('Διαγράφηκε'); router.refresh(); }
                   else toast.error('Αποτυχία');

@@ -1,5 +1,6 @@
 'use client';
 
+import { confirmAction } from '@/components/ui/confirm-dialog';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
@@ -30,7 +31,7 @@ export function TemplatesTable({ rows, canManage }: { rows: TemplateRow[]; canMa
   // Το πρότυπο που ζητήθηκε για σάρωση. Ένας διάλογος για όλο τον πίνακα: ό,τι χρειάζεται είναι η γραμμή.
   const [scanning, setScanning] = React.useState<TemplateRow | null>(null);
   const remove = async (r: TemplateRow) => {
-    if (!confirm(`Διαγραφή του προτύπου «${r.name}»;`)) return;
+    if (!(await confirmAction(`Διαγραφή του προτύπου «${r.name}»;`))) return;
     try { await templatesApi.remove(r.id); toast.success('Διαγράφηκε'); router.refresh(); }
     catch (e) { toast.error(errorMessage(e)); }
   };

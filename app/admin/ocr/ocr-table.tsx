@@ -1,5 +1,6 @@
 'use client';
 
+import { confirmAction } from '@/components/ui/confirm-dialog';
 import { UTILITY_KIND_LABEL, type UtilityKind } from '@/lib/ocr/utility-bills';
 import * as React from 'react';
 import Link from 'next/link';
@@ -359,7 +360,7 @@ export function OcrTable({
   }
 
   async function handleDelete(row: OcrRow) {
-    if (!confirm(`Διαγραφή του εγγράφου "${row.fileName}";`)) return;
+    if (!(await confirmAction(`Διαγραφή του εγγράφου "${row.fileName}";`))) return;
     const p = startProgress(row, 'Διαγραφή');
     try {
       const res = await fetch(`/api/admin/ocr/${row.id}`, { method: 'DELETE' });
@@ -391,7 +392,7 @@ export function OcrTable({
   async function handleBulkPost(dayRows: OcrRow[]) {
     const ready = dayRows.filter((r) => reconMeta(r).status === 'READY');
     if (ready.length === 0) { toast.info('Κανένα έτοιμο προς ανάρτηση παραστατικό αυτή την ημέρα.'); return; }
-    if (!confirm(`Ανάρτηση ${ready.length} παραστατικών στο SoftOne;`)) return;
+    if (!(await confirmAction(`Ανάρτηση ${ready.length} παραστατικών στο SoftOne;`))) return;
     const t = toast.loading(`Ανάρτηση 0/${ready.length}…`);
     let ok = 0, fail = 0;
     // Ο λόγος της ΠΡΩΤΗΣ αποτυχίας: ένα «3 αποτυχία» χωρίς αιτία στέλνει τον χρήστη να ανοίγει
@@ -417,7 +418,7 @@ export function OcrTable({
   }
 
   async function handleBulkDelete(dayRows: OcrRow[], label: string) {
-    if (!confirm(`Διαγραφή ΟΛΩΝ των ${dayRows.length} παραστατικών της ${label};\nΑυτή η ενέργεια δεν αναιρείται.`)) return;
+    if (!(await confirmAction(`Διαγραφή ΟΛΩΝ των ${dayRows.length} παραστατικών της ${label};\nΑυτή η ενέργεια δεν αναιρείται.`))) return;
     const t = toast.loading(`Διαγραφή 0/${dayRows.length}…`);
     let ok = 0, fail = 0;
     for (const r of dayRows) {

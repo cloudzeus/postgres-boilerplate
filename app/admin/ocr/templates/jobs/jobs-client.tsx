@@ -3,6 +3,7 @@
 // Η λίστα των εργασιών σάρωσης. Ανανεώνεται μόνη της ΜΟΝΟ όσο υπάρχει κάτι ενεργό: μια σελίδα με
 // δέκα τελειωμένες εργασίες δεν έχει λόγο να χτυπά τον server κάθε πέντε δευτερόλεπτα.
 
+import { confirmAction } from '@/components/ui/confirm-dialog';
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -59,7 +60,7 @@ export function JobsClient({ initial, canManage }: { initial: JobListRow[]; canM
   }, [anyActive]);
 
   const cancel = async (j: JobListRow) => {
-    if (!confirm(`Ακύρωση της εργασίας «${j.title}»;\nΌσα αρχεία διαβάστηκαν μένουν — τα υπόλοιπα δεν θα ξεκινήσουν.`)) return;
+    if (!(await confirmAction(`Ακύρωση της εργασίας «${j.title}»;\nΌσα αρχεία διαβάστηκαν μένουν — τα υπόλοιπα δεν θα ξεκινήσουν.`))) return;
     try {
       const out = await templatesApi.jobs.cancel(j.id);
       toast.success(out.pending ? `Ακυρώθηκε — ${out.pending} αρχεία δεν θα διαβαστούν` : 'Ακυρώθηκε');

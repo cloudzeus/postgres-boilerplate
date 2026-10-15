@@ -1,5 +1,6 @@
 'use client';
 
+import { confirmAction } from '@/components/ui/confirm-dialog';
 import * as React from 'react';
 import { FiPlus, FiTrash2, FiSave, FiLock, FiLayers } from 'react-icons/fi';
 import { toast } from 'sonner';
@@ -38,7 +39,7 @@ export function CompanyTypesDialog({
 
   const remove = async (t: TypeOption) => {
     if (t.isSystem) { toast.error('Δεν διαγράφονται οι system τύποι'); return; }
-    if (t.count > 0 && !confirm(`Ο τύπος έχει ${t.count} εταιρίες. Διαγραφή θα αφαιρέσει τη συσχέτιση. Συνέχεια;`)) return;
+    if (t.count > 0 && !(await confirmAction(`Ο τύπος έχει ${t.count} εταιρίες. Διαγραφή θα αφαιρέσει τη συσχέτιση. Συνέχεια;`))) return;
     const res = await fetch(`/api/admin/company-types/${t.id}`, { method: 'DELETE' });
     if (res.ok) { toast.success('Διαγράφηκε'); onChanged(); }
     else toast.error('Αποτυχία');

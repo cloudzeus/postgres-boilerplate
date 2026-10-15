@@ -1,4 +1,6 @@
 'use client';
+import { toast } from 'sonner';
+import { confirmAction } from '@/components/ui/confirm-dialog';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { FiPlus, FiEdit2, FiTrash2, FiCopy, FiMoreVertical, FiFileText, FiClock } from 'react-icons/fi';
@@ -51,23 +53,23 @@ export function DocumentTypesClient({ rows, canManage, categories: initialCatego
     close(); router.refresh();
   }
   async function remove(r: DocumentTypeRow) {
-    if (!confirm(`Διαγραφή τύπου «${r.name}»;`)) return;
+    if (!(await confirmAction(`Διαγραφή τύπου «${r.name}»;`))) return;
     const res = await fetch(`/api/admin/document-types/${r.id}`, { method: 'DELETE' });
-    if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? 'Σφάλμα διαγραφής'); return; }
+    if (!res.ok) { toast.error((await res.json().catch(() => ({}))).error ?? 'Σφάλμα διαγραφής'); return; }
     router.refresh();
   }
 
   async function addCategory() {
     const name = catName.trim(); if (!name) return;
     const res = await fetch('/api/admin/document-categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-    if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? 'Σφάλμα'); return; }
+    if (!res.ok) { toast.error((await res.json().catch(() => ({}))).error ?? 'Σφάλμα'); return; }
     const json = await res.json();
     if (json.data) setCategories((p) => p.some((c) => c.id === json.data.id) ? p : [...p, { id: json.data.id, name: json.data.name }]);
     setCatName('');
   }
   async function removeCategory(id: string) {
     const res = await fetch(`/api/admin/document-categories/${id}`, { method: 'DELETE' });
-    if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? 'Σφάλμα'); return; }
+    if (!res.ok) { toast.error((await res.json().catch(() => ({}))).error ?? 'Σφάλμα'); return; }
     setCategories((p) => p.filter((c) => c.id !== id));
   }
 
@@ -171,7 +173,7 @@ export function DocumentTypesClient({ rows, canManage, categories: initialCatego
                       placeholder="Επίλεξε ή δημιούργησε κατηγορία…"
                       onCreate={async (label) => {
                         const res = await fetch('/api/admin/document-categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: label }) });
-                        if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? 'Σφάλμα'); return; }
+                        if (!res.ok) { toast.error((await res.json().catch(() => ({}))).error ?? 'Σφάλμα'); return; }
                         const json = await res.json();
                         if (json.data) { setCategories((prev) => prev.some((c) => c.id === json.data.id) ? prev : [...prev, { id: json.data.id, name: json.data.name }]); setForm((f) => ({ ...f, categoryId: json.data.id })); }
                       }}

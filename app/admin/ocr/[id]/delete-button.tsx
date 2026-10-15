@@ -1,5 +1,6 @@
 'use client';
 
+import { confirmAction } from '@/components/ui/confirm-dialog';
 import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -13,8 +14,8 @@ export function DeleteButton({ id }: { id: string }) {
     <button
       type="button"
       disabled={pending}
-      onClick={() => {
-        if (!confirm('Διαγραφή εγγράφου και του αρχείου από το Bunny CDN;')) return;
+      onClick={async () => {
+        if (!(await confirmAction('Διαγραφή εγγράφου και του αρχείου από το Bunny CDN;'))) return;
         start(async () => {
           const res = await fetch(`/api/admin/ocr/${id}`, { method: 'DELETE' });
           if (!res.ok) { toast.error('Αποτυχία διαγραφής'); return; }
@@ -23,7 +24,7 @@ export function DeleteButton({ id }: { id: string }) {
           router.refresh();
         });
       }}
-      className="inline-flex h-8 items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 px-3 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
+      className="inline-flex h-8 items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 px-3 text-[length:var(--fs-12)] font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
     >
       <FiTrash2 className="size-3.5" /> Διαγραφή
     </button>
