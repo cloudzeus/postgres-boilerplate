@@ -11,7 +11,9 @@
 import { extractSerials } from '@/lib/ocr/serials';
 import { lineEan } from '@/lib/ocr/ean';
 import { z } from 'zod';
-import { normalizeAfm } from '@/lib/ocr/validate';
+import { isValidAfm, normalizeAfm } from '@/lib/ocr/validate';
+import { foreignVatFromCountry } from '@/lib/ocr/vat-prefix';
+import { detectIssuerCountry } from '@/lib/country-detect';
 import { reconcileInvoice } from '@/lib/ocr/invoice-math';
 
 export const DOCUMENT_VERSION = 3 as const;
@@ -658,6 +660,18 @@ export function normalizeDate(value: unknown): string | null {
 }
 
 /** Επικύρωση + καθάρισμα: ΑΦΜ, ημερομηνίες, αριθμοί από κείμενο, νόμισμα, trim. Ιδεμποτητικό. */
+/**
+ * Το ΑΦΜ του εκδότη στη μορφή που το ξέρει το VIES/SoftOne. Ξένο τιμολόγιο που τυπώνει τον αριθμό
+ * ΧΩΡΙΣ πρόθεμα («P.IVA 01808880270») παίρνει το πρόθεμα της χώρας του («IT01808880270») — όταν
+ * το ίδιο το παραστατικό λέει τη χώρα (πεδίο «Χώρα»/διεύθυνση) ΚΑΙ ο αριθμός έχει τη μορφή της.
+ * Έγκυρο ελληνικό ΑΦΜ δεν αγγίζεται ποτέ.
+ */
+function issuerVat(issuer: { vat: string | null; country?: string | null; address?: string | null; city?: string | null }): string | null {
+  const v = issuer.vat == null ? null : normalizeAfm(issuer.vat) ?? issuer.vat;
+  if (v == null || isValidAfm(v)) return v;
+  return foreignVatFromCountry(v, detectIssuerCountry(issuer)) ?? v;
+}
+
 export function normalizeDocument(raw: unknown): DocumentJson {
   const doc = isObj(raw) ? parseLoose(raw, deriveKind(raw)) : emptyDocument('invoice');
   const afm = (v: string | null) => (v == null ? null : normalizeAfm(v) ?? v);
@@ -665,7 +679,7 @@ export function normalizeDocument(raw: unknown): DocumentJson {
     ...doc,
     date: normalizeDate(doc.date),
     dueDate: normalizeDate(doc.dueDate),
-    issuer: { ...doc.issuer, vat: afm(doc.issuer.vat) },
+    issuer: { ...doc.issuer, vat: issuerVat(doc.issuer) },
     // Σειριακοί: ό,τι έδωσε το μοντέλο, αλλιώς ό,τι γράφει η ίδια η περιγραφή της γραμμής.
     lines: doc.lines.map((l) => {
       const withSerials = l.serials.length ? l : { ...l, serials: extractSerials(l.name) };

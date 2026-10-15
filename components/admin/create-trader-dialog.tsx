@@ -14,6 +14,8 @@ import { cn } from '@/lib/utils';
 import { VAT_COUNTRY_CODES, isValidAfm, vatCountry } from '@/lib/ocr/validate';
 import { countryLabel } from '@/lib/countries';
 import { EXTRA_COUNTRY_NAMES_EL } from '@/lib/country-detect';
+import { applyVatPrefix } from '@/lib/ocr/vat-prefix';
+import { ViesCheck } from '@/components/admin/vies-check';
 import { KadField, kadPayload, useKadRemoved, type TraderKads } from '@/components/admin/kad-field';
 
 type Preview = {
@@ -269,9 +271,16 @@ export function CreateTraderDialog({
               )}
             </div>
             {isForeign ? (
-              <span className="text-[length:var(--fs-11)] text-muted-foreground">
-                Εκδότης από {countryLabel(country)} — δεν χρειάζεται έλεγχος στην ΑΑΔΕ. Συμπλήρωσε την επωνυμία και δημιούργησε.
-              </span>
+              <div className="grid gap-1">
+                <span className="text-[length:var(--fs-11)] text-muted-foreground">
+                  Εκδότης από {countryLabel(country)} — δεν χρειάζεται έλεγχος στην ΑΑΔΕ. Θα γραφτεί ως{' '}
+                  <span className="font-mono text-foreground">{applyVatPrefix(cleanAfm, country ?? '')}</span>.
+                </span>
+                <ViesCheck
+                  vat={applyVatPrefix(cleanAfm, country ?? '')}
+                  onResult={(r) => { if (r.valid && r.name && !name.trim()) setName(r.name); }}
+                />
+              </div>
             ) : afmInput && !isValidAfm(cleanAfm) ? (
               <span className="text-[length:var(--fs-11)] text-amber-700">
                 Δεν είναι έγκυρο ελληνικό ΑΦΜ. Αν ο εκδότης είναι από άλλη χώρα, διάλεξέ την παρακάτω· αλλιώς διόρθωσε το ΑΦΜ.

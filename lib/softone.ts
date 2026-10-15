@@ -897,6 +897,34 @@ export async function softoneFetchItems(): Promise<ItemRow[]> {
 }
 
 /**
+ * Τα είδη/υπηρεσίες που ΠΡΟΣΤΕΘΗΚΑΝ (MTRL > `afterMtrl`) ή ΑΛΛΑΞΑΝ (`UPDDATE` ≥ `sinceIso`) στο
+ * SoftOne — για τον επανέλεγχο κατά παραγγελία, χωρίς να ξανακατεβαίνει όλο το μητρώο. Ημερομηνία
+ * σε ISO-8601 (`CONVERT(…,126)`): η μορφή «yyyy-mm-dd hh:mm:ss» διαβάζεται dmy από τον SQL Server.
+ */
+export async function softoneFetchItemsChanged(afterMtrl: number, sinceIso: string | null): Promise<ItemRow[]> {
+  const parts = [`MTRL > ${Math.max(0, Math.floor(afterMtrl))}`];
+  const since = sinceIso && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(sinceIso) ? sinceIso : null;
+  if (since) parts.push(`UPDDATE >= CONVERT(datetime,'${since}',126)`);
+  const rows = await softoneGetTable('MTRL', MTRL_FIELDS, `SODTYPE IN (51,52) AND (${parts.join(' OR ')})`);
+  return rows.map(mapItem).filter((r) => Number.isFinite(r.mtrl));
+}
+
+/** Κωδικοί είδους ΠΡΟΜΗΘΕΥΤΗ (πίνακας MTRSUPCODE του είδους) για συγκεκριμένους εκδότες/κωδικούς. */
+export async function softoneFetchSupplierCodes(trdrs: number[], codes: string[]): Promise<{ mtrl: number; trdr: number; code: string }[]> {
+  const t = [...new Set(trdrs.filter((x) => Number.isInteger(x) && x > 0))];
+  const c = [...new Set(codes.map((x) => x.trim().replace(/'/g, '')).filter(Boolean))].slice(0, 400);
+  if (t.length === 0 || c.length === 0) return [];
+  const rows = await softoneGetTable(
+    'MTRSUPCODE', ['MTRL', 'TRDR', 'MTRSUPCODE', 'ISACTIVE'],
+    `TRDR IN (${t.join(',')}) AND MTRSUPCODE IN (${c.map((x) => `'${x}'`).join(',')})`,
+  );
+  return rows
+    .filter((r) => str(r.ISACTIVE) !== '0')
+    .map((r) => ({ mtrl: Number(r.MTRL), trdr: Number(r.TRDR), code: str(r.MTRSUPCODE) }))
+    .filter((r) => Number.isFinite(r.mtrl) && Number.isFinite(r.trdr) && r.code);
+}
+
+/**
  * Finds a SoftOne item by an invoice-line code, trying CODE / CODE2 (factory) /
  * CODE1 (EAN) in that priority. Used by the OCR line ↔ item correlation.
  */

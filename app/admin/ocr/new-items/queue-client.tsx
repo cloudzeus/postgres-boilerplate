@@ -84,6 +84,13 @@ export function NewItemsClient({
   const router = useRouter();
   const layout = React.useRef<QueueLayoutHandle | null>(null);
   const [groups, setGroups] = React.useState(initialGroups);
+  // Νέα δεδομένα από τον server (π.χ. μετά από «Επανέλεγχος στο SoftOne» → router.refresh): η ουρά
+  // παίρνει την αλήθεια του server — γραμμές που βρήκαν είδος φεύγουν.
+  const firstRender = React.useRef(true);
+  React.useEffect(() => {
+    if (firstRender.current) { firstRender.current = false; return; }
+    setGroups(initialGroups);
+  }, [initialGroups]);
   // Μια κατηγορία που μόλις δημιουργήθηκε πρέπει να είναι ΑΜΕΣΩΣ επιλέξιμη, χωρίς reload:
   // ο server την έχει ήδη γράψει και στο SoftOne και στον καθρέφτη.
   const [classOptions, setClassOptions] = React.useState<ClassOption[]>(itemCategories);

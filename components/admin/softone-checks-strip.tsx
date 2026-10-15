@@ -3,6 +3,8 @@
 import { AfmRecover } from '@/components/admin/afm-recover';
 import { isValidAfm, vatCountry } from '@/lib/ocr/validate';
 import { countryLabel } from '@/lib/countries';
+import { ViesCheck } from '@/components/admin/vies-check';
+import { ItemsRescanButton } from '@/components/admin/items-rescan-button';
 import * as React from 'react';
 import {
   FiAlertOctagon, FiAlertTriangle, FiCheck, FiChevronDown, FiChevronRight, FiCopy, FiLoader,
@@ -32,6 +34,10 @@ type Checks = {
     name: string | null; code: string | null; kind: string | null; afm: string;
     /** Ο εκδότης όπως τον γράφει το παραστατικό και η χώρα του (από «Χώρα»/διεύθυνση). */
     issuerName?: string | null; issuerCountry?: string | null;
+    /** Το ΑΦΜ με πρόθεμα χώρας, όπως θα γραφτεί στη SoftOne. */
+    issuerVatId?: string | null;
+    /** Η χώρα του μητρώου SoftOne (`null` = λείπει από το μητρώο · `undefined` = δεν ελέγχθηκε). */
+    softoneCountry?: { id: string; name: string } | null;
     sodtype: number | null; required: RequiredTrader | null; mismatch: boolean;
   };
   items: {
@@ -265,6 +271,13 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                     {foreignCountry && req && (
                       <div className="space-y-1">
                         <p className="text-[length:var(--fs-11)] text-muted-foreground">
+                          {data.supplier.issuerVatId && <span className="font-mono text-foreground">{data.supplier.issuerVatId}</span>}
+                          {data.supplier.issuerVatId && ' · '}
+                          {data.supplier.softoneCountry
+                            ? <>Χώρα SoftOne: <strong className="text-foreground">{data.supplier.softoneCountry.name}</strong> · </>
+                            : data.supplier.softoneCountry === null
+                              ? <span className="text-amber-700">Η χώρα δεν υπάρχει στο μητρώο χωρών της SoftOne · </span>
+                              : null}
                           Εκδότης από {countryLabel(foreignCountry)}
                           {isForeignAfm(data.supplier.afm) ? '' : ' (από τη διεύθυνση του παραστατικού)'} — δεν χρειάζεται έλεγχος στην ΑΑΔΕ.
                         </p>
@@ -274,6 +287,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                         >
                           Δημιουργία {req.labelAcc}
                         </button>
+                        <ViesCheck vat={data.supplier.issuerVatId ?? null} />
                       </div>
                     )}
                     {!foreignCountry && afmLooksValid(data.supplier.afm) && (
@@ -346,7 +360,11 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
         {/* Η λίστα των αταίριαστων γραμμών — κάθε μία παραπέμπει στον picker ΤΗΣ. */}
         {open && itemsUnmatched > 0 && (
           <div className="border-t border-border bg-muted/20 p-2">
-            <p className="px-1 pb-1.5 text-[length:var(--fs-11)] text-muted-foreground">{data.items.reason}</p>
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-1.5">
+              <p className="min-w-0 flex-1 text-[length:var(--fs-11)] text-muted-foreground">{data.items.reason}</p>
+              {/* Είδος που καταχωρήθηκε στη SoftOne ΑΦΟΥ το ψάξαμε: ξαναψάχνουμε μόνο αυτές τις γραμμές. */}
+              <ItemsRescanButton docId={docId} onDone={(n) => { if (n > 0) { void load(); emitDocLinesChanged(docId); } }} />
+            </div>
             <div className="max-h-56 overflow-auto rounded-lg border border-border bg-card">
               {data.items.unmatched.map((l) => (
                 <div key={l.id} className="flex items-center gap-2 border-b border-border/60 px-3 py-2 last:border-0">

@@ -58,6 +58,10 @@ interface ViesResult {
   name: string | null;
   address: string | null;
   error?: string;
+  /** Το ελληνικό μήνυμα της αποτυχίας (λάθος κλειδί, τέλος ορίου, υπηρεσία κάτω…). */
+  message?: string;
+  /** «taxid» (taxid.dev) ή «vies» (απευθείας). */
+  provider?: 'taxid' | 'vies' | null;
 }
 
 /** Ό,τι επιστρέφει το `POST /api/admin/geocode`. */
@@ -854,7 +858,9 @@ export function TraderPanel({
   // Ξένος = η χώρα του ΑΦΜ ή ΑΥΤΗ ΠΟΥ ΔΙΑΛΕΞΕ Ο ΧΡΗΣΤΗΣ δεν είναι η Ελλάδα. Τότε η ΑΑΔΕ δεν έχει
   // θέση: ούτε έλεγχος ούτε σημείωση «μη έγκυρο ΑΦΜ» — το ελληνικό μητρώο δεν τον ξέρει.
   const isForeign = group.isForeign || (!!form.country && form.country !== 'GR');
-  const viesCountry = viesPrefix(effectiveAfm);
+  // Ο έλεγχος γίνεται για κάθε ξένο ΑΦΜ με πρόθεμα· τι καλύπτεται (ΕΕ, και ΗΒ/Νορβηγία με κλειδί
+  // TaxID) το αποφασίζει ο server και το λέει ρητά.
+  const viesCountry = isForeign && /^[A-Z]{2}/.test(effectiveAfm) ? (viesPrefix(effectiveAfm) ?? effectiveAfm.slice(0, 2)) : null;
 
   const rows: { key: FieldKey; label: string; ocr: string | null; aadeValue: string | null; apply?: () => void }[] = [
     { key: 'name', label: 'Επωνυμία', ocr: group.name, aadeValue: aade?.name || null, apply: () => aade?.name && set('name', aade.name, 'aade') },
@@ -911,7 +917,7 @@ export function TraderPanel({
                 style={{ backgroundColor: '#EAF4FC', color: '#0078D4' }}
               >
                 <FiGlobe aria-hidden className="size-3" />
-                Εκτός Ελλάδας · {group.country}
+                Εκτός Ελλάδας · {activeCountry}
               </span>
             </h3>
             {viesCountry && (
@@ -941,7 +947,7 @@ export function TraderPanel({
               role="status"
             >
               <FiAlertTriangle aria-hidden className="size-4 shrink-0" />
-              <span>Το VIES καλύπτει μόνο χώρες της ΕΕ — συμπλήρωσε τα στοιχεία χειροκίνητα.</span>
+              <span>Το ΑΦΜ δεν έχει πρόθεμα χώρας — διάλεξε χώρα για να γίνει έλεγχος VIES, ή συμπλήρωσε τα στοιχεία χειροκίνητα.</span>
             </div>
           )}
 
@@ -951,7 +957,7 @@ export function TraderPanel({
               style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}
               role="status"
             >
-              Το VIES δεν απάντησε — δοκίμασε ξανά ή συμπλήρωσε χειροκίνητα.
+              {vies.message ?? 'Το VIES δεν απάντησε — δοκίμασε ξανά ή συμπλήρωσε χειροκίνητα.'}
             </p>
           )}
 
@@ -961,7 +967,7 @@ export function TraderPanel({
               style={{ borderColor: '#F5C2C7', backgroundColor: '#FDF2F2', color: '#A4262C' }}
               role="status"
             >
-              Το ΑΦΜ {group.afm} ΔΕΝ είναι έγκυρο στο VIES.
+              Το ΑΦΜ {effectiveAfm} ΔΕΝ είναι ενεργό στο VIES.
             </p>
           )}
 

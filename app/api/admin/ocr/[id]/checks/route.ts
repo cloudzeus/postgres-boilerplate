@@ -2,9 +2,11 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { getSetting } from '@/lib/settings';
-import { normalizeAfm } from '@/lib/ocr/validate';
+import { isValidAfm, normalizeAfm, vatCountry } from '@/lib/ocr/validate';
 import { detectIssuerCountry } from '@/lib/country-detect';
 import { guessCountry } from '@/lib/ocr/bulk-trader-plan';
+import { applyVatPrefix } from '@/lib/ocr/vat-prefix';
+import { matchCountryId, softoneFetchCountries } from '@/lib/softone';
 import { postingTargetsForSeries, seriesKey } from '@/lib/ocr/required-trader-kind';
 import { describeTargetShort, SODTYPE_FOR_OBJECT } from '@/lib/ocr/posting-target';
 import { requiredTraderForTarget, allowedLineKinds, lineKindsReason } from '@/lib/ocr/resolution-plan';
@@ -59,6 +61,24 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     address: txt(iss.address) ?? txt(ed.companyAddress),
     city: txt(iss.city),
   };
+  const supplierAfm = normalizeAfm(ed.vatNumber) ?? '';
+  const prefixCountry = vatCountry(supplierAfm);
+  const issuerCountry = prefixCountry ?? detectIssuerCountry(issuer) ?? guessCountry(issuer.name);
+  const issuerVatId = supplierAfm && issuerCountry && issuerCountry !== 'GR' && !isValidAfm(supplierAfm)
+    ? applyVatPrefix(supplierAfm, issuerCountry) : supplierAfm || null;
+  // Μόνο για ξένο εκδότη (για τον ελληνικό η SoftOne βάζει ήδη Ελλάδα). Το μητρώο είναι cached 24ω·
+  // αν δεν απαντήσει γρήγορα, η λωρίδα απλώς δεν το δείχνει.
+  let softoneCountry: { id: string; name: string } | null | undefined;
+  if (issuerCountry && issuerCountry !== 'GR') {
+    const countries = await Promise.race([
+      softoneFetchCountries().catch(() => null),
+      new Promise<null>((r) => setTimeout(() => r(null), 3000)),
+    ]);
+    if (countries) {
+      const id = matchCountryId(issuerCountry, countries);
+      softoneCountry = id ? { id, name: countries.find((c) => c.id === id)?.name ?? id } : null;
+    }
+  }
   // Αντιστοιχισμένη = έχει είδος/υπηρεσία (MTRL), ΕΞΟΔΟ (EXPN) ή ΧΡΕΟΠΙΣΤΩΣΗ (LIN) — ίδιος
   // κανόνας με το `refreshDocTallies` και με την ουρά «Είδη & έξοδα».
   // «Χωρίς αντιστοίχιση» = η γραμμή δεν ξέρει πού πάει. Μια γραμμή με ΕΠΙΜΕΡΙΣΜΟ ξέρει — και
@@ -118,7 +138,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       /** Ο εκδότης ΟΠΩΣ ΤΟΝ ΓΡΑΦΕΙ το παραστατικό — για δημιουργία καρτέλας χωρίς να ξαναγραφτεί τίποτα. */
       issuerName: issuer.name,
       /** Η χώρα του εκδότη από το πεδίο «Χώρα» / τη διεύθυνση / τη νομική μορφή (`null` = άγνωστη). */
-      issuerCountry: detectIssuerCountry(issuer) ?? guessCountry(issuer.name),
+      issuerCountry,
+      /** Το ΑΦΜ όπως θα γραφτεί στη SoftOne (π.χ. «IT01808880270»). */
+      issuerVatId,
+      /** Η γραμμή του μητρώου χωρών της SoftOne που θα μπει στην καρτέλα (`null` = λείπει / άγνωστη). */
+      softoneCountry,
       sodtype: linked?.sodtype ?? null,
       /** `null` = άγνωστη σειρά ⇒ δεν ξέρουμε τι καρτέλα θέλει, άρα δεν προτείνουμε καμία. */
       required,

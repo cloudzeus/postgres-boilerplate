@@ -3,6 +3,7 @@ import { FiPackage } from 'react-icons/fi';
 import { prisma } from '@/lib/db';
 import { requirePermission, hasPermission } from '@/lib/rbac';
 import { PageHeader } from '@/components/admin/page-header';
+import { ItemsRescanButton } from '@/components/admin/items-rescan-button';
 import { loadItemQueue } from '@/lib/ocr/queues';
 import { disambiguateLabels } from '@/lib/unique-labels';
 import { NewItemsClient } from './queue-client';
@@ -65,6 +66,8 @@ export default async function NewItemsPage() {
           helpAnchor="new-items"
           // Μόνο ό,τι χρειάζεται η κρίση ανά ομάδα: η κορυφαία πρόταση γίνεται ΕΠΙΛΟΓΗ, όχι απόφαση.
           actions={
+            <div className="flex flex-wrap items-center gap-2">
+            <ItemsRescanButton />
             <BulkResolveItemsButton
               canManage={canManage}
               vats={vatOpts}
@@ -82,6 +85,7 @@ export default async function NewItemsPage() {
                 };
               })}
             />
+            </div>
           }
         />
       }

@@ -45,7 +45,9 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
-describe('GET /api/admin/vies', () => {
+describe('GET /api/admin/vies — χωρίς TaxID key (απευθείας VIES)', () => {
+  beforeEach(() => { vi.stubEnv('TAXID_API_KEY', ''); });
+
   it('σπάει το id σε countryCode + vatNumber και επιστρέφει επωνυμία/διεύθυνση', async () => {
     fetchMock.mockResolvedValue(jsonRes({
       countryCode: 'DE', vatNumber: '144960040', valid: true,
@@ -53,8 +55,8 @@ describe('GET /api/admin/vies', () => {
     }));
     const res = await vies(viesReq('DE 144 960 040'));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      vat: 'DE144960040', countryCode: 'DE', valid: true,
+    expect(await res.json()).toMatchObject({
+      vat: 'DE144960040', countryCode: 'DE', valid: true, provider: 'vies',
       name: 'MUSTER GMBH', address: 'Friedrichstr. 1 10117 Berlin',
     });
     expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)))
@@ -73,26 +75,57 @@ describe('GET /api/admin/vies', () => {
       .toMatchObject({ valid: false, name: null, address: null });
   });
 
-  it('σφάλμα του VIES μέσα σε 200 → valid:null', async () => {
+  it('σφάλμα του VIES μέσα σε 200 → valid:null, «δεν απαντά τώρα»', async () => {
     fetchMock.mockResolvedValue(jsonRes({ userError: 'MS_UNAVAILABLE', valid: false }));
     expect(await (await vies(viesReq('CY10123456A'))).json())
-      .toMatchObject({ valid: null, error: 'vies_error' });
+      .toMatchObject({ valid: null, error: 'unavailable' });
   });
 
   it('δίκτυο κάτω → valid:null χωρίς exception', async () => {
     fetchMock.mockRejectedValue(new Error('ECONNRESET'));
     const res = await vies(viesReq('CY10123456A'));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ valid: null, error: 'vies_unreachable' });
+    expect(await res.json()).toMatchObject({ valid: null, error: 'network' });
   });
 
-  it.each(['094073495', 'EL094073495', 'NO974760827', 'abc', ''])(
-    'δεν ρωτά το VIES για μη-ΕΕ/ελληνικό id (%j)', async (vat) => {
-      const res = await vies(viesReq(vat));
-      expect(res.status).toBe(400);
-      expect((await res.json()).error).toBe('invalid_vat');
-      expect(fetchMock).not.toHaveBeenCalled();
-    });
+  it.each(['094073495', 'EL094073495', 'abc', ''])('ελληνικό/άκυρο id → 400 χωρίς κλήση (%j)', async (vat) => {
+    const res = await vies(viesReq(vat));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('not_foreign');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('Νορβηγία/ΗΒ χωρίς κλειδί: δεν καλύπτονται από το VIES — καμία κλήση', async () => {
+    const body = await (await vies(viesReq('NO974760827'))).json();
+    expect(body).toMatchObject({ valid: null, error: 'unsupported' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/admin/vies — με TaxID key', () => {
+  beforeEach(() => { vi.stubEnv('TAXID_API_KEY', 'vat_test_key'); });
+
+  it('καλεί το taxid.dev με Bearer και διαβάζει company_name/company_address', async () => {
+    fetchMock.mockResolvedValue(jsonRes({
+      valid: true, status: 'active', vat_number: '01808880270', country_code: 'IT',
+      company_name: 'ESEMPIO S.P.A.', company_address: 'VIA ROMA 1\n30020 PAESE', source: 'VIES', cached: false,
+    }));
+    const body = await (await vies(viesReq('IT01808880270'))).json();
+    expect(body).toMatchObject({ valid: true, provider: 'taxid', name: 'ESEMPIO S.P.A.', address: 'VIA ROMA 1 30020 PAESE', source: 'VIES' });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://www.taxid.dev/api/v1/validate/IT/01808880270');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer vat_test_key');
+  });
+
+  it.each([[401, 'unauthorized'], [429, 'quota'], [503, 'unavailable']])('HTTP %i → %s', async (status, error) => {
+    fetchMock.mockResolvedValue({ ok: false, status, json: async () => ({}) });
+    expect(await (await vies(viesReq('DE144960040'))).json()).toMatchObject({ valid: null, error });
+  });
+
+  it('καλύπτει και Νορβηγία (μέσω taxid)', async () => {
+    fetchMock.mockResolvedValue(jsonRes({ valid: true, status: 'active', company_name: 'NORSK AS' }));
+    expect(await (await vies(viesReq('NO974760827'))).json()).toMatchObject({ valid: true, name: 'NORSK AS' });
+  });
 });
 
 describe('POST /api/admin/geocode', () => {

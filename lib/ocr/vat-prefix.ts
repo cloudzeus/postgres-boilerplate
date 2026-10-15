@@ -85,3 +85,40 @@ export function applyVatPrefix(vat: string, countryCode: string): string {
   if (clean.startsWith(prefix) || (prefix === 'CHE' && clean.startsWith('CH'))) return clean;
   return prefix + clean;
 }
+
+/**
+ * Η ΜΟΡΦΗ του αριθμού ΦΠΑ ανά χώρα (μετά το πρόθεμα) — οι επίσημοι κανόνες του VIES. Με αυτή
+ * ξεχωρίζουμε ένα πραγματικό «01808880270» της Ιταλίας από ψηφία που απλώς τυπώθηκαν δίπλα στη
+ * διεύθυνση: πρόθεμα μπαίνει ΜΟΝΟ όταν ο αριθμός ταιριάζει στη χώρα.
+ */
+const VAT_BODY: Readonly<Record<string, RegExp>> = {
+  AT: /^U\d{8}$/, BE: /^[01]?\d{9}$/, BG: /^\d{9,10}$/, CY: /^\d{8}[A-Z]$/, CZ: /^\d{8,10}$/,
+  DE: /^\d{9}$/, DK: /^\d{8}$/, EE: /^\d{9}$/, ES: /^[A-Z0-9]\d{7}[A-Z0-9]$/, FI: /^\d{8}$/,
+  FR: /^[A-HJ-NP-Z0-9]{2}\d{9}$/, HR: /^\d{11}$/, HU: /^\d{8}$/,
+  IE: /^(\d{7}[A-W][A-I]?|\d[A-Z+*]\d{5}[A-W])$/, IT: /^\d{11}$/, LT: /^(\d{9}|\d{12})$/,
+  LU: /^\d{8}$/, LV: /^\d{11}$/, MT: /^\d{8}$/, NL: /^\d{9}B\d{2}$/, PL: /^\d{10}$/, PT: /^\d{9}$/,
+  RO: /^\d{2,10}$/, SE: /^\d{12}$/, SI: /^\d{8}$/, SK: /^\d{10}$/,
+  GB: /^(\d{9}|\d{12}|GD\d{3}|HA\d{3})$/, XI: /^(\d{9}|\d{12})$/,
+  CH: /^E?\d{9}(MWST|TVA|IVA)?$/, NO: /^\d{9}(MVA)?$/,
+};
+
+/** Ταιριάζει ο αριθμός (χωρίς πρόθεμα) στη μορφή ΦΠΑ της χώρας; Άγνωστη μορφή ⇒ `null`. */
+export function vatBodyFits(countryCode: string, body: string): boolean | null {
+  const iso = ALIASES[countryCode.toUpperCase()] ?? countryCode.toUpperCase();
+  const re = VAT_BODY[iso];
+  return re ? re.test(cleanVat(body)) : null;
+}
+
+/**
+ * Γυμνό ΑΦΜ + χώρα (από τη διεύθυνση) → ΑΦΜ με πρόθεμα (π.χ. «IT01808880270»), ΜΟΝΟ όταν ο αριθμός
+ * ταιριάζει στη μορφή της χώρας. Ήδη προθεματισμένο, ελληνικό, άγνωστη μορφή ή αταίριαστο ⇒ `null`
+ * (δεν αλλάζουμε τίποτα — καλύτερα γυμνό παρά λάθος χώρα).
+ */
+export function foreignVatFromCountry(vat: string | null | undefined, countryCode: string | null | undefined): string | null {
+  const clean = cleanVat(vat);
+  const iso = String(countryCode ?? '').trim().toUpperCase();
+  if (!clean || !iso || iso === 'GR' || iso === 'EL' || existingPrefix(clean)) return null;
+  const prefix = vatPrefixFor(iso);
+  if (!prefix) return null;
+  return vatBodyFits(iso, clean) ? prefix + clean : null;
+}
