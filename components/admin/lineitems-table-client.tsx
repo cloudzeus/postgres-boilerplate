@@ -73,46 +73,53 @@ function InactiveLineItems({ open, onClose, onActivated }: { open: boolean; onCl
   const shown = (items ?? []).filter((it) => !nq || it.code.toLowerCase().includes(nq) || it.name.toLowerCase().includes(nq) || (it.acnmsk ?? '').includes(nq));
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o && busy == null) onClose(); }}>
-      <DialogContent className="sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>Ανενεργές χρεοπιστώσεις στο SoftOne{items ? ` · ${items.length}` : ''}</DialogTitle>
-          <DialogDescription>Υπάρχουν στο SoftOne αλλά δεν χρησιμοποιούνται. Ενεργοποίησε όποια χρειάζεσαι αντί να φτιάξεις νέα με τον ίδιο λογαριασμό.</DialogDescription>
+      <DialogContent className="flex max-h-[90dvh] w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+          <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15 [&_svg]:size-4"><FiArchive /></span>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="text-[length:var(--fs-15)]">Ανενεργές χρεοπιστώσεις στο SoftOne{items ? ` · ${items.length}` : ''}</DialogTitle>
+            <DialogDescription className="truncate text-[length:var(--fs-11)]" title="Υπάρχουν στο SoftOne αλλά δεν χρησιμοποιούνται. Ενεργοποίησε όποια χρειάζεσαι αντί να φτιάξεις νέα με τον ίδιο λογαριασμό.">
+              Υπάρχουν στο SoftOne αλλά δεν χρησιμοποιούνται. Ενεργοποίησε όποια χρειάζεσαι αντί να φτιάξεις νέα με τον ίδιο λογαριασμό.
+            </DialogDescription>
+          </div>
         </DialogHeader>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="relative flex-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-muted/40 px-4 py-2">
+          <label className="relative min-w-[12rem] flex-1">
             <span className="sr-only">Αναζήτηση</span>
             <FiSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
             <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Κωδικός, περιγραφή ή λογαριασμός"
-              className="h-9 w-full rounded-md border border-input bg-background pl-8 pr-3 text-[length:var(--fs-13)]" />
+              className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 text-[length:var(--fs-13)] focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50" />
           </label>
-          <label className="inline-flex min-h-9 items-center gap-2 text-[length:var(--fs-12)] text-foreground">
-            <input type="checkbox" checked={creditors} onChange={(e) => setCreditors(e.target.checked)} className="size-4 rounded border-input" />
+          <label className="inline-flex h-8 cursor-pointer items-center gap-2 text-[length:var(--fs-12)] text-foreground">
+            <input type="checkbox" checked={creditors} onChange={(e) => setCreditors(e.target.checked)} className="size-4 rounded border-input accent-sisyphus-600" />
             Να δέχεται και παραστατικά πιστωτών
           </label>
         </div>
-        <div className="max-h-[55vh] overflow-auto rounded-md border border-border">
-          {error ? <p className="p-4 text-[length:var(--fs-12)] text-destructive">{error}</p>
-            : !items ? <p className="p-4 text-[length:var(--fs-12)] text-muted-foreground">Ανάγνωση από το SoftOne…</p>
-              : shown.length === 0 ? <p className="p-4 text-[length:var(--fs-12)] text-muted-foreground">Καμία δεν ταιριάζει.</p>
+        <div className="min-h-0 flex-1 overflow-auto bg-muted/20 px-4 py-3">
+          <div className="overflow-hidden rounded-lg border border-border bg-card">
+          {error ? <p role="alert" className="flex items-center gap-2 px-3 py-3 text-[length:var(--fs-12)] text-destructive"><FiAlertTriangle className="size-3.5 shrink-0" aria-hidden />{error}</p>
+            : !items ? <p className="px-3 py-3 text-[length:var(--fs-12)] text-muted-foreground">Ανάγνωση από το SoftOne…</p>
+              : shown.length === 0 ? <p className="px-3 py-3 text-[length:var(--fs-12)] text-muted-foreground">Καμία δεν ταιριάζει.</p>
                 : (
                   <ul className="divide-y divide-border">
                     {shown.slice(0, 200).map((it) => (
-                      <li key={it.mtrl} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <li key={it.mtrl} className="flex items-center justify-between gap-3 px-3 py-1.5 transition-colors hover:bg-muted/30">
                         <div className="min-w-0">
                           <p className="truncate text-[length:var(--fs-12)] font-semibold text-foreground">
-                            <span className="font-mono">{it.code}</span> · {it.name}
+                            <span className="font-mono tabular-nums">{it.code}</span> · {it.name}
                           </p>
-                          <p className="text-[length:var(--fs-11)] text-muted-foreground">
-                            Λογ. {it.acnmsk ?? '—'} · {it.vat ?? 'χωρίς ΦΠΑ'} · {it.acceptsCreditors ? 'δέχεται πιστωτές' : 'όχι πιστωτές'}
+                          <p className="truncate text-[length:var(--fs-11)] text-muted-foreground">
+                            Λογ. <span className="font-mono tabular-nums">{it.acnmsk ?? '—'}</span> · {it.vat ?? 'χωρίς ΦΠΑ'} · {it.acceptsCreditors ? 'δέχεται πιστωτές' : 'όχι πιστωτές'}
                           </p>
                         </div>
-                        <Button size="sm" variant="secondary" onClick={() => activate(it)} disabled={busy != null}>
+                        <Button size="sm" variant="secondary" onClick={() => activate(it)} disabled={busy != null} className="shrink-0">
                           {busy === it.mtrl ? 'Ενεργοποίηση…' : 'Ενεργοποίηση'}
                         </Button>
                       </li>
                     ))}
                   </ul>
                 )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>

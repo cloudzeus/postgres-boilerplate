@@ -163,55 +163,64 @@ function Modal({ groups, vats, units, onClose }: { groups: ItemPlanInput[]; vats
   return (
     <Dialog open onOpenChange={(o) => { if (!o && !busy) onClose(); }}>
       <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1rem)] max-w-none flex-col gap-0 p-0 sm:max-w-none lg:w-[70vw] lg:min-w-[60vw] lg:max-w-[70vw]">
-        <DialogHeader className="border-b border-border px-5 py-4">
-          <DialogTitle className="text-[length:var(--fs-16)]">Μαζική διευθέτηση γραμμών</DialogTitle>
-          <DialogDescription className="text-[length:var(--fs-12)]">
-            Φίλτραρε ανά εκδότη, επίλεξε γραμμές και όρισέ τους μητρώο ή αντιστοίχισέ τες μαζί σε ένα υπάρχον.
-          </DialogDescription>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[length:var(--fs-11)]">
+        <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+          <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15 [&_svg]:size-4"><FiLayers /></span>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="text-[length:var(--fs-15)]">Μαζική διευθέτηση γραμμών</DialogTitle>
+            <DialogDescription className="truncate text-[length:var(--fs-11)]" title="Φίλτραρε ανά εκδότη, επίλεξε γραμμές και όρισέ τους μητρώο ή αντιστοίχισέ τες μαζί σε ένα υπάρχον.">
+              Φίλτραρε ανά εκδότη, επίλεξε γραμμές και όρισέ τους μητρώο ή αντιστοίχισέ τες μαζί σε ένα υπάρχον.
+            </DialogDescription>
+          </div>
+          <div className="hidden shrink-0 flex-wrap items-center justify-end gap-1.5 text-[length:var(--fs-11)] sm:flex">
             <Chip icon={FiCheck} fg="#047857">{counts.ready} έτοιμες</Chip>
             {counts.kind > 0 && <Chip icon={FiAlertTriangle} fg="#B45309">{counts.kind} θέλουν μητρώο</Chip>}
             {counts.target > 0 && <Chip icon={FiLink} fg="#B45309">{counts.target} θέλουν χρεοπίστωση</Chip>}
           </div>
         </DialogHeader>
+        {/* Στο κινητό οι μετρητές κατεβαίνουν σε δική τους λωρίδα (η κεφαλίδα δεν χωρά). */}
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-card px-4 py-1.5 text-[length:var(--fs-11)] sm:hidden">
+          <Chip icon={FiCheck} fg="#047857">{counts.ready} έτοιμες</Chip>
+          {counts.kind > 0 && <Chip icon={FiAlertTriangle} fg="#B45309">{counts.kind} θέλουν μητρώο</Chip>}
+          {counts.target > 0 && <Chip icon={FiLink} fg="#B45309">{counts.target} θέλουν χρεοπίστωση</Chip>}
+        </div>
 
         {/* ── Εργαλειοθήκη: δρα στις ΕΠΙΛΕΓΜΕΝΕΣ ─────────────────────────────── */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-muted/40 px-5 py-2.5 text-[length:var(--fs-11)]">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-muted/40 px-4 py-2 text-[length:var(--fs-11)]">
           <label className="flex items-center gap-1.5">
             <span className="font-semibold text-muted-foreground">Εκδότης</span>
             <select value={supplier} onChange={(e) => setSupplier(e.target.value)} disabled={locked}
-              className="h-7 max-w-[14rem] rounded-md border border-input bg-background px-1.5 text-[length:var(--fs-12)] text-foreground">
+              className="h-8 max-w-[14rem] rounded-md border border-input bg-background px-1.5 text-[length:var(--fs-12)] text-foreground focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60">
               <option value="">Όλοι ({rows.length})</option>
               {suppliers.map(([s, n]) => <option key={s} value={s}>{s.slice(0, 40)} ({n})</option>)}
             </select>
           </label>
           <span className="h-5 w-px bg-border" aria-hidden />
           <span className="font-semibold text-muted-foreground">{checked.length} επιλεγμένες:</span>
-          <div role="group" aria-label="Μητρώο για τις επιλεγμένες" className="flex overflow-hidden rounded-md border border-input">
+          <div role="group" aria-label="Μητρώο για τις επιλεγμένες" className="flex overflow-hidden rounded-md border border-input bg-background">
             {KINDS.map((k) => (
               <button key={k} type="button" disabled={locked || checked.length === 0}
                 onClick={() => updateChecked((r) => withKind(r, k))}
-                className="h-7 border-r border-input bg-background px-2 font-semibold text-foreground last:border-r-0 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">
+                className="h-8 border-r border-input bg-background px-2 font-semibold text-foreground last:border-r-0 hover:bg-muted focus-visible:relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sisyphus-500/40 disabled:cursor-not-allowed disabled:opacity-50">
                 {KIND_LABEL[k]}
               </button>
             ))}
           </div>
           <button type="button" disabled={locked || checked.length === 0} onClick={() => setPicker((v) => !v)}
-            className={cn(BTN_GHOST, 'h-7 px-2 text-[length:var(--fs-11)]')}>
+            className={cn(BTN_GHOST, 'px-2 text-[length:var(--fs-11)]')}>
             <FiLink className="size-3.5" /> Αντιστοίχιση σε υπάρχον…
           </button>
           <span className="h-5 w-px bg-border" aria-hidden />
           <label className="flex items-center gap-1.5">
             <span className="font-semibold text-muted-foreground">ΦΠΑ νέων</span>
             <select value={vat} onChange={(e) => setVat(e.target.value)} disabled={locked}
-              className="h-7 max-w-[9rem] rounded-md border border-input bg-background px-1.5 text-[length:var(--fs-12)] text-foreground">
+              className="h-8 max-w-[9rem] rounded-md border border-input bg-background px-1.5 text-[length:var(--fs-12)] text-foreground focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60">
               {vats.map((v) => <option key={v.code} value={v.code}>{v.label}</option>)}
             </select>
           </label>
           <label className="flex items-center gap-1.5">
             <span className="font-semibold text-muted-foreground">Μονάδα</span>
             <select value={unit} onChange={(e) => setUnit(e.target.value)} disabled={locked}
-              className="h-7 max-w-[8rem] rounded-md border border-input bg-background px-1.5 text-[length:var(--fs-12)] text-foreground">
+              className="h-8 max-w-[8rem] rounded-md border border-input bg-background px-1.5 text-[length:var(--fs-12)] text-foreground focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60">
               {units.map((u) => <option key={u.code} value={u.code}>{u.label}</option>)}
             </select>
           </label>
@@ -225,20 +234,21 @@ function Modal({ groups, vats, units, onClose }: { groups: ItemPlanInput[]; vats
           />
         )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-muted/20 px-4 py-3">
+          <div className="overflow-clip rounded-lg border border-border bg-card">
           <table className="w-full table-fixed text-[length:var(--fs-12)]">
-            <thead className="sticky top-0 z-10 border-b border-border bg-muted text-left text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">
+            <thead className="sticky top-0 z-10 border-b border-border bg-muted text-left text-[length:var(--fs-11)] font-semibold uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="w-10 px-3 py-2">
+                <th className="w-10 px-3 py-1.5">
                   <input type="checkbox" aria-label="Επιλογή όλων των εμφανιζόμενων" disabled={locked}
                     checked={allVisibleChecked}
                     onChange={(e) => { const keys = new Set(visible.map((r) => r.key)); setRows((rs) => rs.map((r) => (keys.has(r.key) ? { ...r, selected: e.target.checked } : r))); }}
                     className="size-4 cursor-pointer accent-sisyphus-500" />
                 </th>
-                <th className="px-2 py-2">Γραμμή</th>
-                <th className="w-[4rem] px-2 py-2 text-right">Γρ.</th>
-                <th className="w-[8.5rem] px-2 py-2">Μητρώο</th>
-                <th className="w-[34%] px-2 py-2">Ενέργεια / Κατάσταση</th>
+                <th className="px-2 py-1.5">Γραμμή</th>
+                <th className="w-[4rem] px-2 py-1.5 text-right">Γρ.</th>
+                <th className="w-[8.5rem] px-2 py-1.5">Μητρώο</th>
+                <th className="w-[34%] px-2 py-1.5">Ενέργεια / Κατάσταση</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -246,21 +256,21 @@ function Modal({ groups, vats, units, onClose }: { groups: ItemPlanInput[]; vats
                 const st = run[r.key];
                 const rowLocked = locked || st?.s === 'done';
                 return (
-                  <tr key={r.key} className={cn('align-top', st?.s === 'done' && 'bg-emerald-500/5', r.status !== 'ready' && st?.s !== 'done' && 'bg-muted/20')}>
-                    <td className="px-3 py-2">
+                  <tr key={r.key} className={cn('align-top transition-colors hover:bg-muted/30', st?.s === 'done' && 'bg-emerald-500/5 dark:bg-emerald-500/10', r.status !== 'ready' && st?.s !== 'done' && 'bg-muted/20')}>
+                    <td className="px-3 py-1.5">
                       <input type="checkbox" aria-label={`Επιλογή ${r.name}`} disabled={rowLocked} checked={r.selected}
                         onChange={(e) => update(r.key, (x) => ({ ...x, selected: e.target.checked }))}
                         className="size-4 cursor-pointer accent-sisyphus-500 disabled:cursor-not-allowed" />
                     </td>
-                    <td className="min-w-0 px-2 py-2">
+                    <td className="min-w-0 px-2 py-1">
                       <p className="truncate font-medium text-foreground" title={r.name}>{r.name}</p>
                       <p className="truncate text-[length:var(--fs-10)] text-muted-foreground">
                         {r.supplier ?? '—'}{r.code ? ` · κωδ. ${r.code}` : ''}
                         {r.code && !idCode(r) && <span title="Ο ίδιος κωδικός σε πολλά είδη του εκδότη — δεν ταυτοποιεί είδος, ο νέος κωδικός βγαίνει από την αρίθμηση."> (κοινός — δεν χρησιμοποιείται)</span>}
                       </p>
                     </td>
-                    <td className="px-2 py-2 text-right tabular-nums text-foreground">{r.lineCount}</td>
-                    <td className="px-2 py-2">
+                    <td className="px-2 py-1.5 text-right tabular-nums text-foreground">{r.lineCount}</td>
+                    <td className="px-2 py-1">
                       <select value={r.kind ?? ''} disabled={rowLocked} aria-label={`Μητρώο για ${r.name}`}
                         onChange={(e) => e.target.value && update(r.key, (x) => withKind(x, e.target.value as MatchKind))}
                         className={cn('h-7 w-full rounded-md border bg-background px-1.5 text-[length:var(--fs-12)] text-foreground focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60',
@@ -269,8 +279,8 @@ function Modal({ groups, vats, units, onClose }: { groups: ItemPlanInput[]; vats
                         {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
                       </select>
                     </td>
-                    <td className="px-2 py-2">
-                      <Status row={r} st={st} />
+                    <td className="px-2 py-1">
+                      <div className="pt-0.5"><Status row={r} st={st} /></div>
                       {/* Η πρόταση ΦΑΙΝΕΤΑΙ ως επιλογή ενός πατήματος — δεν εφαρμόζεται μόνη της. */}
                       {r.suggestion && !r.target && !rowLocked && (
                         <button type="button" onClick={() => update(r.key, (x) => withTarget(x, r.suggestion!))}
@@ -284,9 +294,10 @@ function Modal({ groups, vats, units, onClose }: { groups: ItemPlanInput[]; vats
               })}
             </tbody>
           </table>
+          </div>
         </div>
 
-        <DialogFooter className="mx-0 mb-0 flex-col items-stretch gap-2 border-t border-border bg-card px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <DialogFooter className="mx-0 mb-0 flex-col items-stretch gap-2 border-t border-border bg-card px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
           <p className="flex items-center gap-1.5 text-[length:var(--fs-11)] text-muted-foreground">
             <FiDatabase className="size-3.5 shrink-0" aria-hidden />
             {target ? <>Οι νέες καρτέλες γράφονται στο SoftOne: <strong className="font-semibold text-foreground">{target}</strong></> : 'Οι νέες καρτέλες γράφονται στο συνδεδεμένο SoftOne.'}
@@ -347,26 +358,26 @@ function TargetPicker({ defaultKind, onPick, onClose }: { defaultKind: MatchKind
     return () => { ignore = true; clearTimeout(h); };
   }, [kind, q]);
   return (
-    <div className="border-b border-border bg-card px-5 py-3">
+    <div className="border-b border-sisyphus-500/25 bg-sisyphus-50/40 px-4 py-2.5 dark:bg-sisyphus-500/[0.06]">
       <div className="flex flex-wrap items-center gap-2">
         <select value={kind} onChange={(e) => setKind(e.target.value as MatchKind)} aria-label="Μητρώο στόχου"
-          className="h-7 rounded-md border border-input bg-background px-1.5 text-[length:var(--fs-12)] text-foreground">
+          className="h-8 rounded-md border border-input bg-background px-1.5 text-[length:var(--fs-13)] text-foreground focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25 disabled:opacity-60">
           {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
         </select>
         <label className="relative min-w-[14rem] flex-1">
           <FiSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Κωδικός ή περιγραφή…" autoFocus
-            className="h-7 w-full rounded-md border border-input bg-background pl-7 pr-2 text-[length:var(--fs-12)] text-foreground focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25" />
+            className="h-8 w-full rounded-md border border-input bg-background pl-7 pr-2 text-[length:var(--fs-13)] text-foreground focus:border-sisyphus-500 focus:outline-none focus:ring-2 focus:ring-sisyphus-500/25" />
         </label>
-        <button type="button" onClick={onClose} className={cn(BTN_GHOST, 'h-7 px-2 text-[length:var(--fs-11)]')}>Κλείσιμο</button>
+        <button type="button" onClick={onClose} className={cn(BTN_GHOST, 'px-2 text-[length:var(--fs-11)]')}>Κλείσιμο</button>
       </div>
-      <ul className="mt-2 max-h-48 overflow-y-auto rounded-md border border-border">
+      <ul className="mt-2 max-h-48 divide-y divide-border overflow-y-auto rounded-md border border-border bg-card">
         {loading && <li className="px-2 py-1.5 text-[length:var(--fs-11)] text-muted-foreground">Αναζήτηση…</li>}
         {!loading && res.length === 0 && <li className="px-2 py-1.5 text-[length:var(--fs-11)] text-muted-foreground">{kind === 'product' || kind === 'service' ? 'Γράψε τουλάχιστον δύο χαρακτήρες.' : 'Δεν βρέθηκε τίποτα.'}</li>}
         {res.map((x) => (
           <li key={x.id}>
             <button type="button" onClick={() => onPick({ kind, id: x.id, code: x.code, name: x.name, isService: x.isService })}
-              className="flex w-full items-baseline gap-2 px-2 py-1.5 text-left text-[length:var(--fs-12)] hover:bg-sisyphus-500/10">
+              className="flex w-full items-baseline gap-2 px-2 py-1.5 text-left text-[length:var(--fs-12)] hover:bg-sisyphus-500/10 focus-visible:bg-sisyphus-500/10 focus-visible:outline-none">
               <span className="shrink-0 font-mono text-foreground">{x.code}</span>
               <span className="min-w-0 truncate text-foreground">{x.name}</span>
               {x.sub && <span className="ml-auto shrink-0 text-[length:var(--fs-10)] text-muted-foreground">{x.sub}</span>}

@@ -3,7 +3,10 @@
 import * as React from 'react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { FiAlertTriangle, FiBookOpen, FiCheckCircle, FiEdit3 } from 'react-icons/fi';
 import { BTN_GHOST, BTN_PRIMARY } from '@/components/admin/bulk-ui';
+import { Field, FormSection, fieldCls } from '@/components/admin/form-kit';
+import { cn } from '@/lib/utils';
 
 export type OpenRequest = { code: string; name: string; vatRate: number | null };
 type Plan = {
@@ -68,26 +71,44 @@ export function OpenAccountDialog({ req, onClose, onDone }: { req: OpenRequest |
 
   return (
     <Dialog open={!!req} onOpenChange={(o) => { if (!o && !busy) onClose(); }}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Άνοιγμα λογαριασμού στο SoftOne</DialogTitle>
-          <DialogDescription className="font-mono">{req?.code}</DialogDescription>
+      <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+          <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15"><FiBookOpen className="size-4" /></span>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="text-[length:var(--fs-15)]">Άνοιγμα λογαριασμού στο SoftOne</DialogTitle>
+            <DialogDescription className="truncate font-mono text-[length:var(--fs-11)]">{req?.code}</DialogDescription>
+          </div>
         </DialogHeader>
-        <label className="block space-y-1">
-          <span className="text-[length:var(--fs-12)] font-semibold text-foreground">Περιγραφή</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => void preview()}
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-[length:var(--fs-14)]" />
-        </label>
-        {plan && (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 rounded-md border border-border bg-muted/30 p-3 text-[length:var(--fs-12)]">
-            <dt className="text-muted-foreground">Κάτω από</dt><dd><span className="font-mono">{plan.parent.code}</span> {plan.parent.name}</dd>
-            <dt className="text-muted-foreground">Ρυθμίσεις από</dt><dd><span className="font-mono">{plan.template.code}</span> {plan.template.name}</dd>
-            <dt className="text-muted-foreground">ΦΠΑ</dt><dd>{plan.vat ? `${plan.vat.rate}% (κωδ. ${plan.vat.code})` : 'Χωρίς ΦΠΑ'}</dd>
-            {plan.vatAccount && <><dt className="text-muted-foreground">Λογ. ΦΠΑ</dt><dd><span className="font-mono">{plan.vatAccount.code}</span> {plan.vatAccount.name}</dd></>}
-          </dl>
-        )}
-        {error && <p role="alert" className="rounded-md border border-amber-500/40 bg-amber-500/[0.06] px-3 py-2 text-[length:var(--fs-12)] text-foreground">{error}</p>}
-        <DialogFooter className="mx-0 mb-0">
+        <div className="space-y-3 bg-muted/20 px-4 py-3">
+          <FormSection tone="blue" icon={<FiEdit3 />} title="Λογαριασμός">
+            <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+              <Field label="Κωδικός" htmlFor="open-account-code" className="col-span-12 sm:col-span-4">
+                <input id="open-account-code" value={req?.code ?? ''} readOnly tabIndex={-1}
+                  className={cn(fieldCls, 'w-full rounded-md border border-input bg-muted/40 px-2.5 font-mono text-muted-foreground')} />
+              </Field>
+              <Field label="Περιγραφή" htmlFor="open-account-name" className="col-span-12 sm:col-span-8">
+                <input id="open-account-name" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => void preview()}
+                  className={cn(fieldCls, 'w-full rounded-md border border-input bg-background px-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring')} />
+              </Field>
+            </div>
+          </FormSection>
+          {plan && (
+            <FormSection tone="emerald" icon={<FiCheckCircle />} title="Τι θα σταλεί" aside="προεπισκόπηση">
+              <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[length:var(--fs-12)]">
+                <dt className="text-muted-foreground">Κάτω από</dt><dd className="min-w-0"><span className="font-mono">{plan.parent.code}</span> {plan.parent.name}</dd>
+                <dt className="text-muted-foreground">Ρυθμίσεις από</dt><dd className="min-w-0"><span className="font-mono">{plan.template.code}</span> {plan.template.name}</dd>
+                <dt className="text-muted-foreground">ΦΠΑ</dt><dd className="min-w-0">{plan.vat ? `${plan.vat.rate}% (κωδ. ${plan.vat.code})` : 'Χωρίς ΦΠΑ'}</dd>
+                {plan.vatAccount && <><dt className="text-muted-foreground">Λογ. ΦΠΑ</dt><dd className="min-w-0"><span className="font-mono">{plan.vatAccount.code}</span> {plan.vatAccount.name}</dd></>}
+              </dl>
+            </FormSection>
+          )}
+          {error && (
+            <p role="alert" className="flex items-start gap-1.5 rounded-lg border border-amber-500/40 bg-amber-50/70 px-3 py-2 text-[length:var(--fs-12)] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+              <FiAlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0" /> {error}
+            </p>
+          )}
+        </div>
+        <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5">
           <button type="button" className={BTN_GHOST} onClick={onClose} disabled={busy}>Άκυρο</button>
           <button type="button" className={BTN_PRIMARY} onClick={create} disabled={busy || !plan}>
             {busy ? 'Περιμένε…' : 'Άνοιγμα στο SoftOne'}

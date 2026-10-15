@@ -2,12 +2,13 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { FiPlus } from 'react-icons/fi';
+import { FiPlus, FiFileText } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Field, FormSection, RowHint, fieldCls } from '@/components/admin/form-kit';
+import { cn } from '@/lib/utils';
 import { slugDraft, templateSlug } from '@/lib/templates/schema';
 import { templatesApi, errorMessage } from '@/components/templates/api';
 
@@ -46,29 +47,37 @@ export function NewTemplateDialog() {
     <>
       <Button size="sm" onClick={() => setOpen(true)}><FiPlus className="mr-1.5 size-3.5" /> Νέο πρότυπο</Button>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Νέο πρότυπο</DialogTitle>
-            <DialogDescription>Δώσε ένα όνομα. Προμηθευτή ή τμήμα συνδέεις αργότερα, αν χρειάζεται.</DialogDescription>
+        <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-lg">
+          <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+            <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15 [&_svg]:size-4"><FiFileText /></span>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-[length:var(--fs-15)]">Νέο πρότυπο</DialogTitle>
+              <DialogDescription className="truncate text-[length:var(--fs-11)]" title="Δώσε ένα όνομα. Προμηθευτή ή τμήμα συνδέεις αργότερα, αν χρειάζεται.">
+                Δώσε ένα όνομα. Προμηθευτή ή τμήμα συνδέεις αργότερα, αν χρειάζεται.
+              </DialogDescription>
+            </div>
           </DialogHeader>
-          <form onSubmit={submit} className="space-y-3">
-            <div>
-              <Label htmlFor="nm">Όνομα</Label>
-              <Input id="nm" value={name} onChange={(e) => { const v = e.target.value; setName(v); if (!slugTouched) setSlug(v.trim() ? templateSlug(v) : ''); }} className="mt-1" placeholder="π.χ. ΗΡΩΝ — Εκκαθαριστικός" autoComplete="off" />
+          <form onSubmit={submit}>
+            <div className="space-y-3 bg-muted/20 px-4 py-3">
+              <FormSection tone="blue" icon={<FiFileText />} title="Ταυτότητα προτύπου">
+                <Field label="Όνομα" required htmlFor="nm">
+                  <Input id="nm" value={name} onChange={(e) => { const v = e.target.value; setName(v); if (!slugTouched) setSlug(v.trim() ? templateSlug(v) : ''); }} className={fieldCls} placeholder="π.χ. ΗΡΩΝ — Εκκαθαριστικός" autoComplete="off" />
+                </Field>
+                <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+                  <Field label="Slug" htmlFor="sl" className="col-span-12 sm:col-span-6">
+                    <Input id="sl" value={slug} onChange={(e) => { setSlug(slugDraft(e.target.value)); setSlugTouched(true); }} className={cn(fieldCls, 'font-mono')} autoComplete="off" aria-describedby="sl-hint" />
+                  </Field>
+                  <Field label="Τμήμα / κατηγορία (προαιρετικό)" htmlFor="dp" className="col-span-12 sm:col-span-6">
+                    <Input id="dp" value={department} onChange={(e) => setDepartment(e.target.value)} className={fieldCls} placeholder="π.χ. Λογιστήριο, Συνεργείο" autoComplete="off" />
+                  </Field>
+                </div>
+                <div id="sl-hint"><RowHint>Slug: κλειδί του JSON εξόδου. Παράγεται από το όνομα, μπορείς να το αλλάξεις.</RowHint></div>
+              </FormSection>
             </div>
-            <div>
-              <Label htmlFor="sl">Slug</Label>
-              <Input id="sl" value={slug} onChange={(e) => { setSlug(slugDraft(e.target.value)); setSlugTouched(true); }} className="mt-1 font-mono" autoComplete="off" />
-              <p className="mt-1 text-[length:var(--fs-10)] text-muted-foreground">Κλειδί του JSON εξόδου. Παράγεται από το όνομα, μπορείς να το αλλάξεις.</p>
-            </div>
-            <div>
-              <Label htmlFor="dp">Τμήμα / κατηγορία (προαιρετικό)</Label>
-              <Input id="dp" value={department} onChange={(e) => setDepartment(e.target.value)} className="mt-1" placeholder="π.χ. Λογιστήριο, Συνεργείο" autoComplete="off" />
-            </div>
-            <div className="flex justify-end gap-2 pt-1">
+            <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5">
               <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Άκυρο</Button>
               <Button type="submit" disabled={busy || !name.trim()}>{busy ? 'Δημιουργία…' : 'Δημιουργία'}</Button>
-            </div>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

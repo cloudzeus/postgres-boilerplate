@@ -209,23 +209,33 @@ function BulkCreateTradersModal({ groups, onClose }: { groups: BulkGroup[]; onCl
           τα ονόματα είναι μακριά. Στο κινητό όλη η οθόνη. Το modal ΚΥΛΑ μέσα του — εξαιρείται από
           τον κανόνα του ενός scroller, γιατί κάθεται πάνω από τη σελίδα. */}
       <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-1rem)] max-w-none flex-col gap-0 p-0 sm:max-w-none lg:w-[65vw] lg:min-w-[60vw] lg:max-w-[70vw]">
-        <DialogHeader className="border-b border-border px-5 py-4">
-          <DialogTitle className="text-[length:var(--fs-16)]">Μαζική δημιουργία συναλλασσομένων</DialogTitle>
-          <DialogDescription className="text-[length:var(--fs-12)]">
-            Προεπιλεγμένοι είναι μόνο όσοι μπορούν να δημιουργηθούν με ασφάλεια. Οι υπόλοιποι φαίνονται με τον λόγο τους.
-          </DialogDescription>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[length:var(--fs-11)]">
+        <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+          <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15 [&_svg]:size-4"><FiUsers /></span>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="text-[length:var(--fs-15)]">Μαζική δημιουργία συναλλασσομένων</DialogTitle>
+            <DialogDescription className="truncate text-[length:var(--fs-11)]" title="Προεπιλεγμένοι είναι μόνο όσοι μπορούν να δημιουργηθούν με ασφάλεια. Οι υπόλοιποι φαίνονται με τον λόγο τους.">
+              Προεπιλεγμένοι είναι μόνο όσοι μπορούν να δημιουργηθούν με ασφάλεια. Οι υπόλοιποι φαίνονται με τον λόγο τους.
+            </DialogDescription>
+          </div>
+          <div className="hidden shrink-0 flex-wrap items-center justify-end gap-1.5 text-[length:var(--fs-11)] sm:flex">
             <Chip icon={FiCheck} fg="#047857">{counts.ready} έτοιμοι</Chip>
             {counts.country > 0 && <Chip icon={FiAlertTriangle} fg="#B45309">{counts.country} θέλουν χώρα</Chip>}
             {counts.invalid > 0 && <Chip icon={FiAlertOctagon} fg="#B91C1C">{counts.invalid} με λάθος ΑΦΜ</Chip>}
           </div>
         </DialogHeader>
+        {/* Στο κινητό οι μετρητές κατεβαίνουν σε δική τους λωρίδα (η κεφαλίδα δεν χωρά). */}
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-card px-4 py-1.5 text-[length:var(--fs-11)] sm:hidden">
+          <Chip icon={FiCheck} fg="#047857">{counts.ready} έτοιμοι</Chip>
+          {counts.country > 0 && <Chip icon={FiAlertTriangle} fg="#B45309">{counts.country} θέλουν χώρα</Chip>}
+          {counts.invalid > 0 && <Chip icon={FiAlertOctagon} fg="#B91C1C">{counts.invalid} με λάθος ΑΦΜ</Chip>}
+        </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-muted/20 px-4 py-3">
+          <div className="overflow-clip rounded-lg border border-border bg-card">
           <table className="w-full table-fixed text-[length:var(--fs-12)]">
-            <thead className="sticky top-0 z-10 border-b border-border bg-muted text-left text-[length:var(--fs-11)] font-bold uppercase tracking-wide text-foreground">
+            <thead className="sticky top-0 z-10 border-b border-border bg-muted text-left text-[length:var(--fs-11)] font-semibold uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="w-10 px-3 py-2">
+                <th className="w-10 px-3 py-1.5">
                   <input
                     type="checkbox" aria-label="Επιλογή όλων των επιλέξιμων" disabled={busy || phase === 'finished'}
                     checked={chosen.length > 0 && chosen.length === rows.filter(selectable).length}
@@ -233,11 +243,11 @@ function BulkCreateTradersModal({ groups, onClose }: { groups: BulkGroup[]; onCl
                     className="size-4 cursor-pointer accent-sisyphus-500"
                   />
                 </th>
-                <th className="px-2 py-2">Επωνυμία</th>
-                <th className="w-[8.5rem] px-2 py-2">ΑΦΜ</th>
-                <th className="w-[8.5rem] px-2 py-2">Τύπος</th>
-                <th className="w-[7.5rem] px-2 py-2">Χώρα</th>
-                <th className="w-[30%] px-2 py-2">Κατάσταση</th>
+                <th className="px-2 py-1.5">Επωνυμία</th>
+                <th className="w-[8.5rem] px-2 py-1.5">ΑΦΜ</th>
+                <th className="w-[8.5rem] px-2 py-1.5">Τύπος</th>
+                <th className="w-[7.5rem] px-2 py-1.5">Χώρα</th>
+                <th className="w-[30%] px-2 py-1.5">Κατάσταση</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -245,8 +255,8 @@ function BulkCreateTradersModal({ groups, onClose }: { groups: BulkGroup[]; onCl
                 const st = run[r.key];
                 const locked = busy || phase === 'finished' || st?.s === 'done';
                 return (
-                  <tr key={r.key} className={cn('align-top', !selectable(r) && 'bg-muted/30', st?.s === 'done' && 'bg-emerald-500/5')}>
-                    <td className="px-3 py-2">
+                  <tr key={r.key} className={cn('align-top transition-colors hover:bg-muted/30', !selectable(r) && 'bg-muted/30', st?.s === 'done' && 'bg-emerald-500/5 dark:bg-emerald-500/10')}>
+                    <td className="px-3 py-1.5">
                       <input
                         type="checkbox" aria-label={`Επιλογή ${r.name}`}
                         disabled={locked || !selectable(r)} checked={r.selected && selectable(r)}
@@ -254,12 +264,12 @@ function BulkCreateTradersModal({ groups, onClose }: { groups: BulkGroup[]; onCl
                         className="size-4 cursor-pointer accent-sisyphus-500 disabled:cursor-not-allowed"
                       />
                     </td>
-                    <td className="min-w-0 px-2 py-2">
-                      <p className="truncate font-medium text-foreground" title={r.name}>{r.name}</p>
+                    <td className="min-w-0 px-2 py-1">
+                      <p className="truncate pt-0.5 font-medium text-foreground" title={r.name}>{r.name}</p>
                       {r.useAade && <p className="text-[length:var(--fs-10)] text-muted-foreground">Η επωνυμία θα έρθει από την ΑΑΔΕ</p>}
                     </td>
-                    <td className="px-2 py-2 font-mono tabular-nums text-foreground">{r.afm}</td>
-                    <td className="px-2 py-2">
+                    <td className="px-2 py-1.5 font-mono tabular-nums text-foreground">{r.afm}</td>
+                    <td className="px-2 py-1">
                       <select
                         value={r.kind} disabled={locked} aria-label={`Τύπος για ${r.name}`}
                         onChange={(e) => set(r.key, { kind: e.target.value as TraderKind })}
@@ -268,7 +278,7 @@ function BulkCreateTradersModal({ groups, onClose }: { groups: BulkGroup[]; onCl
                         {(['supplier', 'creditor', 'debtor'] as TraderKind[]).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
                       </select>
                     </td>
-                    <td className="px-2 py-2">
+                    <td className="px-2 py-1">
                       {r.status === 'needs_country' ? (
                         <select
                           value={r.country ?? ''} disabled={locked} aria-label={`Χώρα για ${r.name}`}
@@ -282,11 +292,11 @@ function BulkCreateTradersModal({ groups, onClose }: { groups: BulkGroup[]; onCl
                           {COUNTRIES.map(([cc, label]) => <option key={cc} value={cc}>{cc} · {label}</option>)}
                         </select>
                       ) : (
-                        <span className="text-foreground">{r.country ?? '—'}</span>
+                        <span className="block pt-0.5 text-foreground">{r.country ?? '—'}</span>
                       )}
                     </td>
-                    <td className="px-2 py-2">
-                      <StatusCell row={r} st={st} />
+                    <td className="px-2 py-1">
+                      <div className="pt-0.5"><StatusCell row={r} st={st} /></div>
                       {r.status === 'invalid_afm' && !locked && (
                         <button type="button" onClick={() => recover(r)} disabled={recovering != null}
                           className="mt-1 inline-flex h-6 items-center gap-1 rounded-md bg-sisyphus-500 px-2 text-[length:var(--fs-10)] font-semibold text-white shadow-sm transition hover:bg-sisyphus-600 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none">
@@ -300,10 +310,11 @@ function BulkCreateTradersModal({ groups, onClose }: { groups: BulkGroup[]; onCl
               })}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* `mx-0 mb-0`: το DialogFooter έχει `-mx-4 -mb-4` για modal με padding· εδώ είναι `p-0`. */}
-        <DialogFooter className="mx-0 mb-0 flex-col items-stretch gap-2 border-t border-border bg-card px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <DialogFooter className="mx-0 mb-0 flex-col items-stretch gap-2 border-t border-border bg-card px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
           <p className="flex items-center gap-1.5 text-[length:var(--fs-11)] text-muted-foreground">
             <FiDatabase className="size-3.5 shrink-0" aria-hidden />
             {target

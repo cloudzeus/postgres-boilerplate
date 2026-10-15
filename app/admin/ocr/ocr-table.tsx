@@ -1005,14 +1005,19 @@ export function OcrTable({
           // κυλούσε αμέσως τη σελίδα στα «Πεδία» αντί να δείξει το πρωτότυπο.
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
-          <DialogHeader className="shrink-0 border-b border-border px-5 py-3 text-left">
-            <DialogTitle className="truncate text-[length:var(--fs-14)]">{fullRow?.fileName ?? ''}</DialogTitle>
-            <DialogDescription className="text-[length:var(--fs-11)]">
-              {fullRow
-                ? `${fullRow.issuer ?? 'Άγνωστος εκδότης'}${fullRow.docNumber ? ` · ${fullRow.docNumber}` : ''}`
-                  + `${fullRow.itemsTotal ? ` · ${fullRow.itemsTotal} γραμμές` : ''}`
-                : ''}
-            </DialogDescription>
+          <DialogHeader className="shrink-0 flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12 text-left">
+            <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15">
+              <FiFileText className="size-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="truncate text-[length:var(--fs-15)]" title={fullRow?.fileName ?? undefined}>{fullRow?.fileName ?? ''}</DialogTitle>
+              <DialogDescription className="truncate text-[length:var(--fs-11)]">
+                {fullRow
+                  ? `${fullRow.issuer ?? 'Άγνωστος εκδότης'}${fullRow.docNumber ? ` · ${fullRow.docNumber}` : ''}`
+                    + `${fullRow.itemsTotal ? ` · ${fullRow.itemsTotal} γραμμές` : ''}`
+                  : ''}
+              </DialogDescription>
+            </div>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-auto">
             {fullRow && (

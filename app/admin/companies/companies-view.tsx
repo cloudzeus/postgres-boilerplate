@@ -32,6 +32,7 @@ import { AadeLookupButton, type AadeResult } from '@/components/aade/aade-lookup
 import { GemiSyncButton } from '@/components/gemi/gemi-sync-button';
 import { CountrySelect, DEFAULT_COUNTRY, countryName } from '@/components/forms/country-select';
 import { RegionField } from '@/components/regions/region-field';
+import { FormSection, RowHint, type SectionTone } from '@/components/admin/form-kit';
 
 export type TypeOption = {
   id: string; key: string; name: string; pluralName: string;
@@ -677,71 +678,69 @@ function CompanyDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-4xl p-0 gap-0 max-h-[92vh] flex flex-col overflow-hidden">
-        {/* Sticky header: identity + AADE action. pr-10 leaves room for the close X. */}
-        <DialogHeader className="border-b border-border px-5 py-3 pr-12 space-y-0">
-          <div className="flex items-center gap-3">
-            <LogoBlock
-              logoUrl={form.logoUrl ?? null}
-              initials={initials}
-              companyId={company?.id ?? null}
-              onChange={(url) => { set('logoUrl', url); setReloadKey((k) => k + 1); }}
-            />
-            <div className="flex-1 min-w-0">
-              <DialogTitle className="text-[length:var(--fs-14)] leading-tight truncate">
-                {isEdit ? (form.name || 'Επεξεργασία εταιρίας') : 'Νέα εταιρία'}
-              </DialogTitle>
-              <DialogDescription className="text-[length:var(--fs-11)] truncate flex items-center gap-2 mt-0.5">
-                {form.afm && <span className="tabular-nums">ΑΦΜ {form.afm}</span>}
-                {form.arGemi && <span className="tabular-nums">· ΓΕΜΗ {form.arGemi}</span>}
-                {typeIds.length > 0 && (
-                  <span className="inline-flex items-center gap-1">
-                    {typeIds.slice(0, 3).map((id) => {
-                      const t = types.find((x) => x.id === id);
-                      if (!t) return null;
-                      return (
-                        <Badge
-                          key={id}
-                          variant="outline"
-                          style={t.color ? { borderColor: `${t.color}55`, color: t.color } : undefined}
-                          className="text-[length:var(--fs-9)] py-0 h-4"
-                        >
-                          {t.name}
-                        </Badge>
-                      );
-                    })}
-                    {typeIds.length > 3 && <span className="text-muted-foreground">+{typeIds.length - 3}</span>}
-                  </span>
-                )}
-                {!form.afm && typeIds.length === 0 && <span>Συμπλήρωσε ΑΦΜ ή χρησιμοποίησε άντληση ΑΕΔΕΕ →</span>}
-              </DialogDescription>
-            </div>
-            <label className="flex items-center gap-1.5 cursor-pointer shrink-0 mr-1">
-              <Checkbox checked={!!form.isActive} onCheckedChange={(v) => set('isActive', !!v)} />
-              <span className="text-[length:var(--fs-11)] text-muted-foreground">Ενεργή</span>
-            </label>
-            <AadeLookupButton initialAfm={form.afm ?? ''} onApply={applyAade} />
-            {isEdit && company && (
-              <GemiSyncButton
-                companyId={company.id}
-                hasIdentifier={!!form.afm || !!form.arGemi}
-                onSynced={() => setReloadKey((k) => k + 1)}
-              />
-            )}
+      <DialogContent className="w-[95vw] sm:max-w-4xl p-0 gap-0 max-h-[92vh] flex flex-col overflow-hidden">
+        {/* Κεφαλίδα: ταυτότητα + ενέργειες ΑΑΔΕ/ΓΕΜΗ δεξιά. pr-12 αφήνει χώρο για το X. */}
+        <DialogHeader className="flex-row items-center gap-3 space-y-0 border-b border-border px-4 py-2.5 pr-12">
+          <LogoBlock
+            logoUrl={form.logoUrl ?? null}
+            initials={initials}
+            companyId={company?.id ?? null}
+            onChange={(url) => { set('logoUrl', url); setReloadKey((k) => k + 1); }}
+          />
+          <div className="flex-1 min-w-0">
+            <DialogTitle className="text-[length:var(--fs-15)] leading-tight truncate">
+              {isEdit ? (form.name || 'Επεξεργασία εταιρίας') : 'Νέα εταιρία'}
+            </DialogTitle>
+            <DialogDescription className="text-[length:var(--fs-11)] truncate flex items-center gap-2 mt-0.5">
+              {form.afm && <span className="tabular-nums">ΑΦΜ {form.afm}</span>}
+              {form.arGemi && <span className="tabular-nums">· ΓΕΜΗ {form.arGemi}</span>}
+              {typeIds.length > 0 && (
+                <span className="inline-flex items-center gap-1">
+                  {typeIds.slice(0, 3).map((id) => {
+                    const t = types.find((x) => x.id === id);
+                    if (!t) return null;
+                    return (
+                      <Badge
+                        key={id}
+                        variant="outline"
+                        style={t.color ? { borderColor: `${t.color}55`, color: t.color } : undefined}
+                        className="text-[length:var(--fs-9)] py-0 h-4"
+                      >
+                        {t.name}
+                      </Badge>
+                    );
+                  })}
+                  {typeIds.length > 3 && <span className="text-muted-foreground">+{typeIds.length - 3}</span>}
+                </span>
+              )}
+              {!form.afm && typeIds.length === 0 && <span>Συμπλήρωσε ΑΦΜ ή χρησιμοποίησε άντληση ΑΕΔΕΕ →</span>}
+            </DialogDescription>
           </div>
+          <label className="mr-1 flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1">
+            <Checkbox checked={!!form.isActive} onCheckedChange={(v) => set('isActive', !!v)} />
+            <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Ενεργή</span>
+          </label>
+          <AadeLookupButton initialAfm={form.afm ?? ''} onApply={applyAade} />
+          {isEdit && company && (
+            <GemiSyncButton
+              companyId={company.id}
+              hasIdentifier={!!form.afm || !!form.arGemi}
+              onSynced={() => setReloadKey((k) => k + 1)}
+            />
+          )}
         </DialogHeader>
 
-        {/* Two-pane body: custom vertical nav + scrollable panel.
-            Scoped compact typography for all inputs/labels/textarea/select in the form. */}
+        {/* Δύο πάνελ: κάθετο μενού ενοτήτων + πάνελ περιεχομένου.
+            Ενιαίο μέγεθος πεδίων (h-8 · 13) και ετικετών (11) για όλη τη φόρμα. */}
         <div
           className="flex-1 min-h-0 flex flex-row
-            [&_input]:!text-[length:var(--fs-12)] [&_input]:!h-8 [&_input]:!px-2
-            [&_textarea]:!text-[length:var(--fs-12)]
-            [&_select]:!text-[length:var(--fs-12)] [&_select]:!h-8
+            [&_input]:!text-[length:var(--fs-13)] [&_input]:!h-8 [&_input]:!px-2
+            [&_textarea]:!text-[length:var(--fs-13)]
+            [&_select]:!text-[length:var(--fs-13)] [&_select]:!h-8
             [&_label]:!text-[length:var(--fs-11)] [&_label]:!font-medium"
         >
           {/* ΧΩΡΙΣ scroller: πλαϊνό μενού. */}
-          <nav className="w-[210px] shrink-0 border-r border-border bg-muted/30 p-2 flex flex-col gap-0.5">
+          <nav aria-label="Ενότητες εταιρίας" className="w-44 md:w-52 shrink-0 border-r border-border bg-muted/30 p-2 flex flex-col gap-0.5">
             {sections.map((s) => {
               const active = activeSection === s.id;
               return (
@@ -749,13 +748,14 @@ function CompanyDialog({
                   type="button"
                   key={s.id}
                   onClick={() => setActiveSection(s.id)}
-                  className={`flex items-start gap-2 px-2.5 py-2 rounded-sm text-left transition-colors ${
+                  aria-current={active ? 'true' : undefined}
+                  className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                     active
-                      ? 'bg-background border border-border shadow-xs text-foreground'
-                      : 'border border-transparent text-muted-foreground hover:bg-background/60 hover:text-foreground'
+                      ? 'bg-card border border-sisyphus-500/30 shadow-xs text-foreground ring-1 ring-sisyphus-500/10'
+                      : 'border border-transparent text-muted-foreground hover:bg-card/60 hover:text-foreground'
                   }`}
                 >
-                  <s.icon className={`size-3.5 mt-0.5 shrink-0 ${active ? 'text-primary' : ''}`} />
+                  <s.icon className={`size-3.5 mt-0.5 shrink-0 ${active ? 'text-sisyphus-600 dark:text-sisyphus-300' : ''}`} />
                   <span className="flex flex-col min-w-0">
                     <span className="text-[length:var(--fs-12)] font-medium leading-tight truncate">{s.label}</span>
                     <span className="text-[length:var(--fs-10)] text-muted-foreground leading-tight truncate font-normal">{s.hint}</span>
@@ -765,10 +765,10 @@ function CompanyDialog({
             })}
           </nav>
 
-          {/* ΧΩΡΙΣ scroller: κυλάει η σελίδα, όχι το πάνελ. */}
-          <div className="flex-1 min-w-0">
-            {activeSection === 'general' && <div className="p-5 space-y-5">
-              <SectionBlock title="Τύποι εταιρίας" hint="Επίλεξε όλους τους τύπους που εφαρμόζονται (π.χ. Πελάτης + Προμηθευτής).">
+          {/* Μόνο το πάνελ περιεχομένου κυλάει (modal = ξεχωριστή επιφάνεια)· το μενού όχι. */}
+          <div className="flex-1 min-w-0 overflow-y-auto bg-muted/20">
+            {activeSection === 'general' && <div className="space-y-3 px-4 py-3">
+              <SectionBlock tone="violet" icon={<FiLayers />} title="Τύποι εταιρίας" hint="Επίλεξε όλους τους τύπους που εφαρμόζονται (π.χ. Πελάτης + Προμηθευτής).">
                 <div className="flex flex-wrap gap-1.5">
                   {types.map((t) => {
                     const active = typeIds.includes(t.id);
@@ -777,8 +777,9 @@ function CompanyDialog({
                         type="button"
                         key={t.id}
                         onClick={() => toggleType(t.id)}
-                        className={`text-[length:var(--fs-12)] rounded-sm border px-2.5 py-1 transition-colors ${
-                          active ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:bg-muted'
+                        aria-pressed={active}
+                        className={`h-7 text-[length:var(--fs-12)] rounded-md border px-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                          active ? 'border-primary bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground hover:bg-muted'
                         }`}
                         style={active && t.color ? { borderColor: t.color, color: t.color, backgroundColor: `${t.color}10` } : undefined}
                       >
@@ -790,21 +791,25 @@ function CompanyDialog({
                 </div>
               </SectionBlock>
 
-              <SectionBlock title="Βασικά στοιχεία">
+              <SectionBlock tone="blue" icon={<FiInfo />} title="Βασικά στοιχεία">
                 <Grid>
-                  <Field label="Επωνυμία *" id="c-name" wide>
+                  <Field label="Επωνυμία *" id="c-name" className="col-span-12 md:col-span-8">
                     <Input id="c-name" value={form.name ?? ''} onChange={(e) => set('name', e.target.value)} />
                   </Field>
-                  <Field label="Διακριτικός τίτλος" id="c-short" wide>
+                  <Field label="Κωδικός" id="c-code" className="col-span-12 md:col-span-4"><Input id="c-code" value={form.code ?? ''} onChange={(e) => set('code', e.target.value)} className="font-mono" /></Field>
+                  <Field label="Διακριτικός τίτλος" id="c-short" className="col-span-12 md:col-span-8">
                     <Input id="c-short" value={form.shortName ?? ''} onChange={(e) => set('shortName', e.target.value)} />
                   </Field>
-                  <Field label="Κωδικός" id="c-code"><Input id="c-code" value={form.code ?? ''} onChange={(e) => set('code', e.target.value)} /></Field>
-                  <Field label="Νομική μορφή" id="c-legal">
+                  <Field label="Εργαζόμενοι" id="c-emp" className="col-span-12 md:col-span-4">
+                    <Input id="c-emp" type="number" min={0} value={form.employeeCount ?? ''} onChange={(e) => set('employeeCount', e.target.value)} className="tabular-nums" />
+                  </Field>
+                  <Field label="Νομική μορφή" id="c-legal" className="col-span-12 md:col-span-6">
                     <LookupSelect
                       id="c-legal"
                       value={form.legalTypeId}
                       options={lookups?.legalTypes ?? []}
                       freeText={form.legalForm}
+                      hideHint
                       onChange={(id, label) => {
                         set('legalTypeId', id);
                         if (label) set('legalForm', label);
@@ -812,10 +817,10 @@ function CompanyDialog({
                       placeholder="Επίλεξε (π.χ. ΕΠΕ, ΙΚΕ, ΑΕ)"
                     />
                   </Field>
-                  <Field label="Τύπος (νομική μορφή) για δικαιολογητικά" id="c-btype">
+                  <Field label="Τύπος (νομική μορφή) για δικαιολογητικά" id="c-btype" className="col-span-12 md:col-span-6">
                     <select
                       id="c-btype"
-                      className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-body-sm"
+                      className={nativeSelectCls}
                       value={form.businessTypeId ?? ''}
                       onChange={(e) => { set('businessTypeId', e.target.value); set('businessTypeOverride', e.target.value !== ''); }}
                     >
@@ -823,24 +828,24 @@ function CompanyDialog({
                       {(lookups?.businessTypes ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
                   </Field>
-                  <Field label="Εργαζόμενοι" id="c-emp">
-                    <Input id="c-emp" type="number" min={0} value={form.employeeCount ?? ''} onChange={(e) => set('employeeCount', e.target.value)} className="tabular-nums" />
-                  </Field>
-                  <Field label="Αρ. ΓΕΜΗ" id="c-gemh"><Input id="c-gemh" value={form.gemhNumber ?? ''} onChange={(e) => set('gemhNumber', e.target.value)} placeholder="π.χ. 123456789000" /></Field>
-                  <Field label="Ημερομηνία ίδρυσης" id="c-found">
+                </Grid>
+                <FreeTextHint value={form.legalTypeId} freeText={form.legalForm} />
+                <Grid>
+                  <Field label="Αρ. ΓΕΜΗ" id="c-gemh" className="col-span-6 md:col-span-3"><Input id="c-gemh" value={form.gemhNumber ?? ''} onChange={(e) => set('gemhNumber', e.target.value)} placeholder="π.χ. 123456789000" className="font-mono tabular-nums" /></Field>
+                  <Field label="Ημερομηνία ίδρυσης" id="c-found" className="col-span-6 md:col-span-3">
                     <Input id="c-found" type="date" value={form.foundingDate ?? ''} onChange={(e) => set('foundingDate', e.target.value)} />
                   </Field>
-                  <Field label="Επάγγελμα" id="c-prof" wide>
+                  <Field label="Επάγγελμα" id="c-prof" className="col-span-12 md:col-span-6">
                     <Input id="c-prof" value={form.profession ?? ''} onChange={(e) => set('profession', e.target.value)} />
                   </Field>
                 </Grid>
               </SectionBlock>
             </div>}
 
-            {activeSection === 'tax' && <div className="p-5 space-y-5">
-              <SectionBlock title="Φορολογικά στοιχεία" hint="Άντλησε αυτόματα από ΑΕΔΕΕ με το εικονίδιο δίπλα στο ΑΦΜ.">
+            {activeSection === 'tax' && <div className="space-y-3 px-4 py-3">
+              <SectionBlock tone="blue" icon={<FiFileText />} title="Φορολογικά στοιχεία" hint="Άντλησε αυτόματα από ΑΕΔΕΕ με το εικονίδιο δίπλα στο ΑΦΜ.">
                 <Grid>
-                  <Field label="ΑΦΜ" id="c-afm">
+                  <Field label="ΑΦΜ" id="c-afm" className="col-span-12 md:col-span-4">
                     <div className="flex items-center gap-1.5">
                       <Input
                         id="c-afm"
@@ -852,16 +857,15 @@ function CompanyDialog({
                       />
                       <AadeLookupButton initialAfm={form.afm ?? ''} onApply={applyAade} />
                     </div>
-                    {aadeAuto && <span className="mt-1 inline-flex items-center gap-1 text-[length:var(--fs-11)] text-sisyphus-600">Άντληση στοιχείων από ΑΑΔΕ…</span>}
-                    {!isEdit && <span className="mt-1 block text-[length:var(--fs-11)] text-muted-foreground">Με τη συμπλήρωση 9ψήφιου ΑΦΜ αντλούνται αυτόματα ΑΑΔΕ· το ΓΕΜΗ συγχρονίζεται μετά την αποθήκευση.</span>}
                   </Field>
-                  <Field label="ΔΟΥ" id="c-doy"><Input id="c-doy" value={form.doy ?? ''} onChange={(e) => set('doy', e.target.value)} /></Field>
-                  <Field label="Κατηγορία ΦΠΑ" id="c-vat">
+                  <Field label="ΔΟΥ" id="c-doy" className="col-span-12 md:col-span-4"><Input id="c-doy" value={form.doy ?? ''} onChange={(e) => set('doy', e.target.value)} /></Field>
+                  <Field label="Κατηγορία ΦΠΑ" id="c-vat" className="col-span-12 md:col-span-4">
                     <LookupSelect
                       id="c-vat"
                       value={form.vatCategoryId}
                       options={(lookups?.vatCategories ?? []).map((v) => ({ id: v.id, descr: v.descr }))}
                       freeText={form.vatCategory}
+                      hideHint
                       onChange={(id, label) => {
                         set('vatCategoryId', id);
                         if (label) set('vatCategory', label);
@@ -870,21 +874,24 @@ function CompanyDialog({
                     />
                   </Field>
                 </Grid>
+                {aadeAuto && <RowHint><span className="text-sisyphus-600 dark:text-sisyphus-300">Άντληση στοιχείων από ΑΑΔΕ…</span></RowHint>}
+                {!isEdit && <RowHint>Με τη συμπλήρωση 9ψήφιου ΑΦΜ αντλούνται αυτόματα ΑΑΔΕ· το ΓΕΜΗ συγχρονίζεται μετά την αποθήκευση.</RowHint>}
+                <FreeTextHint value={form.vatCategoryId} freeText={form.vatCategory} />
                 {(form.aadeStatus || form.aadeFirmKind) && (
-                  <div className="mt-3 flex flex-wrap gap-1.5 rounded-sm bg-muted/40 px-2.5 py-1.5">
-                    <span className="text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground font-semibold mr-1">ΑΕΔΕΕ</span>
-                    {form.aadeStatus && <Badge variant="outline" className="text-[length:var(--fs-10)] border-emerald-300 text-emerald-700">{form.aadeStatus}</Badge>}
-                    {form.aadeFirmKind && <Badge variant="outline" className="text-[length:var(--fs-10)]">{form.aadeFirmKind}</Badge>}
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-emerald-500/25 bg-emerald-50/50 px-2.5 py-1.5 dark:bg-emerald-500/10">
+                    <span className="text-[length:var(--fs-10)] uppercase tracking-wider text-emerald-800 dark:text-emerald-300 font-semibold mr-1">ΑΕΔΕΕ</span>
+                    {form.aadeStatus && <Badge variant="outline" className="text-[length:var(--fs-10)] border-emerald-300 text-emerald-700 dark:border-emerald-500/40 dark:text-emerald-300">{form.aadeStatus}</Badge>}
+                    {form.aadeFirmKind && <Badge variant="outline" className="text-[length:var(--fs-10)] bg-card">{form.aadeFirmKind}</Badge>}
                   </div>
                 )}
                 {(form.arGemi || form.gemiStatus || form.gemiOffice) && (
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-sm bg-muted/40 px-2.5 py-1.5">
-                    <span className="text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground font-semibold mr-1">ΓΕΜΗ</span>
-                    {form.arGemi && <Badge variant="outline" className="text-[length:var(--fs-10)] tabular-nums">Αρ. {form.arGemi}</Badge>}
-                    {form.gemiStatus && <Badge variant="outline" className="text-[length:var(--fs-10)] border-emerald-300 text-emerald-700">{form.gemiStatus}</Badge>}
-                    {form.gemiOffice && <Badge variant="outline" className="text-[length:var(--fs-10)]">{form.gemiOffice}</Badge>}
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-emerald-500/25 bg-emerald-50/50 px-2.5 py-1.5 dark:bg-emerald-500/10">
+                    <span className="text-[length:var(--fs-10)] uppercase tracking-wider text-emerald-800 dark:text-emerald-300 font-semibold mr-1">ΓΕΜΗ</span>
+                    {form.arGemi && <Badge variant="outline" className="text-[length:var(--fs-10)] tabular-nums bg-card">Αρ. {form.arGemi}</Badge>}
+                    {form.gemiStatus && <Badge variant="outline" className="text-[length:var(--fs-10)] border-emerald-300 text-emerald-700 dark:border-emerald-500/40 dark:text-emerald-300">{form.gemiStatus}</Badge>}
+                    {form.gemiOffice && <Badge variant="outline" className="text-[length:var(--fs-10)] bg-card">{form.gemiOffice}</Badge>}
                     {form.gemiSyncedAt && (
-                      <span className="text-[length:var(--fs-10)] text-muted-foreground ml-auto">
+                      <span className="text-[length:var(--fs-10)] text-muted-foreground ml-auto tabular-nums">
                         Sync: {new Date(form.gemiSyncedAt).toLocaleString('el-GR')}
                       </span>
                     )}
@@ -893,6 +900,8 @@ function CompanyDialog({
               </SectionBlock>
 
               <SectionBlock
+                tone="amber"
+                icon={<FiTag />}
                 title="ΚΑΔ — Δραστηριότητες"
                 hint="Αυτόματη συμπλήρωση από ΑΕΔΕΕ. Πρόσθεσε/διόρθωσε χειροκίνητα και όρισε την ΚΥΡΙΑ."
               >
@@ -900,16 +909,16 @@ function CompanyDialog({
               </SectionBlock>
             </div>}
 
-            {activeSection === 'contact' && <div className="p-5 space-y-5">
-              <SectionBlock title="Διεύθυνση">
+            {activeSection === 'contact' && <div className="space-y-3 px-4 py-3">
+              <SectionBlock tone="violet" icon={<FiMapPin />} title="Διεύθυνση">
                 <Grid>
-                  <Field label="Οδός & αριθμός" id="c-addr" wide><Input id="c-addr" value={form.address ?? ''} onChange={(e) => set('address', e.target.value)} /></Field>
-                  <Field label="Πόλη" id="c-city"><Input id="c-city" value={form.city ?? ''} onChange={(e) => set('city', e.target.value)} /></Field>
-                  <Field label="ΤΚ" id="c-zip"><Input id="c-zip" value={form.zip ?? ''} onChange={(e) => set('zip', e.target.value)} /></Field>
-                  <Field label="Χώρα" id="c-country">
+                  <Field label="Οδός & αριθμός" id="c-addr" className="col-span-12 md:col-span-6"><Input id="c-addr" value={form.address ?? ''} onChange={(e) => set('address', e.target.value)} /></Field>
+                  <Field label="Πόλη" id="c-city" className="col-span-8 md:col-span-4"><Input id="c-city" value={form.city ?? ''} onChange={(e) => set('city', e.target.value)} /></Field>
+                  <Field label="ΤΚ" id="c-zip" className="col-span-4 md:col-span-2"><Input id="c-zip" value={form.zip ?? ''} onChange={(e) => set('zip', e.target.value)} className="tabular-nums" /></Field>
+                  <Field label="Χώρα" id="c-country" className="col-span-12 md:col-span-4">
                     <CountrySelect id="c-country" value={form.country ?? DEFAULT_COUNTRY} onChange={(v) => set('country', v)} />
                   </Field>
-                  <Field label="Περιφέρεια / Νομός / Δήμος (Καλλικράτης)" id="c-region" wide>
+                  <Field label="Περιφέρεια / Νομός / Δήμος (Καλλικράτης)" id="c-region" className="col-span-12 md:col-span-8">
                     <RegionField
                       value={{ regionCode: form.regionCode ?? null, breadcrumb: regionBreadcrumb }}
                       address={{ address: form.address, city: form.city, district: form.district, zip: form.zip, country: form.country, municipalityId: form.municipalityId || null, prefectureId: form.prefectureId || null, latitude: null, longitude: null }}
@@ -919,48 +928,50 @@ function CompanyDialog({
                 </Grid>
               </SectionBlock>
 
-              <SectionBlock title="Στοιχεία επικοινωνίας">
+              <SectionBlock tone="violet" icon={<FiPhone />} title="Στοιχεία επικοινωνίας">
                 <Grid>
-                  <Field label="Τηλέφωνο" id="c-phone"><Input id="c-phone" value={form.phone ?? ''} onChange={(e) => set('phone', e.target.value)} /></Field>
-                  <Field label="Τηλέφωνο 2" id="c-phone2"><Input id="c-phone2" value={form.phone2 ?? ''} onChange={(e) => set('phone2', e.target.value)} /></Field>
-                  <Field label="Email" id="c-email" wide><Input id="c-email" type="email" value={form.email ?? ''} onChange={(e) => set('email', e.target.value)} /></Field>
-                  <Field label="Website" id="c-web" wide><Input id="c-web" value={form.website ?? ''} onChange={(e) => set('website', e.target.value)} /></Field>
+                  <Field label="Τηλέφωνο" id="c-phone" className="col-span-6 md:col-span-3"><Input id="c-phone" value={form.phone ?? ''} onChange={(e) => set('phone', e.target.value)} className="tabular-nums" /></Field>
+                  <Field label="Τηλέφωνο 2" id="c-phone2" className="col-span-6 md:col-span-3"><Input id="c-phone2" value={form.phone2 ?? ''} onChange={(e) => set('phone2', e.target.value)} className="tabular-nums" /></Field>
+                  <Field label="Email" id="c-email" className="col-span-12 md:col-span-6"><Input id="c-email" type="email" value={form.email ?? ''} onChange={(e) => set('email', e.target.value)} /></Field>
+                  <Field label="Website" id="c-web" className="col-span-12"><Input id="c-web" value={form.website ?? ''} onChange={(e) => set('website', e.target.value)} /></Field>
                 </Grid>
               </SectionBlock>
 
-              <SectionBlock title="Υπεύθυνος επικοινωνίας">
+              <SectionBlock tone="slate" icon={<FiUser />} title="Υπεύθυνος επικοινωνίας">
                 <Grid>
-                  <Field label="Ονοματεπώνυμο" id="c-cp"><Input id="c-cp" value={form.contactPerson ?? ''} onChange={(e) => set('contactPerson', e.target.value)} /></Field>
-                  <Field label="Θέση" id="c-ct"><Input id="c-ct" value={form.contactTitle ?? ''} onChange={(e) => set('contactTitle', e.target.value)} /></Field>
+                  <Field label="Ονοματεπώνυμο" id="c-cp" className="col-span-12 md:col-span-7"><Input id="c-cp" value={form.contactPerson ?? ''} onChange={(e) => set('contactPerson', e.target.value)} /></Field>
+                  <Field label="Θέση" id="c-ct" className="col-span-12 md:col-span-5"><Input id="c-ct" value={form.contactTitle ?? ''} onChange={(e) => set('contactTitle', e.target.value)} /></Field>
                 </Grid>
               </SectionBlock>
 
               {isEdit && company && (
-                <SectionBlock title="Πολλαπλά κανάλια επικοινωνίας" hint="Email/τηλέφωνα/fax με τίτλο για το καθένα (π.χ. Λογιστήριο, Hot line πωλήσεων).">
+                <SectionBlock tone="slate" icon={<FiMail />} title="Πολλαπλά κανάλια επικοινωνίας" hint="Email/τηλέφωνα/fax με τίτλο για το καθένα (π.χ. Λογιστήριο, Hot line πωλήσεων).">
                   <ChannelsPanel companyId={company.id} />
                 </SectionBlock>
               )}
             </div>}
 
             {activeSection === 'contacts' && isEdit && company && (
-              <div className="p-5">
-                <SectionBlock title="Επαφές" hint="Πρόσωπα που συνδέονται με την εταιρία (λογιστής, υπεύθυνος προμηθειών, υπεύθυνος πωλήσεων, κ.λπ.).">
+              <div className="px-4 py-3">
+                <SectionBlock tone="violet" icon={<FiUser />} title="Επαφές" hint="Πρόσωπα που συνδέονται με την εταιρία (λογιστής, υπεύθυνος προμηθειών, υπεύθυνος πωλήσεων, κ.λπ.).">
                   <ContactsPanel companyId={company.id} />
                 </SectionBlock>
               </div>
             )}
 
             {activeSection === 'branches' && isEdit && company && (
-              <div className="p-5">
-                <SectionBlock title="Υποκαταστήματα" hint="Μία εταιρία μπορεί να έχει πολλαπλά υποκαταστήματα. Σήμανε ένα ως Έδρα.">
+              <div className="px-4 py-3">
+                <SectionBlock tone="blue" icon={<FiMapPin />} title="Υποκαταστήματα" hint="Μία εταιρία μπορεί να έχει πολλαπλά υποκαταστήματα. Σήμανε ένα ως Έδρα.">
                   <BranchesPanel companyId={company.id} />
                 </SectionBlock>
               </div>
             )}
 
             {activeSection === 'documents' && isEdit && company && (
-              <div className="p-5">
+              <div className="px-4 py-3">
                 <SectionBlock
+                  tone="emerald"
+                  icon={<FiArchive />}
                   title="Έγγραφα ΓΕΜΗ"
                   hint="Δημόσια έγγραφα από Open Data ΓΕΜΗ. Συγχρονισμός μέσω του εικονιδίου στην κεφαλίδα. Τα αρχεία αποθηκεύονται στο Bunny CDN."
                 >
@@ -974,32 +985,33 @@ function CompanyDialog({
               </div>
             )}
 
-            {activeSection === 'financial' && <div className="p-5 space-y-5">
-              <SectionBlock title="Τραπεζικά">
+            {activeSection === 'financial' && <div className="space-y-3 px-4 py-3">
+              <SectionBlock tone="amber" icon={<FiCreditCard />} title="Τραπεζικά">
                 <Grid>
-                  <Field label="IBAN" id="c-iban" wide><Input id="c-iban" value={form.iban ?? ''} onChange={(e) => set('iban', e.target.value)} className="font-mono" /></Field>
-                  <Field label="Τράπεζα" id="c-bank" wide><Input id="c-bank" value={form.bankName ?? ''} onChange={(e) => set('bankName', e.target.value)} /></Field>
+                  <Field label="IBAN" id="c-iban" className="col-span-12 md:col-span-7"><Input id="c-iban" value={form.iban ?? ''} onChange={(e) => set('iban', e.target.value)} className="font-mono" /></Field>
+                  <Field label="Τράπεζα" id="c-bank" className="col-span-12 md:col-span-5"><Input id="c-bank" value={form.bankName ?? ''} onChange={(e) => set('bankName', e.target.value)} /></Field>
                 </Grid>
               </SectionBlock>
 
-              <SectionBlock title="Πίστωση & εμπορική πολιτική">
+              <SectionBlock tone="amber" icon={<FiBarChart2 />} title="Πίστωση & εμπορική πολιτική">
                 <Grid>
-                  <Field label="Όροι πληρωμής" id="c-pt" wide><Input id="c-pt" value={form.paymentTerms ?? ''} onChange={(e) => set('paymentTerms', e.target.value)} placeholder="π.χ. 30 ημέρες" /></Field>
-                  <Field label="Πιστωτικό όριο (€)" id="c-cl">
-                    <Input id="c-cl" type="number" step="0.01" value={form.creditLimit ?? ''} onChange={(e) => set('creditLimit', e.target.value)} className="tabular-nums" />
+                  <Field label="Όροι πληρωμής" id="c-pt" className="col-span-12 md:col-span-6"><Input id="c-pt" value={form.paymentTerms ?? ''} onChange={(e) => set('paymentTerms', e.target.value)} placeholder="π.χ. 30 ημέρες" /></Field>
+                  <Field label="Πιστωτικό όριο (€)" id="c-cl" className="col-span-6 md:col-span-3">
+                    <Input id="c-cl" type="number" step="0.01" value={form.creditLimit ?? ''} onChange={(e) => set('creditLimit', e.target.value)} className="tabular-nums text-right" />
                   </Field>
-                  <Field label="Έκπτωση (%)" id="c-disc">
-                    <Input id="c-disc" type="number" step="0.01" value={form.discount ?? ''} onChange={(e) => set('discount', e.target.value)} className="tabular-nums" />
+                  <Field label="Έκπτωση (%)" id="c-disc" className="col-span-6 md:col-span-3">
+                    <Input id="c-disc" type="number" step="0.01" value={form.discount ?? ''} onChange={(e) => set('discount', e.target.value)} className="tabular-nums text-right" />
                   </Field>
                 </Grid>
               </SectionBlock>
             </div>}
 
 
-            {activeSection === 'notes' && <div className="p-5">
-              <SectionBlock title="Σημειώσεις" hint="Εσωτερικές σημειώσεις, ορατές μόνο σε χρήστες με πρόσβαση στην εταιρία.">
+            {activeSection === 'notes' && <div className="px-4 py-3">
+              <SectionBlock tone="slate" icon={<FiEdit3 />} title="Σημειώσεις" hint="Εσωτερικές σημειώσεις, ορατές μόνο σε χρήστες με πρόσβαση στην εταιρία.">
                 <textarea
-                  className="w-full rounded-sm border border-input bg-background px-3 py-2 text-[length:var(--fs-13)] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y min-h-[180px]"
+                  aria-label="Σημειώσεις"
+                  className="w-full rounded-md border border-input bg-background px-2.5 py-2 text-[length:var(--fs-13)] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y min-h-44"
                   rows={8}
                   value={form.notes ?? ''}
                   onChange={(e) => set('notes', e.target.value)}
@@ -1010,9 +1022,8 @@ function CompanyDialog({
           </div>
         </div>
 
-        {/* Sticky footer. mx-0/mb-0 override DialogFooter's default -mx-4 -mb-4 negative margins
-            (which assume the parent has p-4 — our DialogContent uses p-0). */}
-        <DialogFooter className="!mx-0 !mb-0 !rounded-none border-t border-border bg-background px-5 py-3 sm:justify-between">
+        {/* mx-0/mb-0: το DialogFooter έχει -mx-4 -mb-4 για modal με padding· εδώ είναι p-0. */}
+        <DialogFooter className="mx-0 mb-0 rounded-none border-t border-border bg-card px-4 py-2.5 sm:items-center sm:justify-between">
           <span className="text-[length:var(--fs-11)] text-muted-foreground">
             {isEdit ? 'Επεξεργασία υφιστάμενης εγγραφής' : 'Νέα καταχώριση'}
           </span>
@@ -1027,32 +1038,34 @@ function CompanyDialog({
 }
 
 function SectionBlock({
-  title, hint, children,
-}: { title: string; hint?: string; children: React.ReactNode }) {
+  title, hint, tone = 'slate', icon, children,
+}: { title: string; hint?: string; tone?: SectionTone; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section>
-      <div className="mb-2.5">
-        <h3 className="text-[length:var(--fs-12)] font-semibold text-foreground leading-tight">{title}</h3>
-        {hint && <p className="text-[length:var(--fs-11)] text-muted-foreground mt-0.5">{hint}</p>}
-      </div>
+    <FormSection tone={tone} icon={icon} title={title}>
+      {hint && <RowHint>{hint}</RowHint>}
       {children}
-    </section>
+    </FormSection>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="text-[length:var(--fs-10)] uppercase tracking-wider font-semibold text-muted-foreground mb-2">{title}</div>
-      {children}
-    </div>
-  );
+function Section({ title, tone = 'slate', icon, children }: { title: string; tone?: SectionTone; icon?: React.ReactNode; children: React.ReactNode }) {
+  return <FormSection tone={tone} icon={icon} title={title}>{children}</FormSection>;
 }
+/** 12 στήλες· κάθε Field δηλώνει το πλάτος του (col-span) ώστε τα πεδία μιας σειράς να στοιχίζονται. */
 function Grid({ children }: { children: React.ReactNode }) {
-  return <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">{children}</div>;
+  return <div className="grid grid-cols-12 gap-x-3 gap-y-2">{children}</div>;
 }
+/** Ίδια εμφάνιση με τα inputs (h-8 · 13) για τα native select των φορμών. */
+const nativeSelectCls = 'h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-[length:var(--fs-13)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-input/30';
+
+/** Προειδοποίηση free-text τιμής — μπαίνει ΚΑΤΩ από τη σειρά, όχι μέσα στη στήλη. */
+function FreeTextHint({ value, freeText }: { value: unknown; freeText?: string | null }) {
+  if (value || !freeText) return null;
+  return <RowHint tone="warn">Free-text τιμή: «{freeText}» — δεν συνδέεται με το μητρώο. Επίλεξε από τη λίστα για να την ομαλοποιήσεις.</RowHint>;
+}
+
 function LookupSelect<T extends string | number>({
-  id, value, options, onChange, placeholder, freeText,
+  id, value, options, onChange, placeholder, freeText, hideHint,
 }: {
   id: string;
   value: T | null | '' | undefined;
@@ -1060,12 +1073,14 @@ function LookupSelect<T extends string | number>({
   onChange: (id: T | null, label: string | null) => void;
   placeholder?: string;
   freeText?: string | null;          // existing text value that isn't (yet) linked to an FK
+  /** Η προειδοποίηση free-text αποδίδεται από τον γονέα κάτω από τη σειρά (FreeTextHint). */
+  hideHint?: boolean;
 }) {
   return (
     <div className="space-y-1">
       <select
         id={id}
-        className="h-8 w-full rounded-sm border border-input bg-background px-2 text-[length:var(--fs-12)]"
+        className={nativeSelectCls}
         value={value == null || value === '' ? '' : String(value)}
         onChange={(e) => {
           const raw = e.target.value;
@@ -1080,17 +1095,15 @@ function LookupSelect<T extends string | number>({
           <option key={String(o.id)} value={String(o.id)}>{o.descr}</option>
         ))}
       </select>
-      {!value && freeText && (
-        <p className="text-[length:var(--fs-10)] text-amber-700">Free-text τιμή: «{freeText}» — δεν συνδέεται με το μητρώο. Επίλεξε από τη λίστα για να την ομαλοποιήσεις.</p>
-      )}
+      {!hideHint && <FreeTextHint value={value} freeText={freeText} />}
     </div>
   );
 }
 
-function Field({ label, id, children, wide }: { label: string; id: string; children: React.ReactNode; wide?: boolean }) {
+function Field({ label, id, children, wide, className }: { label: string; id: string; children: React.ReactNode; wide?: boolean; className?: string }) {
   return (
-    <div className={`grid gap-1 ${wide ? 'sm:col-span-2' : ''}`}>
-      <Label htmlFor={id} className="text-[length:var(--fs-11)] font-medium text-muted-foreground">{label}</Label>
+    <div className={`grid min-w-0 content-start gap-1 ${className ?? (wide ? 'sm:col-span-2' : '')}`}>
+      <Label htmlFor={id} className="block truncate leading-tight text-[length:var(--fs-11)] font-medium text-muted-foreground">{label}</Label>
       {children}
     </div>
   );
@@ -1210,37 +1223,52 @@ function BranchDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? 'Επεξεργασία υποκαταστήματος' : 'Νέο υποκατάστημα'}</DialogTitle>
-          <DialogDescription>Στοιχεία διεύθυνσης και επικοινωνίας υποκαταστήματος.</DialogDescription>
+      <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-xl">
+        <DialogHeader className="flex-row items-center gap-3 space-y-0 border-b border-border px-4 py-2.5 pr-12">
+          <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15"><FiMapPin className="size-4" /></span>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="truncate text-[length:var(--fs-15)]">{isEdit ? 'Επεξεργασία υποκαταστήματος' : 'Νέο υποκατάστημα'}</DialogTitle>
+            <DialogDescription className="truncate text-[length:var(--fs-11)]">Στοιχεία διεύθυνσης και επικοινωνίας υποκαταστήματος.</DialogDescription>
+          </div>
         </DialogHeader>
-        <div className="grid sm:grid-cols-2 gap-3 py-2">
-          <Field label="Όνομα *" id="b-name"><Input id="b-name" value={form.name ?? ''} onChange={(e) => set('name', e.target.value)} /></Field>
-          <Field label="Κωδικός" id="b-code"><Input id="b-code" value={form.code ?? ''} onChange={(e) => set('code', e.target.value)} /></Field>
-          <Field label="Διεύθυνση" id="b-addr"><Input id="b-addr" value={form.address ?? ''} onChange={(e) => set('address', e.target.value)} /></Field>
-          <Field label="Πόλη" id="b-city"><Input id="b-city" value={form.city ?? ''} onChange={(e) => set('city', e.target.value)} /></Field>
-          <Field label="ΤΚ" id="b-zip"><Input id="b-zip" value={form.zip ?? ''} onChange={(e) => set('zip', e.target.value)} /></Field>
-          <Field label="Χώρα" id="b-country">
-            <CountrySelect id="b-country" value={form.country ?? DEFAULT_COUNTRY} onChange={(v) => set('country', v)} />
-          </Field>
-          <Field label="Τηλέφωνο" id="b-phone"><Input id="b-phone" value={form.phone ?? ''} onChange={(e) => set('phone', e.target.value)} /></Field>
-          <Field label="Email" id="b-email"><Input id="b-email" type="email" value={form.email ?? ''} onChange={(e) => set('email', e.target.value)} /></Field>
-          <Field label="Υπεύθυνος" id="b-cp"><Input id="b-cp" value={form.contactPerson ?? ''} onChange={(e) => set('contactPerson', e.target.value)} /></Field>
+        <div className="max-h-[70vh] space-y-3 overflow-auto bg-muted/20 px-4 py-3
+          [&_input]:!text-[length:var(--fs-13)] [&_input]:!h-8 [&_input]:!px-2
+          [&_label]:!text-[length:var(--fs-11)] [&_label]:!font-medium">
+          <Section tone="blue" icon={<FiMapPin />} title="Υποκατάστημα">
+            <Grid>
+              <Field label="Όνομα *" id="b-name" className="col-span-12 sm:col-span-8"><Input id="b-name" value={form.name ?? ''} onChange={(e) => set('name', e.target.value)} /></Field>
+              <Field label="Κωδικός" id="b-code" className="col-span-12 sm:col-span-4"><Input id="b-code" value={form.code ?? ''} onChange={(e) => set('code', e.target.value)} className="font-mono" /></Field>
+            </Grid>
+          </Section>
+          <Section tone="violet" icon={<FiPhone />} title="Διεύθυνση & επικοινωνία">
+            <Grid>
+              <Field label="Διεύθυνση" id="b-addr" className="col-span-12 sm:col-span-6"><Input id="b-addr" value={form.address ?? ''} onChange={(e) => set('address', e.target.value)} /></Field>
+              <Field label="Πόλη" id="b-city" className="col-span-8 sm:col-span-4"><Input id="b-city" value={form.city ?? ''} onChange={(e) => set('city', e.target.value)} /></Field>
+              <Field label="ΤΚ" id="b-zip" className="col-span-4 sm:col-span-2"><Input id="b-zip" value={form.zip ?? ''} onChange={(e) => set('zip', e.target.value)} className="tabular-nums" /></Field>
+              <Field label="Χώρα" id="b-country" className="col-span-12 sm:col-span-4">
+                <CountrySelect id="b-country" value={form.country ?? DEFAULT_COUNTRY} onChange={(v) => set('country', v)} className="!text-[length:var(--fs-13)]" />
+              </Field>
+              <Field label="Τηλέφωνο" id="b-phone" className="col-span-12 sm:col-span-4"><Input id="b-phone" value={form.phone ?? ''} onChange={(e) => set('phone', e.target.value)} className="tabular-nums" /></Field>
+              <Field label="Email" id="b-email" className="col-span-12 sm:col-span-4"><Input id="b-email" type="email" value={form.email ?? ''} onChange={(e) => set('email', e.target.value)} /></Field>
+              <Field label="Υπεύθυνος" id="b-cp" className="col-span-12"><Input id="b-cp" value={form.contactPerson ?? ''} onChange={(e) => set('contactPerson', e.target.value)} /></Field>
+            </Grid>
+          </Section>
         </div>
-        <div className="flex items-center gap-4 pt-1">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <Checkbox checked={!!form.isHeadquarters} onCheckedChange={(v) => set('isHeadquarters', !!v)} />
-            <span className="text-[length:var(--fs-13)]">Έδρα</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <Checkbox checked={!!form.isActive} onCheckedChange={(v) => set('isActive', !!v)} />
-            <span className="text-[length:var(--fs-13)]">Ενεργό</span>
-          </label>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>Άκυρο</Button>
-          <Button onClick={save} disabled={saving}>{saving ? 'Αποθήκευση…' : 'Αποθήκευση'}</Button>
+        <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5 sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <label className="flex cursor-pointer items-center gap-2">
+              <Checkbox checked={!!form.isHeadquarters} onCheckedChange={(v) => set('isHeadquarters', !!v)} />
+              <span className="text-[length:var(--fs-13)]">Έδρα</span>
+            </label>
+            <label className="flex cursor-pointer items-center gap-2">
+              <Checkbox checked={!!form.isActive} onCheckedChange={(v) => set('isActive', !!v)} />
+              <span className="text-[length:var(--fs-13)]">Ενεργό</span>
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} disabled={saving}>Άκυρο</Button>
+            <Button onClick={save} disabled={saving}>{saving ? 'Αποθήκευση…' : 'Αποθήκευση'}</Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1463,23 +1491,24 @@ function ContactDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FiUser className="text-primary" /> {isEdit ? 'Επεξεργασία επαφής' : 'Νέα επαφή'}
-          </DialogTitle>
-          <DialogDescription>
-            {companyName ? <>Εταιρία: <strong className="text-foreground">{companyName}</strong></> : 'Στοιχεία επαφής'}
-          </DialogDescription>
+      <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="flex-row items-center gap-3 space-y-0 border-b border-border px-4 py-2.5 pr-12">
+          <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15"><FiUser className="size-4" /></span>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="truncate text-[length:var(--fs-15)]">{isEdit ? 'Επεξεργασία επαφής' : 'Νέα επαφή'}</DialogTitle>
+            <DialogDescription className="truncate text-[length:var(--fs-11)]">
+              {companyName ? <>Εταιρία: <strong className="text-foreground">{companyName}</strong></> : 'Στοιχεία επαφής'}
+            </DialogDescription>
+          </div>
         </DialogHeader>
 
-        <div className="space-y-4 py-1
-          [&_input]:!text-[length:var(--fs-12)] [&_input]:!h-8 [&_input]:!px-2
-          [&_textarea]:!text-[length:var(--fs-12)]
-          [&_label]:!text-[length:var(--fs-11)] [&_label]:!font-medium">
+        <div className="max-h-[70vh] space-y-3 overflow-auto bg-muted/20 px-4 py-3
+          [&_input]:!text-[length:var(--fs-13)] [&_input]:!h-8 [&_input]:!px-2
+          [&_label]:!text-[length:var(--fs-11)] [&_label]:!font-medium
+          [&_textarea]:!text-[length:var(--fs-13)]">
 
           {/* Avatar uploader — visible always; informs user that save is needed if new contact */}
-          <div className="flex items-center gap-3 rounded-md border border-border bg-muted/30 p-3">
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2">
             <AvatarUploader
               url={form.avatarUrl ?? null}
               initials={(form.firstName?.[0] ?? '') + (form.lastName?.[0] ?? '') || (form.fullName || '?').slice(0, 2).toUpperCase()}
@@ -1489,7 +1518,7 @@ function ContactDialog({
             />
             <div className="flex-1 min-w-0">
               <p className="text-[length:var(--fs-12)] font-medium text-foreground">Avatar επαφής</p>
-              <p className="text-[length:var(--fs-10)] text-muted-foreground">
+              <p className="text-[length:var(--fs-11)] text-muted-foreground">
                 {isEdit
                   ? 'PNG/JPG/WEBP/SVG · μέχρι 3MB. Κλικ στο εικονίδιο για ανέβασμα.'
                   : 'Αποθήκευσε πρώτα την επαφή και μετά πρόσθεσε avatar.'}
@@ -1497,59 +1526,61 @@ function ContactDialog({
             </div>
           </div>
 
-          <Section title="Στοιχεία ταυτότητας">
+          <Section tone="blue" icon={<FiUser />} title="Στοιχεία ταυτότητας">
             <Grid>
-              <Field label="Όνομα *" id="ct-fn"><Input id="ct-fn" value={form.firstName ?? ''} onChange={(e) => set('firstName', e.target.value)} /></Field>
-              <Field label="Επώνυμο" id="ct-ln"><Input id="ct-ln" value={form.lastName ?? ''} onChange={(e) => set('lastName', e.target.value)} /></Field>
-              <Field label="Ρόλος / Θέση" id="ct-role"><Input id="ct-role" value={form.role ?? ''} onChange={(e) => set('role', e.target.value)} placeholder="π.χ. Λογιστής, Διευθυντής Πωλήσεων" /></Field>
-              <Field label="Τμήμα" id="ct-dept"><Input id="ct-dept" value={form.department ?? ''} onChange={(e) => set('department', e.target.value)} /></Field>
+              <Field label="Όνομα *" id="ct-fn" className="col-span-12 sm:col-span-6"><Input id="ct-fn" value={form.firstName ?? ''} onChange={(e) => set('firstName', e.target.value)} /></Field>
+              <Field label="Επώνυμο" id="ct-ln" className="col-span-12 sm:col-span-6"><Input id="ct-ln" value={form.lastName ?? ''} onChange={(e) => set('lastName', e.target.value)} /></Field>
+              <Field label="Ρόλος / Θέση" id="ct-role" className="col-span-12 sm:col-span-7"><Input id="ct-role" value={form.role ?? ''} onChange={(e) => set('role', e.target.value)} placeholder="π.χ. Λογιστής, Διευθυντής Πωλήσεων" /></Field>
+              <Field label="Τμήμα" id="ct-dept" className="col-span-12 sm:col-span-5"><Input id="ct-dept" value={form.department ?? ''} onChange={(e) => set('department', e.target.value)} /></Field>
             </Grid>
           </Section>
 
-          <Section title="Επικοινωνία">
+          <Section tone="violet" icon={<FiPhone />} title="Επικοινωνία">
             <Grid>
-              <Field label="Κινητό" id="ct-mob"><Input id="ct-mob" value={form.mobile ?? ''} onChange={(e) => set('mobile', e.target.value)} /></Field>
-              <Field label="Σταθερό" id="ct-tel"><Input id="ct-tel" value={form.phone ?? ''} onChange={(e) => set('phone', e.target.value)} /></Field>
-              <Field label="Email" id="ct-em"><Input id="ct-em" type="email" value={form.email ?? ''} onChange={(e) => set('email', e.target.value)} /></Field>
-              <Field label="Fax" id="ct-fax"><Input id="ct-fax" value={form.fax ?? ''} onChange={(e) => set('fax', e.target.value)} /></Field>
+              <Field label="Κινητό" id="ct-mob" className="col-span-6 sm:col-span-3"><Input id="ct-mob" value={form.mobile ?? ''} onChange={(e) => set('mobile', e.target.value)} className="tabular-nums" /></Field>
+              <Field label="Σταθερό" id="ct-tel" className="col-span-6 sm:col-span-3"><Input id="ct-tel" value={form.phone ?? ''} onChange={(e) => set('phone', e.target.value)} className="tabular-nums" /></Field>
+              <Field label="Email" id="ct-em" className="col-span-12 sm:col-span-6"><Input id="ct-em" type="email" value={form.email ?? ''} onChange={(e) => set('email', e.target.value)} /></Field>
+              <Field label="Fax" id="ct-fax" className="col-span-6 sm:col-span-3"><Input id="ct-fax" value={form.fax ?? ''} onChange={(e) => set('fax', e.target.value)} className="tabular-nums" /></Field>
             </Grid>
           </Section>
 
-          <Section title="Διεύθυνση (αν διαφέρει από εταιρία)">
+          <Section tone="slate" icon={<FiMapPin />} title="Διεύθυνση (αν διαφέρει από εταιρία)">
             <Grid>
-              <Field label="Διεύθυνση" id="ct-addr"><Input id="ct-addr" value={form.address ?? ''} onChange={(e) => set('address', e.target.value)} /></Field>
-              <Field label="Πόλη" id="ct-city"><Input id="ct-city" value={form.city ?? ''} onChange={(e) => set('city', e.target.value)} /></Field>
-              <Field label="ΤΚ" id="ct-zip"><Input id="ct-zip" value={form.zip ?? ''} onChange={(e) => set('zip', e.target.value)} /></Field>
-              <Field label="Χώρα" id="ct-country">
-                <CountrySelect id="ct-country" value={form.country ?? DEFAULT_COUNTRY} onChange={(v) => set('country', v)} />
+              <Field label="Διεύθυνση" id="ct-addr" className="col-span-12 sm:col-span-6"><Input id="ct-addr" value={form.address ?? ''} onChange={(e) => set('address', e.target.value)} /></Field>
+              <Field label="Πόλη" id="ct-city" className="col-span-8 sm:col-span-4"><Input id="ct-city" value={form.city ?? ''} onChange={(e) => set('city', e.target.value)} /></Field>
+              <Field label="ΤΚ" id="ct-zip" className="col-span-4 sm:col-span-2"><Input id="ct-zip" value={form.zip ?? ''} onChange={(e) => set('zip', e.target.value)} className="tabular-nums" /></Field>
+              <Field label="Χώρα" id="ct-country" className="col-span-12 sm:col-span-6">
+                <CountrySelect id="ct-country" value={form.country ?? DEFAULT_COUNTRY} onChange={(v) => set('country', v)} className="!text-[length:var(--fs-13)]" />
               </Field>
             </Grid>
           </Section>
 
-          <Section title="Σημειώσεις">
+          <Section tone="slate" icon={<FiEdit3 />} title="Σημειώσεις">
             <textarea
-              className="w-full rounded-sm border border-input bg-background px-2 py-1.5"
+              aria-label="Σημειώσεις"
+              className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               rows={3}
               value={form.notes ?? ''}
               onChange={(e) => set('notes', e.target.value)}
             />
           </Section>
+        </div>
 
-          <div className="flex items-center gap-4 pt-1">
-            <label className="flex items-center gap-2 cursor-pointer">
+        <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5 sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <label className="flex cursor-pointer items-center gap-2">
               <Checkbox checked={!!form.isPrimary} onCheckedChange={(v) => set('isPrimary', !!v)} />
               <span className="text-[length:var(--fs-13)]">Κύρια επαφή</span>
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex cursor-pointer items-center gap-2">
               <Checkbox checked={!!form.isActive} onCheckedChange={(v) => set('isActive', !!v)} />
               <span className="text-[length:var(--fs-13)]">Ενεργή</span>
             </label>
           </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>Άκυρο</Button>
-          <Button onClick={save} disabled={saving}>{saving ? 'Αποθήκευση…' : 'Αποθήκευση'}</Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} disabled={saving}>Άκυρο</Button>
+            <Button onClick={save} disabled={saving}>{saving ? 'Αποθήκευση…' : 'Αποθήκευση'}</Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -2567,16 +2598,17 @@ function DeleteDialog({
   };
   return (
     <Dialog open={!!company} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-destructive">
-            <FiAlertTriangle /> Διαγραφή εταιρίας
-          </DialogTitle>
-          <DialogDescription>
-            Διαγραφή της εταιρίας <strong className="text-foreground">{company?.name}</strong>;
-          </DialogDescription>
+      <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-md">
+        <DialogHeader className="flex-row items-center gap-3 space-y-0 border-b border-border px-4 py-2.5 pr-12">
+          <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-destructive/10 text-destructive dark:bg-destructive/20"><FiAlertTriangle className="size-4" /></span>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="text-[length:var(--fs-15)] text-destructive">Διαγραφή εταιρίας</DialogTitle>
+            <DialogDescription className="text-[length:var(--fs-11)]">
+              Διαγραφή της εταιρίας <strong className="text-foreground">{company?.name}</strong>;
+            </DialogDescription>
+          </div>
         </DialogHeader>
-        <DialogFooter>
+        <DialogFooter className="mx-0 mb-0 gap-2 border-t-0 bg-card px-4 py-2.5">
           <Button variant="outline" onClick={onClose} disabled={deleting}>Άκυρο</Button>
           <Button variant="destructive" onClick={confirm} disabled={deleting}>
             <FiTrash2 /> {deleting ? 'Διαγραφή…' : 'Διαγραφή'}

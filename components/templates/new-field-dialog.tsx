@@ -6,17 +6,20 @@
 // `use-run-add-field`.
 
 import * as React from 'react';
+import { FiCrop, FiSliders, FiTag } from 'react-icons/fi';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Field, FormSection, FormSelect, RowHint, fieldCls } from '@/components/admin/form-kit';
+import { cn } from '@/lib/utils';
 import { KIND_LABEL, VALUE_TYPE_LABEL } from '@/lib/templates/labels';
 import { parseColumns } from '@/lib/templates/run-view';
 import { slugDraft, slugKey, uniqueKey, type FieldDef, type Region, type TemplateValueType } from '@/lib/templates/schema';
 import type { NewFieldDraft } from './use-run-add-field';
 
 const VALUE_TYPES = Object.keys(VALUE_TYPE_LABEL) as TemplateValueType[];
-const sel = 'mt-1 h-9 w-full rounded-sm border border-input bg-background px-2 text-[length:var(--fs-13)]';
+const KIND_OPTS = (Object.keys(KIND_LABEL) as FieldDef['kind'][]).map((k) => ({ id: k, name: KIND_LABEL[k] }));
+const VALUE_TYPE_OPTS = VALUE_TYPES.map((v) => ({ id: v, name: VALUE_TYPE_LABEL[v] }));
 
 type Props = {
   open: boolean;
@@ -56,54 +59,56 @@ export function NewFieldDialog({ open, onOpenChange, region, takenKeys, busy, on
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!busy) onOpenChange(o); }}>
-      <DialogContent className="sm:max-w-md">
-        <form onSubmit={(e) => { e.preventDefault(); if (canSubmit) onSubmit({ label: label.trim(), key: previewKey, kind, valueType, columns }); }} className="space-y-3">
-          <DialogHeader>
-            <DialogTitle>Νέο πεδίο από την περιοχή</DialogTitle>
-            <DialogDescription>
-              {region ? `Σελίδα ${region.page + 1}. ` : ''}Το πεδίο μπαίνει στο πρότυπο με αυτή την περιοχή και διαβάζεται αμέσως από το έγγραφο.
-            </DialogDescription>
+      <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-md">
+        <form onSubmit={(e) => { e.preventDefault(); if (canSubmit) onSubmit({ label: label.trim(), key: previewKey, kind, valueType, columns }); }}>
+          <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+            <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15 [&_svg]:size-4"><FiCrop /></span>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-[length:var(--fs-15)]">Νέο πεδίο από την περιοχή</DialogTitle>
+              <DialogDescription className="line-clamp-2 text-[length:var(--fs-11)]">
+                {region ? `Σελίδα ${region.page + 1}. ` : ''}Το πεδίο μπαίνει στο πρότυπο με αυτή την περιοχή και διαβάζεται αμέσως από το έγγραφο.
+              </DialogDescription>
+            </div>
           </DialogHeader>
 
-          <div>
-            <Label htmlFor="new-field-label">Ετικέτα</Label>
-            <Input id="new-field-label" autoFocus required value={label} disabled={busy} className="mt-1"
-              placeholder="π.χ. Αριθμός παραγγελίας" onChange={(e) => setLabel(e.target.value)} />
+          <div className="space-y-3 bg-muted/20 px-4 py-3">
+            <FormSection tone="blue" icon={<FiTag />} title="Πεδίο">
+              <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+                <Field label="Ετικέτα" required htmlFor="new-field-label" className="col-span-12 sm:col-span-6">
+                  <Input id="new-field-label" autoFocus required value={label} disabled={busy} className={fieldCls}
+                    placeholder="π.χ. Αριθμός παραγγελίας" onChange={(e) => setLabel(e.target.value)} />
+                </Field>
+                <Field label="Κλειδί" htmlFor="new-field-key" className="col-span-12 sm:col-span-6">
+                  <Input id="new-field-key" value={key || previewKey} disabled={busy} className={cn(fieldCls, 'font-mono')} aria-describedby="new-field-key-hint"
+                    placeholder="παράγεται από την ετικέτα" onChange={(e) => setKey(slugDraft(e.target.value))} />
+                </Field>
+              </div>
+              <div id="new-field-key-hint"><RowHint>Κλειδί: με αυτό το όνομα βγαίνει η τιμή στο JSON και στα mappings.</RowHint></div>
+            </FormSection>
+
+            <FormSection tone="violet" icon={<FiSliders />} title="Μορφή">
+              <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+                <Field label="Είδος" htmlFor="new-field-kind" className="col-span-6">
+                  <FormSelect id="new-field-kind" value={kind} disabled={busy} ariaLabel="Είδος" opts={KIND_OPTS}
+                    onChange={(v) => setKind(v as FieldDef['kind'])} />
+                </Field>
+                <Field label="Τύπος τιμής" htmlFor="new-field-type" className="col-span-6">
+                  {/* A TABLE reads rows and each column carries its own type — the field's own is unused. */}
+                  <FormSelect id="new-field-type" value={valueType} disabled={busy || kind === 'TABLE'} ariaLabel="Τύπος τιμής" opts={VALUE_TYPE_OPTS}
+                    onChange={(v) => setValueType(v as TemplateValueType)} />
+                </Field>
+                {kind === 'TABLE' && (
+                  <Field label="Στήλες" htmlFor="new-field-columns" className="col-span-12">
+                    <Input id="new-field-columns" value={columns} disabled={busy} className={fieldCls} aria-describedby="new-field-columns-hint"
+                      placeholder="Περιγραφή, Ποσότητα, Αξία" onChange={(e) => setColumns(e.target.value)} />
+                  </Field>
+                )}
+              </div>
+              {kind === 'TABLE' && <div id="new-field-columns-hint"><RowHint>Χωρισμένες με κόμμα — τα κλειδιά τους παράγονται αυτόματα.</RowHint></div>}
+            </FormSection>
           </div>
 
-          <div>
-            <Label htmlFor="new-field-key">Κλειδί</Label>
-            <Input id="new-field-key" value={key || previewKey} disabled={busy} className="mt-1 font-mono text-[length:var(--fs-12)]"
-              placeholder="παράγεται από την ετικέτα" onChange={(e) => setKey(slugDraft(e.target.value))} />
-            <p className="mt-1 text-[length:var(--fs-10)] text-muted-foreground">Με αυτό το όνομα βγαίνει η τιμή στο JSON και στα mappings.</p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="new-field-kind">Είδος</Label>
-              <select id="new-field-kind" value={kind} disabled={busy} className={sel} onChange={(e) => setKind(e.target.value as FieldDef['kind'])}>
-                {(Object.keys(KIND_LABEL) as FieldDef['kind'][]).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
-              </select>
-            </div>
-            <div>
-              <Label htmlFor="new-field-type">Τύπος τιμής</Label>
-              {/* A TABLE reads rows and each column carries its own type — the field's own is unused. */}
-              <select id="new-field-type" value={valueType} disabled={busy || kind === 'TABLE'} className={sel} onChange={(e) => setValueType(e.target.value as TemplateValueType)}>
-                {VALUE_TYPES.map((v) => <option key={v} value={v}>{VALUE_TYPE_LABEL[v]}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {kind === 'TABLE' && (
-            <div>
-              <Label htmlFor="new-field-columns">Στήλες</Label>
-              <Input id="new-field-columns" value={columns} disabled={busy} className="mt-1"
-                placeholder="Περιγραφή, Ποσότητα, Αξία" onChange={(e) => setColumns(e.target.value)} />
-              <p className="mt-1 text-[length:var(--fs-10)] text-muted-foreground">Χωρισμένες με κόμμα — τα κλειδιά τους παράγονται αυτόματα.</p>
-            </div>
-          )}
-
-          <DialogFooter>
+          <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5">
             <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => onOpenChange(false)}>Ακύρωση</Button>
             <Button type="submit" size="sm" disabled={!canSubmit} aria-busy={busy}>
               {busy ? 'Προσθήκη…' : 'Προσθήκη στο πρότυπο και ανάγνωση'}

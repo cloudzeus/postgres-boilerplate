@@ -2,18 +2,21 @@
 
 import * as React from 'react';
 import { toast } from 'sonner';
-import { FiAlertTriangle, FiLoader, FiPlusCircle, FiSearch } from 'react-icons/fi';
+import { FiAlertTriangle, FiBox, FiHash, FiLoader, FiPlusCircle, FiSearch, FiTrendingDown } from 'react-icons/fi';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { BTN_GHOST, BTN_PRIMARY } from '@/components/admin/bulk-ui';
 import { guessAssetCategories } from '@/lib/ocr/asset-code';
 import { DEPRECIATION_SOURCE, LOW_VALUE_LIMIT, depreciationAdvice, legalClassForGl, legalClassForLine } from '@/lib/ocr/depreciation';
 import { Term } from '@/components/admin/help/term';
+import { Field, FormSection, FormSelect, RowHint, fieldCls } from '@/components/admin/form-kit';
+import { cn } from '@/lib/utils';
 
 const eur = (n: number) => `${n.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
 export interface AssetPick { mtrl: number; code: string; name: string }
 
-const INPUT = 'h-10 w-full rounded-md border border-input bg-background px-3 text-[length:var(--fs-14)]';
+/** Native πεδία του παραθύρου στο ίδιο ύψος/κείμενο με τα `fieldCls` του form-kit. */
+const INPUT = cn('w-full rounded-md border border-input bg-background px-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', fieldCls);
 const LABEL = 'text-[length:var(--fs-12)] font-medium text-muted-foreground';
 
 /** Αναζήτηση στο μητρώο παγίων (τοπικός καθρέφτης). */
@@ -176,118 +179,143 @@ export function CreateAssetDialog({ open, onOpenChange, lineId, lineName, lineVa
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!busy) onOpenChange(o); }}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Νέο πάγιο στο SoftOne</DialogTitle>
-          <DialogDescription>Η γραμμή θα καταχωριστεί ως αγορά αυτού του παγίου (γραμμή παγίων του παραστατικού αγορών).</DialogDescription>
-        </DialogHeader>
-        {!data && !error && <p className="flex items-center gap-2 text-[length:var(--fs-13)] text-muted-foreground"><FiLoader className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />Φόρτωση κατηγοριών…</p>}
-        {data && (
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <label htmlFor="asset-name" className={LABEL}>Περιγραφή</label>
-              <input id="asset-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={200} className={INPUT} />
-            </div>
-            <div className="space-y-1">
-              <label htmlFor="asset-gl" className={LABEL}>Λογιστική κατηγορία</label>
-              <select id="asset-gl" value={mtrAcn ?? ''} onChange={(e) => setMtrAcn(e.target.value ? Number(e.target.value) : null)} className={INPUT}>
-                <option value="">— Διάλεξε —</option>
-                {data.glCategories.map((g) => (
-                  <option key={g.mtrAcn} value={g.mtrAcn}>{g.name}{g.acnmsk ? ` · ${g.acnmsk}` : ''}{g.depreciation ? ` · απόσβεση ${g.depreciation}%` : ''}</option>
-                ))}
-              </select>
-              <p className="text-caption text-muted-foreground">Ορίζει τον λογαριασμό παγίου και τον προεπιλεγμένο συντελεστή απόσβεσης.</p>
-            </div>
-
-            {/* ── Απόσβεση: ο συντελεστής του ΝΟΜΟΥ, σε ευρώ και χρόνια, όχι μόνο ποσοστό ── */}
-            <fieldset className="space-y-2 rounded-lg border border-border p-3">
-              <legend className="px-1 text-[length:var(--fs-12)] font-semibold text-foreground">
-                <Term k="apostesi" /> (φορολογική)
-              </legend>
-              {advice ? (
-                <p className="text-[length:var(--fs-12)] text-foreground">
-                  Ο νόμος ορίζει <strong>{advice.rate}%</strong> τον χρόνο για «{advice.label}»
-                  <span className="text-muted-foreground"> ({DEPRECIATION_SOURCE})</span>.
-                  {advice.annual != null && advice.years != null && (
-                    <> Για αξία {eur(amount ?? 0)}: <strong>≈ {eur(advice.annual)} τον χρόνο</strong>, σε περίπου {advice.years} χρόνια.</>
-                  )}
-                </p>
-              ) : (
-                <p className="text-[length:var(--fs-12)] text-muted-foreground">
-                  Δεν αναγνωρίσαμε την κατηγορία του νόμου — ισχύει ο συντελεστής της λογιστικής κατηγορίας. Ρώτα τον λογιστή αν δεν είσαι σίγουρος.
-                </p>
-              )}
-              <div className="flex flex-wrap items-end gap-3">
-                <label className="space-y-1">
-                  <span className={LABEL}>Συντελεστής για αυτό το πάγιο</span>
-                  <span className="relative block w-32">
-                    <input
-                      inputMode="decimal" value={rate}
-                      onChange={(e) => { setRate(e.target.value); setRateTouched(true); }}
-                      aria-invalid={!rateOk}
-                      className={`${INPUT} pr-7 text-right font-mono tabular-nums`}
-                    />
-                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[length:var(--fs-13)] text-muted-foreground">%</span>
-                  </span>
-                </label>
-                {advice && rateTouched && rateNum !== advice.rate && (
-                  <button type="button" onClick={() => { setRate(String(advice.rate)); setRateTouched(false); }}
-                    className="min-h-10 cursor-pointer rounded-md px-2 text-[length:var(--fs-12)] font-semibold text-sisyphus-700 hover:bg-sisyphus-500/10 dark:text-sisyphus-300">
-                    Επαναφορά στο {advice.rate}% του νόμου
-                  </button>
-                )}
-              </div>
-              {!rateOk && <p role="alert" className="text-[length:var(--fs-12)] text-rose-700">Γράψε ποσοστό από 0 έως 100.</p>}
-              {gl?.depreciation != null && rateNum != null && rateOk && gl.depreciation !== rateNum && (
-                <p className="flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-[length:var(--fs-12)] text-amber-900">
-                  <FiAlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-                  <span>
-                    Η κατηγορία «{gl.name}» στο SoftOne έχει <strong>{gl.depreciation}%</strong>
-                    {advice && gl.depreciation !== advice.rate ? ' (παλιός συντελεστής, πριν τον Ν.4172/2013)' : ''}.
-                    Σε αυτό το πάγιο θα γραφτεί <strong>{rateNum}%</strong> — η κατηγορία δεν αλλάζει.
-                  </span>
-                </p>
-              )}
-              {lowValue && (
-                <label className="flex cursor-pointer items-start gap-2 rounded-md bg-muted/50 px-2.5 py-2 text-[length:var(--fs-12)] text-foreground">
-                  <input type="checkbox" checked={immediate} onChange={(e) => setImmediate(e.target.checked)} className="mt-0.5 size-4" />
-                  <span>
-                    <strong>Εφάπαξ απόσβεση φέτος.</strong> Η αξία είναι κάτω από {eur(LOW_VALUE_LIMIT)}: ο νόμος επιτρέπει να αποσβεστεί
-                    ολόκληρη στη χρήση απόκτησης (άρθρο 24 παρ. 7 ΚΦΕ). Προαιρετικό — ρώτα τον λογιστή.
-                  </span>
-                </label>
-              )}
-            </fieldset>
-            <div className="space-y-1">
-              <label htmlFor="asset-cat" className={LABEL}>Εμπορική κατηγορία (προαιρετικά)</label>
-              <select id="asset-cat" value={mtrCategory ?? ''} onChange={(e) => setMtrCategory(e.target.value ? Number(e.target.value) : null)} className={INPUT}>
-                <option value="">—</option>
-                {data.categories.map((c) => <option key={c.mtrCategory} value={c.mtrCategory}>{c.name}</option>)}
-              </select>
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label htmlFor="asset-code" className={LABEL}>Κωδικός</label>
-                <input id="asset-code" value={code} onChange={(e) => { setCode(e.target.value); setCodeTouched(true); }} maxLength={30} className={`${INPUT} font-mono`} />
-              </div>
-              <div className="space-y-1">
-                <label htmlFor="asset-vat" className={LABEL}>ΦΠΑ</label>
-                <select id="asset-vat" value={vat} onChange={(e) => setVat(e.target.value)} className={INPUT}>
-                  <option value="">— Διάλεξε —</option>
-                  {data.vats.map((v) => <option key={v.code} value={v.code}>{v.label}</option>)}
-                </select>
-              </div>
-            </div>
-            {gl?.acnmsk && <p className="text-caption text-muted-foreground">Λογαριασμός αγορών: <span className="font-mono">{gl.acnmsk}</span>{data.whouse != null ? ` · αποθήκη παγίων ${data.whouse}` : ''}</p>}
-            {data.whouse == null && (
-              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[length:var(--fs-12)] text-amber-800">
-                Δεν είναι γνωστή η αποθήκη παγίων — τρέξε τον συγχρονισμό «Πάγια» πριν την καταχώριση.
-              </p>
-            )}
+      <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+          <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15">
+            <FiBox className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="text-[length:var(--fs-15)]">Νέο πάγιο στο SoftOne</DialogTitle>
+            <DialogDescription
+              className="truncate text-[length:var(--fs-11)]"
+              title="Η γραμμή θα καταχωριστεί ως αγορά αυτού του παγίου (γραμμή παγίων του παραστατικού αγορών)."
+            >
+              Η γραμμή θα καταχωριστεί ως αγορά αυτού του παγίου (γραμμή παγίων του παραστατικού αγορών).
+            </DialogDescription>
           </div>
-        )}
-        {error && <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[length:var(--fs-12)] text-rose-700">{error}</p>}
-        <DialogFooter className="mx-0 mb-0">
+        </DialogHeader>
+
+        <div className="max-h-[66vh] space-y-3 overflow-auto bg-muted/20 px-4 py-3">
+          {!data && !error && <p className="flex items-center gap-2 text-[length:var(--fs-13)] text-muted-foreground"><FiLoader className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />Φόρτωση κατηγοριών…</p>}
+          {data && (
+            <>
+              {/* ── 1. ΤΑΥΤΟΤΗΤΑ: περιγραφή, λογιστική + εμπορική κατηγορία σε μία σειρά. */}
+              <FormSection tone="blue" icon={<FiBox />} title="Στοιχεία παγίου">
+                <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+                  <Field label="Περιγραφή" htmlFor="asset-name" className="col-span-12">
+                    <input id="asset-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={200} className={INPUT} />
+                  </Field>
+                  <Field label="Λογιστική κατηγορία" htmlFor="asset-gl" className="col-span-12 sm:col-span-7">
+                    <FormSelect
+                      id="asset-gl"
+                      value={mtrAcn != null ? String(mtrAcn) : ''}
+                      onChange={(v) => setMtrAcn(v ? Number(v) : null)}
+                      placeholder="— Διάλεξε —"
+                      opts={data.glCategories.map((g) => ({
+                        id: String(g.mtrAcn),
+                        name: `${g.name}${g.acnmsk ? ` · ${g.acnmsk}` : ''}${g.depreciation ? ` · απόσβεση ${g.depreciation}%` : ''}`,
+                      }))}
+                    />
+                  </Field>
+                  <Field label="Εμπορική κατηγορία (προαιρετικά)" htmlFor="asset-cat" className="col-span-12 sm:col-span-5">
+                    <select id="asset-cat" value={mtrCategory ?? ''} onChange={(e) => setMtrCategory(e.target.value ? Number(e.target.value) : null)} className={INPUT}>
+                      <option value="">—</option>
+                      {data.categories.map((c) => <option key={c.mtrCategory} value={c.mtrCategory}>{c.name}</option>)}
+                    </select>
+                  </Field>
+                </div>
+                <RowHint>Η λογιστική κατηγορία ορίζει τον λογαριασμό παγίου και τον προεπιλεγμένο συντελεστή απόσβεσης.</RowHint>
+              </FormSection>
+
+              {/* ── 2. ΚΩΔΙΚΟΣ & ΦΠΑ: στην ίδια σειρά· λογαριασμός/αποθήκη από κάτω. */}
+              <FormSection tone="amber" icon={<FiHash />} title="Κωδικός & ΦΠΑ">
+                <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+                  <Field label="Κωδικός" htmlFor="asset-code" className="col-span-12 sm:col-span-6">
+                    <input id="asset-code" value={code} onChange={(e) => { setCode(e.target.value); setCodeTouched(true); }} maxLength={30} className={cn(INPUT, 'font-mono')} />
+                  </Field>
+                  <Field label="ΦΠΑ" htmlFor="asset-vat" className="col-span-12 sm:col-span-6">
+                    <FormSelect
+                      id="asset-vat"
+                      value={vat}
+                      onChange={setVat}
+                      placeholder="— Διάλεξε —"
+                      opts={data.vats.map((v) => ({ id: v.code, name: v.label }))}
+                    />
+                  </Field>
+                </div>
+                {gl?.acnmsk && <RowHint>Λογαριασμός αγορών: <span className="font-mono">{gl.acnmsk}</span>{data.whouse != null ? ` · αποθήκη παγίων ${data.whouse}` : ''}</RowHint>}
+                {data.whouse == null && (
+                  <p className="flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[length:var(--fs-12)] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                    <FiAlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+                    <span>Δεν είναι γνωστή η αποθήκη παγίων — τρέξε τον συγχρονισμό «Πάγια» πριν την καταχώριση.</span>
+                  </p>
+                )}
+              </FormSection>
+
+              {/* ── 3. ΑΠΟΣΒΕΣΗ: ο συντελεστής του ΝΟΜΟΥ, σε ευρώ και χρόνια, όχι μόνο ποσοστό ── */}
+              <FormSection tone="emerald" icon={<FiTrendingDown />} title="Απόσβεση (φορολογική)" aside={<Term k="apostesi" />}>
+                {advice ? (
+                  <p className="text-[length:var(--fs-12)] leading-snug text-foreground">
+                    Ο νόμος ορίζει <strong>{advice.rate}%</strong> τον χρόνο για «{advice.label}»
+                    <span className="text-muted-foreground"> ({DEPRECIATION_SOURCE})</span>.
+                    {advice.annual != null && advice.years != null && (
+                      <> Για αξία {eur(amount ?? 0)}: <strong>≈ {eur(advice.annual)} τον χρόνο</strong>, σε περίπου {advice.years} χρόνια.</>
+                    )}
+                  </p>
+                ) : (
+                  <p className="text-[length:var(--fs-12)] leading-snug text-muted-foreground">
+                    Δεν αναγνωρίσαμε την κατηγορία του νόμου — ισχύει ο συντελεστής της λογιστικής κατηγορίας. Ρώτα τον λογιστή αν δεν είσαι σίγουρος.
+                  </p>
+                )}
+                <div className="grid grid-cols-12 items-end gap-x-3 gap-y-2">
+                  <Field label="Συντελεστής για αυτό το πάγιο" htmlFor="asset-rate" className="col-span-12 sm:col-span-5">
+                    <span className="relative block">
+                      <input
+                        id="asset-rate" inputMode="decimal" value={rate}
+                        onChange={(e) => { setRate(e.target.value); setRateTouched(true); }}
+                        aria-invalid={!rateOk}
+                        className={cn(INPUT, 'pr-7 text-right font-mono tabular-nums aria-[invalid=true]:border-destructive')}
+                      />
+                      <span aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[length:var(--fs-13)] text-muted-foreground">%</span>
+                    </span>
+                  </Field>
+                  {advice && rateTouched && rateNum !== advice.rate && (
+                    <div className="col-span-12 sm:col-span-7">
+                      <button type="button" onClick={() => { setRate(String(advice.rate)); setRateTouched(false); }}
+                        className="h-8 cursor-pointer rounded-md px-2 text-[length:var(--fs-12)] font-semibold text-sisyphus-700 hover:bg-sisyphus-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-sisyphus-300">
+                        Επαναφορά στο {advice.rate}% του νόμου
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {!rateOk && <p role="alert" className="text-[length:var(--fs-11)] text-destructive">Γράψε ποσοστό από 0 έως 100.</p>}
+                {gl?.depreciation != null && rateNum != null && rateOk && gl.depreciation !== rateNum && (
+                  <p className="flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[length:var(--fs-12)] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                    <FiAlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+                    <span>
+                      Η κατηγορία «{gl.name}» στο SoftOne έχει <strong>{gl.depreciation}%</strong>
+                      {advice && gl.depreciation !== advice.rate ? ' (παλιός συντελεστής, πριν τον Ν.4172/2013)' : ''}.
+                      Σε αυτό το πάγιο θα γραφτεί <strong>{rateNum}%</strong> — η κατηγορία δεν αλλάζει.
+                    </span>
+                  </p>
+                )}
+                {lowValue && (
+                  <label className="flex cursor-pointer items-start gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-[length:var(--fs-12)] text-foreground">
+                    <input type="checkbox" checked={immediate} onChange={(e) => setImmediate(e.target.checked)} className="mt-0.5 size-4 accent-sisyphus-600" />
+                    <span>
+                      <strong>Εφάπαξ απόσβεση φέτος.</strong> Η αξία είναι κάτω από {eur(LOW_VALUE_LIMIT)}: ο νόμος επιτρέπει να αποσβεστεί
+                      ολόκληρη στη χρήση απόκτησης (άρθρο 24 παρ. 7 ΚΦΕ). Προαιρετικό — ρώτα τον λογιστή.
+                    </span>
+                  </label>
+                )}
+              </FormSection>
+            </>
+          )}
+          {error && <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[length:var(--fs-12)] text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">{error}</p>}
+        </div>
+
+        {/* `mx-0 mb-0`: το DialogFooter έχει `-mx-4 -mb-4` για modal με padding· εδώ είναι `p-0`. */}
+        <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5">
           <button type="button" className={BTN_GHOST} disabled={busy} onClick={() => onOpenChange(false)}>Άκυρο</button>
           <button type="button" className={BTN_PRIMARY} disabled={!ready} onClick={() => void create()}>
             {busy ? <FiLoader className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : <FiPlusCircle className="size-4" aria-hidden />}

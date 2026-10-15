@@ -3,11 +3,13 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
-import { FiRefreshCw, FiEdit2, FiSlash } from 'react-icons/fi';
+import { FiRefreshCw, FiEdit2, FiSlash, FiHash, FiAlertTriangle } from 'react-icons/fi';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Field, FormSection, RowHint, fieldCls } from '@/components/admin/form-kit';
 import { DataTable } from '@/components/ui/data-table';
 import { syncErrorMessage } from '@/lib/softone-sync/sync-error';
 
@@ -73,29 +75,44 @@ function ItemActions({ row, onDone }: { row: ItemRecord; onDone: () => void }) {
         </button>
       )}
       <Dialog open={mode !== null} onOpenChange={(o) => { if (!o && !busy) setMode(null); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{mode === 'code' ? 'Αλλαγή κωδικού' : 'Αδρανοποίηση εγγραφής'}</DialogTitle>
-            <DialogDescription>
-              {row.code} — {row.name}
-            </DialogDescription>
+        <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-md">
+          <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+            <span aria-hidden className={cn('grid size-8 shrink-0 place-items-center rounded-lg [&_svg]:size-4',
+              mode === 'deactivate' ? 'bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-300' : 'bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15')}>
+              {mode === 'deactivate' ? <FiSlash /> : <FiEdit2 />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-[length:var(--fs-15)]">{mode === 'code' ? 'Αλλαγή κωδικού' : 'Αδρανοποίηση εγγραφής'}</DialogTitle>
+              <DialogDescription className="truncate text-[length:var(--fs-11)]" title={`${row.code} — ${row.name}`}>
+                {row.code} — {row.name}
+              </DialogDescription>
+            </div>
           </DialogHeader>
-          {mode === 'code' ? (
-            <label className="block space-y-1">
-              <span className="text-[length:var(--fs-12)] font-semibold text-foreground">Νέος κωδικός</span>
-              <input value={code} onChange={(e) => setCode(e.target.value)} autoFocus
-                className="h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-[length:var(--fs-14)]" />
-              <span className="block text-[length:var(--fs-11)] text-muted-foreground">
-                Ελέγχεται η μάσκα και η μοναδικότητα σε όλο το μητρώο. Οι γραμμές παραστατικών μένουν συνδεδεμένες.
-              </span>
-            </label>
-          ) : (
-            <p className="text-[length:var(--fs-13)] text-foreground">
-              Η εγγραφή θα γίνει <strong>ανενεργή</strong> στο SoftOne και δεν θα προτείνεται για νέες γραμμές. Δεν διαγράφεται:
-              αν χρειαστεί, ενεργοποιείται ξανά από το SoftOne.
-            </p>
-          )}
-          <DialogFooter>
+          <div className="space-y-3 bg-muted/20 px-4 py-3">
+            {mode === 'code' ? (
+              <FormSection tone="amber" icon={<FiHash />} title="Κωδικός">
+                <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+                  <Field label="Τρέχων" className="col-span-5">
+                    <div className={cn(fieldCls, 'flex items-center truncate rounded-lg border border-border bg-muted/50 px-2.5 font-mono text-muted-foreground')}>{row.code || '—'}</div>
+                  </Field>
+                  <Field label="Νέος κωδικός" required htmlFor={`item-code-${row.mtrl}`} className="col-span-7">
+                    <Input id={`item-code-${row.mtrl}`} value={code} onChange={(e) => setCode(e.target.value)} autoFocus
+                      className={cn(fieldCls, 'font-mono')} />
+                  </Field>
+                </div>
+                <RowHint>Ελέγχεται η μάσκα και η μοναδικότητα σε όλο το μητρώο. Οι γραμμές παραστατικών μένουν συνδεδεμένες.</RowHint>
+              </FormSection>
+            ) : (
+              <div role="note" className="flex gap-2.5 rounded-lg border border-red-500/25 bg-red-50/60 px-3 py-2.5 dark:bg-red-500/10">
+                <FiAlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0 text-red-600 dark:text-red-300" />
+                <p className="text-[length:var(--fs-13)] text-foreground">
+                  Η εγγραφή θα γίνει <strong>ανενεργή</strong> στο SoftOne και δεν θα προτείνεται για νέες γραμμές. Δεν διαγράφεται:
+                  αν χρειαστεί, ενεργοποιείται ξανά από το SoftOne.
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5">
             <Button variant="outline" onClick={() => setMode(null)} disabled={busy}>Άκυρο</Button>
             <Button onClick={submit} disabled={busy || (mode === 'code' && !code.trim())}
               variant={mode === 'deactivate' ? 'destructive' : 'default'}>

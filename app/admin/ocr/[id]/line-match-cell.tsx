@@ -7,6 +7,7 @@ import {
   FiBriefcase, FiCrosshair, FiDollarSign, FiEdit2, FiLayers, FiLink, FiLoader, FiPackage,
   FiTag, FiTool, FiX, FiPlusCircle, FiAlertTriangle,
   FiCheck, FiHardDrive, FiArrowLeft, FiChevronDown, FiPieChart, FiHelpCircle,
+  FiDatabase, FiInfo, FiSearch, FiSliders, FiZap,
 } from 'react-icons/fi';
 import { ItemSupplierDialog } from '@/components/admin/item-supplier-dialog';
 import { toast } from 'sonner';
@@ -28,6 +29,7 @@ import { assetFits, type PostingTarget } from '@/lib/ocr/posting-target';
 import { matchKindOf, type LineCategoryOption, type LineMatch } from './line-match-kind';
 import type { MatchKind } from '@/lib/ocr/line-match';
 import { cn } from '@/lib/utils';
+import { Field, FormSection, RowHint, fieldCls } from '@/components/admin/form-kit';
 
 /** Η αναλυτική μιας γραμμής: κέντρο κόστους, έργο, κατηγορία δραστηριότητας. */
 export interface LineAnalyticsState {
@@ -403,330 +405,344 @@ export function LineMatchCell({
         {match ? 'Αλλαγή' : 'Αντιστοίχιση'}
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
-            <div className="flex items-center justify-between gap-2 pr-6">
-            <ol aria-label="Βήματα" className="flex items-center gap-2 text-[length:var(--fs-11)] font-semibold">
-              {(['Τι αφορά', 'Κατηγορία'] as const).map((t, i) => (
-                <li key={t} className={cn('flex items-center gap-1.5', step === i + 1 ? 'text-sisyphus-700 dark:text-sisyphus-300' : 'text-muted-foreground')}
-                  aria-current={step === i + 1 ? 'step' : undefined}>
-                  <span className={cn('inline-flex size-5 items-center justify-center rounded-full text-[length:var(--fs-10)]',
-                    step === i + 1 ? 'bg-sisyphus-500 text-white' : step > i + 1 ? 'bg-emerald-500 text-white' : 'bg-muted')}>
-                    {step > i + 1 ? <FiCheck aria-hidden className="size-3" /> : i + 1}
-                  </span>
-                  {t}
-                  {i === 0 && <span aria-hidden className="ml-0.5 h-px w-6 bg-border" />}
-                </li>
-              ))}
-            </ol>
-            <a href="/wiki/ocr/line-purpose" target="_blank" rel="noreferrer"
-              className="inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-[length:var(--fs-12)] font-semibold text-sisyphus-700 hover:bg-sisyphus-500/10 dark:text-sisyphus-300">
-              <FiHelpCircle aria-hidden className="size-3.5" /> Βοήθεια
-            </a>
+        <DialogContent className="flex max-h-[90dvh] w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+          <DialogHeader className="shrink-0 flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+            <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15">
+              <FiLink className="size-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="truncate text-[length:var(--fs-15)]">
+                {step === 1 || !tile ? 'Τι αφορά αυτή η αγορά;' : TILES[tile].title}
+              </DialogTitle>
+              <DialogDescription className="flex min-w-0 items-baseline gap-x-2 text-[length:var(--fs-11)]">
+                <span className="min-w-0 truncate font-medium text-foreground" title={lineName || undefined}>{lineName || 'Γραμμή χωρίς περιγραφή'}</span>
+                {lineTotal != null && <span className="shrink-0 tabular-nums">{lineTotal.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>}
+              </DialogDescription>
             </div>
-            <DialogTitle className="text-[length:var(--fs-18)]">
-              {step === 1 || !tile ? 'Τι αφορά αυτή η αγορά;' : TILES[tile].title}
-            </DialogTitle>
-            <DialogDescription className="flex flex-wrap items-baseline gap-x-2">
-              <span className="font-medium text-foreground">{lineName || 'Γραμμή χωρίς περιγραφή'}</span>
-              {lineTotal != null && <span className="tabular-nums">{lineTotal.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>}
-            </DialogDescription>
+            <div className="flex shrink-0 items-center gap-1">
+              <ol aria-label="Βήματα" className="hidden items-center gap-2 text-[length:var(--fs-11)] font-semibold sm:flex">
+                {(['Τι αφορά', 'Κατηγορία'] as const).map((t, i) => (
+                  <li key={t} className={cn('flex items-center gap-1.5', step === i + 1 ? 'text-sisyphus-700 dark:text-sisyphus-300' : 'text-muted-foreground')}
+                    aria-current={step === i + 1 ? 'step' : undefined}>
+                    <span className={cn('inline-flex size-5 items-center justify-center rounded-full text-[length:var(--fs-10)]',
+                      step === i + 1 ? 'bg-sisyphus-500 text-white' : step > i + 1 ? 'bg-emerald-500 text-white' : 'bg-muted')}>
+                      {step > i + 1 ? <FiCheck aria-hidden className="size-3" /> : i + 1}
+                    </span>
+                    {t}
+                    {i === 0 && <span aria-hidden className="ml-0.5 h-px w-5 bg-border" />}
+                  </li>
+                ))}
+              </ol>
+              <a href="/wiki/ocr/line-purpose" target="_blank" rel="noreferrer"
+                className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-[length:var(--fs-12)] font-semibold text-sisyphus-700 outline-none hover:bg-sisyphus-500/10 focus-visible:ring-2 focus-visible:ring-sisyphus-500 dark:text-sisyphus-300">
+                <FiHelpCircle aria-hidden className="size-3.5" /> Βοήθεια
+              </a>
+            </div>
           </DialogHeader>
 
-          {/* Γρήγορη λύση: η μνήμη ξέρει ήδη πού πήγε ίδια γραμμή — ένα κλικ, χωρίς οδηγό. */}
-          {step === 1 && !match && suggestion && suggestion.candidates.length > 0 && (
-            <div className="rounded-xl border border-sisyphus-500/30 bg-sisyphus-500/[0.05] p-3">
-              <p className="text-[length:var(--fs-12)] font-semibold text-foreground">Γρήγορη λύση · {suggestion.label}</p>
-              <p className="text-[length:var(--fs-11)] text-muted-foreground">Έτσι καταχωρίστηκαν παρόμοιες γραμμές στο παρελθόν.</p>
-              <div className="mt-1.5 flex flex-col gap-1">
-                {suggestion.candidates.map((c) => (
-                  <button
-                    key={`${c.kind}-${c.id}`} type="button" disabled={busy}
-                    onClick={async () => { await acceptSuggestion(c); setOpen(false); }}
-                    className="flex min-h-10 cursor-pointer items-center gap-2 rounded-md bg-card px-2.5 text-left text-[length:var(--fs-13)] text-foreground shadow-fluent-2 hover:bg-sisyphus-500/10 disabled:opacity-60"
-                  >
-                    <FiCheck className="size-4 shrink-0 text-sisyphus-600" aria-hidden />
-                    <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                    <span className="shrink-0 font-mono text-[length:var(--fs-11)] text-muted-foreground">{c.code}</span>
-                    {c.inactive && <span className="shrink-0 rounded bg-amber-500/15 px-1 text-[length:var(--fs-10)] font-semibold text-amber-800">θα ενεργοποιηθεί</span>}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {step === 1 || !tile ? (
-            <PurposeStep
-              lineName={lineName}
-              amount={lineTotal}
-              target={target}
-              defaultKind={defaultKind}
-              hasRegistrySuggestion={!!suggestion && suggestion.candidates.length > 0}
-              current={(() => { const p = purposeOfMatch(match); return p ? tileForPurpose(p) : null; })()}
-              onChoose={(t) => { setTile(t); setStep(2); }}
-              ai={ai}
-              aiBusy={aiBusy}
-              onAskAi={() => void askAi()}
-            />
-          ) : (
-            <div className="space-y-3">
-              {/* Διάλεξε κάτι διαφορετικό από την πρόταση: δεν το απαγορεύουμε — το λέμε, με ένα κλικ επιστροφή.
-                  (Ένα laptop στο «Αυτοκίνητο» θα γινόταν έξοδο καυσίμων αντί για πάγιο.) */}
-              {advised && advised.tile !== tile && (TILES[advised.tile].purpose !== TILES[tile].purpose || advised.tile === 'equipment') && (
-                <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/[0.07] px-3 py-2 text-[length:var(--fs-12)] text-foreground">
-                  <FiAlertTriangle aria-hidden className="size-4 shrink-0 text-amber-600" />
-                  <span className="min-w-0 flex-1">
-                    <strong>Σίγουρα;</strong> Η γραμμή μοιάζει με «{TILES[advised.tile].title}». {advised.reason}
-                  </span>
-                  <button type="button" onClick={() => setTile(advised.tile)}
-                    className="inline-flex min-h-9 shrink-0 cursor-pointer items-center rounded-md bg-sisyphus-500 px-3 font-semibold text-white hover:bg-sisyphus-600">
-                    Πέρασέ το ως «{TILES[advised.tile].title}»
-                  </button>
+          <div className="min-h-0 flex-1 space-y-3 overflow-auto bg-muted/20 px-4 py-3">
+            {/* Γρήγορη λύση: η μνήμη ξέρει ήδη πού πήγε ίδια γραμμή — ένα κλικ, χωρίς οδηγό. */}
+            {step === 1 && !match && suggestion && suggestion.candidates.length > 0 && (
+              <FormSection tone="emerald" icon={<FiZap />} title="Γρήγορη λύση" aside={suggestion.label}>
+                <RowHint>Έτσι καταχωρίστηκαν παρόμοιες γραμμές στο παρελθόν.</RowHint>
+                <div className="-mx-3 -mb-2.5 divide-y divide-border border-t border-border">
+                  {suggestion.candidates.map((c) => (
+                    <button
+                      key={`${c.kind}-${c.id}`} type="button" disabled={busy}
+                      onClick={async () => { await acceptSuggestion(c); setOpen(false); }}
+                      className="flex min-h-9 w-full cursor-pointer items-center gap-2 px-3 text-left text-[length:var(--fs-13)] text-foreground outline-none hover:bg-emerald-500/10 focus-visible:bg-emerald-500/10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sisyphus-500 disabled:opacity-60"
+                    >
+                      <FiCheck className="size-4 shrink-0 text-emerald-600 dark:text-emerald-300" aria-hidden />
+                      <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                      <span className="shrink-0 font-mono text-[length:var(--fs-11)] text-muted-foreground">{c.code}</span>
+                      {c.inactive && <span className="shrink-0 rounded bg-amber-500/15 px-1 text-[length:var(--fs-10)] font-semibold text-amber-800 dark:text-amber-300">θα ενεργοποιηθεί</span>}
+                    </button>
+                  ))}
                 </div>
-              )}
-              <div className="rounded-lg bg-muted/50 px-3 py-2 text-[length:var(--fs-12)] text-foreground">
-                <p><strong>Τι θα γίνει:</strong> {PURPOSE_OUTCOME[TILES[tile].purpose]}</p>
-                {TILES[tile].accountingNote && <p className="mt-1 text-muted-foreground">{TILES[tile].accountingNote}</p>}
-                {TILES[tile].purpose === 'asset' && (() => {
-                  const dep = depreciationAdvice({ lineName, amount: lineTotal, gl: null });
-                  return (
-                    <>
-                      {dep && (
-                        <p className="mt-1 text-foreground">
-                          <strong>Απόσβεση:</strong> {dep.rate}% τον χρόνο, όπως ορίζει ο νόμος για «{dep.label}»
-                          {dep.annual != null && dep.years != null && <> — ≈ {dep.annual.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € τον χρόνο, για περίπου {dep.years} χρόνια</>}.
-                          {dep.lowValue && <> Αξία κάτω από 1.500 €: μπορεί να αποσβεστεί και ολόκληρη φέτος.</>}
-                        </p>
-                      )}
-                      <p className="mt-1 text-muted-foreground">
-                        Τι σημαίνει <Term k="pagio" /> και <Term k="apostesi" />;
+              </FormSection>
+            )}
+
+            {step === 1 || !tile ? (
+              <PurposeStep
+                lineName={lineName}
+                amount={lineTotal}
+                target={target}
+                defaultKind={defaultKind}
+                hasRegistrySuggestion={!!suggestion && suggestion.candidates.length > 0}
+                current={(() => { const p = purposeOfMatch(match); return p ? tileForPurpose(p) : null; })()}
+                onChoose={(t) => { setTile(t); setStep(2); }}
+                ai={ai}
+                aiBusy={aiBusy}
+                onAskAi={() => void askAi()}
+              />
+            ) : (
+              <>
+                {/* Διάλεξε κάτι διαφορετικό από την πρόταση: δεν το απαγορεύουμε — το λέμε, με ένα κλικ επιστροφή.
+                    (Ένα laptop στο «Αυτοκίνητο» θα γινόταν έξοδο καυσίμων αντί για πάγιο.) */}
+                {advised && advised.tile !== tile && (TILES[advised.tile].purpose !== TILES[tile].purpose || advised.tile === 'equipment') && (
+                  <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/[0.07] px-3 py-2 text-[length:var(--fs-12)] text-foreground">
+                    <FiAlertTriangle aria-hidden className="size-4 shrink-0 text-amber-600 dark:text-amber-300" />
+                    <span className="min-w-0 flex-1">
+                      <strong>Σίγουρα;</strong> Η γραμμή μοιάζει με «{TILES[advised.tile].title}». {advised.reason}
+                    </span>
+                    <button type="button" onClick={() => setTile(advised.tile)}
+                      className="inline-flex h-8 shrink-0 cursor-pointer items-center rounded-md bg-sisyphus-500 px-3 font-semibold text-white outline-none hover:bg-sisyphus-600 focus-visible:ring-2 focus-visible:ring-sisyphus-500 focus-visible:ring-offset-1">
+                      Πέρασέ το ως «{TILES[advised.tile].title}»
+                    </button>
+                  </div>
+                )}
+
+                <FormSection tone="blue" icon={<FiInfo />} title="Τι θα γίνει">
+                  <div className="space-y-1 text-[length:var(--fs-12)] leading-snug text-foreground">
+                    <p>{PURPOSE_OUTCOME[TILES[tile].purpose]}</p>
+                    {TILES[tile].accountingNote && <p className="text-muted-foreground">{TILES[tile].accountingNote}</p>}
+                    {TILES[tile].purpose === 'asset' && (() => {
+                      const dep = depreciationAdvice({ lineName, amount: lineTotal, gl: null });
+                      return (
+                        <>
+                          {dep && (
+                            <p className="text-foreground">
+                              <strong>Απόσβεση:</strong> {dep.rate}% τον χρόνο, όπως ορίζει ο νόμος για «{dep.label}»
+                              {dep.annual != null && dep.years != null && <> — ≈ {dep.annual.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € τον χρόνο, για περίπου {dep.years} χρόνια</>}.
+                              {dep.lowValue && <> Αξία κάτω από 1.500 €: μπορεί να αποσβεστεί και ολόκληρη φέτος.</>}
+                            </p>
+                          )}
+                          <p className="text-muted-foreground">
+                            Τι σημαίνει <Term k="pagio" /> και <Term k="apostesi" />;
+                          </p>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </FormSection>
+
+                {TILES[tile].purpose === 'asset' && (
+                  <FormSection tone="amber" icon={<FiHardDrive />} title="Εξοπλισμός (πάγιο)">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="min-w-0 flex-1 text-[length:var(--fs-12)] leading-snug text-foreground">
+                        Είναι <strong>καινούργια</strong> αγορά; Δημιούργησε τον εξοπλισμό — τα στοιχεία συμπληρώνονται από το τιμολόγιο.
                       </p>
-                    </>
+                      <button
+                        type="button" disabled={busy}
+                        onClick={() => { setOpen(false); setCreatingAsset(true); }}
+                        className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md bg-sisyphus-500 px-3 text-[length:var(--fs-12)] font-semibold text-white outline-none hover:bg-sisyphus-600 focus-visible:ring-2 focus-visible:ring-sisyphus-500 focus-visible:ring-offset-1 disabled:opacity-50"
+                      >
+                        <FiPlusCircle aria-hidden className="size-4" /> Νέος εξοπλισμός (πάγιο)
+                      </button>
+                    </div>
+                    <div className="space-y-1.5 border-t border-border pt-2">
+                      <RowHint>Ή, αν είναι ήδη καταχωρισμένος (π.χ. δεύτερο τιμολόγιο για το ίδιο μηχάνημα), βρες τον:</RowHint>
+                      <AssetSearch id={`asset-${lineId}`} disabled={busy} onPick={pickAsset} />
+                    </div>
+                  </FormSection>
+                )}
+
+                {(TILES[tile].purpose === 'expense' || TILES[tile].purpose === 'goods') && (() => {
+                  const rk = registryKindFor(TILES[tile].purpose, target);
+                  if (!rk) return null;
+                  const hint = (ai?.tile === tile ? ai.searchHint : null) || TILES[tile].searchHint || null;
+                  const isGoods = rk === 'product';
+                  return (
+                    <FormSection tone="blue" icon={isGoods ? <FiPackage /> : <FiSearch />} title={isGoods ? 'Είδος από τον κατάλογο' : 'Κατηγορία εξόδου'}>
+                      <p className="text-[length:var(--fs-12)] font-medium leading-snug text-foreground">
+                        {isGoods ? 'Βρες το είδος στον κατάλογο' : <>Βρες την <Term k={rk === 'lineitem' ? 'xreopistosi' : 'eksodo'}>κατηγορία εξόδου</Term></>}
+                        {hint && <span className="font-normal text-muted-foreground"> — γράψε μια λέξη, π.χ. «{hint}»</span>}
+                      </p>
+                      {rk === 'lineitem' && lineCategories.length > 0 && (
+                        <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+                          <Field label="Ομάδα εξόδων (προαιρετικό φίλτρο)" htmlFor={`line-cat-${lineId}`} className="col-span-12 sm:col-span-6">
+                            <select
+                              id={`line-cat-${lineId}`}
+                              value={lineCategory ?? ''}
+                              disabled={busy}
+                              onChange={(e) => setLineCategory(e.target.value ? Number(e.target.value) : null)}
+                              className={cn('w-full cursor-pointer rounded-md border border-input bg-background px-2.5 outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-500', fieldCls)}
+                            >
+                              <option value="">Όλες</option>
+                              {lineCategories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                            </select>
+                          </Field>
+                        </div>
+                      )}
+                      <RegistrySearch
+                        key={`${tile}-${rk}-${hint ?? ''}`}
+                        kind={rk}
+                        disabled={busy}
+                        id={`line-registry-${lineId}`}
+                        category={rk === 'lineitem' ? lineCategory : null}
+                        initialQuery={hint}
+                        label={isGoods ? 'Είδος' : 'Κατηγορία εξόδου'}
+                        onPick={async (p) => { if (await pick(p.id, p.kind, p.code, p.name)) setOpen(false); }}
+                      />
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => { setKind(rk); setOpen(false); setCreating(true); }}
+                        className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-sisyphus-500/40 px-3 text-[length:var(--fs-12)] font-semibold text-sisyphus-700 outline-none hover:bg-sisyphus-500/10 focus-visible:ring-2 focus-visible:ring-sisyphus-500 disabled:opacity-50 dark:text-sisyphus-300"
+                      >
+                        <FiPlusCircle aria-hidden className="size-3.5" /> Δεν υπάρχει; {isGoods ? 'Νέο είδος' : 'Νέα κατηγορία εξόδου'}
+                      </button>
+                    </FormSection>
                   );
                 })()}
-              </div>
 
-              {TILES[tile].purpose === 'asset' && (
-                <div className="space-y-2">
-                  <p className="text-[length:var(--fs-13)] font-medium text-foreground">
-                    Είναι <strong>καινούργια</strong> αγορά; Δημιούργησε τον εξοπλισμό — τα στοιχεία συμπληρώνονται από το τιμολόγιο.
-                  </p>
-                  <button
-                    type="button" disabled={busy}
-                    onClick={() => { setOpen(false); setCreatingAsset(true); }}
-                    className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-md bg-sisyphus-500 px-4 text-[length:var(--fs-13)] font-semibold text-white hover:bg-sisyphus-600 disabled:opacity-50"
-                  >
-                    <FiPlusCircle aria-hidden className="size-4" /> Νέος εξοπλισμός (πάγιο)
-                  </button>
-                  <p className="pt-1 text-[length:var(--fs-12)] text-muted-foreground">
-                    Ή, αν είναι ήδη καταχωρισμένος (π.χ. δεύτερο τιμολόγιο για το ίδιο μηχάνημα), βρες τον:
-                  </p>
-                  <AssetSearch id={`asset-${lineId}`} disabled={busy} onPick={pickAsset} />
-                </div>
-              )}
-
-              {(TILES[tile].purpose === 'expense' || TILES[tile].purpose === 'goods') && (() => {
-                const rk = registryKindFor(TILES[tile].purpose, target);
-                if (!rk) return null;
-                const hint = (ai?.tile === tile ? ai.searchHint : null) || TILES[tile].searchHint || null;
-                const isGoods = rk === 'product';
-                return (
-                  <div className="space-y-2">
-                    <p className="text-[length:var(--fs-13)] font-medium text-foreground">
-                      {isGoods ? 'Βρες το είδος στον κατάλογο' : <>Βρες την <Term k={rk === 'lineitem' ? 'xreopistosi' : 'eksodo'}>κατηγορία εξόδου</Term></>}
-                      {hint && <span className="font-normal text-muted-foreground"> — γράψε μια λέξη, π.χ. «{hint}»</span>}
+                {TILES[tile].purpose === 'split' && (
+                  <FormSection tone="violet" icon={<FiPieChart />} title="Μοίρασμα σε κατηγορίες">
+                    <p className="text-[length:var(--fs-12)] leading-snug text-foreground">
+                      Κάτω από τη γραμμή θα εμφανιστούν δύο κομμάτια (50% – 50%). Διάλεξε την κατηγορία εξόδου
+                      του καθενός και γράψε ποσό <strong>ή</strong> ποσοστό — το τελευταίο κομμάτι κλείνει μόνο του.
+                      Δες τι σημαίνει <Term k="epimerismos" />.
                     </p>
-                    {rk === 'lineitem' && lineCategories.length > 0 && (
-                      <label className="block">
-                        <span className="text-[length:var(--fs-12)] text-muted-foreground">Ομάδα εξόδων (προαιρετικό φίλτρο)</span>
-                        <select
-                          value={lineCategory ?? ''}
-                          disabled={busy}
-                          onChange={(e) => setLineCategory(e.target.value ? Number(e.target.value) : null)}
-                          className="mt-1 h-10 w-full cursor-pointer rounded-lg border border-input bg-background px-2.5 text-[length:var(--fs-13)]"
-                        >
-                          <option value="">Όλες</option>
-                          {lineCategories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                        </select>
-                      </label>
-                    )}
-                    <RegistrySearch
-                      key={`${tile}-${rk}-${hint ?? ''}`}
-                      kind={rk}
-                      disabled={busy}
-                      id={`line-registry-${lineId}`}
-                      category={rk === 'lineitem' ? lineCategory : null}
-                      initialQuery={hint}
-                      label={isGoods ? 'Είδος' : 'Κατηγορία εξόδου'}
-                      onPick={async (p) => { if (await pick(p.id, p.kind, p.code, p.name)) setOpen(false); }}
-                    />
                     <button
                       type="button"
-                      disabled={busy}
-                      onClick={() => { setKind(rk); setOpen(false); setCreating(true); }}
-                      className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-md border border-sisyphus-500/40 px-3 text-[length:var(--fs-12)] font-semibold text-sisyphus-700 outline-none hover:bg-sisyphus-500/10 focus-visible:ring-2 focus-visible:ring-sisyphus-500 disabled:opacity-50 dark:text-sisyphus-300"
+                      disabled={lineTotal == null}
+                      onClick={() => { setOpen(false); emitStartSplit(lineId); }}
+                      className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-sisyphus-500 px-3 text-[length:var(--fs-12)] font-semibold text-white outline-none hover:bg-sisyphus-600 focus-visible:ring-2 focus-visible:ring-sisyphus-500 focus-visible:ring-offset-1 disabled:opacity-50"
                     >
-                      <FiPlusCircle aria-hidden className="size-3.5" /> Δεν υπάρχει; {isGoods ? 'Νέο είδος' : 'Νέα κατηγορία εξόδου'}
+                      <FiPieChart aria-hidden className="size-4" /> Ξεκίνα το μοίρασμα
                     </button>
-                  </div>
-                );
-              })()}
+                    {lineTotal == null && <RowHint>Η γραμμή δεν έχει σύνολο — δεν μπορεί να μοιραστεί.</RowHint>}
+                  </FormSection>
+                )}
+              </>
+            )}
 
-              {TILES[tile].purpose === 'split' && (
-                <div className="space-y-2">
-                  <p className="text-[length:var(--fs-13)] text-foreground">
-                    Κάτω από τη γραμμή θα εμφανιστούν δύο κομμάτια (50% – 50%). Διάλεξε την κατηγορία εξόδου
-                    του καθενός και γράψε ποσό <strong>ή</strong> ποσοστό — το τελευταίο κομμάτι κλείνει μόνο του.
-                    Δες τι σημαίνει <Term k="epimerismos" />.
-                  </p>
-                  <button
-                    type="button"
-                    disabled={lineTotal == null}
-                    onClick={() => { setOpen(false); emitStartSplit(lineId); }}
-                    className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-md bg-sisyphus-500 px-4 text-[length:var(--fs-13)] font-semibold text-white hover:bg-sisyphus-600 disabled:opacity-50"
-                  >
-                    <FiPieChart aria-hidden className="size-4" /> Ξεκίνα το μοίρασμα
-                  </button>
-                  {lineTotal == null && <p className="text-[length:var(--fs-12)] text-muted-foreground">Η γραμμή δεν έχει σύνολο — δεν μπορεί να μοιραστεί.</p>}
+            {/* ── Για προχωρημένους: τα μητρώα του SoftOne, απευθείας (π.χ. «Υπηρεσία» με κωδικό) ── */}
+            <section className="overflow-hidden rounded-lg border border-violet-500/25 bg-card">
+              <button
+                type="button" aria-expanded={advanced} onClick={() => setAdvanced((a) => !a)}
+                className="flex min-h-8 w-full cursor-pointer items-center gap-2 bg-violet-50/70 px-3 py-1.5 text-left text-[length:var(--fs-12)] font-semibold text-violet-800 outline-none hover:bg-violet-100/70 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sisyphus-500 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/15"
+              >
+                <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded bg-violet-500/15 text-violet-700 dark:text-violet-300 [&_svg]:size-3"><FiDatabase /></span>
+                <span className="min-w-0 flex-1 truncate">Για λογιστές: επιλογή μητρώου SoftOne απευθείας</span>
+                <FiChevronDown aria-hidden className={cn('size-4 shrink-0 transition-transform motion-reduce:transition-none', advanced && 'rotate-180')} />
+              </button>
+              {advanced && (
+                <div className="space-y-2.5 border-t border-violet-500/20 px-3 py-2.5">
+                  {allowedHere.length <= 1 ? (
+                    <RowHint>
+                      {allowedHere.length === 1
+                        ? <>Η σειρά του παραστατικού δέχεται <strong className="text-foreground">{KIND_META[allowedHere[0]].label}</strong>.</>
+                        : 'Η σειρά του παραστατικού δεν δέχεται καμία εγγραφή μητρώου.'}
+                    </RowHint>
+                  ) : (
+                    <div role="group" aria-label="Κατηγορία μητρώου" className="flex rounded-md border border-border bg-muted/50 p-0.5">
+                      {SEGMENTS.map((k) => {
+                        const fits = lineKindFits(target, k);
+                        return (
+                          <button
+                            key={k}
+                            type="button"
+                            aria-pressed={kind === k}
+                            disabled={!fits}
+                            title={fits ? undefined : `Ο προορισμός «${target?.lines}» δεν δέχεται ${KIND_META[k].label.toLowerCase()}.`}
+                            onClick={() => { setKind(k); if (k !== 'lineitem') setLineCategory(null); }}
+                            className={cn(
+                              'flex h-7 flex-1 items-center justify-center gap-1 rounded px-1 text-[length:var(--fs-11)] font-semibold outline-none',
+                              'cx-transition motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-sisyphus-500',
+                              fits ? 'cursor-pointer' : 'cursor-not-allowed opacity-40',
+                              kind === k ? 'text-foreground shadow-sm' : 'text-muted-foreground hover:bg-[var(--cx-hover)]',
+                            )}
+                            style={kind === k ? { backgroundColor: KIND_META[k].bg, color: KIND_META[k].fg } : undefined}
+                          >
+                            {KIND_META[k].icon} {KIND_META[k].label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {allowedHere.length > 1 && <RowHint>{kindsReason}</RowHint>}
+                  {kind == null ? (
+                    <p className="flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[length:var(--fs-11)] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                      <FiAlertTriangle aria-hidden className="mt-0.5 size-3 shrink-0" />
+                      Διάλεξε πρώτα μητρώο — μια λάθος επιλογή γράφει στο SoftOne εγγραφή που το παραστατικό δεν μπορεί να χρησιμοποιήσει.
+                    </p>
+                  ) : (
+                    <>
+                      <RegistrySearch
+                        kind={kind}
+                        disabled={busy}
+                        id={`line-registry-adv-${lineId}`}
+                        category={kind === 'lineitem' ? lineCategory : null}
+                        label={KIND_META[kind].label}
+                        onPick={async (p) => { if (await pick(p.id, p.kind, p.code, p.name)) setOpen(false); }}
+                      />
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => { setOpen(false); setCreating(true); }}
+                        className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-md border border-sisyphus-500/30 px-2.5 text-[length:var(--fs-11)] font-semibold text-sisyphus-600 outline-none hover:bg-sisyphus-50 focus-visible:ring-2 focus-visible:ring-sisyphus-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-sisyphus-300 dark:hover:bg-sisyphus-500/10"
+                      >
+                        <FiPlusCircle aria-hidden className="size-3" /> Δημιουργία νέας εγγραφής «{KIND_META[kind].label}»
+                      </button>
+                    </>
+                  )}
+                  {assetsHere && (
+                    <div className="space-y-1.5 border-t border-border pt-2">
+                      <p className="flex items-center gap-1 text-[length:var(--fs-11)] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <FiHardDrive aria-hidden className="size-3" /> Πάγιο
+                      </p>
+                      <AssetSearch id={`asset-adv-${lineId}`} disabled={busy} onPick={pickAsset} />
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          )}
+            </section>
 
-          {/* ── Για προχωρημένους: τα μητρώα του SoftOne, απευθείας (π.χ. «Υπηρεσία» με κωδικό) ── */}
-          <div className="rounded-lg border border-border">
-            <button
-              type="button" aria-expanded={advanced} onClick={() => setAdvanced((a) => !a)}
-              className="flex min-h-10 w-full cursor-pointer items-center justify-between gap-2 px-3 text-left text-[length:var(--fs-12)] font-semibold text-muted-foreground outline-none hover:bg-[var(--cx-hover)] focus-visible:ring-2 focus-visible:ring-sisyphus-500"
-            >
-              Για λογιστές: επιλογή μητρώου SoftOne απευθείας
-              <FiChevronDown aria-hidden className={cn('size-4 transition-transform motion-reduce:transition-none', advanced && 'rotate-180')} />
-            </button>
-            {advanced && (
-              <div className="space-y-2 border-t border-border p-3">
-                {allowedHere.length <= 1 ? (
-                  <p className="text-caption text-muted-foreground">
-                    {allowedHere.length === 1
-                      ? <>Η σειρά του παραστατικού δέχεται <strong className="text-foreground">{KIND_META[allowedHere[0]].label}</strong>.</>
-                      : 'Η σειρά του παραστατικού δεν δέχεται καμία εγγραφή μητρώου.'}
-                  </p>
-                ) : (
-                  <div role="group" aria-label="Κατηγορία μητρώου" className="flex rounded-lg border border-border p-0.5">
-                    {SEGMENTS.map((k) => {
-                      const fits = lineKindFits(target, k);
-                      return (
-                        <button
-                          key={k}
-                          type="button"
-                          aria-pressed={kind === k}
-                          disabled={!fits}
-                          title={fits ? undefined : `Ο προορισμός «${target?.lines}» δεν δέχεται ${KIND_META[k].label.toLowerCase()}.`}
-                          onClick={() => { setKind(k); if (k !== 'lineitem') setLineCategory(null); }}
-                          className={cn(
-                            'flex min-h-8 flex-1 items-center justify-center gap-1 rounded-md px-1 py-1 text-[length:var(--fs-11)] font-semibold outline-none',
-                            'cx-transition motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-sisyphus-500',
-                            fits ? 'cursor-pointer' : 'cursor-not-allowed opacity-40',
-                            kind === k ? 'text-foreground' : 'text-muted-foreground hover:bg-[var(--cx-hover)]',
-                          )}
-                          style={kind === k ? { backgroundColor: KIND_META[k].bg, color: KIND_META[k].fg } : undefined}
-                        >
-                          {KIND_META[k].icon} {KIND_META[k].label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                {allowedHere.length > 1 && <p className="text-caption text-muted-foreground">{kindsReason}</p>}
-                {kind == null ? (
-                  <p className="flex items-start gap-1 rounded-lg border p-2 text-caption"
-                    style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}>
-                    <FiAlertTriangle aria-hidden className="mt-0.5 size-3 shrink-0" />
-                    Διάλεξε πρώτα μητρώο — μια λάθος επιλογή γράφει στο SoftOne εγγραφή που το παραστατικό δεν μπορεί να χρησιμοποιήσει.
-                  </p>
-                ) : (
-                  <>
-                    <RegistrySearch
-                      kind={kind}
-                      disabled={busy}
-                      id={`line-registry-adv-${lineId}`}
-                      category={kind === 'lineitem' ? lineCategory : null}
-                      label={KIND_META[kind].label}
-                      onPick={async (p) => { if (await pick(p.id, p.kind, p.code, p.name)) setOpen(false); }}
-                    />
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => { setOpen(false); setCreating(true); }}
-                      className="inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md border border-sisyphus-500/30 px-2 text-[length:var(--fs-11)] font-semibold text-sisyphus-600 outline-none hover:bg-sisyphus-50 focus-visible:ring-2 focus-visible:ring-sisyphus-500 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <FiPlusCircle aria-hidden className="size-3" /> Δημιουργία νέας εγγραφής «{KIND_META[kind].label}»
-                    </button>
-                  </>
-                )}
-                {assetsHere && (
-                  <div className="space-y-1.5 border-t border-border pt-2">
-                    <p className="flex items-center gap-1 text-caption font-semibold uppercase tracking-wider text-muted-foreground">
-                      <FiHardDrive aria-hidden className="size-3" /> Πάγιο
-                    </p>
-                    <AssetSearch id={`asset-adv-${lineId}`} disabled={busy} onPick={pickAsset} />
-                  </div>
-                )}
-              </div>
-            )}
+            {/* ── Περισσότερα: αναλυτική (προαιρετική) ── */}
+            <section className="overflow-hidden rounded-lg border border-border bg-card">
+              <button
+                type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((a) => !a)}
+                className="flex min-h-8 w-full cursor-pointer items-center gap-2 bg-muted/50 px-3 py-1.5 text-left text-[length:var(--fs-12)] font-semibold text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sisyphus-500"
+              >
+                <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded bg-muted text-muted-foreground [&_svg]:size-3"><FiSliders /></span>
+                <span className="min-w-0 flex-1 truncate">
+                  Περισσότερα (προαιρετικά): κέντρο κόστους, έργο
+                  {shown.length > 0 && <span className="ml-1.5 rounded-full bg-sisyphus-500/15 px-1.5 text-sisyphus-700 dark:text-sisyphus-300">{shown.length}</span>}
+                </span>
+                <FiChevronDown aria-hidden className={cn('size-4 shrink-0 transition-transform motion-reduce:transition-none', moreOpen && 'rotate-180')} />
+              </button>
+              {moreOpen && (
+                <div className="space-y-2.5 border-t border-border px-3 py-2.5">
+                  <RowHint>
+                    Συμπλήρωσέ τα μόνο αν σου το έχει ζητήσει ο λογιστής — δεν εμποδίζουν ποτέ την καταχώριση. Τι είναι το{' '}
+                    <Term k="kentro_kostous" />; Ό,τι επιβεβαιώσεις θα το <strong>θυμάται</strong> για την ίδια περιγραφή.
+                  </RowHint>
+                  <AnalyticsPicker
+                    id={`an-cc-${lineId}`} kind="costcenters" label="Κέντρο κόστους"
+                    value={analytics.costCntr} disabled={busy || !analyticsSupported}
+                    onChange={(v) => void setAnalytic('costCntr', v)}
+                    note={!analyticsSupported ? EXPENSE_NOTE : undefined}
+                  />
+                  <AnalyticsPicker
+                    id={`an-pj-${lineId}`} kind="projects" label="Έργο"
+                    value={analytics.prjc} disabled={busy || !analyticsSupported}
+                    onChange={(v) => void setAnalytic('prjc', v)}
+                    note={!analyticsSupported ? EXPENSE_NOTE : undefined}
+                    trdr={trdr}
+                    scopeAll={projectScopeAll}
+                    onScopeAll={setProjectScopeAll}
+                  />
+                  <AnalyticsPicker
+                    id={`an-ps-${lineId}`} kind="projectstages" label="Κατηγορία δραστηριότητας"
+                    value={analytics.prjcStage} disabled={busy || !analyticsSupported}
+                    onChange={(v) => void setAnalytic('prjcStage', v)}
+                    note={!analyticsSupported ? EXPENSE_NOTE : undefined}
+                  />
+                </div>
+              )}
+            </section>
           </div>
 
-          {/* ── Περισσότερα: αναλυτική (προαιρετική) ── */}
-          <div className="rounded-lg border border-border">
-            <button
-              type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((a) => !a)}
-              className="flex min-h-10 w-full cursor-pointer items-center justify-between gap-2 px-3 text-left text-[length:var(--fs-12)] font-semibold text-muted-foreground outline-none hover:bg-[var(--cx-hover)] focus-visible:ring-2 focus-visible:ring-sisyphus-500"
-            >
-              <span>
-                Περισσότερα (προαιρετικά): κέντρο κόστους, έργο
-                {shown.length > 0 && <span className="ml-1.5 rounded-full bg-sisyphus-500/15 px-1.5 text-sisyphus-700">{shown.length}</span>}
-              </span>
-              <FiChevronDown aria-hidden className={cn('size-4 transition-transform motion-reduce:transition-none', moreOpen && 'rotate-180')} />
-            </button>
-            {moreOpen && (
-              <div className="space-y-2 border-t border-border p-3">
-                <p className="text-caption text-muted-foreground">
-                  Συμπλήρωσέ τα μόνο αν σου το έχει ζητήσει ο λογιστής — δεν εμποδίζουν ποτέ την καταχώριση. Τι είναι το{' '}
-                  <Term k="kentro_kostous" />; Ό,τι επιβεβαιώσεις θα το <strong>θυμάται</strong> για την ίδια περιγραφή.
-                </p>
-                <AnalyticsPicker
-                  id={`an-cc-${lineId}`} kind="costcenters" label="Κέντρο κόστους"
-                  value={analytics.costCntr} disabled={busy || !analyticsSupported}
-                  onChange={(v) => void setAnalytic('costCntr', v)}
-                  note={!analyticsSupported ? EXPENSE_NOTE : undefined}
-                />
-                <AnalyticsPicker
-                  id={`an-pj-${lineId}`} kind="projects" label="Έργο"
-                  value={analytics.prjc} disabled={busy || !analyticsSupported}
-                  onChange={(v) => void setAnalytic('prjc', v)}
-                  note={!analyticsSupported ? EXPENSE_NOTE : undefined}
-                  trdr={trdr}
-                  scopeAll={projectScopeAll}
-                  onScopeAll={setProjectScopeAll}
-                />
-                <AnalyticsPicker
-                  id={`an-ps-${lineId}`} kind="projectstages" label="Κατηγορία δραστηριότητας"
-                  value={analytics.prjcStage} disabled={busy || !analyticsSupported}
-                  onChange={(v) => void setAnalytic('prjcStage', v)}
-                  note={!analyticsSupported ? EXPENSE_NOTE : undefined}
-                />
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border bg-card px-4 py-2.5">
             {step === 2 ? (
               <button type="button" onClick={() => setStep(1)}
-                className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-md px-3 text-[length:var(--fs-13)] font-semibold text-foreground hover:bg-[var(--cx-hover)]">
+                className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-3 text-[length:var(--fs-13)] font-semibold text-foreground outline-none hover:bg-[var(--cx-hover)] focus-visible:ring-2 focus-visible:ring-sisyphus-500">
                 <FiArrowLeft aria-hidden className="size-4" /> Πίσω
               </button>
             ) : <span />}
             <button type="button" onClick={() => setOpen(false)}
-              className="inline-flex min-h-10 cursor-pointer items-center rounded-md border border-input px-4 text-[length:var(--fs-13)] font-semibold text-foreground hover:bg-[var(--cx-hover)]">
+              className="inline-flex h-8 cursor-pointer items-center rounded-md border border-input px-4 text-[length:var(--fs-13)] font-semibold text-foreground outline-none hover:bg-[var(--cx-hover)] focus-visible:ring-2 focus-visible:ring-sisyphus-500">
               Κλείσιμο
             </button>
           </div>

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { FiX, FiCheck, FiAlertCircle, FiUpload } from 'react-icons/fi';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { formatBytes } from '@/lib/format';
 
@@ -31,66 +31,90 @@ export function UploadProgress({ items, open, onClose, onCancel }: UploadProgres
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o && allFinished) onClose(); }}>
-      <DialogContent className="!max-w-xl sm:!max-w-xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FiUpload className="text-primary" />
-            Μεταφόρτωση αρχείων
-            <span className="ml-auto text-[length:var(--fs-12)] font-normal text-muted-foreground">
+      <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-xl">
+        <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15" aria-hidden>
+            <FiUpload className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1 text-left">
+            <DialogTitle className="text-[length:var(--fs-15)]">Μεταφόρτωση αρχείων</DialogTitle>
+            <DialogDescription className="truncate text-[length:var(--fs-11)] tabular-nums" aria-live="polite">
               {done}/{items.length} ολοκληρώθηκαν
               {errored > 0 && <span className="text-destructive"> · {errored} σφάλματα</span>}
-            </span>
-          </DialogTitle>
+            </DialogDescription>
+          </div>
         </DialogHeader>
 
-        <div className="max-h-[60vh] overflow-y-auto space-y-2 pr-1">
-          {items.map((item) => (
-            <div key={item.id} className="rounded-md border border-border bg-card p-2.5">
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="flex-1 min-w-0">
-                  <div className="text-[length:var(--fs-12)] font-medium text-foreground truncate">{item.file.name}</div>
-                  <div className="text-[length:var(--fs-10)] text-muted-foreground tabular-nums">
+        <div className="max-h-[60vh] overflow-y-auto bg-muted/20 px-4 py-3">
+          <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+            {items.map((item) => (
+              <li key={item.id} className="px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="grid size-5 shrink-0 place-items-center" aria-hidden>
+                    {item.status === 'done' && <FiCheck className="size-4 text-emerald-600 dark:text-emerald-400" />}
+                    {item.status === 'error' && <FiAlertCircle className="size-4 text-destructive" />}
+                    {(item.status === 'uploading' || item.status === 'queued') && <FiUpload className="size-3.5 text-sisyphus-600 dark:text-sisyphus-300" />}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[length:var(--fs-12)] font-medium text-foreground" title={item.file.name}>
+                    {item.file.name}
+                  </span>
+                  <span className="shrink-0 text-[length:var(--fs-11)] tabular-nums text-muted-foreground">
                     {formatBytes(item.file.size)}
-                    {item.status === 'uploading' && ` · ${item.progress}%`}
-                  </div>
-                </span>
-                {item.status === 'done' && <FiCheck className="size-4 text-emerald-600 shrink-0" />}
-                {item.status === 'error' && <FiAlertCircle className="size-4 text-destructive shrink-0" />}
-                {(item.status === 'uploading' || item.status === 'queued') && onCancel && (
-                  <button
-                    type="button"
-                    onClick={() => onCancel(item.id)}
-                    className="inline-flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                    aria-label="Ακύρωση"
-                  >
-                    <FiX className="size-3" />
-                  </button>
-                )}
-              </div>
-              <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className={`h-full transition-[width] duration-150 ${
+                  </span>
+                  <span className={`w-10 shrink-0 text-right text-[length:var(--fs-11)] font-semibold tabular-nums ${
                     item.status === 'error'
-                      ? 'bg-destructive'
+                      ? 'text-destructive'
                       : item.status === 'done'
-                        ? 'bg-emerald-500'
-                        : 'bg-primary'
-                  }`}
-                  style={{ width: `${item.status === 'done' ? 100 : item.progress}%` }}
-                />
-              </div>
-              {item.status === 'error' && item.error && (
-                <div className="mt-1 text-[length:var(--fs-10)] text-destructive">{item.error}</div>
-              )}
-            </div>
-          ))}
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : 'text-sisyphus-700 dark:text-sisyphus-300'
+                  }`}>
+                    {item.status === 'error' ? '—' : `${item.status === 'done' ? 100 : item.progress}%`}
+                  </span>
+                  {(item.status === 'uploading' || item.status === 'queued') && onCancel ? (
+                    <button
+                      type="button"
+                      onClick={() => onCancel(item.id)}
+                      className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-500"
+                      aria-label="Ακύρωση"
+                    >
+                      <FiX className="size-3.5" />
+                    </button>
+                  ) : (
+                    <span className="size-6 shrink-0" aria-hidden />
+                  )}
+                </div>
+                <div
+                  className="ml-7 mr-8 mt-1 h-1 overflow-hidden rounded-full bg-muted"
+                  role="progressbar"
+                  aria-label={item.file.name}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={item.status === 'done' ? 100 : item.progress}
+                >
+                  <div
+                    className={`h-full transition-[width] duration-150 ${
+                      item.status === 'error'
+                        ? 'bg-destructive'
+                        : item.status === 'done'
+                          ? 'bg-emerald-500'
+                          : 'bg-sisyphus-500'
+                    }`}
+                    style={{ width: `${item.status === 'done' ? 100 : item.progress}%` }}
+                  />
+                </div>
+                {item.status === 'error' && item.error && (
+                  <div className="ml-7 mt-1 text-[length:var(--fs-11)] text-destructive" role="alert">{item.error}</div>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
 
-        <div className="flex justify-end pt-2">
+        <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5">
           <Button variant="outline" onClick={onClose} disabled={!allFinished}>
             {allFinished ? 'Κλείσιμο' : 'Σε εξέλιξη…'}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

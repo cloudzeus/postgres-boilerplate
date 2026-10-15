@@ -5,14 +5,13 @@ import { useRouter } from 'next/navigation';
 import { ColumnDef } from '@tanstack/react-table';
 import {
   FiEdit2, FiTrash2, FiShield, FiCheck, FiX, FiMail,
-  FiAlertTriangle, FiKey, FiMoreVertical,
+  FiAlertTriangle, FiKey, FiMoreVertical, FiUser, FiGlobe, FiLock,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -21,9 +20,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
+import { Field, FormSection, FormSelect, RowHint, fieldCls } from '@/components/admin/form-kit';
 import { LocaleMultiSelect } from '@/components/i18n/locale-multi-select';
 
 type UserRow = {
@@ -211,43 +208,44 @@ function EditUserDialog({
 
   return (
     <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Επεξεργασία χρήστη</DialogTitle>
-          <DialogDescription>Άλλαξε όνομα, email, ρόλο ή κατάσταση.</DialogDescription>
+      <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+          <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15"><FiEdit2 className="size-4" /></span>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="text-[length:var(--fs-15)]">Επεξεργασία χρήστη</DialogTitle>
+            <DialogDescription className="truncate text-[length:var(--fs-11)]">Άλλαξε όνομα, email, ρόλο ή κατάσταση.</DialogDescription>
+          </div>
         </DialogHeader>
-        <div className="grid gap-4 py-2">
-          <div className="grid gap-1.5">
-            <Label htmlFor="edit-name">Όνομα</Label>
-            <Input id="edit-name" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="edit-email">Email</Label>
-            <Input id="edit-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="edit-role">Ρόλος</Label>
-            <Select value={roleId} onValueChange={setRoleId}>
-              <SelectTrigger id="edit-role" className="w-full">
-                <SelectValue placeholder="Επίλεξε ρόλο" />
-              </SelectTrigger>
-              <SelectContent>
-                {roles.map((r) => (
-                  <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="edit-locales">Προτιμώμενες γλώσσες</Label>
-            <LocaleMultiSelect value={locales} onChange={setLocales} />
-          </div>
-          <label className="flex items-center gap-2 cursor-pointer pt-1">
-            <Checkbox checked={isActive} onCheckedChange={(v) => setIsActive(!!v)} />
-            <span className="text-[length:var(--fs-13)] text-foreground">Ενεργός λογαριασμός</span>
-          </label>
+        <div className="max-h-[66vh] space-y-3 overflow-auto bg-muted/20 px-4 py-3">
+          <FormSection tone="blue" icon={<FiUser />} title="Στοιχεία λογαριασμού">
+            <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+              <Field label="Όνομα" htmlFor="edit-name" className="col-span-12 sm:col-span-6">
+                <Input id="edit-name" className={fieldCls} value={name} onChange={(e) => setName(e.target.value)} />
+              </Field>
+              <Field label="Email" htmlFor="edit-email" className="col-span-12 sm:col-span-6">
+                <Input id="edit-email" type="email" className={fieldCls} value={email} onChange={(e) => setEmail(e.target.value)} />
+              </Field>
+            </div>
+          </FormSection>
+          <FormSection tone="amber" icon={<FiShield />} title="Ρόλος & κατάσταση">
+            <div className="grid grid-cols-12 items-end gap-x-3 gap-y-2">
+              <Field label="Ρόλος" htmlFor="edit-role" className="col-span-12 sm:col-span-7">
+                <FormSelect id="edit-role" value={roleId} onChange={setRoleId} opts={roles} placeholder="Επίλεξε ρόλο" />
+              </Field>
+              <label className="col-span-12 flex h-8 w-fit cursor-pointer items-center gap-2 sm:col-span-5">
+                <Checkbox checked={isActive} onCheckedChange={(v) => setIsActive(!!v)} />
+                <span className="text-[length:var(--fs-13)] text-foreground">Ενεργός λογαριασμός</span>
+              </label>
+            </div>
+          </FormSection>
+          <FormSection tone="violet" icon={<FiGlobe />} title="Γλώσσες">
+            <div role="group" aria-labelledby="edit-locales" className="grid min-w-0 gap-1">
+              <span id="edit-locales" className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Προτιμώμενες γλώσσες</span>
+              <LocaleMultiSelect value={locales} onChange={setLocales} />
+            </div>
+          </FormSection>
         </div>
-        <DialogFooter>
+        <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5">
           <Button variant="outline" onClick={onClose} disabled={saving}>Άκυρο</Button>
           <Button onClick={save} disabled={saving}>{saving ? 'Αποθήκευση…' : 'Αποθήκευση'}</Button>
         </DialogFooter>
@@ -279,25 +277,30 @@ function PasswordDialog({ user, onClose, onSaved }: { user: UserRow | null; onCl
 
   return (
     <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><FiKey className="text-primary" /> Αλλαγή κωδικού</DialogTitle>
-          <DialogDescription>
-            Όρισε νέο κωδικό για τον χρήστη <strong className="text-foreground">{user?.name || user?.email}</strong>.
-          </DialogDescription>
+      <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-md">
+        <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+          <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15"><FiKey className="size-4" /></span>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="text-[length:var(--fs-15)]">Αλλαγή κωδικού</DialogTitle>
+            <DialogDescription className="truncate text-[length:var(--fs-11)]">
+              Όρισε νέο κωδικό για τον χρήστη <strong className="text-foreground">{user?.name || user?.email}</strong>.
+            </DialogDescription>
+          </div>
         </DialogHeader>
-        <div className="grid gap-4 py-2">
-          <div className="grid gap-1.5">
-            <Label htmlFor="pw-new">Νέος κωδικός</Label>
-            <Input id="pw-new" type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="pw-confirm">Επιβεβαίωση</Label>
-            <Input id="pw-confirm" type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} autoComplete="new-password" />
-          </div>
-          <p className="text-[length:var(--fs-11)] text-muted-foreground">Τουλάχιστον 8 χαρακτήρες. Ο χρήστης θα ενημερωθεί ξεχωριστά.</p>
+        <div className="space-y-3 bg-muted/20 px-4 py-3">
+          <FormSection tone="amber" icon={<FiLock />} title="Νέος κωδικός">
+            <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+              <Field label="Νέος κωδικός" htmlFor="pw-new" className="col-span-12 sm:col-span-6">
+                <Input id="pw-new" type="password" className={fieldCls} value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" />
+              </Field>
+              <Field label="Επιβεβαίωση" htmlFor="pw-confirm" className="col-span-12 sm:col-span-6">
+                <Input id="pw-confirm" type="password" className={fieldCls} value={pw2} onChange={(e) => setPw2(e.target.value)} autoComplete="new-password" />
+              </Field>
+            </div>
+            <RowHint>Τουλάχιστον 8 χαρακτήρες. Ο χρήστης θα ενημερωθεί ξεχωριστά.</RowHint>
+          </FormSection>
         </div>
-        <DialogFooter>
+        <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5">
           <Button variant="outline" onClick={onClose} disabled={saving}>Άκυρο</Button>
           <Button onClick={save} disabled={saving}>{saving ? 'Ενημέρωση…' : 'Ορισμός κωδικού'}</Button>
         </DialogFooter>
@@ -320,18 +323,19 @@ function DeleteUserDialog({ user, onClose, onDeleted }: { user: UserRow | null; 
 
   return (
     <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-destructive">
-            <FiAlertTriangle /> Διαγραφή χρήστη
-          </DialogTitle>
-          <DialogDescription>
+      <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-md">
+        <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+          <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-destructive/10 text-destructive"><FiAlertTriangle className="size-4" /></span>
+          <DialogTitle className="min-w-0 flex-1 truncate text-[length:var(--fs-15)] text-destructive">Διαγραφή χρήστη</DialogTitle>
+        </DialogHeader>
+        <div className="bg-muted/20 px-4 py-3">
+          <DialogDescription className="rounded-lg border border-destructive/30 bg-destructive/[0.06] px-3 py-2.5 text-[length:var(--fs-13)] text-foreground">
             Σίγουρα θες να διαγραφεί ο χρήστης{' '}
             <strong className="text-foreground">{user?.name || user?.email}</strong>;
             Αυτή η ενέργεια δεν μπορεί να αναιρεθεί.
           </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
+        </div>
+        <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5">
           <Button variant="outline" onClick={onClose} disabled={deleting}>Άκυρο</Button>
           <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
             <FiTrash2 /> {deleting ? 'Διαγραφή…' : 'Οριστική διαγραφή'}

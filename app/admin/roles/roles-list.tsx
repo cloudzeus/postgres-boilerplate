@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
+import { FormSection } from '@/components/admin/form-kit';
 import {
   Accordion, AccordionContent, AccordionItem, AccordionTrigger,
 } from '@/components/ui/accordion';
@@ -88,12 +89,19 @@ export function RolesList({ items, permissions }: { items: RoleItem[]; permissio
       />
 
       <Dialog open={!!openRole} onOpenChange={(o) => !o && setOpenRole(null)}>
-        <DialogContent className="!max-w-3xl w-[90vw] sm:!max-w-3xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FiShield className="text-primary" /> {openRole?.name}
-            </DialogTitle>
-            <DialogDescription>Επίλεξε τα δικαιώματα που έχει αυτός ο ρόλος.</DialogDescription>
+        <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-3xl">
+          <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+            <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15"><FiShield className="size-4" /></span>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="truncate text-[length:var(--fs-15)]">{openRole?.name}</DialogTitle>
+              <DialogDescription className="truncate text-[length:var(--fs-11)]">Επίλεξε τα δικαιώματα που έχει αυτός ο ρόλος.</DialogDescription>
+            </div>
+            {openRole && (
+              <div className="hidden shrink-0 items-center gap-3 text-[length:var(--fs-12)] text-muted-foreground sm:flex">
+                <span className="inline-flex items-center gap-1"><FiUsers aria-hidden className="size-3.5" /> {openRole.userCount}</span>
+                {openRole.isSystem && <Badge variant="outline"><FiLock /> System</Badge>}
+              </div>
+            )}
           </DialogHeader>
 
           {openRole && (
@@ -154,7 +162,12 @@ function RolePermissionsEditor({
 
   return (
     <>
-      <div className="max-h-[55vh] overflow-y-auto -mx-1 px-1">
+      <div className="max-h-[66vh] space-y-3 overflow-y-auto bg-muted/20 px-4 py-3">
+        <FormSection
+          tone="blue" icon={<FiKey />} title="Δικαιώματα"
+          aside={<span className="font-mono tabular-nums">{selected.size}/{Object.values(byResource).reduce((n, ps) => n + ps.length, 0)}</span>}
+        >
+        <div className="-mx-3 -my-2.5">
         <Accordion type="multiple" className="w-full">
           {Object.entries(byResource).map(([resource, perms]) => {
             const total = totalByResource(perms);
@@ -163,7 +176,7 @@ function RolePermissionsEditor({
             const someOn = sel > 0 && sel < total;
             return (
               <AccordionItem key={resource} value={resource} className="border-b border-border last:border-b-0">
-                <div className="flex items-center gap-2 px-2 py-1">
+                <div className="flex items-center gap-2 px-3">
                   <span
                     role="checkbox"
                     aria-checked={allOn ? 'true' : someOn ? 'mixed' : 'false'}
@@ -175,7 +188,7 @@ function RolePermissionsEditor({
                         toggleAllInResource(perms, !allOn);
                       }
                     }}
-                    className={`inline-flex size-4 shrink-0 items-center justify-center rounded-sm border cursor-pointer transition-colors ${
+                    className={`inline-flex size-4 shrink-0 items-center justify-center rounded-sm border cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                       allOn || someOn
                         ? 'bg-primary border-primary text-primary-foreground'
                         : 'bg-card border-input hover:border-primary'
@@ -183,17 +196,17 @@ function RolePermissionsEditor({
                   >
                     {allOn ? <FiCheck className="h-3 w-3" /> : someOn ? <span className="block h-0.5 w-2 bg-current" /> : null}
                   </span>
-                  <AccordionTrigger className="hover:no-underline py-2 flex-1 group min-w-0">
+                  <AccordionTrigger className="hover:no-underline py-1.5 flex-1 group min-w-0">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="text-[length:var(--fs-11)] font-bold uppercase tracking-wider text-foreground">{resource}</span>
-                      <span className="text-[length:var(--fs-10)] font-mono text-muted-foreground tabular-nums ml-auto mr-2">
+                      <span className="truncate text-[length:var(--fs-11)] font-bold uppercase tracking-wider text-foreground">{resource}</span>
+                      <span className={`ml-auto mr-2 rounded px-1.5 font-mono text-[length:var(--fs-10)] tabular-nums ${allOn ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : someOn ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300' : 'text-muted-foreground'}`}>
                         {sel}/{total}
                       </span>
                     </div>
                   </AccordionTrigger>
                 </div>
-                <AccordionContent className="pb-2">
-                  <div className="space-y-0.5 pl-6">
+                <AccordionContent className="pb-1.5">
+                  <div className="space-y-0.5 pl-7 pr-3">
                     {perms.map((p) => (
                       <label
                         key={p.id}
@@ -210,7 +223,7 @@ function RolePermissionsEditor({
                             <div className="text-[length:var(--fs-10)] text-muted-foreground leading-tight">{p.description}</div>
                           )}
                         </div>
-                        <code className="text-[length:var(--fs-10)] text-muted-foreground/70 font-mono">{p.key}</code>
+                        <code className="max-w-[40%] truncate text-[length:var(--fs-10)] text-muted-foreground/70 font-mono">{p.key}</code>
                       </label>
                     ))}
                   </div>
@@ -219,8 +232,10 @@ function RolePermissionsEditor({
             );
           })}
         </Accordion>
+        </div>
+        </FormSection>
       </div>
-      <DialogFooter>
+      <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5">
         <Button variant="outline" onClick={onCancel}>Άκυρο</Button>
         <Button onClick={save} disabled={saving}>{saving ? 'Αποθήκευση...' : 'Αποθήκευση'}</Button>
       </DialogFooter>

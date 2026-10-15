@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { FiArrowRight, FiEye, FiRefreshCw, FiSearch, FiInbox } from 'react-icons/fi';
+import { FiArrowRight, FiEye, FiRefreshCw, FiSearch, FiInbox, FiDatabase } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -286,28 +286,32 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
             modalWidthClass(modalData?.columns.length ?? 4),
           )}
         >
-          {/* Header */}
-          <DialogHeader className="gap-1 border-b border-border px-5 pt-5 pb-4">
-            <div className="flex items-center gap-2">
-              <DialogTitle className="text-[length:var(--fs-15)]">{modalData?.title ?? 'Μητρώο αναφοράς'}</DialogTitle>
-              {modalData && (
-                <span className="rounded-full bg-sisyphus-50 px-2 py-0.5 text-[length:var(--fs-11)] font-semibold text-sisyphus-700 tabular-nums">
-                  {modalData.rows.length.toLocaleString('el-GR')}
-                </span>
-              )}
+          {/* Header: τίτλος + πλήθος αριστερά, αναζήτηση δεξιά */}
+          <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+            <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15"><FiDatabase className="size-4" /></span>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-2">
+                <DialogTitle className="truncate text-[length:var(--fs-15)]">{modalData?.title ?? 'Μητρώο αναφοράς'}</DialogTitle>
+                {modalData && (
+                  <span className="shrink-0 rounded-full bg-sisyphus-50 px-2 py-0.5 text-[length:var(--fs-11)] font-semibold tabular-nums text-sisyphus-700 dark:bg-sisyphus-500/15 dark:text-sisyphus-300">
+                    {modalData.rows.length.toLocaleString('el-GR')}
+                  </span>
+                )}
+              </div>
+              <DialogDescription className="truncate text-[length:var(--fs-11)]">
+                {modalLoading ? 'Φόρτωση δεδομένων…' : 'Δεδομένα μητρώου αναφοράς (read-only).'}
+              </DialogDescription>
             </div>
-            <DialogDescription className="text-[length:var(--fs-12)]">
-              {modalLoading ? 'Φόρτωση δεδομένων…' : 'Δεδομένα μητρώου αναφοράς (read-only).'}
-            </DialogDescription>
 
             {modalData && modalData.rows.length > 8 && (
-              <div className="relative mt-2 max-w-xs">
-                <FiSearch className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <div className="relative w-40 shrink-0 sm:w-60">
+                <FiSearch aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={modalSearch}
                   onChange={(e) => setModalSearch(e.target.value)}
                   placeholder="Αναζήτηση…"
-                  className="h-8 pl-8 text-[length:var(--fs-12)]"
+                  aria-label="Αναζήτηση στο μητρώο"
+                  className="h-8 pl-8 text-[length:var(--fs-13)]"
                 />
               </div>
             )}
@@ -315,7 +319,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
 
           {/* Body */}
           {modalLoading && (
-            <div className="flex flex-1 items-center justify-center py-16 text-[length:var(--fs-12)] text-muted-foreground">
+            <div className="flex flex-1 items-center justify-center bg-muted/20 py-16 text-[length:var(--fs-12)] text-muted-foreground">
               Φόρτωση…
             </div>
           )}
@@ -333,7 +337,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
                       {modalData.columns.map((c) => (
                         <th
                           key={c.key}
-                          className="border-b border-border px-3 py-2.5 text-left text-[length:var(--fs-10)] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap"
+                          className="whitespace-nowrap border-b border-border px-3 py-2 text-left text-[length:var(--fs-10)] font-semibold uppercase tracking-wider text-muted-foreground"
                         >
                           {c.label}
                         </th>
@@ -342,12 +346,12 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
                   </thead>
                   <tbody>
                     {rows.map((row, i) => (
-                      <tr key={i} className="border-b border-border/60 transition-colors even:bg-muted/20 hover:bg-sisyphus-50/40">
+                      <tr key={i} className="border-b border-border/60 transition-colors even:bg-muted/20 hover:bg-sisyphus-50/40 dark:hover:bg-sisyphus-500/10">
                         {modalData.columns.map((c, ci) => (
                           <td
                             key={c.key}
                             className={cn(
-                              'px-3 py-2 align-top',
+                              'px-3 py-1.5 align-top',
                               ci === 0 && 'font-mono text-[length:var(--fs-11)] tabular-nums text-muted-foreground',
                             )}
                           >
@@ -372,7 +376,7 @@ export function ReferenceDataClient({ stats, canManage }: { stats: Stat[]; canMa
 
           {/* Footer count */}
           {modalData && (
-            <div className="border-t border-border bg-muted/30 px-5 py-2.5 text-[length:var(--fs-11)] text-muted-foreground">
+            <div className="border-t border-border bg-card px-4 py-2.5 text-[length:var(--fs-11)] tabular-nums text-muted-foreground">
               {modalData.columns.length} στήλες · {modalData.rows.length.toLocaleString('el-GR')} εγγραφές
             </div>
           )}

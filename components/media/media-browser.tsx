@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
+import { Field, fieldCls } from '@/components/admin/form-kit';
 import { UploadProgress, useUploader } from './upload-progress';
 
 type Folder = { id: string; name: string; parentId: string | null };
@@ -107,25 +107,31 @@ export function MediaBrowser({ pickerMode, onPick, acceptImagesOnly }: Props) {
     }
   };
 
+  // Μέσα στο παράθυρο επιλογής (pickerMode) το browser γεμίζει όλο το πλάτος του modal:
+  // εργαλειοθήκη ως πυκνή γραμμή κάτω από την κεφαλίδα, σώμα με κύλιση, γραμμή κατάστασης στο κάτω μέρος.
+  const embedded = !!pickerMode;
+
   return (
-    <div className="space-y-3">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <nav className="flex items-center gap-1 text-[length:var(--fs-12)] text-muted-foreground flex-1 min-w-0 truncate">
+    <div className={embedded ? 'flex min-h-0 flex-col' : 'overflow-hidden rounded-xl border border-border bg-card'}>
+      {/* Toolbar: διαδρομή φακέλων · αναζήτηση · νέος φάκελος · μεταφόρτωση */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/30 px-4 py-2">
+        <nav aria-label="Διαδρομή φακέλων" className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-[length:var(--fs-12)] text-muted-foreground">
           <button
             type="button"
             onClick={() => setFolderId(null)}
-            className="inline-flex items-center gap-1 hover:text-foreground"
+            className={`inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-500 ${
+              breadcrumbs.length === 0 ? 'font-semibold text-foreground' : ''
+            }`}
           >
-            <FiHome className="size-3.5" /> Αρχικός φάκελος
+            <FiHome className="size-3.5" aria-hidden /> Αρχικός φάκελος
           </button>
           {breadcrumbs.map((b) => (
             <React.Fragment key={b.id}>
-              <FiChevronRight className="size-3 text-muted-foreground" />
+              <FiChevronRight className="size-3 shrink-0 text-muted-foreground/70" aria-hidden />
               <button
                 type="button"
                 onClick={() => setFolderId(b.id)}
-                className="hover:text-foreground truncate font-medium text-foreground"
+                className="h-7 min-w-0 truncate rounded-md px-1.5 font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-500"
               >
                 {b.name}
               </button>
@@ -133,32 +139,44 @@ export function MediaBrowser({ pickerMode, onPick, acceptImagesOnly }: Props) {
           ))}
         </nav>
 
-        <div className="relative w-48">
-          <FiSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-          <Input placeholder="Αναζήτηση..." value={q} onChange={(e) => setQ(e.target.value)} className="pl-8 h-8" />
+        <div className="relative w-full sm:w-52">
+          <FiSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <Input
+            placeholder="Αναζήτηση..."
+            aria-label="Αναζήτηση αρχείων"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            className={`pl-8 ${fieldCls}`}
+          />
         </div>
 
         <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
           <DialogTrigger asChild>
-            <Button variant="outline"><FiFolderPlus /> Νέος φάκελος</Button>
+            <Button variant="outline" className="text-[length:var(--fs-12)]"><FiFolderPlus /> Νέος φάκελος</Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-sm">
-            <DialogHeader>
-              <DialogTitle>Νέος φάκελος</DialogTitle>
-              <DialogDescription>Δώσε όνομα στο νέο φάκελο.</DialogDescription>
+          <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-sm">
+            <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15" aria-hidden>
+                <FiFolderPlus className="size-4" />
+              </span>
+              <div className="min-w-0 text-left">
+                <DialogTitle className="text-[length:var(--fs-15)]">Νέος φάκελος</DialogTitle>
+                <DialogDescription className="truncate text-[length:var(--fs-11)]">Δώσε όνομα στο νέο φάκελο.</DialogDescription>
+              </div>
             </DialogHeader>
-            <div className="grid gap-1.5">
-              <Label htmlFor="folder-name">Όνομα</Label>
-              <Input id="folder-name" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} autoFocus />
+            <div className="bg-muted/20 px-4 py-3">
+              <Field label="Όνομα" htmlFor="folder-name" required>
+                <Input id="folder-name" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} autoFocus className={fieldCls} />
+              </Field>
             </div>
-            <DialogFooter>
+            <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5">
               <Button variant="outline" onClick={() => setNewFolderOpen(false)}>Άκυρο</Button>
               <Button onClick={createFolder}>Δημιουργία</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        <Button onClick={() => fileInputRef.current?.click()}>
+        <Button onClick={() => fileInputRef.current?.click()} className="text-[length:var(--fs-12)]">
           <FiUpload /> Μεταφόρτωση
         </Button>
         <input
@@ -171,47 +189,65 @@ export function MediaBrowser({ pickerMode, onPick, acceptImagesOnly }: Props) {
       </div>
 
       {/* Drop zone + grid */}
-      <div
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-        className={`relative min-h-[400px] rounded-xl border-2 border-dashed transition-colors ${
-          dragOver ? 'border-primary bg-accent' : 'border-border bg-card/50'
-        }`}
-      >
-        {dragOver && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-            <div className="rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold shadow-pop">
-              Άφησε τα αρχεία για ανέβασμα…
+      <div className={embedded ? 'max-h-[66vh] overflow-auto bg-muted/20 px-4 py-3' : 'bg-muted/20 px-4 py-3'}>
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+          className={`relative rounded-lg border-2 border-dashed transition-colors ${
+            embedded ? 'min-h-[18rem]' : 'min-h-[25rem]'
+          } ${
+            dragOver
+              ? 'border-sisyphus-500 bg-sisyphus-50/60 dark:bg-sisyphus-500/10'
+              : 'border-border/70 bg-card/40'
+          }`}
+        >
+          {dragOver && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+              <div className="inline-flex items-center gap-2 rounded-lg bg-sisyphus-600 px-3 py-1.5 text-[length:var(--fs-13)] font-semibold text-white shadow-pop">
+                <FiUpload className="size-4" aria-hidden /> Άφησε τα αρχεία για ανέβασμα…
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {loading ? (
-          <div className="p-8 text-center text-[length:var(--fs-12)] text-muted-foreground">Φόρτωση…</div>
-        ) : folders.length === 0 && files.length === 0 ? (
-          <div className="p-12 text-center">
-            <FiUpload className="size-8 mx-auto text-muted-foreground mb-2" />
-            <p className="text-[length:var(--fs-13)] text-muted-foreground">
-              Σύρε αρχεία εδώ ή πάτα <span className="font-semibold text-foreground">Μεταφόρτωση</span>.
-            </p>
-            <p className="text-[length:var(--fs-11)] text-muted-foreground mt-1">Max 500 MB ανά αρχείο.</p>
-          </div>
-        ) : (
-          <div className="p-3 grid gap-2 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
-            {folders.map((f) => (
-              <FolderTile key={f.id} folder={f} onOpen={() => setFolderId(f.id)} onDelete={() => deleteFolder(f.id)} />
-            ))}
-            {files.map((file) => (
-              <FileTile
-                key={file.id}
-                file={file}
-                onDelete={() => deleteFile(file.id)}
-                onPick={pickerMode ? () => onPick?.(file) : undefined}
-              />
-            ))}
-          </div>
-        )}
+          {loading ? (
+            <div className="p-8 text-center text-[length:var(--fs-12)] text-muted-foreground" role="status">Φόρτωση…</div>
+          ) : folders.length === 0 && files.length === 0 ? (
+            <div className="flex flex-col items-center px-4 py-10 text-center">
+              <span className="mb-2 grid size-10 place-items-center rounded-xl bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15" aria-hidden>
+                <FiUpload className="size-5" />
+              </span>
+              <p className="text-[length:var(--fs-13)] text-muted-foreground">
+                Σύρε αρχεία εδώ ή πάτα <span className="font-semibold text-foreground">Μεταφόρτωση</span>.
+              </p>
+              <p className="mt-1 text-[length:var(--fs-11)] text-muted-foreground">Max 500 MB ανά αρχείο.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 p-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
+              {folders.map((f) => (
+                <FolderTile key={f.id} folder={f} onOpen={() => setFolderId(f.id)} onDelete={() => deleteFolder(f.id)} />
+              ))}
+              {files.map((file) => (
+                <FileTile
+                  key={file.id}
+                  file={file}
+                  onDelete={() => deleteFile(file.id)}
+                  onPick={pickerMode ? () => onPick?.(file) : undefined}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Γραμμή κατάστασης */}
+      <div className="flex items-center justify-between gap-2 border-t border-border bg-card px-4 py-2.5 text-[length:var(--fs-11)] text-muted-foreground">
+        <span className="tabular-nums">
+          {folders.length} φάκελοι · {files.length} αρχεία
+        </span>
+        <span className="truncate">
+          {pickerMode ? 'Click σε αρχείο για επιλογή · ' : 'Click σε αρχείο: αντιγραφή URL · '}Max 500 MB ανά αρχείο
+        </span>
       </div>
 
       <UploadProgress
@@ -224,24 +260,28 @@ export function MediaBrowser({ pickerMode, onPick, acceptImagesOnly }: Props) {
   );
 }
 
+const tileActionCls =
+  'inline-flex size-6 items-center justify-center rounded-md border border-border bg-card/95 text-muted-foreground shadow-sm backdrop-blur-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-500';
+
 function FolderTile({ folder, onOpen, onDelete }: { folder: Folder; onOpen: () => void; onDelete: () => void }) {
   return (
     <div className="group relative">
       <button
         type="button"
         onClick={onOpen}
-        className="w-full flex flex-col items-center gap-1.5 rounded-lg border border-border bg-card p-3 hover:border-primary hover:bg-accent/40 transition-colors"
+        className="flex w-full flex-col items-center gap-1 rounded-lg border border-sisyphus-500/20 bg-sisyphus-50/50 px-2 pb-2 pt-3 transition-colors hover:border-sisyphus-500 hover:bg-sisyphus-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-500 dark:bg-sisyphus-500/10 dark:hover:bg-sisyphus-500/15"
       >
-        <FiFolder className="size-10 text-primary/80" />
-        <span className="text-[length:var(--fs-11)] font-medium text-foreground truncate w-full text-center">{folder.name}</span>
+        <FiFolder className="size-9 text-sisyphus-600 dark:text-sisyphus-300" aria-hidden />
+        <span className="w-full truncate text-center text-[length:var(--fs-11)] font-medium text-foreground" title={folder.name}>{folder.name}</span>
       </button>
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        className="absolute top-1 right-1 size-5 inline-flex items-center justify-center rounded-sm bg-card/90 border border-border text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity"
+        className={`absolute right-1 top-1 opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${tileActionCls}`}
         aria-label="Διαγραφή"
+        title="Διαγραφή"
       >
-        <FiTrash2 className="size-2.5" />
+        <FiTrash2 className="size-3" />
       </button>
     </div>
   );
@@ -259,37 +299,40 @@ function FileTile({ file, onDelete, onPick }: { file: MediaFile; onDelete: () =>
         type="button"
         onClick={onPick ?? copyUrl}
         title={onPick ? 'Επιλογή' : 'Click: copy URL'}
-        className="w-full flex flex-col items-stretch rounded-lg border border-border bg-card hover:border-primary transition-colors overflow-hidden"
+        className={`flex w-full flex-col items-stretch overflow-hidden rounded-lg border border-border bg-card transition-[border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-500 focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
+          onPick ? 'hover:border-sisyphus-500 hover:ring-2 hover:ring-sisyphus-500' : 'hover:border-sisyphus-500'
+        }`}
       >
-        <div className="aspect-square bg-muted relative flex items-center justify-center">
+        <div className="relative flex aspect-square items-center justify-center bg-muted">
           {file.isImage ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={file.publicUrl} alt={file.name} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+            <img src={file.publicUrl} alt={file.name} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
           ) : (
-            <FiFile className="size-10 text-muted-foreground" />
+            <FiFile className="size-9 text-muted-foreground" aria-hidden />
           )}
           {file.isSvg && (
-            <span className="absolute top-1 left-1 rounded-sm bg-primary/90 text-primary-foreground px-1 py-0.5 text-[length:var(--fs-9)] font-bold tracking-wide">
+            <span className="absolute left-1 top-1 rounded-sm bg-violet-600/90 px-1 py-0.5 text-[length:var(--fs-9)] font-bold tracking-wide text-white">
               SVG
             </span>
           )}
         </div>
-        <div className="p-1.5 text-left">
-          <div className="text-[length:var(--fs-11)] font-medium text-foreground truncate">{file.name}</div>
-          <div className="text-[length:var(--fs-10)] text-muted-foreground tabular-nums">
+        <div className="border-t border-border px-1.5 py-1 text-left">
+          <div className="truncate text-[length:var(--fs-11)] font-medium text-foreground" title={file.name}>{file.name}</div>
+          <div className="truncate text-[length:var(--fs-10)] tabular-nums text-muted-foreground">
             {fmt(file.size)}
             {file.width && file.height && ` · ${file.width}×${file.height}`}
           </div>
         </div>
       </button>
-      <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="absolute right-1 top-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); copyUrl(); }}
-          className="size-5 inline-flex items-center justify-center rounded-sm bg-card/90 border border-border text-muted-foreground hover:text-foreground"
+          className={`hover:text-foreground ${tileActionCls}`}
           title="Copy URL"
+          aria-label="Αντιγραφή URL"
         >
-          <FiCopy className="size-2.5" />
+          <FiCopy className="size-3" />
         </button>
         {file.originalUrl && (
           <a
@@ -297,19 +340,21 @@ function FileTile({ file, onDelete, onPick }: { file: MediaFile; onDelete: () =>
             target="_blank"
             rel="noopener"
             onClick={(e) => e.stopPropagation()}
-            className="size-5 inline-flex items-center justify-center rounded-sm bg-card/90 border border-border text-muted-foreground hover:text-foreground"
+            className={`hover:text-foreground ${tileActionCls}`}
             title="Original SVG"
+            aria-label="Πρωτότυπο SVG"
           >
-            <FiDownload className="size-2.5" />
+            <FiDownload className="size-3" />
           </a>
         )}
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="size-5 inline-flex items-center justify-center rounded-sm bg-card/90 border border-border text-muted-foreground hover:text-destructive"
+          className={`hover:text-destructive ${tileActionCls}`}
           title="Διαγραφή"
+          aria-label="Διαγραφή"
         >
-          <FiTrash2 className="size-2.5" />
+          <FiTrash2 className="size-3" />
         </button>
       </div>
     </div>

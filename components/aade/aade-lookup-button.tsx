@@ -1,16 +1,17 @@
 'use client';
 
 import * as React from 'react';
-import { FiDownloadCloud, FiSearch, FiCheck, FiAlertCircle } from 'react-icons/fi';
+import { FiDownloadCloud, FiSearch, FiCheck, FiAlertCircle, FiBriefcase, FiList } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Field, FormSection, fieldCls } from '@/components/admin/form-kit';
+import { cn } from '@/lib/utils';
 
 export type AadeActivity = {
   code: string;
@@ -104,83 +105,88 @@ export function AadeLookupButton({ initialAfm, onApply, size = 'sm', label = 'Ά
       </TooltipProvider>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FiDownloadCloud className="text-primary" /> Στοιχεία από ΑΕΔΕΕ
-            </DialogTitle>
-            <DialogDescription>
-              Εισάγετε ΑΦΜ για ανάκτηση των επίσημων στοιχείων από το Μητρώο.
-            </DialogDescription>
+        <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-xl">
+          <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+            <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15"><FiDownloadCloud className="size-4" /></span>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-[length:var(--fs-15)]">Στοιχεία από ΑΕΔΕΕ</DialogTitle>
+              <DialogDescription className="truncate text-[length:var(--fs-11)]">
+                Εισάγετε ΑΦΜ για ανάκτηση των επίσημων στοιχείων από το Μητρώο.
+              </DialogDescription>
+            </div>
           </DialogHeader>
 
-          <div className="flex items-end gap-2">
-            <div className="flex-1 grid gap-1">
-              <Label htmlFor="aade-afm" className="text-[length:var(--fs-11)]">ΑΦΜ</Label>
-              <Input
-                id="aade-afm" value={afm} maxLength={9}
-                onChange={(e) => setAfm(e.target.value.replace(/\D/g, ''))}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); fetchAade(); } }}
-                placeholder="123456789" inputMode="numeric"
-              />
-            </div>
-            <Button onClick={fetchAade} disabled={loading || afm.length !== 9}>
-              <FiSearch className="mr-1" /> {loading ? 'Αναζήτηση…' : 'Αναζήτηση'}
-            </Button>
-          </div>
+          <div className="max-h-[66vh] space-y-3 overflow-auto bg-muted/20 px-4 py-3">
+            <FormSection tone="blue" icon={<FiSearch />} title="Αναζήτηση">
+              <div className="grid grid-cols-12 items-end gap-x-3 gap-y-2">
+                <Field label="ΑΦΜ" htmlFor="aade-afm" className="col-span-12 sm:col-span-8">
+                  <Input
+                    id="aade-afm" value={afm} maxLength={9}
+                    className={cn(fieldCls, 'font-mono tabular-nums')}
+                    aria-invalid={error ? true : undefined}
+                    onChange={(e) => setAfm(e.target.value.replace(/\D/g, ''))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); fetchAade(); } }}
+                    placeholder="123456789" inputMode="numeric"
+                  />
+                </Field>
+                <Button className="col-span-12 h-8 text-[length:var(--fs-13)] sm:col-span-4" onClick={fetchAade} disabled={loading || afm.length !== 9}>
+                  <FiSearch className="mr-1" /> {loading ? 'Αναζήτηση…' : 'Αναζήτηση'}
+                </Button>
+              </div>
+              {error && (
+                <div role="alert" className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-1.5 text-[length:var(--fs-12)] text-destructive">
+                  <FiAlertCircle aria-hidden className="shrink-0" /> {error}
+                </div>
+              )}
+            </FormSection>
 
-          {error && (
-            <div className="flex items-center gap-2 rounded-sm border border-destructive/40 bg-destructive/5 px-3 py-2 text-[length:var(--fs-12)] text-destructive">
-              <FiAlertCircle /> {error}
-            </div>
-          )}
-
-          {data && (
-            <div className="space-y-3 rounded-sm border p-3">
-              <div className="flex items-start gap-2">
-                <div className="flex-1 min-w-0">
+            {data && (
+              <FormSection
+                tone="emerald" icon={<FiBriefcase />} title="Μητρώο"
+                aside={
+                  <Badge variant="outline" className={data.mapped.isActive ? 'border-emerald-300 text-emerald-700 dark:border-emerald-500/40 dark:text-emerald-300' : 'border-amber-300 text-amber-700 dark:border-amber-500/40 dark:text-amber-300'}>
+                    {data.mapped.aadeStatus ?? (data.mapped.isActive ? 'Ενεργός' : 'Ανενεργός')}
+                  </Badge>
+                }
+              >
+                <div className="min-w-0">
                   <div className="text-[length:var(--fs-13)] font-semibold text-foreground">{data.mapped.name}</div>
                   {data.mapped.shortName && (
-                    <div className="text-[length:var(--fs-11)] text-muted-foreground truncate">{data.mapped.shortName}</div>
+                    <div className="truncate text-[length:var(--fs-11)] text-muted-foreground">{data.mapped.shortName}</div>
                   )}
                 </div>
-                <Badge variant="outline" className={data.mapped.isActive ? 'border-emerald-300 text-emerald-700' : 'border-amber-300 text-amber-700'}>
-                  {data.mapped.aadeStatus ?? (data.mapped.isActive ? 'Ενεργός' : 'Ανενεργός')}
-                </Badge>
-              </div>
+                <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[length:var(--fs-12)]">
+                  <Row label="ΑΦΜ"><span className="font-mono tabular-nums">{data.mapped.afm}</span></Row>
+                  <Row label="ΔΟΥ">{data.mapped.doy ? `${data.mapped.doy}${data.mapped.doyCode ? ` (${data.mapped.doyCode})` : ''}` : '—'}</Row>
+                  <Row label="Νομική μορφή">{data.mapped.legalForm ?? '—'}</Row>
+                  <Row label="Ίδρυση">{data.mapped.foundingDate ?? '—'}</Row>
+                  <Row label="Διεύθυνση">{[data.mapped.address, data.mapped.zip, data.mapped.city].filter(Boolean).join(', ') || '—'}</Row>
+                  <Row label="Κύρια δραστηριότητα">{data.mapped.profession ?? '—'}</Row>
+                </dl>
+              </FormSection>
+            )}
 
-              <dl className="grid sm:grid-cols-2 gap-x-4 gap-y-1.5 text-[length:var(--fs-12)]">
-                <Row label="ΑΦΜ">{data.mapped.afm}</Row>
-                <Row label="ΔΟΥ">{data.mapped.doy ? `${data.mapped.doy}${data.mapped.doyCode ? ` (${data.mapped.doyCode})` : ''}` : '—'}</Row>
-                <Row label="Νομική μορφή">{data.mapped.legalForm ?? '—'}</Row>
-                <Row label="Ίδρυση">{data.mapped.foundingDate ?? '—'}</Row>
-                <Row label="Διεύθυνση" wide>{[data.mapped.address, data.mapped.zip, data.mapped.city].filter(Boolean).join(', ') || '—'}</Row>
-                <Row label="Κύρια δραστηριότητα" wide>{data.mapped.profession ?? '—'}</Row>
-              </dl>
-
-              <div>
-                <div className="text-[length:var(--fs-10)] uppercase tracking-wider font-semibold text-muted-foreground mb-1">
-                  ΚΑΔ ({data.activities.length})
-                </div>
-                <ul className="max-h-40 overflow-y-auto divide-y divide-border rounded-sm border">
+            {data && (
+              <FormSection tone="amber" icon={<FiList />} title={`ΚΑΔ (${data.activities.length})`}>
+                <ul className="-mx-3 -my-2.5 max-h-40 divide-y divide-border overflow-y-auto">
                   {data.activities.map((a) => (
-                    <li key={a.code} className="flex items-center gap-2 px-2 py-1">
-                      <span className="font-mono text-[length:var(--fs-11)] tabular-nums w-20 shrink-0">{a.code}</span>
-                      <span className="flex-1 text-[length:var(--fs-11)] truncate" title={a.description}>{a.description}</span>
+                    <li key={a.code} className="flex items-center gap-2 px-3 py-1">
+                      <span className="w-20 shrink-0 font-mono text-[length:var(--fs-11)] tabular-nums">{a.code}</span>
+                      <span className="min-w-0 flex-1 truncate text-[length:var(--fs-11)]" title={a.description}>{a.description}</span>
                       <Badge
                         variant="outline"
-                        className={a.kind === 'PRIMARY' ? 'text-[length:var(--fs-9)] border-emerald-300 text-emerald-700' : 'text-[length:var(--fs-9)]'}
+                        className={a.kind === 'PRIMARY' ? 'text-[length:var(--fs-9)] border-emerald-300 text-emerald-700 dark:border-emerald-500/40 dark:text-emerald-300' : 'text-[length:var(--fs-9)]'}
                       >
                         {a.kind === 'PRIMARY' ? 'ΚΥΡΙΑ' : 'ΔΕΥΤ.'}
                       </Badge>
                     </li>
                   ))}
                 </ul>
-              </div>
-            </div>
-          )}
+              </FormSection>
+            )}
+          </div>
 
-          <DialogFooter>
+          <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5">
             <Button variant="outline" onClick={() => setOpen(false)}>Άκυρο</Button>
             <Button onClick={apply} disabled={!data}>
               <FiCheck className="mr-1" /> Εφαρμογή στη φόρμα
@@ -192,11 +198,11 @@ export function AadeLookupButton({ initialAfm, onApply, size = 'sm', label = 'Ά
   );
 }
 
-function Row({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className={wide ? 'sm:col-span-2' : ''}>
-      <dt className="text-[length:var(--fs-10)] uppercase tracking-wider text-muted-foreground">{label}</dt>
-      <dd className="text-foreground truncate">{children}</dd>
-    </div>
+    <>
+      <dt className="truncate text-muted-foreground" title={label}>{label}</dt>
+      <dd className="min-w-0 truncate text-foreground">{children}</dd>
+    </>
   );
 }

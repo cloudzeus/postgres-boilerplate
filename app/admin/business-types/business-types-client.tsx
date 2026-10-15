@@ -1,10 +1,10 @@
 'use client';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { FiPlus, FiEdit2, FiTrash2, FiMoreVertical } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiMoreVertical, FiBriefcase } from 'react-icons/fi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Field, FormSection, RowHint, fieldCls } from '@/components/admin/form-kit';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -92,16 +92,32 @@ export function BusinessTypesClient({ rows, canManage }: { rows: BusinessTypeRow
         </table>
       </div>
       <Dialog open={open} onOpenChange={(o) => !o && close()}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>{editing ? 'Επεξεργασία μορφής' : 'Νέα νομική μορφή'}</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div><Label>Κωδικός * (canonical)</Label><Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="π.χ. ΑΕ" /></div>
-            <div><Label>Ονομασία *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="π.χ. Ανώνυμη Εταιρεία" /></div>
-            <div><Label>Σειρά</Label><Input type="number" value={form.order} onChange={(e) => setForm({ ...form, order: Number(e.target.value) })} /></div>
-            <div className="flex items-center justify-between"><Label>Ενεργό</Label><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} className="h-4 w-4" /></div>
-            {error && <p className="text-body-sm text-destructive">{error}</p>}
+        <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-lg">
+          <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+            <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15"><FiBriefcase className="size-4" /></span>
+            <DialogTitle className="min-w-0 flex-1 truncate text-[length:var(--fs-15)]">{editing ? 'Επεξεργασία μορφής' : 'Νέα νομική μορφή'}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[66vh] space-y-3 overflow-auto bg-muted/20 px-4 py-3">
+            <FormSection tone="blue" icon={<FiBriefcase />} title="Νομική μορφή">
+              <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+                <Field label="Κωδικός (canonical)" required htmlFor="bt-code" className="col-span-12 sm:col-span-4">
+                  <Input id="bt-code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="π.χ. ΑΕ" className={`${fieldCls} font-mono`} />
+                </Field>
+                <Field label="Ονομασία" required htmlFor="bt-name" className="col-span-12 sm:col-span-8">
+                  <Input id="bt-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="π.χ. Ανώνυμη Εταιρεία" className={fieldCls} />
+                </Field>
+                <Field label="Σειρά" htmlFor="bt-order" className="col-span-6 sm:col-span-4">
+                  <Input id="bt-order" type="number" value={form.order} onChange={(e) => setForm({ ...form, order: Number(e.target.value) })} className={`${fieldCls} tabular-nums`} />
+                </Field>
+                <div className="col-span-6 flex h-8 items-center gap-2 self-end sm:col-span-8">
+                  <input id="bt-active" type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} className="size-4 accent-sisyphus-600" />
+                  <label htmlFor="bt-active" className="cursor-pointer text-[length:var(--fs-13)]">Ενεργό</label>
+                </div>
+              </div>
+              {error && <RowHint tone="bad">{error}</RowHint>}
+            </FormSection>
           </div>
-          <DialogFooter>
+          <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5">
             <Button variant="outline" onClick={close} disabled={saving}>Άκυρο</Button>
             <Button onClick={save} disabled={saving || !form.code.trim() || !form.name.trim()}>{saving ? 'Αποθήκευση…' : 'Αποθήκευση'}</Button>
           </DialogFooter>

@@ -1,10 +1,10 @@
 'use client';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { FiPlus, FiEdit2, FiTrash2, FiCopy, FiMoreVertical } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiCopy, FiMoreVertical, FiFileText, FiClock } from 'react-icons/fi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Field, FormSection, RowHint, fieldCls } from '@/components/admin/form-kit';
 import { Badge } from '@/components/ui/badge';
 import { Combobox } from '@/components/ui/combobox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -149,42 +149,59 @@ export function DocumentTypesClient({ rows, canManage, categories: initialCatego
         </TabsContent>
       </Tabs>
       <Dialog open={open} onOpenChange={(o) => !o && close()}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>{editing ? 'Επεξεργασία τύπου' : duplicating ? 'Αντίγραφο τύπου δικαιολογητικού' : 'Νέος τύπος δικαιολογητικού'}</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div><Label>Όνομα *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="π.χ. Καταστατικό" /></div>
-            <div><Label>Περιγραφή</Label><Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
-            <div>
-              <Label>Κατηγορία</Label>
-              <Combobox
-                value={form.categoryId}
-                items={categories.map((c) => ({ value: c.id, label: c.name }))}
-                onSelect={(v) => setForm({ ...form, categoryId: v })}
-                allowCreate
-                placeholder="Επίλεξε ή δημιούργησε κατηγορία…"
-                onCreate={async (label) => {
-                  const res = await fetch('/api/admin/document-categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: label }) });
-                  if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? 'Σφάλμα'); return; }
-                  const json = await res.json();
-                  if (json.data) { setCategories((prev) => prev.some((c) => c.id === json.data.id) ? prev : [...prev, { id: json.data.id, name: json.data.name }]); setForm((f) => ({ ...f, categoryId: json.data.id })); }
-                }}
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label>Απαιτεί ημερομηνία λήξης</Label>
-              <input type="checkbox" checked={form.requiresExpiry} onChange={(e) => setForm({ ...form, requiresExpiry: e.target.checked })} className="h-4 w-4" />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label>Ειδοποιήσεις λήξης</Label>
-              <input type="checkbox" checked={form.notifyExpiry} onChange={(e) => setForm({ ...form, notifyExpiry: e.target.checked })} className="h-4 w-4" />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label>Ενεργό</Label>
-              <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} className="h-4 w-4" />
-            </div>
-            {error && <p className="text-body-sm text-destructive">{error}</p>}
+        <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-xl">
+          <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+            <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15"><FiFileText className="size-4" /></span>
+            <DialogTitle className="min-w-0 flex-1 truncate text-[length:var(--fs-15)]">{editing ? 'Επεξεργασία τύπου' : duplicating ? 'Αντίγραφο τύπου δικαιολογητικού' : 'Νέος τύπος δικαιολογητικού'}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[66vh] space-y-3 overflow-auto bg-muted/20 px-4 py-3">
+            <FormSection tone="blue" icon={<FiFileText />} title="Στοιχεία τύπου">
+              <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+                <Field label="Όνομα" required htmlFor="dt-name" className="col-span-12 sm:col-span-6">
+                  <Input id="dt-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="π.χ. Καταστατικό" className={fieldCls} />
+                </Field>
+                {/* Το Combobox δεν δέχεται id — η ετικέτα μένει οπτική, όπως πριν. */}
+                <Field label="Κατηγορία" className="col-span-12 sm:col-span-6">
+                  <div className="[&_button]:h-8 [&_button]:text-[length:var(--fs-13)]">
+                    <Combobox
+                      value={form.categoryId}
+                      items={categories.map((c) => ({ value: c.id, label: c.name }))}
+                      onSelect={(v) => setForm({ ...form, categoryId: v })}
+                      allowCreate
+                      placeholder="Επίλεξε ή δημιούργησε κατηγορία…"
+                      onCreate={async (label) => {
+                        const res = await fetch('/api/admin/document-categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: label }) });
+                        if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? 'Σφάλμα'); return; }
+                        const json = await res.json();
+                        if (json.data) { setCategories((prev) => prev.some((c) => c.id === json.data.id) ? prev : [...prev, { id: json.data.id, name: json.data.name }]); setForm((f) => ({ ...f, categoryId: json.data.id })); }
+                      }}
+                    />
+                  </div>
+                </Field>
+                <Field label="Περιγραφή" htmlFor="dt-descr" className="col-span-12">
+                  <Input id="dt-descr" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className={fieldCls} />
+                </Field>
+              </div>
+            </FormSection>
+            <FormSection tone="amber" icon={<FiClock />} title="Λήξη & κατάσταση">
+              <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+                <label htmlFor="dt-expiry" className="col-span-12 flex h-8 cursor-pointer items-center gap-2 text-[length:var(--fs-13)] sm:col-span-5">
+                  <input id="dt-expiry" type="checkbox" checked={form.requiresExpiry} onChange={(e) => setForm({ ...form, requiresExpiry: e.target.checked })} className="size-4 accent-sisyphus-600" />
+                  Απαιτεί ημερομηνία λήξης
+                </label>
+                <label htmlFor="dt-notify" className="col-span-12 flex h-8 cursor-pointer items-center gap-2 text-[length:var(--fs-13)] sm:col-span-4">
+                  <input id="dt-notify" type="checkbox" checked={form.notifyExpiry} onChange={(e) => setForm({ ...form, notifyExpiry: e.target.checked })} className="size-4 accent-sisyphus-600" />
+                  Ειδοποιήσεις λήξης
+                </label>
+                <label htmlFor="dt-active" className="col-span-12 flex h-8 cursor-pointer items-center gap-2 text-[length:var(--fs-13)] sm:col-span-3">
+                  <input id="dt-active" type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} className="size-4 accent-sisyphus-600" />
+                  Ενεργό
+                </label>
+              </div>
+            </FormSection>
+            {error && <RowHint tone="bad">{error}</RowHint>}
           </div>
-          <DialogFooter>
+          <DialogFooter className="mx-0 mb-0 gap-2 border-t border-border bg-card px-4 py-2.5">
             <Button variant="outline" onClick={close} disabled={saving}>Άκυρο</Button>
             <Button onClick={save} disabled={saving || !form.name.trim()}>{saving ? 'Αποθήκευση…' : 'Αποθήκευση'}</Button>
           </DialogFooter>
