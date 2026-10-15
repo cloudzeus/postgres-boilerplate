@@ -46,6 +46,14 @@ type Props = {
    */
   onRegionChange?: (index: number, bbox: Bbox) => void;
   className?: string;
+  /**
+   * Πώς χωράει η σελίδα: `width` = όλο το πλάτος (προεπιλογή — μια A4 βγαίνει πιο ψηλή από την
+   * οθόνη), `page` = ολόκληρη η σελίδα ορατή (ύψος έως `maxHeight`), `natural` = 100% (με κύλιση από
+   * τον γονέα). Τα πλαίσια ακολουθούν σε κάθε περίπτωση: είναι σε % του ίδιου του πλαισίου της εικόνας.
+   */
+  fit?: 'width' | 'page' | 'natural';
+  /** Μέγιστο ύψος για `fit="page"` (CSS), π.χ. `calc(100dvh - 12rem)`. */
+  maxHeight?: string;
 };
 
 /** The 8 resize handles: offset within the box (%) and the cursor that advertises the axis. */
@@ -73,7 +81,7 @@ type DragSession = {
 
 export function RegionMarker({
   pageImageUrl, pageCount = 1, page = 0, onPageChange, savedRegions = [], onRegionHover, isMarking, onRegionComplete, onError, showNav = true, className, pageLabel,
-  editable = false, selectedIndex = null, onRegionSelect, onRegionChange,
+  editable = false, selectedIndex = null, onRegionSelect, onRegionChange, fit = 'width', maxHeight,
 }: Props) {
   const url = pageImageUrl(page);
   const [objUrl, setObjUrl] = React.useState<string | null>(null);
@@ -230,7 +238,7 @@ export function RegionMarker({
       ) : loading ? (
         <div className="p-3 text-[length:var(--fs-12)] text-muted-foreground">Φόρτωση…</div>
       ) : objUrl ? (
-        <div ref={ref} {...(isMarking ? handlers : {})} className="relative w-full select-none"
+        <div ref={ref} {...(isMarking ? handlers : {})} className={fit === 'width' ? 'relative w-full select-none' : 'relative mx-auto w-fit select-none'}
           style={{
             cursor: isMarking ? 'crosshair' : 'default',
             // `touch-action: none` belongs on whatever actually swallows the gesture: while marking
@@ -239,7 +247,11 @@ export function RegionMarker({
             touchAction: isMarking ? 'none' : undefined,
           }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={objUrl} alt={pageLabel ?? `Δείγμα εγγράφου, σελίδα ${page + 1}`} className="block w-full" draggable={false} />
+          <img
+            src={objUrl} alt={pageLabel ?? `Δείγμα εγγράφου, σελίδα ${page + 1}`} draggable={false}
+            className={fit === 'width' ? 'block w-full' : fit === 'page' ? 'block h-auto w-auto max-w-full' : 'block max-w-none'}
+            style={fit === 'page' ? { maxHeight: maxHeight ?? 'calc(100dvh - 12rem)' } : undefined}
+          />
           {isMarking && active && box && (
             <div className="pointer-events-none absolute border-2 border-sisyphus-500 bg-sisyphus-500/10"
               style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%` }} />

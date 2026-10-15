@@ -1,5 +1,6 @@
 'use client';
 
+import { Segmented } from '@/components/admin/form-kit';
 import * as React from 'react';
 import { FiCrosshair, FiTrash2, FiZap } from 'react-icons/fi';
 import { toast } from 'sonner';
@@ -53,6 +54,12 @@ export function RegionsStep() {
   // The step lives inside a flex row (stepper + flow aside), so viewport-keyed
   // breakpoints lie about the available width. Measure our own box instead.
   const rootRef = React.useRef<HTMLDivElement>(null);
+  // Πώς χωράει η σελίδα (θυμάται την επιλογή του χρήστη).
+  const [fit, setFit] = React.useState<'page' | 'width' | 'natural'>('page');
+  React.useEffect(() => {
+    try { const v = window.localStorage.getItem('templates.regions.fit'); if (v === 'page' || v === 'width' || v === 'natural') setFit(v); } catch { /* ιδιωτική λειτουργία */ }
+  }, []);
+  const chooseFit = (v: 'page' | 'width' | 'natural') => { setFit(v); try { window.localStorage.setItem('templates.regions.fit', v); } catch { /* — */ } };
   const [wide, setWide] = React.useState(false);
   const hasSample = !!dto.sample;
   React.useEffect(() => {
@@ -204,8 +211,18 @@ export function RegionsStep() {
           detecting={detecting} markingText={markingText} page={page} pageCount={dto.sample.pageCount}
           onPage={setPage} onOpenResult={() => setTestOpen(true)} onRunTest={runTest}
         />
-        <div className="rounded-md border border-border bg-neutral-6 p-2">
+        {/* ΠΡΟΣΑΡΜΟΓΗ: μια A4 σε όλο το πλάτος βγαίνει ψηλότερη από την οθόνη και το κάτω μέρος (σύνολα,
+            υπογραφή) χανόταν. Προεπιλογή «Σελίδα» = ολόκληρη ορατή· «Πλάτος» για λεπτομέρεια· «100%». */}
+        <div className="mb-1.5 flex items-center justify-end gap-2">
+          <span className="text-[length:var(--fs-11)] text-muted-foreground">Προσαρμογή</span>
+          <Segmented
+            ariaLabel="Προσαρμογή σελίδας" value={fit} onChange={chooseFit}
+            options={[{ value: 'page', label: 'Σελίδα' }, { value: 'width', label: 'Πλάτος' }, { value: 'natural', label: '100%' }]}
+          />
+        </div>
+        <div className={cn('rounded-md border border-border bg-neutral-6 p-2', fit === 'natural' && 'max-h-[calc(100dvh-12rem)] overflow-auto')}>
           <RegionMarker
+            fit={fit} maxHeight="calc(100dvh - 13rem)"
             pageImageUrl={(p) => templatesApi.pageImageUrl(dto.id, p, dto.version)}
             pageCount={dto.sample.pageCount} page={page} onPageChange={setPage}
             savedRegions={saved} isMarking={marking != null} onRegionComplete={onRegion} showNav={false}
