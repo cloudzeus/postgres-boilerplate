@@ -44,16 +44,18 @@ export function foldUnit(s: string): string {
  * ένα ψεύτικο ταίριασμα θα ήταν χειρότερο από ένα ρητό «δεν βρέθηκε».
  */
 const SYNONYMS: { aliases: string[]; unit: string }[] = [
-  { aliases: ['τεμ', 'τεμαχ', 'τεμαχια', 'τεμαχιο', 'τμχ', 'pcs', 'pc', 'piece', 'pieces'], unit: 'Τεμάχια' },
-  { aliases: ['κιλ', 'κιλα', 'κιλο', 'kg', 'kgr', 'kgs'], unit: 'Κιλά' },
+  { aliases: ['τεμ', 'τεμαχ', 'τεμαχια', 'τεμαχιο', 'τμχ', 'pcs', 'pc', 'piece', 'pieces',
+    // Ξένα τιμολόγια: ιταλικά «PZ/pezzi», γερμανικά «Stk/Stück», «NR», «EA/each».
+    'pz', 'pzs', 'pezzi', 'pezzo', 'nr', 'stk', 'stuck', 'ea', 'each', 'unit', 'units'], unit: 'Τεμάχια' },
+  { aliases: ['κιλ', 'κιλα', 'κιλο', 'kg', 'kgr', 'kgs', 'kilo'], unit: 'Κιλά' },
   { aliases: ['λιτ', 'λιτρα', 'λιτρο', 'lt', 'ltr', 'lit', 'liter', 'litre'], unit: 'Λίτρα' },
   { aliases: ['ωρ', 'ωρα', 'ωρες', 'hr', 'hrs', 'hour', 'hours'], unit: 'Ώρες' },
   { aliases: ['μετρ', 'μετρα', 'μετρο', 'mtr', 'meter', 'metre'], unit: 'Μέτρα' },
   { aliases: ['τμ', 'τετρμετρα', 'τετραγωνικα', 'm2', 'sqm'], unit: 'Τετρ. Μέτρα' },
   { aliases: ['κμ', 'κυβ', 'κυβικα', 'm3', 'cbm'], unit: 'Κυβικά Μέτρα' },
   { aliases: ['τον', 'τονοι', 'τοννοι', 'tn', 'ton', 'tons'], unit: 'Τόννοι' },
-  { aliases: ['κιβ', 'κιβωτια', 'κιβωτιο', 'box', 'boxes', 'ctn'], unit: 'Κιβώτια' },
-  { aliases: ['πακ', 'πακετο', 'πακετα', 'pack', 'pkt'], unit: 'Πακέτο' },
+  { aliases: ['κιβ', 'κιβωτια', 'κιβωτιο', 'box', 'boxes', 'ctn', 'carton', 'cx', 'scatola'], unit: 'Κιβώτια' },
+  { aliases: ['πακ', 'πακετο', 'πακετα', 'pack', 'pkt', 'pk', 'conf', 'confezione'], unit: 'Πακέτο' },
   { aliases: ['σελ', 'σελιδα', 'σελιδες', 'page', 'pages'], unit: 'Σελίδα' },
 ];
 
@@ -80,9 +82,15 @@ export function matchUnit(text: string | null | undefined, units: readonly UnitO
   const exact = byName.get(t);
   if (exact) return { code: exact.code, name: exact.name, matchedBy: 'exact' };
 
+  // Ορθογραφία του μητρώου: «Πακέττο» (Demo) ή «Πακέτο» είναι η ίδια μονάδα — συγκρίνουμε και με
+  // διπλά γράμματα διπλωμένα σε ένα.
+  const single = (k: string) => k.replace(/(.)\1+/g, '$1');
+  const bySingle = new Map<string, UnitOption>();
+  for (const [k, u] of byName) if (!bySingle.has(single(k))) bySingle.set(single(k), u);
+
   for (const s of SYNONYMS) {
     if (!s.aliases.some((a) => foldUnit(a) === t)) continue;
-    const hit = byName.get(foldUnit(s.unit));
+    const hit = byName.get(foldUnit(s.unit)) ?? bySingle.get(single(foldUnit(s.unit)));
     if (hit) return { code: hit.code, name: hit.name, matchedBy: 'synonym' };
   }
   return null;

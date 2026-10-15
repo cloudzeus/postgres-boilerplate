@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { FiAlertTriangle, FiCheckCircle, FiDownloadCloud, FiUser } from 'react-icons/fi';
+import { FiAlertTriangle, FiCheckCircle, FiDownloadCloud, FiGlobe, FiPhone, FiUser } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,7 @@ import {
 import { TRADER_KIND_TEXT, type TraderKindName } from '@/lib/ocr/posting-target';
 import type { TaxOfficeMapping } from '@/lib/tax-office';
 import { cn } from '@/lib/utils';
+import { Field as KitField, FormSection, FormSelect, RowHint, fieldCls } from '@/components/admin/form-kit';
 import { VAT_COUNTRY_CODES, isValidAfm, vatCountry } from '@/lib/ocr/validate';
 import { countryLabel } from '@/lib/countries';
 import { EXTRA_COUNTRY_NAMES_EL } from '@/lib/country-detect';
@@ -253,7 +254,7 @@ export function CreateTraderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-lg">
+      <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-xl">
         <DialogHeader className="gap-1 border-b border-border px-5 pb-4 pt-5">
           <DialogTitle className="flex items-center gap-2.5 text-[length:var(--fs-15)]">
             <span className="grid h-8 w-8 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600"><FiUser className="h-4 w-4" /></span>
@@ -265,132 +266,109 @@ export function CreateTraderDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[60vh] space-y-3 overflow-auto px-5 py-4">
-          <div className="grid gap-1.5">
-            <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">ΑΦΜ <span className="text-destructive">*</span></span>
-            <div className="flex gap-2">
-              <Input value={afmInput} onChange={(e) => { setAfmInput(e.target.value); setError(null); }} placeholder="ΑΦΜ (ξένο με πρόθεμα χώρας, π.χ. DE123456789)" className="h-9 font-mono text-[length:var(--fs-13)]" />
-              {!isForeign && (
-                <Button variant="outline" className="h-9 shrink-0 text-[length:var(--fs-12)]" disabled={!isGreek || loading} onClick={() => runLookup(cleanAfm)}>
-                  <FiDownloadCloud className="mr-1.5 h-3.5 w-3.5" /> {loading ? 'Άντληση…' : 'Άντληση ΑΑΔΕ'}
-                </Button>
+        <div className="max-h-[66vh] space-y-3 overflow-auto bg-muted/20 px-4 py-3">
+          {/* ── 1. ΤΑΥΤΟΤΗΤΑ: ΑΦΜ + κωδικός σε μία σειρά, επωνυμία από κάτω· οι βοήθειες κάτω από τη σειρά. */}
+          <FormSection tone="blue" icon={<FiUser />} title="Ταυτότητα">
+            <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+              <KitField label="ΑΦΜ" required htmlFor="ct-afm" className="col-span-12 sm:col-span-7">
+                <div className="flex min-w-0 gap-1.5">
+                  <Input id="ct-afm" value={afmInput} onChange={(e) => { setAfmInput(e.target.value); setError(null); }} placeholder="ξένο με πρόθεμα, π.χ. DE123456789" className={cn(fieldCls, 'min-w-0 flex-1 font-mono')} />
+                  {!isForeign && (
+                    <Button variant="outline" className="h-8 shrink-0 px-2 text-[length:var(--fs-12)]" disabled={!isGreek || loading} onClick={() => runLookup(cleanAfm)}>
+                      <FiDownloadCloud className="mr-1 size-3.5" /> {loading ? 'Άντληση…' : 'ΑΑΔΕ'}
+                    </Button>
+                  )}
+                </div>
+              </KitField>
+              <KitField label="Κωδικός SoftOne" required htmlFor="ct-code" className="col-span-12 sm:col-span-5">
+                <Input id="ct-code" value={code} onChange={(e) => { setCode(e.target.value); setCodeError(null); }}
+                  placeholder={`κωδικός ${text.acc}`} aria-invalid={codeError ? true : undefined} className={cn(fieldCls, 'font-mono')} />
+              </KitField>
+              {!prefixCountry && afmInput && !isValidAfm(cleanAfm) && (
+                <KitField
+                  label={<>Χώρα εκδότη{countryHint && countryPick === countryHint && <span className="font-normal"> · από τη διεύθυνση</span>}</>}
+                  required className="col-span-12 sm:col-span-7"
+                >
+                  <FormSelect value={countryPick} onChange={(v) => { setCountryPick(v); setError(null); setData(null); }}
+                    opts={COUNTRY_OPTIONS.map((c) => ({ id: c, name: countryLabel(c) }))} placeholder="Διάλεξε χώρα" ariaLabel="Χώρα εκδότη" />
+                </KitField>
               )}
+              <KitField label="Επωνυμία" required htmlFor="ct-name" className="col-span-12">
+                <Input id="ct-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={`Επωνυμία ${text.acc}`} className={fieldCls} />
+              </KitField>
             </div>
             {isForeign ? (
-              <div className="grid gap-1">
-                <span className="text-[length:var(--fs-11)] text-muted-foreground">
-                  Εκδότης από {countryLabel(country)} — δεν χρειάζεται έλεγχος στην ΑΑΔΕ. Θα γραφτεί ως{' '}
-                  <span className="font-mono text-foreground">{applyVatPrefix(cleanAfm, country ?? '')}</span>.
-                </span>
-                <ViesCheck
-                  vat={applyVatPrefix(cleanAfm, country ?? '')}
-                  onResult={(r) => { if (r.valid && r.name && !name.trim()) setName(r.name); }}
-                />
-              </div>
+              <RowHint>Εκδότης από <strong className="text-foreground">{countryLabel(country)}</strong> — χωρίς ΑΑΔΕ. Θα γραφτεί ως <span className="font-mono text-foreground">{applyVatPrefix(cleanAfm, country ?? '')}</span>.</RowHint>
             ) : afmInput && !isValidAfm(cleanAfm) ? (
-              <span className="text-[length:var(--fs-11)] text-amber-700">
-                Δεν είναι έγκυρο ελληνικό ΑΦΜ. Αν ο εκδότης είναι από άλλη χώρα, διάλεξέ την παρακάτω· αλλιώς διόρθωσε το ΑΦΜ.
-              </span>
+              <RowHint tone="warn">Δεν είναι έγκυρο ελληνικό ΑΦΜ. Αν ο εκδότης είναι από άλλη χώρα, διάλεξέ την· αλλιώς διόρθωσε το ΑΦΜ.</RowHint>
             ) : null}
-          </div>
+            {codeError ? (
+              <RowHint tone="bad">
+                {codeError}
+                {codeOffer && (
+                  <button type="button" onClick={() => { setCode(codeOffer); setCodeError(null); }} className="ml-1.5 cursor-pointer font-semibold underline">Χρήση του {codeOffer}</button>
+                )}
+              </RowHint>
+            ) : suggestion ? (
+              <RowHint tone={suggestion.stale ? 'warn' : 'muted'}>
+                {suggestion.code
+                  ? `Κωδικός: ο επόμενος της σειράς ${text.acc} (${suggestion.taken} υπάρχοντες).`
+                  : 'Δεν υπάρχει αρκετό δείγμα για πρόταση κωδικού — συμπλήρωσέ τον.'}
+                {suggestion.stale && ' Η SoftOne δεν απάντησε — η πρόταση βγήκε από τον τοπικό καθρέφτη.'}
+              </RowHint>
+            ) : null}
+          </FormSection>
 
-          {!prefixCountry && afmInput && !isValidAfm(cleanAfm) && (
-            <label className="grid gap-1.5">
-              <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">
-                Χώρα εκδότη <span className="text-destructive">*</span>
-                {countryHint && countryPick === countryHint && <span className="font-normal"> · από τη διεύθυνση του παραστατικού</span>}
-              </span>
-              <select
-                value={countryPick}
-                onChange={(e) => { setCountryPick(e.target.value); setError(null); setData(null); }}
-                className="h-9 rounded-md border border-input bg-background px-2 text-[length:var(--fs-13)]"
-              >
-                <option value="">— Διάλεξε χώρα —</option>
-                {COUNTRY_OPTIONS.map((c) => <option key={c} value={c}>{countryLabel(c)}</option>)}
-              </select>
-            </label>
+          {isForeign && (
+            <FormSection tone="emerald" icon={<FiGlobe />} title="Έλεγχος VIES" aside="μόνο όταν τον πατάς">
+              <ViesCheck
+                vat={applyVatPrefix(cleanAfm, country ?? '')}
+                onResult={(r) => { if (r.valid && r.name && !name.trim()) setName(r.name); }}
+              />
+            </FormSection>
           )}
 
-          {contacts && Object.values(contacts).some(Boolean) && (
-            <p className="rounded-md bg-muted/50 px-2.5 py-1.5 text-[length:var(--fs-11)] text-muted-foreground">
-              <span className="font-medium text-foreground">Από το παραστατικό:</span>{' '}
-              {[contacts.phone && `Τηλ. ${contacts.phone}`, contacts.phone2 && `Τηλ.2 ${contacts.phone2}`, contacts.fax && `Fax ${contacts.fax}`, contacts.email, contacts.webpage]
-                .filter(Boolean).join(' · ')}
+          {loading && <div className="space-y-1.5" role="status"><span className="sr-only">Άντληση από ΑΑΔΕ…</span>{[0, 1, 2].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-muted motion-reduce:animate-none" />)}</div>}
+          {error && (
+            <p className="flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[length:var(--fs-12)] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200" role="alert">
+              <FiAlertTriangle className="mt-0.5 size-4 shrink-0" /> {error}
             </p>
           )}
 
-          <label className="grid gap-1.5">
-            <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Επωνυμία <span className="text-destructive">*</span></span>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`Επωνυμία ${text.acc}`} className="h-9 text-[length:var(--fs-13)]" />
-          </label>
-
-          {loading && <div className="py-2 text-center text-[length:var(--fs-12)] text-muted-foreground">Άντληση από ΑΑΔΕ…</div>}
-          {error && (
-            <div className="flex items-start gap-2 rounded-lg border p-3 text-[length:var(--fs-12)]" style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}>
-              <FiAlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
-            </div>
-          )}
-
+          {/* ── 2. ΑΠΟ ΤΗΝ ΑΑΔΕ: ό,τι θα γραφτεί, σε στοιχισμένες σειρές «ετικέτα · τιμή». */}
           {data && (
-            <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-3">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Νομική μορφή" value={data.legalForm} />
-                <Field
-                  label="Δ.Ο.Υ."
-                  value={data.doyDescr ? `${data.doyDescr}${data.doyCode ? ` (${data.doyCode})` : ''}` : null}
-                  hint={data.softoneDoy?.office
-                    ? <span className="text-emerald-700">→ SoftOne: {data.softoneDoy.office.name} ({data.softoneDoy.office.code})</span>
-                    : data.softoneDoy?.note
-                      ? <span className="text-amber-700">{data.softoneDoy.note} Θα μείνει κενή.</span>
-                      : null}
-                />
-              </div>
-              <Field label="Επάγγελμα" value={data.profession} />
-              {data.softoneKad && (data.softoneKad.primary || data.softoneKad.secondary) && (
-                <div>
-                  <p className="mb-0.5 text-[length:var(--fs-11)] font-medium text-muted-foreground">ΚΑΔ → SoftOne</p>
-                  <KadField kads={data.softoneKad} removed={kadRemoved} onToggle={toggleKad} />
-                </div>
-              )}
-              <Field label="Διεύθυνση" value={[data.address, data.zip, data.city].filter(Boolean).join(', ') || null} />
-              {!data.isActive && (
-                <div className="rounded-md border p-2.5 text-[length:var(--fs-12)]" style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}>
-                  Προσοχή: η ΑΑΔΕ δηλώνει το ΑΦΜ ως ανενεργό.
-                </div>
-              )}
-            </div>
+            <FormSection
+              tone="emerald" icon={<FiDownloadCloud />} title="Από την ΑΑΔΕ"
+              aside={data.isActive ? <span className="text-emerald-800 dark:text-emerald-300">ενεργό ΑΦΜ</span> : <span className="font-semibold text-destructive">ανενεργό ΑΦΜ</span>}
+            >
+              <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[length:var(--fs-12)]">
+                <dt className="text-muted-foreground">Δ.Ο.Υ.</dt>
+                <dd className="min-w-0">
+                  {data.doyDescr ? `${data.doyDescr}${data.doyCode ? ` (${data.doyCode})` : ''}` : '—'}
+                  {data.softoneDoy?.office
+                    ? <span className="block text-[length:var(--fs-11)] text-emerald-700 dark:text-emerald-300">→ SoftOne: {data.softoneDoy.office.name} ({data.softoneDoy.office.code})</span>
+                    : data.softoneDoy?.note ? <span className="block text-[length:var(--fs-11)] text-amber-800 dark:text-amber-300">{data.softoneDoy.note} Θα μείνει κενή.</span> : null}
+                </dd>
+                <dt className="text-muted-foreground">Επάγγελμα</dt><dd className="min-w-0">{data.profession || '—'}</dd>
+                <dt className="text-muted-foreground">Διεύθυνση</dt><dd className="min-w-0">{[data.address, data.zip, data.city].filter(Boolean).join(', ') || '—'}</dd>
+                <dt className="text-muted-foreground">Νομική μορφή</dt><dd className="min-w-0">{data.legalForm || '—'}</dd>
+                {data.softoneKad && (data.softoneKad.primary || data.softoneKad.secondary) && (
+                  <><dt className="pt-0.5 text-muted-foreground">ΚΑΔ</dt><dd className="min-w-0"><KadField kads={data.softoneKad} removed={kadRemoved} onToggle={toggleKad} /></dd></>
+                )}
+              </dl>
+            </FormSection>
           )}
 
-          <label className="grid gap-1.5">
-            <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">
-              Κωδικός SoftOne <span className="text-destructive">*</span>
-            </span>
-            <Input
-              value={code}
-              onChange={(e) => { setCode(e.target.value); setCodeError(null); }}
-              placeholder={`κωδικός ${text.acc}`}
-              aria-invalid={codeError ? true : undefined}
-              className="h-9 font-mono text-[length:var(--fs-13)]"
-            />
-            {codeError ? (
-              <span className="text-[length:var(--fs-11)]" style={{ color: '#B91C1C' }}>
-                {codeError}
-                {codeOffer && (
-                  <button type="button" onClick={() => { setCode(codeOffer); setCodeError(null); }}
-                    className="ml-1.5 cursor-pointer font-semibold underline">
-                    Χρήση του {codeOffer}
-                  </button>
-                )}
-              </span>
-            ) : suggestion ? (
-              <span className="text-[length:var(--fs-11)] text-muted-foreground">
-                {suggestion.code
-                  ? `Προτεινόμενος από τη σειρά κωδικών ${text.acc} (${suggestion.taken} υπάρχοντες).`
-                  : 'Δεν υπάρχει αρκετό δείγμα για πρόταση — συμπλήρωσε κωδικό.'}
-                {suggestion.stale && ' Προσοχή: το SoftOne δεν απάντησε, η πρόταση βγήκε από τον τοπικό καθρέφτη και μπορεί να είναι πιασμένη.'}
-              </span>
-            ) : null}
-          </label>
+          {/* ── 3. ΑΠΟ ΤΟ ΠΑΡΑΣΤΑΤΙΚΟ: επικοινωνία (η ΑΑΔΕ δεν τη δίνει). */}
+          {contacts && Object.values(contacts).some(Boolean) && (
+            <FormSection tone="violet" icon={<FiPhone />} title="Επικοινωνία" aside="από το παραστατικό">
+              <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-[length:var(--fs-12)]">
+                {([['Τηλέφωνο', contacts.phone], ['Τηλέφωνο 2', contacts.phone2], ['Fax', contacts.fax], ['Email', contacts.email], ['Ιστοσελίδα', contacts.webpage]] as const)
+                  .filter(([, v]) => v)
+                  .map(([k, v]) => <React.Fragment key={k}><dt className="text-muted-foreground">{k}</dt><dd className="min-w-0 truncate">{v}</dd></React.Fragment>)}
+              </dl>
+            </FormSection>
+          )}
 
           {dryPayload != null && (
             <div className="space-y-1.5 pt-1">
@@ -423,15 +401,5 @@ export function CreateTraderDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function Field({ label, value, hint }: { label: string; value: string | null; hint?: React.ReactNode }) {
-  return (
-    <div className="grid gap-0.5">
-      <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">{label}</span>
-      <span className="text-[length:var(--fs-13)] text-foreground">{value || <span className="text-muted-foreground">—</span>}</span>
-      {hint && <span className="text-[length:var(--fs-11)]">{hint}</span>}
-    </div>
   );
 }

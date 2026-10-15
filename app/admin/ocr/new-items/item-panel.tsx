@@ -1,5 +1,6 @@
 'use client';
 
+import { TranslateButton, TranslatedFrom, useGreekTranslation } from '@/components/admin/translate-greek';
 import { ItemUnitsSection } from '@/components/admin/item-units-section';
 import { ratioFromText, unitsError } from '@/lib/item-units';
 import * as React from 'react';
@@ -329,6 +330,7 @@ export function ItemPanel({
   }, [group.key, group.code, category]);
 
   const set = (k: keyof typeof form, v: string) => setForm((s) => ({ ...s, [k]: v }));
+  const tr = useGreekTranslation(form.name, (v) => set('name', v), group.lines[0]?.id ?? null, group.key);
 
   const errors: Record<string, string | null> = {
     code: form.code.trim() ? null : 'Ο κωδικός είναι υποχρεωτικός.',
@@ -760,13 +762,17 @@ export function ItemPanel({
             </h3>
 
             <Field id="ni-name" label="Περιγραφή" required error={touched.name ? errors.name : null}>
-              <Input
-                id="ni-name" value={form.name} disabled={locked}
-                onChange={(e) => set('name', e.target.value)}
-                onBlur={() => setTouched((t) => ({ ...t, name: true }))}
-                aria-invalid={touched.name && !!errors.name}
-                className="h-9 text-[length:var(--fs-13)]"
-              />
+              <div className="flex min-w-0 gap-1.5">
+                <Input
+                  id="ni-name" value={form.name} disabled={locked}
+                  onChange={(e) => set('name', e.target.value)}
+                  onBlur={() => setTouched((t) => ({ ...t, name: true }))}
+                  aria-invalid={touched.name && !!errors.name}
+                  className="h-8 min-w-0 flex-1 text-[length:var(--fs-13)]"
+                />
+                {!locked && (tr.offer || tr.busy) && <TranslateButton busy={tr.busy} onClick={() => void tr.translate()} />}
+              </div>
+              {tr.original != null && <TranslatedFrom original={tr.original} onRestore={tr.restore} />}
             </Field>
 
             <div className="grid grid-cols-2 gap-2">

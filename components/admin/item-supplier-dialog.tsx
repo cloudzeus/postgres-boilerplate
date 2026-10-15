@@ -6,12 +6,14 @@
 // Ροή: ανάγνωση της ΤΩΡΙΝΗΣ κατάστασης στη SoftOne (πίνακας όλων των προμηθευτών του είδους) →
 // φόρμα προσυμπληρωμένη από τη γραμμή → «Προεπισκόπηση» (ακριβώς τι αλλάζει) → «Αποθήκευση».
 import * as React from 'react';
-import { FiAlertTriangle, FiCheckCircle, FiLoader, FiTag, FiTrendingDown } from 'react-icons/fi';
+import { FiAlertTriangle, FiCheckCircle, FiLoader, FiTag, FiTrendingDown, FiUsers } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { ItemSupplierState } from '@/lib/item-supplier';
+import { Field as KitField, FormSection, RowHint, fieldCls } from '@/components/admin/form-kit';
+import { cn } from '@/lib/utils';
 
 interface Loaded {
   item: { mtrl: number; code: string; name: string } | null;
@@ -121,10 +123,9 @@ export function ItemSupplierDialog({ open, onOpenChange, lineId }: { open: boole
         )}
 
         {data && (
-          <div className="space-y-4">
-            <section aria-labelledby="sup-list" className="space-y-1.5">
-              <p id="sup-list" className="text-[length:var(--fs-10)] font-semibold uppercase tracking-wider text-muted-foreground">Προμηθευτές του είδους στη SoftOne</p>
-              <div className="overflow-x-auto rounded-lg border border-border">
+          <div className="space-y-3">
+            <FormSection tone="blue" icon={<FiUsers />} title="Προμηθευτές του είδους" aside="όπως είναι τώρα στη SoftOne">
+              <div className="-mx-3 -mt-2.5 overflow-x-auto border-b border-border">
                 <table className="w-full text-[length:var(--fs-12)]">
                   <thead className="bg-muted/50 text-[length:var(--fs-11)] text-muted-foreground">
                     <tr>
@@ -158,36 +159,26 @@ export function ItemSupplierDialog({ open, onOpenChange, lineId }: { open: boole
                   </tbody>
                 </table>
               </div>
-              <p className="text-[length:var(--fs-11)] text-muted-foreground">
-                Την «Τελευταία αγορά» τη γράφει μόνη της η SoftOne από τα παραστατικά. Η «Τιμή συμφωνίας» είναι αυτή που ορίζεις εδώ.
-              </p>
-            </section>
+              <RowHint>Την «Τελευταία αγορά» τη γράφει μόνη της η SoftOne από τα παραστατικά· την «Τιμή συμφωνίας» την ορίζεις εδώ.</RowHint>
+            </FormSection>
 
-            <section aria-labelledby="sup-form" className="space-y-3">
-              <p id="sup-form" className="text-[length:var(--fs-10)] font-semibold uppercase tracking-wider text-muted-foreground">Για {data.supplierName}</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-1.5">
-                  <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Κωδικός είδους στον προμηθευτή</span>
-                  <Input value={code} onChange={(e) => { setCode(e.target.value); setPreview(null); }} className="h-9 font-mono text-[length:var(--fs-13)]" placeholder="όπως τυπώνεται στο τιμολόγιό του" />
-                  <span className="text-[length:var(--fs-11)] text-muted-foreground">Το επόμενο τιμολόγιό του βρίσκει μόνο του το είδος από αυτόν τον κωδικό.</span>
-                </label>
-                <label className="grid gap-1.5">
-                  <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Περιγραφή στον προμηθευτή</span>
-                  <Input value={name} onChange={(e) => { setName(e.target.value); setPreview(null); }} className="h-9 text-[length:var(--fs-13)]" />
-                </label>
-                <label className="grid gap-1.5">
-                  <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">
-                    Τιμή συμφωνίας{data.suggestion.baseUnit ? ` ανά ${data.suggestion.baseUnit.toLowerCase()}` : ''} (καθαρή, €)
-                  </span>
-                  <Input value={price} onChange={(e) => { setPrice(e.target.value); setPreview(null); }} inputMode="decimal" aria-invalid={Number.isNaN(priceN) || undefined} className="h-9 text-right tabular-nums text-[length:var(--fs-13)]" placeholder="κενό = χωρίς αλλαγή τιμής" />
-                  <span className="text-[length:var(--fs-11)] text-muted-foreground">Προτείνεται από τη γραμμή: αξία ÷ ποσότητα, μετά την έκπτωση, στη βασική μονάδα.</span>
-                </label>
-                <label className="grid gap-1.5">
-                  <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Έκπτωση συμφωνίας % (προαιρετικά)</span>
-                  <Input value={disc} onChange={(e) => { setDisc(e.target.value); setPreview(null); }} inputMode="decimal" aria-invalid={(discN != null && (Number.isNaN(discN) || discN < 0 || discN > 100)) || undefined} className="h-9 text-right tabular-nums text-[length:var(--fs-13)]" />
-                </label>
+            <FormSection tone="amber" icon={<FiTag />} title={`Για ${data.supplierName}`}>
+              <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+                <KitField label="Κωδικός στον προμηθευτή" htmlFor="sup-code" className="col-span-12 sm:col-span-4">
+                  <Input id="sup-code" value={code} onChange={(e) => { setCode(e.target.value); setPreview(null); }} className={cn(fieldCls, 'font-mono')} placeholder="όπως τυπώνεται" />
+                </KitField>
+                <KitField label="Περιγραφή στον προμηθευτή" htmlFor="sup-name" className="col-span-12 sm:col-span-8">
+                  <Input id="sup-name" value={name} onChange={(e) => { setName(e.target.value); setPreview(null); }} className={fieldCls} />
+                </KitField>
+                <KitField label={`Τιμή συμφωνίας${data.suggestion.baseUnit ? ` / ${data.suggestion.baseUnit.toLowerCase()}` : ''} (€)`} htmlFor="sup-price" className="col-span-7 sm:col-span-4">
+                  <Input id="sup-price" value={price} onChange={(e) => { setPrice(e.target.value); setPreview(null); }} inputMode="decimal" aria-invalid={Number.isNaN(priceN) || undefined} className={cn(fieldCls, 'text-right tabular-nums')} placeholder="κενό = χωρίς αλλαγή" />
+                </KitField>
+                <KitField label="Έκπτωση %" htmlFor="sup-disc" className="col-span-5 sm:col-span-2">
+                  <Input id="sup-disc" value={disc} onChange={(e) => { setDisc(e.target.value); setPreview(null); }} inputMode="decimal" aria-invalid={(discN != null && (Number.isNaN(discN) || discN < 0 || discN > 100)) || undefined} className={cn(fieldCls, 'text-right tabular-nums')} />
+                </KitField>
               </div>
-            </section>
+              <RowHint>Ο κωδικός κάνει το επόμενο τιμολόγιό του να βρει μόνο του το είδος. Η τιμή προτείνεται από τη γραμμή: αξία ÷ ποσότητα, μετά την έκπτωση, στη βασική μονάδα.</RowHint>
+            </FormSection>
 
             {preview && (
               <section className="rounded-lg border border-sisyphus-500/25 bg-sisyphus-50/50 px-3 py-2 text-[length:var(--fs-12)] dark:bg-sisyphus-500/10" role="status" aria-live="polite">

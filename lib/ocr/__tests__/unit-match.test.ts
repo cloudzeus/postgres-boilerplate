@@ -100,3 +100,14 @@ describe('η λίστα του dropdown', () => {
     expect(unitOptions('KWh', UNITS).map((u) => u.code)).toEqual(UNITS.map((u) => u.code));
   });
 });
+
+describe('matchUnit — ξένα τιμολόγια και ορθογραφία μητρώου', () => {
+  const UNITS = [{ code: '101', name: 'Τεμάχια' }, { code: '108', name: 'Πακέττο' }, { code: '107', name: 'Κιβώτια' }];
+  it('PZ / Stk / NR → Τεμάχια, CONF → Πακέττο (διπλό τ)', () => {
+    expect(matchUnit('PZ', UNITS)?.code).toBe('101');
+    expect(matchUnit('Stk', UNITS)?.code).toBe('101');
+    expect(matchUnit('NR', UNITS)?.code).toBe('101');
+    expect(matchUnit('CONF', UNITS)?.code).toBe('108');
+    expect(matchUnit('CX', UNITS)?.code).toBe('107');
+  });
+});

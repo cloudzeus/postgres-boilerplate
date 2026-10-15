@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import {
-  FiAlertTriangle, FiCheck, FiCode, FiCopy, FiDollarSign, FiEdit3, FiPackage, FiSearch, FiTag, FiTool,
+  FiAlertTriangle, FiCheck, FiCode, FiCopy, FiDollarSign, FiEdit3, FiLayers, FiPackage, FiSearch, FiTag, FiTool,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -21,6 +21,8 @@ import { isValidGtin, lineEan } from '@/lib/ocr/ean';
 import { matchUnit, unitOptions } from '@/lib/ocr/unit-match';
 import { ratioFromText, unitsError } from '@/lib/item-units';
 import { ItemUnitsSection } from '@/components/admin/item-units-section';
+import { Field, FormSection, FormSelect, RowHint, fieldCls } from '@/components/admin/form-kit';
+import { TranslateButton, TranslatedFrom, useGreekTranslation } from '@/components/admin/translate-greek';
 
 /** Μονάδες «συσκευασίας»: όταν το τιμολόγιο γράφει μία από αυτές, η βασική είναι μάλλον το τεμάχιο. */
 const PACK_UNIT = /^(κιβ|κουτ|πακ|συσκ|παλ|δοχ|σακ|ρολ)/i;
@@ -262,6 +264,8 @@ export function CreateRegistryEntryModal({
   const isItem = kind === 'product' || kind === 'service';
   /** Μονάδα αγορών/πώλησης ≠ βασική: μόνο για ΕΙΔΟΣ (η υπηρεσία έχει μία μονάδα στη SoftOne). */
   const [alt, setAlt] = React.useState({ buy: '', buyRatio: '', sell: '', sellRatio: '' });
+  /** Μετά από απόπειρα υποβολής δείχνουμε ΟΛΑ τα σφάλματα· πριν, μόνο όσα πεδία άφησε ο χρήστης. */
+  const [triedSubmit, setTriedSubmit] = React.useState(false);
   const ratioHint = React.useMemo(() => ratioFromText(initialName), [initialName]);
   // Η μονάδα ζει στο `MTRL`, άρα αφορά ΚΑΙ τη χρεοπίστωση· το έξοδο (`EXPN`) δεν έχει μονάδα.
   const hasUnit = kind !== 'expense';
@@ -422,6 +426,7 @@ export function CreateRegistryEntryModal({
   };
 
   const set = (k: keyof FormState, v: string) => setF((s) => ({ ...s, [k]: v }));
+  const tr = useGreekTranslation(f.name, (v) => set('name', v), lineId, open);
 
   const body = React.useCallback((overrides: Partial<{ dryRun: boolean }> = {}) => ({
     kind,
@@ -485,6 +490,7 @@ export function CreateRegistryEntryModal({
   }, [needsTemplate, template, body]);
 
   const submit = async () => {
+    setTriedSubmit(true);
     if (!f.name.trim() || !f.code.trim()) { toast.error('Συμπλήρωσε Περιγραφή και Κωδικό.'); return; }
     if (isItem && (!f.vat || !f.unit)) { toast.error('Για είδος/υπηρεσία χρειάζονται ΦΠΑ και μονάδα.'); return; }
     if (kind === 'product') {
@@ -536,12 +542,21 @@ export function CreateRegistryEntryModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[95vw] gap-0 overflow-hidden p-0 sm:max-w-2xl">
-        <DialogHeader className="gap-1 border-b border-border px-5 pb-4 pt-5">
-          <DialogTitle className="flex items-center gap-2.5 text-[length:var(--fs-15)]">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600">{KIND_ICON[kind]}</span>
-            Νέα εγγραφή: {LINE_KIND_LABEL[kind]}
-          </DialogTitle>
-          <DialogDescription className="text-[length:var(--fs-12)]">{KIND_WHERE[kind]}</DialogDescription>
+        <DialogHeader className="flex-row items-center gap-3 border-b border-border px-4 py-2.5 pr-12">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600 dark:bg-sisyphus-500/15">{KIND_ICON[kind]}</span>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="text-[length:var(--fs-15)]">Νέα εγγραφή: {LINE_KIND_LABEL[kind]}</DialogTitle>
+            <DialogDescription className="truncate text-[length:var(--fs-11)]" title={KIND_WHERE[kind]}>{KIND_WHERE[kind]}</DialogDescription>
+          </div>
+          <div role="tablist" aria-label="Προβολή" className="inline-flex shrink-0 rounded-md border border-border bg-muted/50 p-0.5">
+            {([['form', 'Στοιχεία', <FiEdit3 key="a" className="size-3.5" />], ['object', 'Αντικείμενο', <FiCode key="b" className="size-3.5" />]] as const).map(([v, lbl, ic]) => (
+              <button key={v} onClick={() => setTab(v)} type="button" role="tab" aria-selected={tab === v}
+                className={cn('inline-flex h-7 cursor-pointer items-center gap-1 rounded px-2 text-[length:var(--fs-12)] font-medium transition-colors',
+                  tab === v ? 'bg-card text-foreground shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:text-foreground')}>
+                {ic} {lbl}
+              </button>
+            ))}
+          </div>
         </DialogHeader>
 
         {inactiveOffer.length > 0 && (
@@ -565,20 +580,11 @@ export function CreateRegistryEntryModal({
           </div>
         )}
 
-        <div className="flex gap-1 border-b border-border bg-muted/30 px-5 py-2">
-          {([['form', 'Στοιχεία', <FiEdit3 key="a" className="h-3.5 w-3.5" />], ['object', 'Αντικείμενο', <FiCode key="b" className="h-3.5 w-3.5" />]] as const).map(([v, lbl, ic]) => (
-            <button key={v} onClick={() => setTab(v)} type="button"
-              className={cn('inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-[length:var(--fs-12)] font-medium transition-colors',
-                tab === v ? 'bg-card text-foreground shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:text-foreground')}>
-              {ic} {lbl}
-            </button>
-          ))}
-        </div>
 
         {!meta ? (
           <div className="px-5 py-12 text-center text-[length:var(--fs-13)] text-muted-foreground">Φόρτωση πινάκων…</div>
         ) : tab === 'form' ? (
-          <div className="max-h-[60vh] space-y-5 overflow-auto px-5 py-4">
+          <div className="max-h-[66vh] space-y-3 overflow-auto bg-muted/20 px-4 py-3">
             {needsTemplate && (
               <section className="space-y-2 rounded-xl border border-sisyphus-200 bg-sisyphus-50/40 p-3">
                 <p className="text-[length:var(--fs-11)] font-medium text-sisyphus-700">
@@ -685,114 +691,106 @@ export function CreateRegistryEntryModal({
               </section>
             )}
 
-            <section className="space-y-3">
-              <p className="text-[length:var(--fs-10)] font-semibold uppercase tracking-wider text-muted-foreground">Βασικά στοιχεία</p>
-              <label className="grid gap-1.5">
-                <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Περιγραφή <span className="text-destructive">*</span></span>
-                <Input value={f.name} onChange={(e) => set('name', e.target.value)} className="h-9 text-[length:var(--fs-13)]" />
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="grid gap-1.5">
-                  <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Κωδικός <span className="text-destructive">*</span></span>
-                  <Input value={f.code} onChange={(e) => { set('code', e.target.value); setCodeError(null); }}
-                    aria-invalid={codeError ? true : undefined} className="h-9 font-mono text-[length:var(--fs-13)]" />
-                  {codeError ? (
-                    <span className="text-[length:var(--fs-11)]" style={{ color: '#B91C1C' }}>
-                      {codeError}
-                      {codeOffer && (
-                        <button type="button" onClick={() => { set('code', codeOffer); setCodeError(null); }}
-                          className="ml-1.5 cursor-pointer font-semibold underline">Χρήση του {codeOffer}</button>
-                      )}
-                    </span>
-                  ) : codeRule ? (
-                    <span className="text-[length:var(--fs-11)] text-muted-foreground">
-                      Κανόνας SoftOne για τον κωδικό: <span className="font-mono">{codeRule}</span> — η πρόταση τον τηρεί.
-                    </span>
-                  ) : codeSource === 'account' ? (
-                    <span className="text-[length:var(--fs-11)] text-muted-foreground">
-                      Ο κωδικός ακολουθεί τον λογαριασμό γενικής — έτσι είναι φτιαγμένο το μητρώο αυτής
-                      της εγκατάστασης (μία χρεοπίστωση ανά λογαριασμό).
-                    </span>
-                  ) : null}
-                </label>
-                {isItem && (
-                  <label className="grid gap-1.5">
-                    <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Τιμή χονδρικής{kind === 'product' ? ' ανά βασική μονάδα' : ' (από τη γραμμή)'}</span>
-                    <Input value={f.price} onChange={(e) => set('price', e.target.value)} type="number" placeholder="0,00" className="h-9 text-[length:var(--fs-13)]" />
-                  </label>
-                )}
-                <div className="grid gap-1.5">
-                  <Combo label={`Φ.Π.Α.${isItem ? ' *' : ''}`} value={f.vat} onChange={(v) => set('vat', v)} opts={meta.vats} ph="Επίλεξε ΦΠΑ" />
-                  {vatNote && <Note>{vatNote}</Note>}
+            {/* ── 1. ΒΑΣΙΚΑ: περιγραφή σε όλο το πλάτος, μετά ΜΙΑ στοιχισμένη σειρά (κωδικός · ΦΠΑ · τιμή/μονάδα)
+                   και οι βοήθειες ΚΑΤΩ από τη σειρά — δεν σπρώχνουν τα διπλανά πεδία. */}
+            <FormSection tone="blue" icon={KIND_ICON[kind]} title="Βασικά στοιχεία">
+              <Field label="Περιγραφή" required htmlFor="reg-name">
+                <div className="flex min-w-0 gap-1.5">
+                  <Input id="reg-name" value={f.name} onChange={(e) => set('name', e.target.value)} className={cn(fieldCls, 'min-w-0 flex-1')} />
+                  {(tr.offer || tr.busy) && <TranslateButton busy={tr.busy} onClick={() => void tr.translate()} />}
                 </div>
+                {tr.original != null && <TranslatedFrom original={tr.original} onRestore={tr.restore} />}
+              </Field>
+              <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+                <Field label="Κωδικός" required htmlFor="reg-code" className={isItem ? 'col-span-12 sm:col-span-5' : 'col-span-12 sm:col-span-6'}>
+                  <Input id="reg-code" value={f.code} onChange={(e) => { set('code', e.target.value); setCodeError(null); }}
+                    aria-invalid={codeError ? true : undefined} className={cn(fieldCls, 'font-mono')} />
+                </Field>
+                <Field label="Φ.Π.Α." required={isItem} className={isItem ? 'col-span-6 sm:col-span-4' : 'col-span-12 sm:col-span-6'}>
+                  <FormSelect value={f.vat} onChange={(v) => set('vat', v)} opts={meta.vats} placeholder="Επίλεξε ΦΠΑ" ariaLabel="Φ.Π.Α." />
+                </Field>
+                {isItem && (
+                  <Field label={kind === 'product' ? 'Τιμή χονδρ. / βασική' : 'Τιμή χονδρικής'} htmlFor="reg-price" className="col-span-6 sm:col-span-3">
+                    <Input id="reg-price" value={f.price} onChange={(e) => set('price', e.target.value)} inputMode="decimal" placeholder="0,00" className={cn(fieldCls, 'text-right tabular-nums')} />
+                  </Field>
+                )}
                 {hasUnit && kind !== 'product' && (
-                  <div className="grid gap-1.5">
-                    <Combo label={`Μονάδα${isItem ? ' *' : ''}`} value={f.unit} onChange={(v) => set('unit', v)} opts={orderedUnits}
-                      ph={kind === 'lineitem' ? 'Κενό = όπως το πρότυπο' : 'Επίλεξε μονάδα'} />
-                    {unitNote && <Note>{unitNote}</Note>}
-                  </div>
+                  <Field label={`Μονάδα${isItem ? ' *' : ''}`} className="col-span-12 sm:col-span-6">
+                    <FormSelect value={f.unit} onChange={(v) => set('unit', v)} opts={orderedUnits}
+                      placeholder={kind === 'lineitem' ? 'Κενό = όπως το πρότυπο' : 'Επίλεξε μονάδα'} ariaLabel="Μονάδα" />
+                  </Field>
                 )}
               </div>
-            </section>
+              {codeError ? (
+                <RowHint tone="bad">
+                  {codeError}
+                  {codeOffer && (
+                    <button type="button" onClick={() => { set('code', codeOffer); setCodeError(null); }}
+                      className="ml-1.5 cursor-pointer font-semibold underline">Χρήση του {codeOffer}</button>
+                  )}
+                </RowHint>
+              ) : codeRule ? (
+                <RowHint>Κανόνας SoftOne για τον κωδικό: <span className="font-mono text-foreground">{codeRule}</span> — η πρόταση τον τηρεί.</RowHint>
+              ) : codeSource === 'account' ? (
+                <RowHint>Ο κωδικός ακολουθεί τον λογαριασμό γενικής — μία χρεοπίστωση ανά λογαριασμό σε αυτή την εγκατάσταση.</RowHint>
+              ) : null}
+              {vatNote && <Note>{vatNote}</Note>}
+              {hasUnit && kind !== 'product' && unitNote && <Note>{unitNote}</Note>}
+            </FormSection>
 
+            {/* ── 2. ΜΟΝΑΔΕΣ (μόνο είδος): βασική / αγορών / πώλησης με τη σχέση τους. */}
             {kind === 'product' && (
-              <div className="space-y-1.5">
                 <ItemUnitsSection
                   value={{ base: f.unit, ...alt }}
                   onChange={(v) => { set('unit', v.base); setAlt({ buy: v.buy === v.base ? '' : v.buy, buyRatio: v.buyRatio, sell: v.sell === v.base ? '' : v.sell, sellRatio: v.sellRatio }); }}
                   units={orderedUnits}
                   line={{ quantity: initialQty ?? null, price: initialPrice ?? null, unitText: initialUnit ?? null }}
                   ratioSuggestion={ratioHint}
+                  showErrors={triedSubmit}
+                  note={unitNote ? <Note>{unitNote}</Note> : null}
                 />
-                {unitNote && <Note>{unitNote}</Note>}
-              </div>
             )}
 
-            {/* ΚΩΔΙΚΟΙ ΑΓΟΡΑΣ: κάθε κωδικός στη θέση του στο SoftOne — όχι όλοι στον κωδικό του είδους. */}
+            {/* ── 3. ΚΩΔΙΚΟΙ ΑΓΟΡΑΣ: κάθε κωδικός στη θέση του στη SoftOne — όχι όλοι στον κωδικό του είδους. */}
             {isItem && (
-              <section className="space-y-3">
-                <p className="text-[length:var(--fs-10)] font-semibold uppercase tracking-wider text-muted-foreground">Κωδικοί αγοράς</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="grid gap-1.5">
-                    <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Barcode / EAN</span>
-                    <Input value={code1} onChange={(e) => setCode1(e.target.value)} inputMode="numeric" placeholder="π.χ. 5201234567894" className="h-9 font-mono text-[length:var(--fs-13)]" />
-                    {code1.trim() && !isValidGtin(code1) && (
-                      <span className="text-[length:var(--fs-11)] text-amber-800">Δεν μοιάζει με έγκυρο EAN (8/13 ψηφία με σωστό ψηφίο ελέγχου) — έλεγξέ το.</span>
-                    )}
-                  </label>
-                  <label className="grid gap-1.5">
-                    <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Κωδ. κατασκευαστή (εργοστασίου)</span>
-                    <Input value={code2} onChange={(e) => setCode2(e.target.value)} placeholder="part number" className="h-9 font-mono text-[length:var(--fs-13)]" />
-                  </label>
+              <FormSection tone="amber" icon={<FiTag />} title="Κωδικοί αγοράς">
+                <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+                  <Field label="Barcode / EAN" htmlFor="reg-ean" className="col-span-12 sm:col-span-6">
+                    <Input id="reg-ean" value={code1} onChange={(e) => setCode1(e.target.value)} inputMode="numeric" placeholder="π.χ. 5201234567894" className={cn(fieldCls, 'font-mono')} />
+                  </Field>
+                  <Field label="Κωδ. κατασκευαστή (εργοστασίου)" htmlFor="reg-mfr" className="col-span-12 sm:col-span-6">
+                    <Input id="reg-mfr" value={code2} onChange={(e) => setCode2(e.target.value)} placeholder="part number" className={cn(fieldCls, 'font-mono')} />
+                  </Field>
                 </div>
+                {code1.trim() && !isValidGtin(code1) && (
+                  <RowHint tone="warn">Το EAN δεν μοιάζει έγκυρο (8/13 ψηφία με σωστό ψηφίο ελέγχου) — έλεγξέ το.</RowHint>
+                )}
                 {initialCode && (
-                  <label className="flex cursor-pointer items-start gap-2 rounded-md bg-muted/50 px-2.5 py-2 text-[length:var(--fs-12)] text-foreground">
-                    <input type="checkbox" checked={saveSupplierCode} onChange={(e) => setSaveSupplierCode(e.target.checked)} className="mt-0.5 size-4" />
+                  <label className="flex cursor-pointer items-start gap-2 rounded-md bg-amber-50/70 px-2.5 py-1.5 text-[length:var(--fs-12)] text-foreground dark:bg-amber-500/10">
+                    <input type="checkbox" checked={saveSupplierCode} onChange={(e) => setSaveSupplierCode(e.target.checked)} className="mt-0.5 size-3.5 accent-sisyphus-600" />
                     <span>
-                      Καταχώριση του <span className="font-mono font-semibold">{initialCode}</span> ως <strong>κωδικού είδους του προμηθευτή</strong>.
-                      <span className="block text-[length:var(--fs-11)] text-muted-foreground">
-                        Μπαίνει στους «Εναλλακτικούς κωδικούς προμηθευτών» του είδους, μαζί με τον προμηθευτή ως συνήθη — έτσι το επόμενο τιμολόγιό του βρίσκει το είδος.
-                      </span>
+                      Το <span className="font-mono font-semibold">{initialCode}</span> ως <strong>κωδικός του προμηθευτή</strong>
+                      <span className="text-muted-foreground"> — το επόμενο τιμολόγιό του βρίσκει μόνο του το είδος.</span>
                     </span>
                   </label>
                 )}
-              </section>
+              </FormSection>
             )}
 
-            <section className="space-y-3">
-              <p className="text-[length:var(--fs-10)] font-semibold uppercase tracking-wider text-muted-foreground">Ταξινόμηση (προαιρετικά)</p>
-              <div className="grid grid-cols-2 gap-3">
-                {/* Οι δύο κατάλογοι είναι ΔΙΑΦΟΡΕΤΙΚΟΙ πίνακες: `MTRCATEGORY` (είδη) και
-                    `LINCATEGORY` (δαπάνες, SODTYPE 53). Μια χρεοπίστωση σε κατηγορία ειδών δεν
-                    βρίσκεται ποτέ ξανά από το φίλτρο «κατηγορία δαπάνης» του picker. */}
-                <Combo
-                  label={kind === 'lineitem' ? 'Κατηγορία δαπάνης' : 'Κατηγορία'}
-                  value={f.category} onChange={(v) => set('category', v)}
-                  opts={kind === 'lineitem' ? meta.lineCategories : meta.categories}
-                />
-                {isItem && <Combo label="Ομάδα" value={f.group} onChange={(v) => set('group', v)} opts={meta.groups} />}
+            {/* ── 4. ΤΑΞΙΝΟΜΗΣΗ: προαιρετικά, σε μία σειρά. Οι δύο κατάλογοι είναι ΔΙΑΦΟΡΕΤΙΚΟΙ πίνακες:
+                   `MTRCATEGORY` (είδη) και `LINCATEGORY` (δαπάνες, SODTYPE 53). */}
+            <FormSection tone="slate" icon={<FiLayers />} title="Ταξινόμηση" aside="προαιρετικά">
+              <div className="grid grid-cols-12 gap-x-3 gap-y-2">
+                <Field label={kind === 'lineitem' ? 'Κατηγορία δαπάνης' : 'Κατηγορία'} className={isItem ? 'col-span-12 sm:col-span-6' : 'col-span-12'}>
+                  <FormSelect value={f.category} onChange={(v) => set('category', v)} opts={kind === 'lineitem' ? meta.lineCategories : meta.categories} ariaLabel="Κατηγορία" />
+                </Field>
+                {isItem && (
+                  <Field label="Ομάδα" className="col-span-12 sm:col-span-6">
+                    <FormSelect value={f.group} onChange={(v) => set('group', v)} opts={meta.groups} ariaLabel="Ομάδα" />
+                  </Field>
+                )}
               </div>
-            </section>
+            </FormSection>
           </div>
         ) : (
           <div className="max-h-[60vh] space-y-2 overflow-auto px-5 py-4">
@@ -806,7 +804,7 @@ export function CreateRegistryEntryModal({
         )}
 
         {/* `mx-0 mb-0`: το DialogFooter έχει `-mx-4 -mb-4` για modal με padding· εδώ είναι `p-0`. */}
-        <DialogFooter className="mx-0 mb-0 flex-col gap-2 border-t border-border bg-muted/30 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <DialogFooter className="mx-0 mb-0 flex-col gap-2 border-t border-border bg-card px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
           <label className={cn('flex items-center gap-2 text-[length:var(--fs-12)] text-muted-foreground',
             postingEnabled === false ? 'cursor-not-allowed' : 'cursor-pointer')}>
             <input
