@@ -44,10 +44,20 @@ export function useDocLinesChanged(docId: string, onChange: () => void): void {
  */
 const FOCUS = 'ocr:focus-line';
 
-export function emitFocusLine(lineId: string): void {
-  if (typeof window === 'undefined' || !lineId) return;
-  window.dispatchEvent(new CustomEvent(FOCUS, { detail: { lineId } }));
+/**
+ * Στέλνει το σήμα και λέει αν το ΑΚΟΥΣΕ κάποιος. Στην καρτέλα της λίστας δεν υπάρχει πίνακας
+ * γραμμών να ακούσει — εκεί ο καλών πρέπει να ανοίξει τη σελίδα του παραστατικού (`focusLineHref`),
+ * αλλιώς το κουμπί «δεν κάνει τίποτα».
+ */
+export function emitFocusLine(lineId: string): boolean {
+  if (typeof window === 'undefined' || !lineId) return false;
+  const detail = { lineId, handled: false };
+  window.dispatchEvent(new CustomEvent(FOCUS, { detail }));
+  return detail.handled;
 }
+
+/** Η σελίδα του παραστατικού με ανοιχτό τον picker αυτής της γραμμής. */
+export const focusLineHref = (docId: string, lineId: string) => `/admin/ocr/${docId}?line=${encodeURIComponent(lineId)}`;
 
 /** Άνοιξε τον picker αυτής της γραμμής όταν ζητηθεί από αλλού μέσα στη σελίδα. */
 export function useFocusLine(lineId: string, onFocus: () => void): void {
@@ -56,9 +66,15 @@ export function useFocusLine(lineId: string, onFocus: () => void): void {
   React.useEffect(() => {
     if (!lineId) return;
     const handler = (e: Event) => {
-      if ((e as CustomEvent<{ lineId?: string }>).detail?.lineId === lineId) ref.current();
+      const d = (e as CustomEvent<{ lineId?: string; handled?: boolean }>).detail;
+      if (d?.lineId === lineId) { d.handled = true; ref.current(); }
     };
     window.addEventListener(FOCUS, handler);
+    // Ήρθαμε από τη λίστα με `?line=<id>`: ανοίγουμε αμέσως τη γραμμή που ζητήθηκε.
+    if (new URLSearchParams(window.location.search).get('line') === lineId) {
+      const t = setTimeout(() => ref.current(), 300);
+      return () => { clearTimeout(t); window.removeEventListener(FOCUS, handler); };
+    }
     return () => window.removeEventListener(FOCUS, handler);
   }, [lineId]);
 }

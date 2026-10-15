@@ -14,7 +14,8 @@ import { AadeVerifyPanel } from '@/components/admin/aade-verify-panel';
 import { TraderSearch } from '@/components/admin/trader-search';
 import { CreateTraderDialog } from '@/components/admin/create-trader-dialog';
 import { VatMapFix } from '@/components/admin/vat-map-fix';
-import { emitDocLinesChanged, emitFocusLine, useDocLinesChanged } from '@/components/admin/doc-lines-events';
+import { emitDocLinesChanged, emitFocusLine, focusLineHref, useDocLinesChanged } from '@/components/admin/doc-lines-events';
+import { useRouter } from 'next/navigation';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { TraderKindName } from '@/lib/ocr/posting-target';
 import type { MatchKind } from '@/lib/ocr/line-match';
@@ -68,6 +69,19 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
   const [data, setData] = React.useState<Checks | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [open, setOpen] = React.useState(false);
+  const router = useRouter();
+  /** Η γραμμή που ανοίγει τώρα στη σελίδα του παραστατικού (από την καρτέλα της λίστας). */
+  const [openingLine, setOpeningLine] = React.useState<string | null>(null);
+  /**
+   * Στη σελίδα του παραστατικού ο πίνακας γραμμών ακούει και ανοίγει τον picker επί τόπου. Στην
+   * καρτέλα της λίστας ΔΕΝ υπάρχει πίνακας — πριν το κουμπί «δεν έκανε τίποτα». Τώρα ανοίγει τη
+   * σελίδα του παραστατικού με τη γραμμή ήδη ανοιχτή, με ένδειξη φόρτωσης στο μεταξύ.
+   */
+  const openLine = (lineId: string) => {
+    if (emitFocusLine(lineId)) return;
+    setOpeningLine(lineId);
+    router.push(focusLineHref(docId, lineId));
+  };
   const [creatingTrader, setCreatingTrader] = React.useState(false);
 
   const load = React.useCallback(async () => {
@@ -306,10 +320,13 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                 <div key={l.id} className="flex items-center gap-2 border-b border-border/60 px-3 py-2 last:border-0">
                   <span className="w-[90px] shrink-0 font-mono text-[length:var(--fs-11)] text-muted-foreground">{l.code || `#${l.rowIndex + 1}`}</span>
                   <span className="min-w-0 flex-1 truncate text-[length:var(--fs-12)] text-foreground">{l.name}</span>
-                  <button type="button" onClick={() => emitFocusLine(l.id)}
-                    className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-sisyphus-500/30 px-2 py-1 text-[length:var(--fs-11)] font-semibold text-sisyphus-600 hover:bg-sisyphus-50"
-                    title="Άνοιγμα της γραμμής στον πίνακα — εκεί γίνεται η αντιστοίχιση ΚΑΙ η δημιουργία">
-                    Άνοιξε τη γραμμή <FiChevronRight className="size-3" />
+                  <button type="button" onClick={() => openLine(l.id)} disabled={openingLine != null}
+                    aria-busy={openingLine === l.id || undefined}
+                    className="inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-sisyphus-500/30 px-2 py-1 text-[length:var(--fs-11)] font-semibold text-sisyphus-600 hover:bg-sisyphus-50 disabled:cursor-wait disabled:opacity-70"
+                    title="Άνοιγμα της γραμμής — εκεί γίνεται η αντιστοίχιση ΚΑΙ η δημιουργία">
+                    {openingLine === l.id
+                      ? <><FiLoader aria-hidden className="size-3 animate-spin motion-reduce:animate-none" /> Άνοιγμα…</>
+                      : <>Άνοιξε τη γραμμή <FiChevronRight className="size-3" /></>}
                   </button>
                 </div>
               ))}

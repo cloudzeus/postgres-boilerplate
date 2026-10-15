@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { type ColumnDef } from '@tanstack/react-table';
-import { FiMoreVertical, FiFile, FiExternalLink, FiSend, FiTrash2, FiEye, FiUserPlus, FiRefreshCw, FiSearch, FiCheck, FiChevronDown, FiChevronRight, FiAlertCircle, FiCheckCircle, FiAlertTriangle, FiSlash, FiRotateCcw, FiPlay, FiFileText } from 'react-icons/fi';
+import { FiMoreVertical, FiFile, FiExternalLink, FiSend, FiTrash2, FiEye, FiUserPlus, FiRefreshCw, FiSearch, FiCheck, FiChevronDown, FiChevronRight, FiAlertCircle, FiCheckCircle, FiAlertTriangle, FiSlash, FiRotateCcw, FiPlay, FiFileText, FiLoader } from 'react-icons/fi';
 import { SoftoneAfmDialog } from '@/components/admin/softone-afm-dialog';
 import { OcrDayProblemsModal } from '@/components/admin/ocr-day-problems-modal';
 import { DataTable } from '@/components/ui/data-table';
@@ -251,6 +251,24 @@ export function OcrTable({
   }, [rows]);
 
   const [busyId, setBusyId] = React.useState<string | null>(null);
+  /** Τι κάνει τώρα η απασχολημένη γραμμή — για την ένδειξη στη θέση του ⋮. */
+  const [busyLabel, setBusyLabel] = React.useState<string | null>(null);
+  /**
+   * ΚΑΘΕ ενέργεια του μενού δείχνει την πορεία της: ειδοποίηση «σε εξέλιξη» που γίνεται επιτυχία
+   * ή σφάλμα ΣΤΗΝ ΙΔΙΑ θέση, και περιστρεφόμενη ένδειξη στη γραμμή. Πριν, μια ανάρτηση ή μια
+   * επανάγνωση έτρεχε σιωπηλά για δευτερόλεπτα και ο χρήστης δεν ήξερε αν πάτησε σωστά.
+   */
+  function startProgress(row: OcrRow, label: string) {
+    setBusyId(row.id);
+    setBusyLabel(label);
+    const id = toast.loading(`${label}…`, { description: row.fileName });
+    const end = () => { setBusyId(null); setBusyLabel(null); };
+    return {
+      ok: (msg: string, description?: string) => { toast.success(msg, { id, description: description ?? row.fileName }); end(); },
+      fail: (msg: string) => { toast.error(msg, { id, description: row.fileName }); end(); },
+      cancel: () => { toast.dismiss(id); end(); },
+    };
+  }
   const [reextractingId, setReextractingId] = React.useState<string | null>(null);
   const [reextractRow, setReextractRow] = React.useState<OcrRow | null>(null);
   const [lookupAfm, setLookupAfm] = React.useState<string | null>(null);
@@ -265,17 +283,15 @@ export function OcrTable({
 
   async function handlePost(row: OcrRow) {
     if (!row.category) { toast.error('Όρισε πρώτα κατηγορία (κάνε expand τη γραμμή).'); return; }
-    setBusyId(row.id);
+    const p = startProgress(row, 'Καταχώριση στο SoftOne');
     try {
       const res = await fetch(`/api/admin/ocr/${row.id}/post-softone`, { method: 'POST' });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
-      toast.success(`Αναρτήθηκε στο SoftOne (ref: ${json.ref})`);
+      if (!res.ok) throw new Error(json?.message ?? json?.error ?? `HTTP ${res.status}`);
+      p.ok(`Καταχωρίστηκε στο SoftOne (ref: ${json.ref})`);
       router.refresh();
     } catch (err: any) {
-      toast.error(`Αποτυχία ανάρτησης: ${err?.message ?? err}`);
-    } finally {
-      setBusyId(null);
+      p.fail(`Αποτυχία καταχώρισης: ${err?.message ?? err}`);
     }
   }
 
@@ -287,15 +303,16 @@ export function OcrTable({
    */
   async function handleExtractNow(row: OcrRow) {
     setReextractingId(row.id);
+    const p = startProgress(row, 'Ανάγνωση εγγράφου');
     router.refresh();
     try {
       const res = await fetch(`/api/admin/ocr/${row.id}/extract`, { method: 'POST' });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
-      toast.success('Η ανάγνωση ολοκληρώθηκε');
+      p.ok('Η ανάγνωση ολοκληρώθηκε');
       router.refresh();
     } catch (err: any) {
-      toast.error(`Αποτυχία ανάγνωσης: ${err?.message ?? err}`);
+      p.fail(`Αποτυχία ανάγνωσης: ${err?.message ?? err}`);
       router.refresh();
     } finally {
       setReextractingId(null);
@@ -305,6 +322,7 @@ export function OcrTable({
   async function handleReextract(row: OcrRow, docType: ExtractDocType) {
     setReextractRow(null);
     setReextractingId(row.id);
+    const p = startProgress(row, 'Επανασκανάρισμα');
     // Mark row as PROCESSING in UI right away so the progress bar appears.
     router.refresh();
     try {
@@ -315,10 +333,10 @@ export function OcrTable({
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
-      toast.success(`Επανασκανάρισμα ΟΚ (${json.model})`);
+      p.ok(`Το επανασκανάρισμα ολοκληρώθηκε (${json.model})`);
       router.refresh();
     } catch (err: any) {
-      toast.error(`Αποτυχία: ${err?.message ?? err}`);
+      p.fail(`Αποτυχία επανασκαναρίσματος: ${err?.message ?? err}`);
       router.refresh();
     } finally {
       setReextractingId(null);
@@ -326,52 +344,46 @@ export function OcrTable({
   }
 
   async function handleCreateCompany(row: OcrRow, role: 'SUPPLIER' | 'CUSTOMER') {
-    setBusyId(row.id);
+    const p = startProgress(row, role === 'CUSTOMER' ? 'Δημιουργία πελάτη' : 'Δημιουργία προμηθευτή');
     try {
       const res = await fetch(`/api/admin/ocr/${row.id}/create-supplier?role=${role}`, { method: 'POST' });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
       const name = json.company?.name ?? '';
       const noun = role === 'CUSTOMER' ? 'πελάτης' : 'προμηθευτής';
-      toast.success(json.reused ? `Υπήρχε ήδη: ${name}` : `Δημιουργήθηκε ${noun}: ${name}`);
+      p.ok(json.reused ? `Υπήρχε ήδη: ${name}` : `Δημιουργήθηκε ${noun}: ${name}`);
       router.refresh();
     } catch (err: any) {
-      toast.error(`Αποτυχία: ${err?.message ?? err}`);
-    } finally {
-      setBusyId(null);
+      p.fail(`Αποτυχία: ${err?.message ?? err}`);
     }
   }
 
   async function handleDelete(row: OcrRow) {
     if (!confirm(`Διαγραφή του εγγράφου "${row.fileName}";`)) return;
-    setBusyId(row.id);
+    const p = startProgress(row, 'Διαγραφή');
     try {
       const res = await fetch(`/api/admin/ocr/${row.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast.success('Διαγράφηκε');
+      p.ok('Διαγράφηκε');
       router.refresh();
     } catch (err: any) {
-      toast.error(`Αποτυχία διαγραφής: ${err?.message ?? err}`);
-    } finally {
-      setBusyId(null);
+      p.fail(`Αποτυχία διαγραφής: ${err?.message ?? err}`);
     }
   }
 
   // Hybrid status override: lock a document as RESOLVED / IGNORED, or null = back to auto.
   async function handleOverride(row: OcrRow, value: 'RESOLVED' | 'IGNORED' | null) {
-    setBusyId(row.id);
+    const p = startProgress(row, value === 'RESOLVED' ? 'Σήμανση ως ολοκληρωμένο' : value === 'IGNORED' ? 'Αγνόηση' : 'Επαναφορά σε αυτόματο');
     try {
       const res = await fetch(`/api/admin/ocr/${row.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reconOverride: value }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast.success(value === 'RESOLVED' ? 'Σημειώθηκε ως ολοκληρωμένο' : value === 'IGNORED' ? 'Αγνοήθηκε' : 'Επαναφορά σε αυτόματο');
+      p.ok(value === 'RESOLVED' ? 'Σημειώθηκε ως ολοκληρωμένο' : value === 'IGNORED' ? 'Αγνοήθηκε' : 'Επαναφορά σε αυτόματο');
       router.refresh();
     } catch (err: any) {
-      toast.error(`Αποτυχία: ${err?.message ?? err}`);
-    } finally {
-      setBusyId(null);
+      p.fail(`Αποτυχία: ${err?.message ?? err}`);
     }
   }
 
@@ -742,6 +754,16 @@ export function OcrTable({
       cell: ({ row }) => {
         const r = row.original;
         const disabled = busyId === r.id;
+        // Σε εξέλιξη: περιστρεφόμενη ένδειξη ΣΤΗ ΘΕΣΗ του ⋮, με το τι γίνεται (tooltip + αναγνώστης οθόνης).
+        if (disabled) {
+          return (
+            <span role="status" aria-live="polite" title={busyLabel ? `${busyLabel}…` : 'Σε εξέλιξη…'}
+              className="inline-flex size-7 items-center justify-center text-sisyphus-600">
+              <FiLoader aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
+              <span className="sr-only">{busyLabel ? `${busyLabel}…` : 'Σε εξέλιξη…'}</span>
+            </span>
+          );
+        }
         return (
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -839,7 +861,7 @@ export function OcrTable({
       },
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [busyId, canPost, canDelete, reextractingId, dupInfo, seriesByCode, seriesByBareCode, anyEnabledSeries]);
+  ], [busyId, busyLabel, canPost, canDelete, reextractingId, dupInfo, seriesByCode, seriesByBareCode, anyEnabledSeries]);
 
   return (
     <>
