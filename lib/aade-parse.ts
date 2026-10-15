@@ -26,6 +26,8 @@ export interface Afm2InfoRecord {
   city: string | null;
   legalForm: string | null;
   isActive: boolean;
+  /** Όλες οι δραστηριότητες (ΚΑΔ) — η κύρια πρώτη. Για την αντιστοίχιση με το SoftOne (`lib/kad.ts`). */
+  activities: { code: string; descr: string; kind: string }[];
 }
 
 /** Κλειδιά που κρύβουν το κείμενο σε XML→JSON αντικείμενα. */
@@ -102,5 +104,9 @@ export function parseAfm2Info(raw: unknown): Afm2InfoRecord | null {
     legalForm: textOf(rec.legal_status_descr),
     // Στην ΑΑΔΕ το «1» σημαίνει ΕΝΕΡΓΟΣ.
     isActive: textOf(rec.deactivation_flag) === '1',
+    activities: acts
+      .map((a) => ({ code: (textOf(a.firm_act_code) ?? '').replace(/\D/g, ''), descr: textOf(a.firm_act_descr) ?? '', kind: textOf(a.firm_act_kind) ?? '' }))
+      .filter((a) => a.code)
+      .sort((x, y) => (x.kind === '1' ? 0 : 1) - (y.kind === '1' ? 0 : 1)),
   };
 }

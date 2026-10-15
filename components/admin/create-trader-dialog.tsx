@@ -11,11 +11,13 @@ import {
 import { TRADER_KIND_TEXT, type TraderKindName } from '@/lib/ocr/posting-target';
 import type { TaxOfficeMapping } from '@/lib/tax-office';
 import { cn } from '@/lib/utils';
+import { KadField, kadPayload, useKadRemoved, type TraderKads } from '@/components/admin/kad-field';
 
 type Preview = {
   afm: string; name: string;
   doyDescr: string | null; doyCode: string | null;
   softoneDoy: TaxOfficeMapping;
+  softoneKad?: TraderKads;
   profession: string | null; address: string | null; zip: string | null; city: string | null;
   legalForm: string | null; isActive: boolean;
 };
@@ -59,6 +61,7 @@ export function CreateTraderDialog({
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [data, setData] = React.useState<Preview | null>(null);
+  const [kadRemoved, toggleKad] = useKadRemoved(data);
   const [submitting, setSubmitting] = React.useState(false);
   const [dryRun, setDryRun] = React.useState(true);
   const [dryPayload, setDryPayload] = React.useState<unknown>(null);
@@ -163,6 +166,7 @@ export function CreateTraderDialog({
           country: 'GR',
           irsData: data?.softoneDoy?.office?.key ?? null,
           profession: data?.profession ?? null,
+          ...kadPayload(data?.softoneKad, kadRemoved),
           address: data?.address ?? null,
           zip: data?.zip ?? null,
           city: data?.city ?? null,
@@ -191,6 +195,11 @@ export function CreateTraderDialog({
       } else {
         toast.success(`Δημιουργήθηκε ${text.nom}: ${d.name}${d.code ? ` (${d.code})` : ''}`, {
           description: d.docsUpdated > 1 ? `Συνδέθηκε σε ${d.docsUpdated} παραστατικά του ίδιου ΑΦΜ.` : undefined,
+        });
+      }
+      if (Array.isArray(d.warnings) && d.warnings.includes('kad_not_saved')) {
+        toast.warning('Ο ΚΑΔ δεν αποθηκεύτηκε στο SoftOne.', {
+          description: 'Η καρτέλα δημιουργήθηκε· συμπλήρωσε τον ΚΑΔ μέσα στο SoftOne (Επιπλέον στοιχεία → Κ.Α.Δ.).',
         });
       }
       onCreated?.({ trdr: d.trdr, code: d.code, name: d.name, docsUpdated: d.docsUpdated ?? 0 });
@@ -256,7 +265,13 @@ export function CreateTraderDialog({
                       : null}
                 />
               </div>
-              <Field label="Επάγγελμα (ΚΑΔ)" value={data.profession} />
+              <Field label="Επάγγελμα" value={data.profession} />
+              {data.softoneKad && (data.softoneKad.primary || data.softoneKad.secondary) && (
+                <div>
+                  <p className="mb-0.5 text-[length:var(--fs-11)] font-medium text-muted-foreground">ΚΑΔ → SoftOne</p>
+                  <KadField kads={data.softoneKad} removed={kadRemoved} onToggle={toggleKad} />
+                </div>
+              )}
               <Field label="Διεύθυνση" value={[data.address, data.zip, data.city].filter(Boolean).join(', ') || null} />
               {!data.isActive && (
                 <div className="rounded-md border p-2.5 text-[length:var(--fs-12)]" style={{ borderColor: '#FCD9A8', backgroundColor: '#FFF8EE', color: '#92400E' }}>

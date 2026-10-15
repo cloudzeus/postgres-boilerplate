@@ -11,6 +11,7 @@ import {
 import { SODTYPE_FOR_TRADER_KIND, type TraderKindName } from '@/lib/ocr/posting-target';
 import { LINEITEM_COPY_FIELDS, LINEITEM_TEMPLATE_READ_FIELDS, parseLisourceType } from '@/lib/ocr/lineitem-create';
 import { nextTraderCode, type NextCodeResult } from '@/lib/trader-code';
+import { buildKadIndex, type KadIndex } from '@/lib/kad';
 import { proposeItemCode, type ItemCodeKind, type ItemCodeProposal } from '@/lib/item-code';
 
 /**
@@ -1247,6 +1248,35 @@ export async function softoneFetchTaxOffices(): Promise<TaxOffice[]> {
   }
 }
 
+// Το μητρώο ΚΑΔ (`KADTAXIS`, ~10.000 γραμμές) αλλάζει σπάνια: μία ανάγνωση ανά 24ω ανά διεργασία.
+let kadCache: { at: number; idx: KadIndex } | null = null;
+let kadInflight: Promise<KadIndex> | null = null;
+const KAD_TTL = 24 * 60 * 60 * 1000;
+
+/** Το μητρώο ΚΑΔ του SoftOne ως ευρετήριο αντιστοίχισης (`lib/kad.ts`). Μόνο ανάγνωση. */
+export async function softoneFetchKadIndex(): Promise<KadIndex> {
+  if (kadCache && Date.now() - kadCache.at < KAD_TTL) return kadCache.idx;
+  kadInflight ??= softoneGetTable('KADTAXIS', ['KADTAXIS', 'CODE', 'NAME', 'ISACTIVE'], '1=1')
+    .then((rows) => {
+      const idx = buildKadIndex(rows.map((r) => ({
+        id: Number(r.KADTAXIS), code: str(r.CODE), name: str(r.NAME), isActive: str(r.ISACTIVE) !== '0',
+      })));
+      if (idx.rows.length === 0) throw new SoftoneError('Το μητρώο ΚΑΔ του SoftOne ήρθε κενό.');
+      kadCache = { at: Date.now(), idx };
+      return idx;
+    })
+    .finally(() => { kadInflight = null; });
+  return kadInflight;
+}
+
+/** Το κλειδί ΚΑΔ που θα γραφτεί υπάρχει (και είναι ενεργό); `null` = εντάξει ή το μητρώο δεν διαβάστηκε. */
+export async function softoneKadError(id: number | null | undefined): Promise<string | null> {
+  if (id == null) return null;
+  const idx = await softoneFetchKadIndex().catch(() => null);
+  if (!idx) return null;
+  return idx.rows.some((r) => r.id === id) ? null : `Ο ΚΑΔ με κλειδί ${id} δεν υπάρχει (ή είναι ανενεργός) στο μητρώο ΚΑΔ του SoftOne.`;
+}
+
 /**
  * Το κλειδί IRSDATA που θα γραφτεί στο `TRDR.IRSDATA` — υπάρχει και είναι ενεργό; `null` = εντάξει
  * (ή δεν ζητήθηκε Δ.Ο.Υ.), αλλιώς το μήνυμα για 422 `invalid_doy`. Αν το μητρώο δεν διαβαστεί, ΔΕΝ
@@ -1354,6 +1384,12 @@ export interface CreateSupplierInput {
    */
   latitude?: number | null;
   longitude?: number | null;
+  /**
+   * ΚΑΔ → `<SUP|CRE|DEB>EXTRA.KAD` (κύρια) / `KAD1` (δευτερεύουσα): το ΚΛΕΙΔΙ `KADTAXIS.KADTAXIS`
+   * (ακέραιος), όχι ο κωδικός με τελείες. Βγαίνει από το `resolveTraderKads` (`lib/kad.ts`).
+   */
+  kad?: number | null;
+  kad1?: number | null;
 }
 /**
  * Το SoftOne αρνήθηκε τη δημιουργία επειδή ΛΕΙΠΕΙ ο κωδικός;
@@ -1549,6 +1585,10 @@ export type TraderObject = 'SUPPLIER' | 'CREDITOR' | 'DEBTOR';
 const TRADER_OBJECT: Record<TraderKind, TraderObject> = {
   supplier: 'SUPPLIER', creditor: 'CREDITOR', debtor: 'DEBTOR',
 };
+/** Ο πίνακας «επιπλέον στοιχείων» κάθε object (βάση: TRDEXTRA) — εκεί ζουν οι ΚΑΔ. */
+const TRADER_EXTRA_TABLE: Record<TraderKind, string> = {
+  supplier: 'SUPEXTRA', creditor: 'CREEXTRA', debtor: 'DEBEXTRA',
+};
 /**
  * SODTYPE που δίνει το κάθε object (για έλεγχο μετά την εγγραφή).
  *
@@ -1558,6 +1598,8 @@ const TRADER_OBJECT: Record<TraderKind, TraderObject> = {
  * (`server-only`) θα υπήρχε αντίγραφο, και δύο αντίγραφα αποκλίνουν σιωπηλά.
  */
 export const TRADER_KIND_SODTYPE: Record<TraderKind, number> = SODTYPE_FOR_TRADER_KIND;
+
+const validKadId = (v: unknown): v is number => Number.isInteger(v) && (v as number) > 0;
 
 function traderRow(input: CreateTraderInput, countries: SoftoneCountry[] = []): Record<string, unknown> {
   const row: Record<string, unknown> = {
@@ -1590,17 +1632,22 @@ function traderRow(input: CreateTraderInput, countries: SoftoneCountry[] = []): 
  * Builds the exact setData payload for a trader create (also used for dry-run preview).
  * All three objects write TRDR — SUPPLIER stamps SODTYPE=12, CREDITOR 16, DEBTOR 15.
  */
-export function buildTraderPayload(kind: 'supplier', input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: 'SUPPLIER'; KEY: ''; DATA: { SUPPLIER: Record<string, unknown>[] } };
-export function buildTraderPayload(kind: 'creditor', input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: 'CREDITOR'; KEY: ''; DATA: { CREDITOR: Record<string, unknown>[] } };
-export function buildTraderPayload(kind: 'debtor', input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: 'DEBTOR'; KEY: ''; DATA: { DEBTOR: Record<string, unknown>[] } };
+export function buildTraderPayload(kind: 'supplier', input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: 'SUPPLIER'; KEY: ''; DATA: { SUPPLIER: Record<string, unknown>[]; SUPEXTRA?: Record<string, unknown>[] } };
+export function buildTraderPayload(kind: 'creditor', input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: 'CREDITOR'; KEY: ''; DATA: { CREDITOR: Record<string, unknown>[]; CREEXTRA?: Record<string, unknown>[] } };
+export function buildTraderPayload(kind: 'debtor', input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: 'DEBTOR'; KEY: ''; DATA: { DEBTOR: Record<string, unknown>[]; DEBEXTRA?: Record<string, unknown>[] } };
 export function buildTraderPayload(kind: TraderKind, input: CreateTraderInput, countries?: SoftoneCountry[]): { OBJECT: TraderObject; KEY: ''; DATA: Record<string, Record<string, unknown>[]> };
 export function buildTraderPayload(kind: TraderKind, input: CreateTraderInput, countries: SoftoneCountry[] = []) {
   const object = TRADER_OBJECT[kind];
-  return { OBJECT: object, KEY: '' as const, DATA: { [object]: [traderRow(input, countries)] } };
+  const data: Record<string, Record<string, unknown>[]> = { [object]: [traderRow(input, countries)] };
+  const extra: Record<string, unknown> = {};
+  if (validKadId(input.kad)) extra.KAD = input.kad;
+  if (validKadId(input.kad1) && input.kad1 !== input.kad) extra.KAD1 = input.kad1;
+  if (Object.keys(extra).length) data[TRADER_EXTRA_TABLE[kind]] = [extra];
+  return { OBJECT: object, KEY: '' as const, DATA: data };
 }
 
 /** Builds the exact setData payload for a supplier create (also used for dry-run preview). */
-export function buildSupplierPayload(input: CreateSupplierInput): { OBJECT: 'SUPPLIER'; KEY: ''; DATA: { SUPPLIER: Record<string, unknown>[] } } {
+export function buildSupplierPayload(input: CreateSupplierInput): { OBJECT: 'SUPPLIER'; KEY: ''; DATA: { SUPPLIER: Record<string, unknown>[]; SUPEXTRA?: Record<string, unknown>[] } } {
   return buildTraderPayload('supplier', input);
 }
 

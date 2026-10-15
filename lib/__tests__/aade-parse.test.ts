@@ -78,7 +78,23 @@ describe('parseAfm2Info', () => {
       city: 'ΜΑΡΟΥΣΙ',
       legalForm: 'ΑΕ',
       isActive: true,
+      activities: [
+        { code: '46512000', descr: 'ΧΟΝΔΡΙΚΟ ΕΜΠΟΡΙΟ ΛΟΓΙΣΜΙΚΟΥ', kind: '1' },
+        { code: '62011000', descr: 'ΔΕΥΤΕΡΕΥΟΥΣΑ', kind: '2' },
+      ],
     });
+  });
+
+  it('δραστηριότητες: η κύρια πρώτη, χωρίς όσες δεν έχουν κωδικό', () => {
+    const r = parseAfm2Info({
+      basic_rec: { afm: '094073495', onomasia: 'Χ' },
+      firm_act_tab: { item: [
+        { firm_act_code: '47920000', firm_act_descr: 'Β', firm_act_kind: '2' },
+        { firm_act_code: NIL, firm_act_descr: 'ΧΩΡΙΣ ΚΩΔΙΚΟ', firm_act_kind: '2' },
+        { firm_act_code: '46720100', firm_act_descr: 'Α', firm_act_kind: '1' },
+      ] },
+    });
+    expect(r?.activities.map((a) => a.code)).toEqual(['46720100', '47920000']);
   });
 
   it('ο κωδικός Δ.Ο.Υ. (`basic_rec.doy`) κρατιέται — είναι το κλειδί της αντιστοίχισης', () => {
@@ -123,7 +139,7 @@ describe('parseAfm2Info', () => {
     });
     expect(r).toEqual({
       afm: '094073495', name: 'ΠΑΡΑΔΕΙΓΜΑ', doyCode: null, doyDescr: null, profession: null,
-      address: null, zip: null, city: null, legalForm: null, isActive: true,
+      address: null, zip: null, city: null, legalForm: null, isActive: true, activities: [],
     });
   });
 });

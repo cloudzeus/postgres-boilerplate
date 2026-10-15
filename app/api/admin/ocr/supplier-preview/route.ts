@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/rbac';
-import { softoneFetchTaxOffices } from '@/lib/softone';
+import { softoneFetchKadIndex, softoneFetchTaxOffices } from '@/lib/softone';
+import { KAD_UNAVAILABLE_NOTE, resolveTraderKads, type KadMapping } from '@/lib/kad';
 import { parseAfm2Info } from '@/lib/aade-parse';
 import {
   resolveTaxOffice, toTaxOfficeMapping, UNAVAILABLE_TAX_OFFICE_MAPPING, type TaxOfficeMapping,
@@ -39,11 +40,25 @@ export async function POST(req: Request) {
 
   // 2) Κωδικός Δ.Ο.Υ. ΑΑΔΕ → γραμμή IRSDATA με ίδιο CODE (ακριβώς). Αν το μητρώο του SoftOne δεν
   //    διαβαστεί, η απάντηση λέει «unavailable» — όχι «δεν υπάρχει».
+  // 3) ΚΑΔ ΑΑΔΕ → KADTAXIS (κύρια + μία δευτερεύουσα). Παράλληλα με τη Δ.Ο.Υ. και με όριο: το
+  //    μητρώο ΚΑΔ είναι μεγάλο και η πρώτη ανάγνωση της ημέρας δεν πρέπει να κρατά την καρτέλα.
+  const kadPromise = Promise.race([
+    softoneFetchKadIndex(),
+    new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+  ]);
   let softoneDoy: TaxOfficeMapping = UNAVAILABLE_TAX_OFFICE_MAPPING;
   try {
     const offices = await softoneFetchTaxOffices();
     softoneDoy = toTaxOfficeMapping(resolveTaxOffice({ code: rec.doyCode, descr: rec.doyDescr }, offices));
   } catch { /* unavailable — ο συναλλασσόμενος δημιουργείται και χωρίς Δ.Ο.Υ. */ }
 
-  return NextResponse.json({ ...rec, softoneDoy });
+  let softoneKad: { primary: KadMapping | null; secondary: KadMapping | null };
+  try {
+    softoneKad = resolveTraderKads(rec.activities, await kadPromise);
+  } catch {
+    const primary = rec.activities.find((a) => a.kind === '1') ?? null;
+    softoneKad = { primary: primary ? { status: 'unavailable', row: null, aade: primary, note: KAD_UNAVAILABLE_NOTE } : null, secondary: null };
+  }
+
+  return NextResponse.json({ ...rec, softoneDoy, softoneKad });
 }

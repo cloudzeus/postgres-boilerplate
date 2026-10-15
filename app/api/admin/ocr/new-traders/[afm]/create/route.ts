@@ -8,7 +8,7 @@ import { parseAfmParam, vatCountry, isValidAfm } from '@/lib/ocr/validate';
 import { applyVatPrefix } from '@/lib/ocr/vat-prefix';
 import { applyTraderToDocs, TRADER_KIND_LABEL } from '@/lib/ocr/queues';
 import {
-  buildTraderPayload, softoneFetchCountries, softoneIrsDataError, softoneNextTraderCode,
+  buildTraderPayload, softoneFetchCountries, softoneIrsDataError, softoneKadError, softoneNextTraderCode,
   matchCountryId, isMissingCodeError, isDuplicateCodeError, clearTraderCodeCache,
   SoftoneTransportError, SoftoneConfigError, TRADER_KIND_SODTYPE, type SoftoneCountry,
 } from '@/lib/softone';
@@ -31,6 +31,9 @@ const Body = z.object({
    */
   irsData: z.string().trim().max(20).nullable().optional(),
   profession: z.string().trim().max(200).nullable().optional(),
+  /** ΚΑΔ → `<SUP|CRE|DEB>EXTRA.KAD` / `KAD1`: το ΚΛΕΙΔΙ `KADTAXIS.KADTAXIS` (από το `softoneKad` του preview). */
+  kad: z.number().int().positive().nullable().optional(),
+  kad1: z.number().int().positive().nullable().optional(),
   address: z.string().trim().max(200).nullable().optional(),
   zip: z.string().trim().max(20).nullable().optional(),
   city: z.string().trim().max(100).nullable().optional(),
@@ -91,6 +94,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
     code: b.code ?? null,
     irsData: b.irsData ?? null,
     profession: b.profession ?? null,
+    kad: b.kad ?? null,
+    kad1: b.kad1 ?? null,
     address: b.address ?? null,
     zip: b.zip ?? null,
     city: b.city ?? null,
@@ -108,6 +113,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
   const doyError = await softoneIrsDataError(input.irsData);
   if (doyError) {
     return NextResponse.json({ error: 'invalid_doy', field: 'irsData', message: doyError }, { status: 422 });
+  }
+  for (const field of ['kad', 'kad1'] as const) {
+    const kadError = await softoneKadError(input[field]);
+    if (kadError) return NextResponse.json({ error: 'invalid_kad', field, message: kadError }, { status: 422 });
   }
 
   // Το μητρώο χωρών φορτώνεται ΜΙΑ φορά ανά αίτημα (cached 24h μέσα στη διεργασία).

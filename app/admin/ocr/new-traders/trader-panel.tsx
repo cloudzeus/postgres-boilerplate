@@ -25,6 +25,7 @@ import {
   resolveTaxOffice, planDoyFill, missingDoyNote, type TaxOffice, type TaxOfficeMapping,
 } from '@/lib/tax-office';
 import type { TraderCodeSamples, TraderGroup } from '@/lib/ocr/queues';
+import { KadField, kadPayload, useKadRemoved, type TraderKads } from '@/components/admin/kad-field';
 
 export type { TaxOffice } from '@/lib/tax-office';
 
@@ -40,6 +41,8 @@ interface AadePreview {
    * ή — όταν δεν υπάρχει — η ορατή σημείωση που το λέει. Το αποφασίζει ο server.
    */
   softoneDoy: TaxOfficeMapping;
+  /** ΚΑΔ ΑΑΔΕ → μητρώο ΚΑΔ του SoftOne (το αποφασίζει ο server, `lib/kad.ts`). */
+  softoneKad?: TraderKads;
   profession: string | null;
   address: string | null;
   zip: string | null;
@@ -261,6 +264,7 @@ export function TraderPanel({
   const [failure, setFailure] = React.useState<string | null>(null);
 
   const [aade, setAade] = React.useState<AadePreview | null>(null);
+  const [kadRemoved, toggleKad] = useKadRemoved(aade);
   const [aadeState, setAadeState] = React.useState<AadeState>('loading');
   const [aadeReload, setAadeReload] = React.useState(0);
 
@@ -568,6 +572,8 @@ export function TraderPanel({
     // Δ.Ο.Υ. δεν υπάρχει για εκδότη εκτός Ελλάδας — δεν τη στέλνουμε καν.
     irsData: (form.country && form.country !== 'GR' ? null : form.irsData) || null,
     profession: form.profession.trim() || null,
+    // ΚΑΔ μόνο για ελληνικό εκδότη με απάντηση ΑΑΔΕ (ο server έχει ήδη βρει τη γραμμή KADTAXIS).
+    ...(form.country && form.country !== 'GR' ? { kad: null, kad1: null } : kadPayload(aade?.softoneKad, kadRemoved)),
     address: form.address.trim() || null,
     zip: form.zip.trim() || null,
     city: form.city.trim() || null,
@@ -621,6 +627,11 @@ export function TraderPanel({
       if (!res.ok || !d?.ok) {
         setFailure(d?.message ?? 'Η δημιουργία στο SoftOne απέτυχε.');
         return;
+      }
+      if (Array.isArray(d.warnings) && d.warnings.includes('kad_not_saved')) {
+        toast.warning('Η καρτέλα δημιουργήθηκε, αλλά ο ΚΑΔ δεν αποθηκεύτηκε στο SoftOne.', {
+          description: 'Συμπλήρωσέ τον στην καρτέλα μέσα στο SoftOne (Επιπλέον στοιχεία → Κ.Α.Δ.).',
+        });
       }
       onResolved(
         group.afm,
@@ -1332,6 +1343,12 @@ export function TraderPanel({
             <Input {...bind('profession', 'tp-prof')} className="h-8 text-[length:var(--fs-13)]" />
             <RegistryMark k="profession" />
           </Field>
+
+          {!isForeign && aadeState === 'ready' && aade?.softoneKad && (aade.softoneKad.primary || aade.softoneKad.secondary) && (
+            <Field label="ΚΑΔ (δραστηριότητα)" id="tp-kad" plainLabel className="sm:col-span-2">
+              <KadField kads={aade.softoneKad} removed={kadRemoved} onToggle={toggleKad} />
+            </Field>
+          )}
 
           <Field label="Διεύθυνση" id="tp-addr" error={errorOf('address')} className="sm:col-span-2">
             <RegistryMark k="address" />

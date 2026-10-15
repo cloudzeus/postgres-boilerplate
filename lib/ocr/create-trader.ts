@@ -32,6 +32,8 @@ export interface CreateTraderJob {
     profession: string | null; address: string | null; zip: string | null; city: string | null;
     phone: string | null; email: string | null; country: string;
     latitude: number | null; longitude: number | null;
+    /** `KADTAXIS` κλειδιά· λείπουν σε εργασίες ουράς παλαιότερης έκδοσης. */
+    kad?: number | null; kad1?: number | null;
   };
   actor: { id: string; email: string } | null;
 }
@@ -61,6 +63,15 @@ export async function findExistingTrader(vat: string, sodtype: number): Promise<
   const live = await softoneGetTable('TRDR', ['TRDR', 'CODE', 'NAME', 'AFM', 'ISACTIVE'], `AFM='${key}' AND SODTYPE=${sodtype}`).catch(() => []);
   const l = live.find((r) => r.ISACTIVE !== '0' && normalizeAfm(r.AFM) === key);
   return l ? { trdr: Number(l.TRDR), code: l.CODE, name: l.NAME } : null;
+}
+
+/** Ο ΚΑΔ που στείλαμε ΔΕΝ βρίσκεται στο TRDEXTRA; (αποτυχία ανάγνωσης ⇒ `false`: δεν ξέρουμε.) */
+async function kadNotSaved(trdr: number, kad: number | null, kad1: number | null): Promise<boolean> {
+  if (kad == null && kad1 == null) return false;
+  const rows = await softoneGetTable('TRDEXTRA', ['TRDR', 'KAD', 'KAD1'], `TRDR=${trdr}`).catch(() => null);
+  if (!rows) return false;
+  const r = rows.find((x) => Number(x.TRDR) === trdr);
+  return (kad != null && Number(r?.KAD) !== kad) || (kad1 != null && kad1 !== kad && Number(r?.KAD1) !== kad1);
 }
 
 export async function createTraderInSoftone(job: CreateTraderJob): Promise<CreateTraderResult> {
@@ -102,6 +113,9 @@ export async function createTraderInSoftone(job: CreateTraderJob): Promise<Creat
   }
 
   const { trdr, code } = await softoneCreateTrader(kind, input, countries);
+  // Ο ΚΑΔ γράφεται σε ΑΛΛΟΝ πίνακα (TRDEXTRA) από την καρτέλα: το `success:true` δεν λέει ότι
+  // έμεινε. Ανάγνωση πίσω — αν δεν έμεινε, η καρτέλα ΥΠΑΡΧΕΙ κανονικά και ο χρήστης το μαθαίνει.
+  if (await kadNotSaved(trdr, input.kad ?? null, input.kad1 ?? null)) warnings.push('kad_not_saved');
   const mirror = {
     code, name: input.name, afm: input.afm, sodtype, kind: label, isActive: true,
     doy: input.irsData, profession: input.profession,

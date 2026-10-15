@@ -64,6 +64,20 @@ describe('buildTraderPayload', () => {
     expect(row(buildTraderPayload('supplier', INPUT))).toEqual({ NAME: 'ΑΛΦΑ ΑΕ', AFM: '094073495', ISACTIVE: 1 });
   });
 
+  it('ΚΑΔ → πίνακας «επιπλέον στοιχείων» του object (SUPEXTRA/CREEXTRA/DEBEXTRA), όχι στη γραμμή TRDR', () => {
+    const sup = buildTraderPayload('supplier', { ...INPUT, kad: 4435, kad1: 4434 });
+    expect(sup.DATA.SUPEXTRA).toEqual([{ KAD: 4435, KAD1: 4434 }]);
+    expect(row(sup)).not.toHaveProperty('KAD');
+    expect(buildTraderPayload('creditor', { ...INPUT, kad: 7 }).DATA.CREEXTRA).toEqual([{ KAD: 7 }]);
+    expect(buildTraderPayload('debtor', { ...INPUT, kad1: 9 }).DATA.DEBEXTRA).toEqual([{ KAD1: 9 }]);
+  });
+
+  it('χωρίς ΚΑΔ (ή με άκυρο/ίδιο) δεν στέλνεται πίνακας ή διπλή τιμή', () => {
+    expect(Object.keys(buildTraderPayload('supplier', INPUT).DATA)).toEqual(['SUPPLIER']);
+    expect(Object.keys(buildTraderPayload('supplier', { ...INPUT, kad: 0, kad1: null }).DATA)).toEqual(['SUPPLIER']);
+    expect(buildTraderPayload('supplier', { ...INPUT, kad: 5, kad1: 5 }).DATA.SUPEXTRA).toEqual([{ KAD: 5 }]);
+  });
+
   it('στέλνει τηλέφωνο/email ως PHONE01/EMAIL όταν δίνονται', () => {
     const r = row(buildTraderPayload('creditor', { ...INPUT, phone: '2101234567', email: 'a@b.gr' }));
     expect(r).toMatchObject({ PHONE01: '2101234567', EMAIL: 'a@b.gr' });
