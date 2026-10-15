@@ -143,6 +143,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       issuerVatId,
       /** Η γραμμή του μητρώου χωρών της SoftOne που θα μπει στην καρτέλα (`null` = λείπει / άγνωστη). */
       softoneCountry,
+      /** Στοιχεία επικοινωνίας όπως τα γράφει το παραστατικό → PHONE01/PHONE02/FAX/EMAIL/WEBPAGE. */
+      contacts: {
+        phone: txt(iss.phone) ?? txt(ed.companyPhone), phone2: txt(iss.phone2), fax: txt(iss.fax),
+        email: txt(iss.email) ?? txt(ed.companyEmail), webpage: txt(iss.website),
+      },
       sodtype: linked?.sodtype ?? null,
       /** `null` = άγνωστη σειρά ⇒ δεν ξέρουμε τι καρτέλα θέλει, άρα δεν προτείνουμε καμία. */
       required,

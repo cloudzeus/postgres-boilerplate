@@ -190,6 +190,10 @@ export interface TraderGroup {
   address: string | null;
   phone: string | null;
   email: string | null;
+  /** Δεύτερο τηλέφωνο / fax / ιστοσελίδα όπως τα γράφει το παραστατικό. */
+  phone2: string | null;
+  fax: string | null;
+  website: string | null;
   docCount: number;
   total: number;
   lastDate: string | null;
@@ -230,6 +234,10 @@ interface TraderAcc {
   address: string | null;
   phone: string | null;
   email: string | null;
+  /** Δεύτερο τηλέφωνο / fax / ιστοσελίδα όπως τα γράφει το παραστατικό. */
+  phone2: string | null;
+  fax: string | null;
+  website: string | null;
   docCount: number;
   total: number;
   lastDate: Date | null;
@@ -411,6 +419,7 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
     if (!g) {
       g = {
         afm, names: new Map(), countryHint: null, doy: null, profession: null, address: null, phone: null, email: null,
+        phone2: null, fax: null, website: null,
         docCount: 0, total: 0, lastDate: null, thumbUrl: null, seriesKinds: [], invoiceKinds: [],
         needs: new Map(), unknownSeriesDocs: 0, docs: [],
       };
@@ -427,6 +436,9 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
     g.countryHint ??= countryInText(str(ed.companyCountry)) ?? countryInText(str(ed.companyAddress));
     g.phone ??= str(ed.companyPhone);
     g.email ??= str(ed.companyEmail);
+    g.phone2 ??= str(ed.companyPhone2);
+    g.fax ??= str(ed.companyFax);
+    g.website ??= str(ed.companyWebsite);
     g.thumbUrl ??= doc.thumbUrl ?? null;
     g.docCount++;
     const total = num(ed.totalAmount);
@@ -488,6 +500,7 @@ export async function loadTraderQueue(opts: { includeIgnored?: boolean } = {}): 
       isForeign: country != null && country !== 'GR',
       name: topName(g.names),
       doy: g.doy, profession: g.profession, address: g.address, phone: g.phone, email: g.email,
+      phone2: g.phone2, fax: g.fax, website: g.website,
       docCount: g.docCount,
       total: Math.round(g.total * 100) / 100,
       lastDate: g.lastDate ? g.lastDate.toISOString() : null,

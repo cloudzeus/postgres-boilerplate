@@ -44,7 +44,7 @@ describe('ASSLINES στο payload', () => {
       LINENUM: 9000001, MTRL: 6198, WHOUSE: 1000, ASSDEPR: 0, MTRTYPE: 0, QTY1: 1, PRICE: 2000, VAT: 1410,
       COMMENTS: 'MacBook Pro 14', COSTCNTR: 7,
     }]);
-    expect(p.DATA.ITELINES).toEqual([{ LINENUM: 9000001, MTRL: 555, QTY1: 2, PRICE: 50, VAT: 1410, COMMENTS: 'Θήκη' }]);
+    expect(p.DATA.ITELINES).toEqual([{ LINENUM: 9000001, MTRL: 555, QTY: 2, PRICE: 50, VAT: 1410, COMMENTS: 'Θήκη' }]);
   });
 
   it('χωρίς αποθήκη παγίων: καμία γραμμή παγίου στο payload και εμπόδιο asset_no_whouse', () => {

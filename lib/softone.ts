@@ -13,6 +13,7 @@ import { LINEITEM_COPY_FIELDS, LINEITEM_TEMPLATE_READ_FIELDS, parseLisourceType 
 import { nextTraderCode, type NextCodeResult } from '@/lib/trader-code';
 import { buildKadIndex, type KadIndex } from '@/lib/kad';
 import { countryInText } from '@/lib/country-detect';
+import { itemUnitFields } from '@/lib/item-units';
 import { proposeItemCode, type ItemCodeKind, type ItemCodeProposal } from '@/lib/item-code';
 
 /**
@@ -869,9 +870,24 @@ export interface ItemRow {
   isActive: boolean;
   /** MYDATACODE — ο χαρακτηρισμός myDATA που κουβαλά ΤΟ ΜΗΤΡΩΟ (όχι η γραμμή παραστατικού). */
   myDataCode: string | null;
+  /** Μονάδες: MTRUNIT1 βασική · MTRUNIT3 αγορών (×MU31) · MTRUNIT4 πώλησης (×MU41). */
+  unit1: string | null;
+  unitBuy: string | null;
+  buyRatio: number | null;
+  unitSell: string | null;
+  sellRatio: number | null;
 }
 
-const MTRL_FIELDS = ['MTRL', 'CODE', 'CODE1', 'CODE2', 'NAME', 'NAME1', 'PRICER', 'SODTYPE', 'ISACTIVE', 'MYDATACODE'];
+const MTRL_FIELDS = [
+  'MTRL', 'CODE', 'CODE1', 'CODE2', 'NAME', 'NAME1', 'PRICER', 'SODTYPE', 'ISACTIVE', 'MYDATACODE',
+  'MTRUNIT1', 'MTRUNIT3', 'MU31', 'MTRUNIT4', 'MU41',
+];
+
+/** Σχέση μονάδας: θετικός αριθμός, αλλιώς `null` (κενό/0 = «δεν ορίστηκε»). */
+const ratioOrNull = (v: unknown): number | null => {
+  const n = Number(String(v ?? '').replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
 
 function mapItem(o: Record<string, string>): ItemRow {
   const price = o.PRICER === '' ? null : Number(String(o.PRICER).replace(',', '.'));
@@ -886,6 +902,11 @@ function mapItem(o: Record<string, string>): ItemRow {
     isService: o.SODTYPE === '52',
     isActive: o.ISACTIVE !== '0',
     myDataCode: idOrNull(o.MYDATACODE),
+    unit1: idOrNull(o.MTRUNIT1),
+    unitBuy: idOrNull(o.MTRUNIT3),
+    buyRatio: ratioOrNull(o.MU31),
+    unitSell: idOrNull(o.MTRUNIT4),
+    sellRatio: ratioOrNull(o.MU41),
   };
 }
 
@@ -1041,6 +1062,12 @@ export interface CreateItemInput {
    * Ο κωδικός του προμηθευτή ΔΕΝ είναι ο κωδικός του είδους: αυτός ακολουθεί τη «Μορφή κωδικού».
    */
   supplier?: { trdr: number; code: string | null; name: string | null } | null;
+  /**
+   * Μονάδα ΑΓΟΡΩΝ / ΠΩΛΗΣΗΣ με τη σχέση τους προς τη βασική (`unit`): π.χ. ο προμηθευτής πουλά
+   * κιβώτιο των 100, εμείς τεμάχιο ⇒ `{ buy: Κιβώτια, buyRatio: 100 }`. Κενό ⇒ ίδια με τη βασική.
+   * Μόνο για είδη (ο πίνακας SERVICE έχει μία μονάδα). Βλ. `lib/item-units.ts`.
+   */
+  units?: { buy?: string | null; buyRatio?: number | null; sell?: string | null; sellRatio?: number | null } | null;
 }
 
 /** Auxiliary lookup tables for the item-create form (combo boxes). */
@@ -1114,6 +1141,15 @@ export async function softoneFetchLookups(): Promise<LookupFetchResult> {
   return { rows: out, failed };
 }
 
+/** Το μητρώο μονάδων μέτρησης (MTRUNIT): id → ετικέτα (η ετικέτα ζει στο CODE· το NAME κρατά την εταιρεία). */
+export async function softoneFetchUnits(): Promise<{ id: string; name: string }[]> {
+  const rows = await softoneGetTable('MTRUNIT', ['MTRUNIT', 'CODE', 'NAME'], '');
+  const seen = new Set<string>();
+  return rows
+    .map((r) => ({ id: String(r.MTRUNIT), name: cleanS1Label(r.CODE) || cleanS1Label(r.NAME) }))
+    .filter((u) => u.id && u.name && !seen.has(u.id) && seen.add(u.id));
+}
+
 /** Loads the item classification lookup tables from SoftOne (small, cached upstream). */
 export async function softoneLoadItemAux(): Promise<ItemAuxMeta> {
   const grab = async (table: string) => {
@@ -1156,7 +1192,7 @@ export function buildItemPayload(input: CreateItemInput):
     MTRUNIT1: input.unit,
     ISACTIVE: 1,
   };
-  if (!input.isService) { row.MTRUNIT3 = input.unit; row.MTRUNIT4 = input.unit; }
+  if (!input.isService) Object.assign(row, itemUnitFields({ base: input.unit, ...(input.units ?? {}) }));
   // ΜΟΝΟ χονδρική, όπως δόθηκε (δεν «βελτιώνουμε» αριθμό που έγραψε άνθρωπος).
   //
   // ΓΙΑΤΙ ΔΕΝ ΣΤΕΛΝΕΤΑΙ `PRICER`: η εφαρμογή καταχωρεί παραστατικά **αγορών, εξόδων και
@@ -1403,6 +1439,9 @@ export interface CreateSupplierInput {
   zip?: string | null;
   city?: string | null;
   phone?: string | null;      // PHONE01
+  phone2?: string | null;     // PHONE02
+  fax?: string | null;        // FAX
+  webpage?: string | null;    // WEBPAGE
   email?: string | null;      // EMAIL
   /**
    * ISO-3166-1 alpha-2 της χώρας έδρας (π.χ. «CY»). Μεταφράζεται σε
@@ -1655,6 +1694,9 @@ function traderRow(input: CreateTraderInput, countries: SoftoneCountry[] = []): 
   if (input.zip) row.ZIP = input.zip;
   if (input.city) row.CITY = input.city;
   if (input.phone) row.PHONE01 = input.phone;
+  if (input.phone2 && input.phone2 !== input.phone) row.PHONE02 = input.phone2;
+  if (input.fax) row.FAX = input.fax;
+  if (input.webpage) row.WEBPAGE = input.webpage;
   if (input.email) row.EMAIL = input.email;
   // Συντεταγμένες: ή και τα δύο πεδία με έγκυρο ζεύγος, ή κανένα. Ποτέ «0 = άγνωστο».
   const coords = validCoords(input.latitude, input.longitude);

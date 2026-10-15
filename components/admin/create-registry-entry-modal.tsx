@@ -19,6 +19,12 @@ import { OpenAccountDialog, type OpenRequest } from '@/components/admin/open-acc
 import { vatOfAccount } from '@/lib/ocr/scan-accounts';
 import { isValidGtin, lineEan } from '@/lib/ocr/ean';
 import { matchUnit, unitOptions } from '@/lib/ocr/unit-match';
+import { ratioFromText, unitsError } from '@/lib/item-units';
+import { ItemUnitsSection } from '@/components/admin/item-units-section';
+
+/** Μονάδες «συσκευασίας»: όταν το τιμολόγιο γράφει μία από αυτές, η βασική είναι μάλλον το τεμάχιο. */
+const PACK_UNIT = /^(κιβ|κουτ|πακ|συσκ|παλ|δοχ|σακ|ρολ)/i;
+const ratioNum = (v: string): number | null => { const n = Number(String(v).replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : null; };
 import { LINE_KIND_LABEL } from '@/lib/ocr/resolution-plan';
 import { parseLisourceType } from '@/lib/ocr/lineitem-create';
 import type { MatchKind } from '@/lib/ocr/line-match';
@@ -207,7 +213,8 @@ function AccountPicker({
  *  • Δεν αντιγράφει **χαρακτηρισμό myDATA** από το πρότυπο (δες `lib/ocr/lineitem-create.ts`).
  */
 export function CreateRegistryEntryModal({
-  open, onOpenChange, kind, lineId, initialCode, initialName, initialVatRate, initialUnit, initialEan, initialMfrCode, onCreated,
+  open, onOpenChange, kind, lineId, initialCode, initialName, initialVatRate, initialUnit, initialEan, initialMfrCode,
+  initialQty, initialPrice, onCreated,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -222,6 +229,9 @@ export function CreateRegistryEntryModal({
   /** Barcode (EAN) και κωδικός κατασκευαστή της γραμμής, όπως διαβάστηκαν. */
   initialEan?: string | null;
   initialMfrCode?: string | null;
+  /** Ποσότητα / τιμή μονάδας της γραμμής — για την προεπισκόπηση της μετατροπής μονάδων. */
+  initialQty?: number | null;
+  initialPrice?: number | null;
   onCreated?: (m: { kind: MatchKind; mtrl: number | null; expn: number | null; lin: number | null; code: string; name: string }) => void;
 }) {
   const [meta, setMeta] = React.useState<Meta | null>(null);
@@ -250,6 +260,9 @@ export function CreateRegistryEntryModal({
   const [codeRule, setCodeRule] = React.useState<string | null>(null);
 
   const isItem = kind === 'product' || kind === 'service';
+  /** Μονάδα αγορών/πώλησης ≠ βασική: μόνο για ΕΙΔΟΣ (η υπηρεσία έχει μία μονάδα στη SoftOne). */
+  const [alt, setAlt] = React.useState({ buy: '', buyRatio: '', sell: '', sellRatio: '' });
+  const ratioHint = React.useMemo(() => ratioFromText(initialName), [initialName]);
   // Η μονάδα ζει στο `MTRL`, άρα αφορά ΚΑΙ τη χρεοπίστωση· το έξοδο (`EXPN`) δεν έχει μονάδα.
   const hasUnit = kind !== 'expense';
   const needsTemplate = kind === 'lineitem';
@@ -319,10 +332,22 @@ export function CreateRegistryEntryModal({
             : unitHit ? null
               : `Η μονάδα «${initialUnit}» δεν υπάρχει στο μητρώο μονάδων του SoftOne — διάλεξε την αντίστοιχη ή πρόσθεσέ τη στο SoftOne πρώτα. Δεν βάζουμε ΤΕΜΑΧΙΑ στην τύχη: η μονάδα μένει στην καρτέλα για πάντα.`,
         );
-        setF((s) => ({ ...s, vat: vatHit?.id ?? '', unit: unitHit?.code ?? '' }));
+        // ── Συσκευασία: το τιμολόγιο γράφει «ΚΙΒ» και η περιγραφή «100 ΤΕΜ» ⇒ βασική = τεμάχια,
+        //    αγορά = κιβώτιο × 100. Χωρίς σχέση στην περιγραφή, η σχέση μένει κενή και ζητείται.
+        const isPack = unitHit && PACK_UNIT.test(unitHit.name);
+        const pieces = units.find((u) => /^τεμ/i.test(u.name));
+        if (kind === 'product' && isPack && pieces) {
+          const r = ratioFromText(initialName);
+          // Η τιμή χονδρικής του ΕΙΔΟΥΣ είναι ανά ΒΑΣΙΚΗ μονάδα: κιβώτιο 50 € των 100 ⇒ 0,50 €.
+          setF((s) => ({ ...s, vat: vatHit?.id ?? '', unit: pieces.code, price: initialPrice != null && r ? String(Math.round((initialPrice / r) * 10000) / 10000) : '' }));
+          setAlt({ buy: unitHit.code, buyRatio: r ? String(r) : '', sell: '', sellRatio: '' });
+        } else {
+          setF((s) => ({ ...s, vat: vatHit?.id ?? '', unit: unitHit?.code ?? '', price: initialPrice != null ? String(initialPrice) : '' }));
+          setAlt({ buy: '', buyRatio: '', sell: '', sellRatio: '' });
+        }
       })
       .catch(() => setMeta(EMPTY_META));
-  }, [open, kind, initialCode, initialName, initialVatRate, initialUnit, initialEan, initialMfrCode]);
+  }, [open, kind, initialCode, initialName, initialVatRate, initialUnit, initialEan, initialMfrCode, initialPrice]);
 
   /**
    * Προτεινόμενος κωδικός ΤΟΥ μητρώου που θα γραφτεί. Για χρεοπίστωση με επιλεγμένο λογαριασμό,
@@ -414,9 +439,12 @@ export function CreateRegistryEntryModal({
     code1: isItem ? (code1.trim() || null) : null,
     code2: isItem ? (code2.trim() || null) : null,
     saveSupplierCode: isItem ? saveSupplierCode : undefined,
+    units: kind === 'product'
+      ? { buy: alt.buy || null, buyRatio: ratioNum(alt.buyRatio), sell: alt.sell || null, sellRatio: ratioNum(alt.sellRatio) }
+      : undefined,
     dryRun: true,
     ...overrides,
-  }), [kind, f, hasUnit, isItem, needsTemplate, template, account.code, lineId, initialCode, code1, code2, saveSupplierCode]);
+  }), [kind, f, hasUnit, isItem, needsTemplate, template, account.code, lineId, initialCode, code1, code2, saveSupplierCode, alt]);
 
   /** Για χρεοπίστωση: διάβασε ζωντανά το πρότυπο και κρίνε το ΠΡΙΝ σταλεί οτιδήποτε. */
   const pickTemplate = async (p: { id: number; code: string; name: string }) => {
@@ -459,6 +487,10 @@ export function CreateRegistryEntryModal({
   const submit = async () => {
     if (!f.name.trim() || !f.code.trim()) { toast.error('Συμπλήρωσε Περιγραφή και Κωδικό.'); return; }
     if (isItem && (!f.vat || !f.unit)) { toast.error('Για είδος/υπηρεσία χρειάζονται ΦΠΑ και μονάδα.'); return; }
+    if (kind === 'product') {
+      const err = unitsError({ base: f.unit, buy: alt.buy || null, buyRatio: ratioNum(alt.buyRatio), sell: alt.sell || null, sellRatio: ratioNum(alt.sellRatio) });
+      if (err) { toast.error(err); return; }
+    }
     if (needsTemplate && !template) { toast.error('Διάλεξε υπάρχουσα χρεοπίστωση ως πρότυπο.'); return; }
     if (needsTemplate && !account.code) { toast.error('Διάλεξε λογαριασμό γενικής λογιστικής.'); return; }
     setSubmitting(true);
@@ -685,7 +717,7 @@ export function CreateRegistryEntryModal({
                 </label>
                 {isItem && (
                   <label className="grid gap-1.5">
-                    <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Τιμή χονδρικής (από τη γραμμή)</span>
+                    <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Τιμή χονδρικής{kind === 'product' ? ' ανά βασική μονάδα' : ' (από τη γραμμή)'}</span>
                     <Input value={f.price} onChange={(e) => set('price', e.target.value)} type="number" placeholder="0,00" className="h-9 text-[length:var(--fs-13)]" />
                   </label>
                 )}
@@ -693,7 +725,7 @@ export function CreateRegistryEntryModal({
                   <Combo label={`Φ.Π.Α.${isItem ? ' *' : ''}`} value={f.vat} onChange={(v) => set('vat', v)} opts={meta.vats} ph="Επίλεξε ΦΠΑ" />
                   {vatNote && <Note>{vatNote}</Note>}
                 </div>
-                {hasUnit && (
+                {hasUnit && kind !== 'product' && (
                   <div className="grid gap-1.5">
                     <Combo label={`Μονάδα${isItem ? ' *' : ''}`} value={f.unit} onChange={(v) => set('unit', v)} opts={orderedUnits}
                       ph={kind === 'lineitem' ? 'Κενό = όπως το πρότυπο' : 'Επίλεξε μονάδα'} />
@@ -702,6 +734,19 @@ export function CreateRegistryEntryModal({
                 )}
               </div>
             </section>
+
+            {kind === 'product' && (
+              <div className="space-y-1.5">
+                <ItemUnitsSection
+                  value={{ base: f.unit, ...alt }}
+                  onChange={(v) => { set('unit', v.base); setAlt({ buy: v.buy === v.base ? '' : v.buy, buyRatio: v.buyRatio, sell: v.sell === v.base ? '' : v.sell, sellRatio: v.sellRatio }); }}
+                  units={orderedUnits}
+                  line={{ quantity: initialQty ?? null, price: initialPrice ?? null, unitText: initialUnit ?? null }}
+                  ratioSuggestion={ratioHint}
+                />
+                {unitNote && <Note>{unitNote}</Note>}
+              </div>
+            )}
 
             {/* ΚΩΔΙΚΟΙ ΑΓΟΡΑΣ: κάθε κωδικός στη θέση του στο SoftOne — όχι όλοι στον κωδικό του είδους. */}
             {isItem && (

@@ -77,8 +77,8 @@ describe('buildPurdocPayload', () => {
           SomyDataMARK: '400001',
           SomyDataUID: 'ABC',
         }],
-        ITELINES: [{ LINENUM: 9000001, MTRL: 555, QTY1: 2, PRICE: 50, VAT: 1, COMMENTS: 'Είδος Α' }],
-        SRVLINES: [{ LINENUM: 9000001, MTRL: 666, QTY1: 1, PRICE: 100, VAT: 1, COMMENTS: 'Υπηρεσία Β' }],
+        ITELINES: [{ LINENUM: 9000001, MTRL: 555, QTY: 2, PRICE: 50, VAT: 1, COMMENTS: 'Είδος Α' }],
+        SRVLINES: [{ LINENUM: 9000001, MTRL: 666, QTY: 1, PRICE: 100, VAT: 1, COMMENTS: 'Υπηρεσία Β' }],
       },
     });
   });
@@ -117,7 +117,7 @@ describe('buildPurdocPayload', () => {
     const payload = buildPurdocPayload(d, ctx({ company: 1001, lines: [{ rowIndex: 0, mtrl: 555, expn: null, isService: false }] }));
     // Χωρίς έκπτωση δεν στέλνεται ΚΑΝΕΝΑ πεδίο έκπτωσης: ένα `DISC1PRC: 0` είναι αβλαβές, αλλά
     // η παρουσία του πεδίου ήταν αυτή που έκρυβε ότι εκεί γραφόταν ΠΟΣΟ αντί για ποσοστό.
-    expect(payload.DATA.ITELINES?.[0]).toMatchObject({ QTY1: 1 });
+    expect(payload.DATA.ITELINES?.[0]).toMatchObject({ QTY: 1 });
     expect(payload.DATA.ITELINES?.[0]).not.toHaveProperty('DISC1PRC');
     expect(payload.DATA.ITELINES?.[0]).not.toHaveProperty('DISC1VAL');
     expect(payload.DATA.PURDOC?.[0]).toMatchObject({ COMPANY: 1001 });
@@ -775,5 +775,21 @@ describe('σειριακοί στα σχόλια της γραμμής', () => {
     const p = buildPurdocPayload(d, ctx());
     const row = [...(p.DATA.ITELINES ?? []), ...(p.DATA.SRVLINES ?? [])].find((r) => String(r.COMMENTS).includes('IRIS'));
     expect(row?.COMMENTS).toBe('Αναβάθμιση IRIS SN: DMV1 · S/N: DMV2');
+  });
+});
+
+// Μονάδα αγορών ≠ βασική (κιβώτιο των 100): η ΑΞΙΑ μένει ίδια, η ποσότητα πάει στη μονάδα αγορών.
+import { purchaseQtyPrice } from '@/lib/ocr/purdoc-payload';
+describe('purchaseQtyPrice', () => {
+  it('τιμολόγιο σε κιβώτια → ως έχει (η SoftOne γράφει 200 τεμάχια)', () => {
+    expect(purchaseQtyPrice(2, 50, 100, false)).toEqual({ QTY: 2, PRICE: 50 });
+  });
+  it('τιμολόγιο σε τεμάχια → 2 κιβώτια × 50 €', () => {
+    expect(purchaseQtyPrice(200, 0.5, 100, true)).toEqual({ QTY: 2, PRICE: 50 });
+    expect(purchaseQtyPrice(150, 0.5, 100, true)).toEqual({ QTY: 1.5, PRICE: 50 });
+  });
+  it('σχέση 1 / άγνωστη → ως έχει', () => {
+    expect(purchaseQtyPrice(3, 10, 1, true)).toEqual({ QTY: 3, PRICE: 10 });
+    expect(purchaseQtyPrice(3, 10, null, true)).toEqual({ QTY: 3, PRICE: 10 });
   });
 });

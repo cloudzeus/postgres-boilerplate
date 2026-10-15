@@ -28,3 +28,10 @@ describe('normalizeDocument — ΑΦΜ εκδότη', () => {
     expect(doc({ vat: '01808880270' }).issuer.vat).toBe('01808880270');
   });
 });
+
+describe('normalizeDocument — επικοινωνία εκδότη', () => {
+  it('κρατά τηλέφωνο 2, fax, ιστοσελίδα', () => {
+    const d = normalizeDocument({ kind: 'invoice', issuer: { name: 'X', phone: '1', phone2: '2', fax: '3', website: 'www.x.it' }, lines: [] });
+    expect(d.issuer).toMatchObject({ phone: '1', phone2: '2', fax: '3', website: 'www.x.it' });
+  });
+});

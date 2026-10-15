@@ -94,6 +94,9 @@ const FIELD_SPECS: Record<string, FieldSpec[]> = {
     { key: 'companyAddress',     label: 'Διεύθυνση',    span: 5, group: 'issuer' },
     { key: 'companyProfession',  label: 'Δραστηριότητα', span: 4, group: 'issuer' },
     { key: 'companyEmail',       label: 'Email',        span: 3, group: 'issuer' },
+    { key: 'companyPhone2',      label: 'Τηλέφωνο 2',   span: 3, group: 'issuer' },
+    { key: 'companyFax',         label: 'Fax',          span: 3, group: 'issuer' },
+    { key: 'companyWebsite',     label: 'Ιστοσελίδα',   span: 6, group: 'issuer' },
     // Ο ΛΗΠΤΗΣ δεν είναι πεδίο φόρμας: είναι πάντα η εταιρεία που τρέχει την εφαρμογή.
     // Τα `customer*` εξακολουθούν να εξάγονται και να αποθηκεύονται — απλώς δεν ζητούνται εδώ.
     { key: 'subtotal',           label: 'Καθαρή αξία',  required: true, numeric: true, group: 'totals' },

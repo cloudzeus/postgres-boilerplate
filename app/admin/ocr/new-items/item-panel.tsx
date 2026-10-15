@@ -1,5 +1,7 @@
 'use client';
 
+import { ItemUnitsSection } from '@/components/admin/item-units-section';
+import { ratioFromText, unitsError } from '@/lib/item-units';
 import * as React from 'react';
 import Link from 'next/link';
 import {
@@ -156,6 +158,12 @@ export interface CreateOutcome {
 function defaultVat(vats: VatOption[]): string {
   return vats.find((v) => v.rate === 24)?.code ?? vats[0]?.code ?? '';
 }
+/** Μονάδα αγορών/πώλησης: κενό = ίδια με τη βασική. Η σχέση από την περιγραφή ΠΡΟΤΕΙΝΕΤΑΙ, δεν μπαίνει. */
+function initialAlt(_sample?: string) {
+  return { buy: '', buyRatio: '', sell: '', sellRatio: '' };
+}
+const ratioNum = (v: string): number | null => { const n = Number(String(v).replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : null; };
+
 function defaultUnit(units: UnitOption[]): string {
   return units.find((u) => /τεμ/i.test(u.label))?.code ?? units[0]?.code ?? '';
 }
@@ -193,6 +201,8 @@ export function ItemPanel({
     supplierCode: string | null;
     group: string | null;
     category: string | null;
+    /** Μονάδα αγορών/πώλησης ≠ βασική (μόνο είδος) — βλ. `lib/item-units.ts`. */
+    units?: { buy: string | null; buyRatio: number | null; sell: string | null; sellRatio: number | null };
   }) => void | Promise<void | CreateOutcome>;
   onSkip: () => void | Promise<void>;
   vats: VatOption[];
@@ -253,6 +263,7 @@ export function ItemPanel({
     price: group.lines.find((l) => l.price != null)?.price?.toString() ?? '',
     itemGroup: '',
     itemCategory: '',
+    ...initialAlt(group.sample),
   }));
   const [dryPayload, setDryPayload] = React.useState<unknown>(null);
   const [dryLoading, setDryLoading] = React.useState(false);
@@ -277,6 +288,7 @@ export function ItemPanel({
       price: group.lines.find((l) => l.price != null)?.price?.toString() ?? '',
       itemGroup: '',
       itemCategory: '',
+      ...initialAlt(group.sample),
     });
   }, [group.key, group.code, group.sample, group.lines, vats, units]);
 
@@ -322,7 +334,10 @@ export function ItemPanel({
     code: form.code.trim() ? null : 'Ο κωδικός είναι υποχρεωτικός.',
     name: form.name.trim() ? null : 'Η περιγραφή είναι υποχρεωτική.',
     vat: form.vat ? null : 'Επίλεξε κατηγορία ΦΠΑ.',
-    unit: !needsUnit || form.unit ? null : 'Επίλεξε μονάδα μέτρησης.',
+    unit: !needsUnit ? null : !form.unit ? 'Επίλεξε μονάδα μέτρησης.'
+      : category === 'product'
+        ? unitsError({ base: form.unit, buy: form.buy || null, buyRatio: ratioNum(form.buyRatio), sell: form.sell || null, sellRatio: ratioNum(form.sellRatio) })
+        : null,
   };
   const invalid = Object.values(errors).some(Boolean);
   // Το πεδίο κρατά ακόμη ΑΚΡΙΒΩΣ ό,τι προτείναμε — μόλις το αλλάξει ο χρήστης, το chip φεύγει.
@@ -342,9 +357,12 @@ export function ItemPanel({
     supplierCode: group.code ?? null,
     group: needsUnit ? form.itemGroup || null : null,
     category: needsUnit ? form.itemCategory || null : null,
+    units: category === 'product'
+      ? { buy: form.buy || null, buyRatio: ratioNum(form.buyRatio), sell: form.sell || null, sellRatio: ratioNum(form.sellRatio) }
+      : undefined,
   }), [
     group.afm, group.pattern, group.code, category, form.code, form.name, form.vat, form.unit,
-    form.price, form.itemGroup, form.itemCategory, needsUnit,
+    form.price, form.itemGroup, form.itemCategory, needsUnit, form.buy, form.buyRatio, form.sell, form.sellRatio,
   ]);
 
   // Όσο η προεπισκόπηση είναι ανοιχτή ακολουθεί τη φόρμα: κάθε αλλαγή ξαναζητά
@@ -417,7 +435,7 @@ export function ItemPanel({
     const outcome = await onCreate({
       kind: category, code: body.code, name: body.name, vat: body.vat, unit: body.unit,
       price: body.price, supplierCode: body.supplierCode,
-      group: body.group, category: body.category,
+      group: body.group, category: body.category, units: body.units,
     });
     // Ο κωδικός πιάστηκε στο μεσοδιάστημα (άλλος χρήστης / άλλη καρτέλα). ΚΑΜΙΑ αυτόματη
     // επανάληψη: ο χρήστης βλέπει τη νέα πρόταση και πατά ο ίδιος ξανά «Δημιουργία».
@@ -810,7 +828,7 @@ export function ItemPanel({
                 </select>
               </Field>
 
-              {needsUnit && (
+              {needsUnit && category !== 'product' && (
                 <Field id="ni-unit" label="Μονάδα" required error={touched.unit ? errors.unit : null}>
                   {units.length > 0 ? (
                     <select
@@ -833,6 +851,26 @@ export function ItemPanel({
                     />
                   )}
                 </Field>
+              )}
+
+              {category === 'product' && (
+                <div className="sm:col-span-2">
+                  <ItemUnitsSection
+                    value={{ base: form.unit, buy: form.buy, buyRatio: form.buyRatio, sell: form.sell, sellRatio: form.sellRatio }}
+                    onChange={(v) => setForm((f) => ({
+                      ...f, unit: v.base, buy: v.buy === v.base ? '' : v.buy, buyRatio: v.buyRatio,
+                      sell: v.sell === v.base ? '' : v.sell, sellRatio: v.sellRatio,
+                    }))}
+                    units={units.map((u) => ({ id: u.code, name: u.label }))}
+                    line={{
+                      quantity: group.lines.find((l) => l.quantity != null)?.quantity ?? null,
+                      price: group.lines.find((l) => l.price != null)?.price ?? null,
+                      unitText: null,
+                    }}
+                    ratioSuggestion={ratioFromText(group.sample)}
+                  />
+                  {touched.unit && errors.unit && <p className="mt-1 text-[length:var(--fs-11)] text-destructive" role="alert">{errors.unit}</p>}
+                </div>
               )}
 
               {needsUnit && (

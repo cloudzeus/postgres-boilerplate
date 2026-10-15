@@ -85,7 +85,7 @@ describe('postingPreview (dry-run)', () => {
     // Η κάρτα δείχνει ΑΝΑ ΠΕΔΙΟ πού γράφεται ο αριθμός του προμηθευτή.
     expect(preview.summary.reference).toEqual({ fincode: 'ΤΠΥ 17', taxSeries: 'ΤΠΥ', taxSeriesNum: '17' });
     expect(preview.payload?.DATA.ITELINES).toEqual([
-      { LINENUM: 9000001, MTRL: 555, QTY1: 2, PRICE: 50, VAT: 1, COMMENTS: 'Είδος Α', MYDATACODE: '1' },
+      { LINENUM: 9000001, MTRL: 555, QTY: 2, PRICE: 50, VAT: 1, COMMENTS: 'Είδος Α', MYDATACODE: '1' },
     ]);
     expect(preview.target).toMatchObject({ object: 'PURDOC', lines: 'AUTO', source: 'default' });
   });

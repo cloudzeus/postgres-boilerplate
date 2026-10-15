@@ -78,6 +78,12 @@ describe('buildTraderPayload', () => {
     expect(buildTraderPayload('supplier', { ...INPUT, kad: 5, kad1: 5 }).DATA.SUPEXTRA).toEqual([{ KAD: 5 }]);
   });
 
+  it('δεύτερο τηλέφωνο, fax, ιστοσελίδα → PHONE02 / FAX / WEBPAGE (όχι διπλό τηλέφωνο)', () => {
+    const r = row(buildTraderPayload('supplier', { ...INPUT, phone: '2101', phone2: '6971', fax: '2102', webpage: 'www.example.it' }));
+    expect(r).toMatchObject({ PHONE01: '2101', PHONE02: '6971', FAX: '2102', WEBPAGE: 'www.example.it' });
+    expect(row(buildTraderPayload('supplier', { ...INPUT, phone: '2101', phone2: '2101' }))).not.toHaveProperty('PHONE02');
+  });
+
   it('στέλνει τηλέφωνο/email ως PHONE01/EMAIL όταν δίνονται', () => {
     const r = row(buildTraderPayload('creditor', { ...INPUT, phone: '2101234567', email: 'a@b.gr' }));
     expect(r).toMatchObject({ PHONE01: '2101234567', EMAIL: 'a@b.gr' });

@@ -31,6 +31,8 @@ export interface CreateTraderJob {
     name: string; afm: string; code: string | null; irsData: string | null;
     profession: string | null; address: string | null; zip: string | null; city: string | null;
     phone: string | null; email: string | null; country: string;
+    /** Δεύτερο τηλέφωνο / fax / ιστοσελίδα — λείπουν σε εργασίες ουράς παλαιότερης έκδοσης. */
+    phone2?: string | null; fax?: string | null; webpage?: string | null;
     latitude: number | null; longitude: number | null;
     /** `KADTAXIS` κλειδιά· λείπουν σε εργασίες ουράς παλαιότερης έκδοσης. */
     kad?: number | null; kad1?: number | null;
@@ -121,6 +123,7 @@ export async function createTraderInSoftone(job: CreateTraderJob): Promise<Creat
     doy: input.irsData, profession: input.profession,
     address: input.address, zip: input.zip, city: input.city,
     phone: input.phone, email: input.email,
+    phone2: input.phone2 ?? null, fax: input.fax ?? null, webpage: input.webpage ?? null,
   };
   await prisma.softoneTrader.upsert({ where: { trdr }, update: mirror, create: { trdr, ...mirror } }).catch(() => null);
 

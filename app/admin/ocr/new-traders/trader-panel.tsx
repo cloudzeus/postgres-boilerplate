@@ -207,6 +207,9 @@ interface FormState {
   city: string;
   phone: string;
   email: string;
+  phone2: string;
+  fax: string;
+  webpage: string;
 }
 
 type FieldKey = keyof Omit<FormState, 'kind'>;
@@ -233,6 +236,9 @@ function validate(f: FormState): Partial<Record<FieldKey, string>> {
   }
   if (f.email.trim() && !EMAIL_RE.test(f.email.trim())) e.email = 'Μη έγκυρη διεύθυνση email.';
   if (f.phone.trim() && !PHONE_RE.test(f.phone.trim())) e.phone = 'Μη έγκυρος αριθμός τηλεφώνου.';
+  if (f.phone2.trim() && !PHONE_RE.test(f.phone2.trim())) e.phone2 = 'Μη έγκυρος αριθμός τηλεφώνου.';
+  if (f.fax.trim() && !PHONE_RE.test(f.fax.trim())) e.fax = 'Μη έγκυρος αριθμός fax.';
+  if (f.webpage.trim().length > 200) e.webpage = 'Έως 200 χαρακτήρες.';
   if (f.profession.trim().length > 200) e.profession = 'Έως 200 χαρακτήρες.';
   if (f.address.trim().length > 200) e.address = 'Έως 200 χαρακτήρες.';
   if (f.city.trim().length > 100) e.city = 'Έως 100 χαρακτήρες.';
@@ -583,6 +589,9 @@ export function TraderPanel({
     city: form.city.trim() || null,
     phone: form.phone.trim() || null,
     email: form.email.trim() || null,
+    phone2: form.phone2.trim() || null,
+    fax: form.fax.trim() || null,
+    webpage: form.webpage.trim() || null,
     // Άγνωστο σημείο ⇒ `null` και στα δύο· το SoftOne δεν παίρνει ποτέ 0 για «δεν ξέρω».
     latitude: coords?.lat ?? null,
     longitude: coords?.lng ?? null,
@@ -1501,6 +1510,18 @@ export function TraderPanel({
           <Field label="Email" id="tp-email" error={errorOf('email')}>
             <Input {...bind('email', 'tp-email')} type="email" className="h-8 text-[length:var(--fs-13)]" />
           </Field>
+
+          <Field label="Τηλέφωνο 2" id="tp-phone2" error={errorOf('phone2')}>
+            <Input {...bind('phone2', 'tp-phone2')} inputMode="tel" className="h-8 text-[length:var(--fs-13)]" />
+          </Field>
+
+          <Field label="Fax" id="tp-fax" error={errorOf('fax')}>
+            <Input {...bind('fax', 'tp-fax')} inputMode="tel" className="h-8 text-[length:var(--fs-13)]" />
+          </Field>
+
+          <Field label="Ιστοσελίδα" id="tp-web" error={errorOf('webpage')} className="sm:col-span-2">
+            <Input {...bind('webpage', 'tp-web')} inputMode="url" placeholder="www.example.com" className="h-8 text-[length:var(--fs-13)]" />
+          </Field>
         </div>
       </section>
 
@@ -1694,6 +1715,9 @@ function seed(group: TraderGroup, offices: TaxOffice[]): FormState {
     city: '',
     phone: group.phone ?? '',
     email: group.email ?? '',
+    phone2: group.phone2 ?? '',
+    fax: group.fax ?? '',
+    webpage: group.website ?? '',
   };
 }
 

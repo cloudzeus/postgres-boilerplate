@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { FiSearch, FiCheckCircle, FiAlertTriangle, FiSlash } from 'react-icons/fi';
 import { toast } from 'sonner';
+import type { TraderContacts } from '@/components/admin/create-trader-dialog';
 import { KadField, kadPayload, useKadRemoved, type TraderKads } from '@/components/admin/kad-field';
 
 /**
@@ -42,8 +43,10 @@ const Row = ({ aade, softone, value, hint }: {
   </div>
 );
 
-export function AadeVerifyPanel({ afm, kind, onCreated }: {
+export function AadeVerifyPanel({ afm, kind, onCreated, contacts }: {
   afm: string;
+  /** Τηλέφωνα / fax / email / ιστοσελίδα του παραστατικού — η ΑΑΔΕ δεν τα δίνει. */
+  contacts?: TraderContacts | null;
   /** Ο τύπος καρτέλας που ζητά η σειρά. `null` = άγνωστη σειρά ⇒ ΔΕΝ δημιουργούμε στα τυφλά. */
   kind: 'supplier' | 'creditor' | 'debtor' | null;
   onCreated?: () => void;
@@ -76,6 +79,8 @@ export function AadeVerifyPanel({ afm, kind, onCreated }: {
           irsData: data.softoneDoy?.office?.key ?? null,
           profession: data.profession, address: data.address, zip: data.zip, city: data.city,
           ...kadPayload(data.softoneKad, kadRemoved),
+          phone: contacts?.phone ?? null, phone2: contacts?.phone2 ?? null, fax: contacts?.fax ?? null,
+          email: contacts?.email ?? null, webpage: contacts?.webpage ?? null,
           dryRun: false,
         }),
       });
@@ -173,6 +178,9 @@ export function AadeVerifyPanel({ afm, kind, onCreated }: {
           <Row aade="Διεύθυνση" softone="ADDRESS" value={data.address} />
           <Row aade="Πόλη" softone="CITY" value={data.city} />
           <Row aade="Τ.Κ." softone="ZIP" value={data.zip} />
+          {[['Τηλέφωνο', 'PHONE01', contacts?.phone], ['Τηλέφωνο 2', 'PHONE02', contacts?.phone2], ['Fax', 'FAX', contacts?.fax], ['Email', 'EMAIL', contacts?.email], ['Ιστοσελίδα', 'WEBPAGE', contacts?.webpage]]
+            .filter(([, , v]) => v)
+            .map(([label, field, v]) => <Row key={field as string} aade={`${label} (παραστατικό)`} softone={field as string} value={v as string} />)}
           <Row aade="Νομική μορφή" softone="—" value={data.legalForm} hint="Πληροφοριακό· δεν στέλνεται" />
 
           {!confirming ? (

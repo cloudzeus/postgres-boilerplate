@@ -51,6 +51,13 @@ export type PurdocLineCtx = {
    * πεδίο χαρακτηρισμού, εκεί τον εφαρμόζει το SoftOne από το μητρώο.
    */
   myDataCode?: string | null;
+  /** MU31 του είδους: βασικές μονάδες ανά 1 μονάδα αγορών (1 = ίδια μονάδα). */
+  buyRatio?: number | null;
+  /**
+   * `true` = η ποσότητα του ΤΙΜΟΛΟΓΙΟΥ είναι στη ΒΑΣΙΚΗ μονάδα (π.χ. «200 PZ» ενώ το είδος αγοράζεται
+   * σε κιβώτια των 100): η γραμμή στέλνεται ως 2 κιβώτια × (τιμή × 100) — ίδια αξία, σωστή ποσότητα.
+   */
+  qtyInBase?: boolean;
   /** `true` όταν το μητρώο δεν κουβαλά κανέναν χαρακτηρισμό myDATA (προειδοποίηση, όχι εμπόδιο). */
   noClassification?: boolean;
   /**
@@ -140,9 +147,27 @@ export type PurdocHeader = {
   SomyDataUID?: string;
 };
 
+const round6 = (n: number) => Math.round(n * 1_000_000) / 1_000_000;
+
+/**
+ * Ποσότητα/τιμή της γραμμής ΣΤΗ ΜΟΝΑΔΑ ΑΓΟΡΩΝ. Τιμολόγιο στη μονάδα αγορών (η συνήθης περίπτωση:
+ * «2 κιβώτια × 50 €») ⇒ ως έχει. Τιμολόγιο στη βασική («200 τεμ × 0,50 €») με κιβώτιο των 100 ⇒
+ * 2 κιβώτια × 50 €. Η ΑΞΙΑ (ποσότητα × τιμή) δεν αλλάζει ποτέ.
+ */
+export function purchaseQtyPrice(qty: number, price: number, buyRatio: number | null | undefined, qtyInBase: boolean): { QTY: number; PRICE: number } {
+  const r = Number(buyRatio) > 0 ? Number(buyRatio) : 1;
+  if (!qtyInBase || r === 1) return { QTY: qty, PRICE: price };
+  return { QTY: round6(qty / r), PRICE: round6(price * r) };
+}
+
 /** Γραμμή ειδών/υπηρεσιών (DB MTRLINES) σε PURDOC. */
 export type PurdocItemLine = {
-  LINENUM: number; MTRL: number; QTY1: number; PRICE: number;
+  /**
+   * `QTY` «Ποσ.(Τ)» = ποσότητα στη ΜΟΝΑΔΑ ΑΓΟΡΩΝ του είδους και `PRICE` = τιμή ανά μονάδα αγορών· η
+   * SoftOne γράφει μόνη της `QTY1` = QTY × MU31 στη βασική (βλ. `lib/item-units.ts`). ΟΧΙ `QTY1`: με
+   * κιβώτιο των 100, «QTY1 = 2» γράφει 2 τεμάχια και αξία 2/100 × τιμή.
+   */
+  LINENUM: number; MTRL: number; QTY: number; PRICE: number;
   /** Έκπτωση **ΠΟΣΟΣΤΟ**. Δες {@link discountFields}: ποτέ ποσό εδώ μέσα. */
   DISC1PRC?: number;
   /** Έκπτωση **ΠΟΣΟ** σε νόμισμα. */
@@ -607,11 +632,12 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
     }
     if (target === 'SXDOCLINES') return; // δεν φτάνει ποτέ εδώ (το `lineFits` το έκοψε) — για τον τύπο
     const bucket = items[target];
+    const qp = purchaseQtyPrice(num(line.quantity, 1), num(line.unitPrice, 0), match.buyRatio, match.qtyInBase === true);
     const row: PurdocItemLine = {
       LINENUM: FIRST_LINENUM + bucket.length,
       MTRL: match.mtrl as number,
-      QTY1: num(line.quantity, 1),
-      PRICE: num(line.unitPrice, 0),
+      QTY: qp.QTY,
+      PRICE: qp.PRICE,
       ...discountFields(line),
       ...analyticsOf(match),
     };

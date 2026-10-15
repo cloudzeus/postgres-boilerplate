@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { normalizeUnitPair, unitsError } from '@/lib/item-units';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
@@ -44,6 +45,13 @@ const Body = z.object({
   isService: z.boolean().optional(),
   vat: z.string().trim().max(20).nullable().optional(),
   unit: z.string().trim().max(20).nullable().optional(),
+  /** Μονάδα αγορών/πώλησης + σχέση με τη βασική (βλ. `lib/item-units.ts`). Μόνο για είδος. */
+  units: z.object({
+    buy: z.string().trim().max(20).nullable().optional(),
+    buyRatio: z.number().positive().max(1_000_000).nullable().optional(),
+    sell: z.string().trim().max(20).nullable().optional(),
+    sellRatio: z.number().positive().max(1_000_000).nullable().optional(),
+  }).nullable().optional(),
   price: z.number().nullable().optional(),
   group: z.string().trim().max(20).nullable().optional(),
   category: z.string().trim().max(20).nullable().optional(),
@@ -236,6 +244,8 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  const unitsErr = isService ? null : unitsError({ base: unit, ...(b.units ?? {}) });
+  if (unitsErr) return NextResponse.json({ error: 'invalid_units', field: 'units', message: unitsErr }, { status: 400 });
   // Ο ΠΡΟΜΗΘΕΥΤΗΣ του παραστατικού της γραμμής: ο κωδικός που τυπώνεται είναι ο ΔΙΚΟΣ ΤΟΥ κωδικός
   // είδους — πάει στους «Εναλλακτικούς κωδικούς προμηθευτών», όχι στον κωδικό του είδους.
   const lineDoc = b.lineId
@@ -247,6 +257,7 @@ export async function POST(req: Request) {
     : null;
   const itemInput = {
     code: b.code, name: b.name, isService, vat, unit,
+    units: isService ? null : b.units ?? null,
     price: b.price ?? null,
     group: b.group || null, category: b.category || null,
     manufacturer: b.manufacturer || null, brand: b.brand || null,
@@ -265,10 +276,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'softone_error', message: (e as Error).message }, { status: 502 });
   }
 
+  // Οι μονάδες στον καθρέφτη ΑΜΕΣΩΣ: η επόμενη καταχώριση πρέπει να ξέρει ότι 1 κιβώτιο = 100 τεμάχια.
+  const buy = normalizeUnitPair(unit, b.units?.buy, b.units?.buyRatio);
+  const sell = normalizeUnitPair(unit, b.units?.sell, b.units?.sellRatio);
+  const mirrorUnits = isService
+    ? { unit1: unit, unitBuy: unit, buyRatio: 1, unitSell: unit, sellRatio: 1 }
+    : { unit1: unit, unitBuy: buy.unit, buyRatio: buy.ratio, unitSell: sell.unit, sellRatio: sell.ratio };
   await prisma.softoneItem.upsert({
     where: { mtrl },
-    update: { code: b.code, name: b.name, isService, isActive: true, code1: b.code1 || null, code2: b.code2 || null },
-    create: { mtrl, code: b.code, name: b.name, isService, isActive: true, code1: b.code1 || null, code2: b.code2 || null },
+    update: { code: b.code, name: b.name, isService, isActive: true, code1: b.code1 || null, code2: b.code2 || null, ...mirrorUnits },
+    create: { mtrl, code: b.code, name: b.name, isService, isActive: true, code1: b.code1 || null, code2: b.code2 || null, ...mirrorUnits },
   }).catch(() => null);
 
   return finish(b, u, { mtrl, code: b.code, name: b.name, kind, isService });

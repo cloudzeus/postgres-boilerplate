@@ -157,6 +157,8 @@ export const TOTAL_LEGACY_KEY: Record<TotalKey, string> = { net: 'subtotal', vat
 const Party = nobj(z.object({
   name: nstr, vat: nstr, doy: nstr, profession: nstr, address: nstr, city: nstr,
   zip: nstr, country: nstr, phone: nstr, email: nstr, gemi: nstr, code: nstr,
+  /** Δεύτερο τηλέφωνο, fax, ιστοσελίδα — γράφονται στην καρτέλα (PHONE02 / FAX / WEBPAGE). */
+  phone2: nstr.optional(), fax: nstr.optional(), website: nstr.optional(),
 }));
 
 const Line = z.object({
@@ -165,6 +167,12 @@ const Line = z.object({
   ean: nstr.optional(),
   /** Κωδικός κατασκευαστή / εργοστασίου (part number) → `ITEM.CODE2`. */
   mfrCode: nstr.optional(),
+  /**
+   * Σε ποια μονάδα είναι η `quantity`, όταν το είδος αγοράζεται σε άλλη μονάδα από τη βασική
+   * (κιβώτιο των 100): «buy» = μονάδα αγορών, «base» = βασική. Κενό = αυτόματα από τη μονάδα της
+   * γραμμής (`lib/ocr/post-softone.ts → lineUnits`).
+   */
+  qtyIn: z.preprocess((v) => (v === 'buy' || v === 'base' ? v : undefined), z.enum(['buy', 'base']).optional()),
   net: nnum, vatRate: nnum, vatAmount: nnum, total: nnum,
   /**
    * Σειριακοί αριθμοί (S/N) της γραμμής. Ζούσαν θαμμένοι στην περιγραφή και δεν φαίνονταν πουθενά.
@@ -255,6 +263,9 @@ export const DOCUMENT_PATHS: DocumentPathInfo[] = [
   h('issuer.country', 'Χώρα εκδότη'),
   h('issuer.phone', 'Τηλέφωνο εκδότη'),
   h('issuer.email', 'Email εκδότη'),
+  h('issuer.phone2', 'Τηλέφωνο 2 εκδότη'),
+  h('issuer.fax', 'Fax εκδότη'),
+  h('issuer.website', 'Ιστοσελίδα εκδότη'),
   h('issuer.gemi', 'ΓΕΜΗ εκδότη'),
   h('recipient.name', 'Επωνυμία παραλήπτη'),
   h('recipient.vat', 'ΑΦΜ παραλήπτη'),
@@ -318,6 +329,9 @@ export const LEGACY_KEY_TO_PATH: Record<string, string> = Object.assign(Object.c
   companyPhone: 'issuer.phone',
   phone: 'issuer.phone',
   companyEmail: 'issuer.email',
+  companyPhone2: 'issuer.phone2',
+  companyFax: 'issuer.fax',
+  companyWebsite: 'issuer.website',
   email: 'issuer.email',
   customerName: 'recipient.name',
   customerVatNumber: 'recipient.vat',
@@ -541,6 +555,7 @@ export function fromLegacy(
       address: f.companyAddress,
       phone: f.companyPhone ?? f.phone,
       email: f.companyEmail ?? f.email,
+      phone2: f.companyPhone2, fax: f.companyFax, website: f.companyWebsite,
     },
     recipient: {
       name: f.customerName,
@@ -597,6 +612,9 @@ export function toLegacy(document: DocumentJson): Record<string, unknown> {
     out.companyProfession = document.issuer.profession;
     out.companyPhone = document.issuer.phone;
     out.companyEmail = document.issuer.email;
+    out.companyPhone2 = document.issuer.phone2 ?? null;
+    out.companyFax = document.issuer.fax ?? null;
+    out.companyWebsite = document.issuer.website ?? null;
     out.customerName = document.recipient.name;
     out.customerVatNumber = document.recipient.vat;
     out.customerAddress = document.recipient.address;

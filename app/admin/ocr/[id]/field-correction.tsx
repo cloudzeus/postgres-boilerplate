@@ -12,6 +12,7 @@ const FIELD_LABELS: Record<string, string> = {
   subtotal: 'Καθαρή Αξία', vatAmount: 'ΦΠΑ', otherCharges: 'Επιβαρύνσεις', totalAmount: 'Σύνολο',
   storeName: 'Κατάστημα',
   companyPhone: 'Τηλέφωνο Εκδότη', companyEmail: 'Email Εκδότη',
+  companyPhone2: 'Τηλέφωνο 2 Εκδότη', companyFax: 'Fax Εκδότη', companyWebsite: 'Ιστοσελίδα Εκδότη',
   phone: 'Τηλέφωνο', email: 'Email',
 };
 
@@ -24,7 +25,7 @@ const FIELD_GROUPS: { title: string; keys: string[] }[] = [
   // Η ΣΕΙΡΑ ΤΟΥ ΤΙΜΟΛΟΓΙΟΥ: τύπος και αριθμός παραστατικού πρώτα — αυτό κοιτά πρώτο ο λογιστής
   // και έτσι είναι τυπωμένο στο χαρτί. Ο εκδότης ακολουθεί, τα ποσά κλείνουν.
   { title: 'Παραστατικό',  keys: ['documentTypeLabel', 'invoiceNumber', 'date'] },
-  { title: 'Εκδότης',      keys: ['companyName', 'vatNumber', 'storeName', 'companyPhone', 'companyEmail', 'phone', 'email'] },
+  { title: 'Εκδότης',      keys: ['companyName', 'vatNumber', 'storeName', 'companyPhone', 'companyEmail', 'companyPhone2', 'companyFax', 'companyWebsite', 'phone', 'email'] },
   { title: 'Ποσά',         keys: ['subtotal', 'vatAmount', 'otherCharges', 'totalAmount'] },
 ];
 

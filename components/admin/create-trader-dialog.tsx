@@ -31,6 +31,9 @@ type Preview = {
 const COUNTRY_OPTIONS = [...new Set([...VAT_COUNTRY_CODES, ...Object.keys(EXTRA_COUNTRY_NAMES_EL)])].filter((c) => c !== 'XI')
   .sort((a, b) => countryLabel(a).localeCompare(countryLabel(b), 'el'));
 
+/** Τηλέφωνα / fax / email / ιστοσελίδα όπως τα γράφει το παραστατικό — γράφονται στην καρτέλα. */
+export interface TraderContacts { phone?: string | null; phone2?: string | null; fax?: string | null; email?: string | null; webpage?: string | null }
+
 type CodeSuggestion = { code: string | null; source: 'pattern' | 'mask' | 'none'; taken: number; stale: boolean };
 
 /**
@@ -51,7 +54,7 @@ type CodeSuggestion = { code: string | null; source: 'pattern' | 'mask' | 'none'
  * ⚠️ Το `setData` φεύγει **μόνο** όταν ο χρήστης ξετσεκάρει τη «Δοκιμή» και πατήσει «Δημιουργία».
  */
 export function CreateTraderDialog({
-  open, onOpenChange, afm, kind, fallbackName, reason, onCreated, countryHint,
+  open, onOpenChange, afm, kind, fallbackName, reason, onCreated, countryHint, contacts,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -61,6 +64,7 @@ export function CreateTraderDialog({
   fallbackName?: string | null;
   /** Η χώρα του εκδότη όπως τη γράφει το παραστατικό (διεύθυνση/«Χώρα») — προσυμπληρώνεται. */
   countryHint?: string | null;
+  contacts?: TraderContacts | null;
   /** Η ελληνική αιτιολογία του προορισμού — γιατί αυτός ο τύπος. */
   reason?: string | null;
   onCreated?: (m: { trdr: number; code: string; name: string; docsUpdated: number }) => void;
@@ -198,6 +202,8 @@ export function CreateTraderDialog({
           address: data?.address ?? null,
           zip: data?.zip ?? null,
           city: data?.city ?? null,
+          phone: contacts?.phone ?? null, phone2: contacts?.phone2 ?? null, fax: contacts?.fax ?? null,
+          email: contacts?.email ?? null, webpage: contacts?.webpage ?? null,
           dryRun,
         }),
       });
@@ -303,6 +309,14 @@ export function CreateTraderDialog({
                 {COUNTRY_OPTIONS.map((c) => <option key={c} value={c}>{countryLabel(c)}</option>)}
               </select>
             </label>
+          )}
+
+          {contacts && Object.values(contacts).some(Boolean) && (
+            <p className="rounded-md bg-muted/50 px-2.5 py-1.5 text-[length:var(--fs-11)] text-muted-foreground">
+              <span className="font-medium text-foreground">Από το παραστατικό:</span>{' '}
+              {[contacts.phone && `Τηλ. ${contacts.phone}`, contacts.phone2 && `Τηλ.2 ${contacts.phone2}`, contacts.fax && `Fax ${contacts.fax}`, contacts.email, contacts.webpage]
+                .filter(Boolean).join(' · ')}
+            </p>
           )}
 
           <label className="grid gap-1.5">

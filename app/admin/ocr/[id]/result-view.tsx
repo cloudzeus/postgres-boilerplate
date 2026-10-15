@@ -1,4 +1,5 @@
 import { SerialChips } from '@/components/admin/serial-chips';
+import { LineUnitConversion, type LineUnitInfo } from '@/components/admin/line-unit-conversion';
 import { extractSerials } from '@/lib/ocr/serials';
 import * as React from 'react';
 import { AmountsFixPanel } from '@/components/admin/amounts-fix-panel';
@@ -47,6 +48,8 @@ export interface LineMatchOptions {
   utilityCharges?: (UtilityCharge | null)[];
   /** Έτοιμη πρόταση στόχου ανά γραμμή (id γραμμής) — βλ. `lib/ocr/line-suggestions.ts`. */
   suggestions?: Record<string, LineSuggestion>;
+  /** Μετατροπή μονάδων ανά `rowIndex` για είδη με μονάδα αγορών ≠ βασική (βλ. `lib/ocr/line-units.ts`). */
+  lineUnits?: Record<number, LineUnitInfo>;
 }
 
 /**
@@ -173,8 +176,17 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
                       lineTotal={it.total == null ? null : Number(it.total)}
                       lineEan={(line.ean ?? null) as string | null}
                       lineMfrCode={(line.mfrCode ?? null) as string | null}
+                      lineQty={it.quantity == null ? null : Number(it.quantity)}
+                      linePrice={it.price == null ? null : Number(it.price)}
                       suggestion={match.suggestions?.[it.id] ?? null}
                     />
+                    {match.lineUnits?.[it.rowIndex] && it.quantity != null && (
+                      <LineUnitConversion
+                        docId={doc.id} rowIndex={it.rowIndex} quantity={Number(it.quantity)}
+                        price={it.price == null ? null : Number(it.price)}
+                        info={match.lineUnits[it.rowIndex]} canManage={match.canManage}
+                      />
+                    )}
                     {match.lineAccounts?.[it.rowIndex] && (
                       <div className="mt-1">
                         <AccountLine line={match.lineAccounts[it.rowIndex]} compact />
@@ -229,7 +241,7 @@ export function OcrResultView({ doc, match }: { doc: DocWithItems; match: LineMa
    * παραστατικά· δύο άδεια κουτιά σε κάθε καρτέλα σπρώχνουν κάτω τη δουλειά που μετράει. Δεν
    * συμμετέχουν σε κανέναν έλεγχο καταχώρισης, οπότε η απόκρυψή τους δεν κρύβει εκκρεμότητα.
    */
-  const OPTIONAL_IF_EMPTY = ['companyPhone', 'companyEmail', 'otherCharges'];
+  const OPTIONAL_IF_EMPTY = ['companyPhone', 'companyEmail', 'companyPhone2', 'companyFax', 'companyWebsite', 'otherCharges'];
   const extracted = (doc.extractedData ?? {}) as Record<string, unknown>;
   const hasValue = (k: string) => String(extracted[k] ?? '').trim() !== '';
 
@@ -238,7 +250,7 @@ export function OcrResultView({ doc, match }: { doc: DocWithItems; match: LineMa
     // ΧΩΡΙΣ ΠΕΛΑΤΗ: ο παραλήπτης είναι ΠΑΝΤΑ η εταιρία που τρέχει την εφαρμογή — δύο πεδία που
     // δεν αλλάζουν ποτέ και δεν διορθώνει κανείς. (Η ΕΞΑΓΩΓΗ τους μένει: το κανονικό JSON και ο
     // έλεγχος διπλών τα χρησιμοποιούν· εδώ φεύγει μόνο η οθόνη.)
-    : ['companyName', 'vatNumber', 'documentTypeLabel', 'companyPhone', 'companyEmail', 'invoiceNumber', 'date', 'subtotal', 'vatAmount', 'otherCharges', 'totalAmount'];
+    : ['companyName', 'vatNumber', 'documentTypeLabel', 'companyPhone', 'companyEmail', 'companyPhone2', 'companyFax', 'companyWebsite', 'invoiceNumber', 'date', 'subtotal', 'vatAmount', 'otherCharges', 'totalAmount'];
   const fieldList = fieldListAll.filter((k) => !OPTIONAL_IF_EMPTY.includes(k) || hasValue(k));
 
   const correction = (doc.docType === 'INVOICE' || doc.docType === 'RECEIPT') ? (

@@ -282,6 +282,8 @@ export async function syncItems(actor: SyncActor): Promise<SyncPayload> {
     name: r.name || r.code, name2: r.name2, price: r.price, isService: r.isService, isActive: r.isActive,
     // MYDATACODE του μητρώου — ο χαρακτηρισμός που στέλνεται στις γραμμές ειδών/υπηρεσιών/παγίων.
     myDataCode: r.myDataCode,
+    // Μονάδες μέτρησης του είδους — η καταχώριση αγοράς τις χρειάζεται για να δείξει τη μετατροπή.
+    unit1: r.unit1, unitBuy: r.unitBuy, buyRatio: r.buyRatio, unitSell: r.unitSell, sellRatio: r.sellRatio,
   }));
 
   const total = await prisma.$transaction(async (tx) => {

@@ -73,7 +73,11 @@ export const TEMPLATE_SCHEMAS: Record<DocType, TemplateSchema> = {
     "name": "string", "vat": "string (ΑΦΜ; keep the country prefix for foreign issuers, e.g. DE123456789)",
     "doy": "string or null", "profession": "string or null (ΕΠΑΓΓΕΛΜΑ / activity)",
     "address": "string or null", "city": "string or null", "zip": "string or null", "country": "string or null",
-    "phone": "string or null (ΤΗΛ — only if printed)", "email": "string or null (only if printed)",
+    "phone": "string or null (ΤΗΛ — the FIRST phone, only if printed)",
+    "phone2": "string or null (a SECOND phone number if more than one is printed — mobile, another landline)",
+    "fax": "string or null (FAX — only if printed)",
+    "email": "string or null (only if printed)",
+    "website": "string or null (web site / URL of the issuer as printed in the header or footer, e.g. www.example.it)",
     "gemi": "string or null (ΓΕΜΗ)", "code": "string or null"
   },
   "recipient": {                // ΠΑΡΑΛΗΠΤΗΣ / Πελάτης — the buyer. Leave EVERY field null on a retail receipt.

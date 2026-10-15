@@ -23,6 +23,7 @@ import { postingTargetsForSeries, seriesKey } from '@/lib/ocr/required-trader-ki
 import { analyzeUtility, utilityInputFromDocument } from '@/lib/ocr/utility-bills';
 import { UtilityBillCard } from '@/components/admin/utility-bill-card';
 import { suggestionsForDocument } from '@/lib/ocr/line-suggestions';
+import { decideLineUnits, hasBuyUnit } from '@/lib/ocr/line-units';
 
 export const dynamic = 'force-dynamic';
 
@@ -154,6 +155,28 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
   const utility = utilityInput ? analyzeUtility(utilityInput) : null;
   const utilityHelpHref = utility ? helpHrefFor('utility-bills', (user.role.key as WikiRoleKey | undefined) ?? null) : null;
   // Έτοιμη πρόταση στόχου για κάθε αταίριαστη γραμμή που αναγνωρίζεται (ναύλος, καύσιμο, δημοτικά…).
+  // ΜΟΝΑΔΕΣ: για γραμμές σε είδος που αγοράζεται σε άλλη μονάδα (κιβώτιο των 100), η ΙΔΙΑ απόφαση
+  // που θα πάρει η καταχώριση — ώστε η οθόνη να δείχνει ακριβώς «2 Κιβώτια → 200 Τεμάχια».
+  const lineUnits: Record<number, { buyName: string; baseName: string; ratio: number; qtyInBase: boolean; source: 'user' | 'printed' | 'default' }> = {};
+  {
+    const mtrls = [...new Set(items.map((i) => i.softoneMtrl).filter((v): v is number => v != null))];
+    const unitItems = mtrls.length
+      ? (await prisma.softoneItem.findMany({ where: { mtrl: { in: mtrls } }, select: { mtrl: true, unit1: true, unitBuy: true, buyRatio: true } })).filter(hasBuyUnit)
+      : [];
+    if (unitItems.length) {
+      const unitRows = await prisma.softoneLookup.findMany({ where: { kind: 'MTRUNIT' }, select: { code: true, name: true } });
+      const nameOf = (c: string | null) => unitRows.find((u) => u.code === c)?.name ?? c ?? '';
+      const byMtrl = new Map(unitItems.map((u) => [u.mtrl, u]));
+      const docLines = ((doc.document ?? {}) as { lines?: { unit?: string | null; qtyIn?: string | null }[] }).lines ?? [];
+      for (const it of items) {
+        const u = it.softoneMtrl != null ? byMtrl.get(it.softoneMtrl) : undefined;
+        if (!u) continue;
+        const d = decideLineUnits(u, docLines[it.rowIndex], unitRows);
+        lineUnits[it.rowIndex] = { buyName: nameOf(u.unitBuy), baseName: nameOf(u.unit1), ratio: d.buyRatio, qtyInBase: d.qtyInBase, source: d.source };
+      }
+    }
+  }
+
   const lineSuggestions = completed && canManage
     ? await suggestionsForDocument({ document: doc.document, issuerAfm: doc.issuerAfm, items, target: postingTarget }).catch(() => ({}))
     : {};
@@ -250,6 +273,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
           target: postingTarget,
           utilityCharges: utility ? utility.lines.map((l) => l.charge) : undefined,
           suggestions: lineSuggestions,
+          lineUnits,
         }}
       />
 

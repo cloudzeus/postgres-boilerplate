@@ -16,7 +16,7 @@
 import 'server-only';
 import { prisma } from '@/lib/db';
 import { getSetting, setSetting } from '@/lib/settings';
-import { softoneFetchItemsChanged, softoneFetchSupplierCodes, type ItemRow } from '@/lib/softone';
+import { softoneFetchItemsChanged, softoneFetchSupplierCodes, softoneFetchUnits, type ItemRow } from '@/lib/softone';
 import { UNMATCHED_LINE_WHERE } from '@/lib/ocr/queues';
 import { refreshDocTallies } from '@/lib/ocr/softone-match';
 import { normalizeLineText } from '@/lib/ocr/line-match';
@@ -54,8 +54,20 @@ export async function pullChangedItems(): Promise<ItemPullResult> {
       const data = {
         code: r.code, code1: r.code1, code2: r.code2, name: r.name || r.code, name2: r.name2,
         price: r.price, isService: r.isService, isActive: r.isActive, myDataCode: r.myDataCode,
+        unit1: r.unit1, unitBuy: r.unitBuy, buyRatio: r.buyRatio, unitSell: r.unitSell, sellRatio: r.sellRatio,
       };
       await prisma.softoneItem.upsert({ where: { mtrl: r.mtrl }, update: data, create: { mtrl: r.mtrl, ...data } });
+    }
+    // Και οι ΜΟΝΑΔΕΣ ΜΕΤΡΗΣΗΣ (μικρός πίνακας): μια νέα μονάδα («Κιβώτιο 12») που φτιάχτηκε στη
+    // SoftOne για ένα νέο είδος πρέπει να φαίνεται αμέσως στις επιλογές. Μόνο προσθήκη/ενημέρωση —
+    // ποτέ διαγραφή από εδώ (αυτό το κάνει ο πλήρης συγχρονισμός).
+    const units = await softoneFetchUnits().catch(() => []);
+    for (const u of units) {
+      await prisma.softoneLookup.upsert({
+        where: { kind_code: { kind: 'MTRUNIT', code: u.id } },
+        update: { name: u.name },
+        create: { kind: 'MTRUNIT', code: u.id, name: u.name },
+      });
     }
     await setSetting(LAST_PULL, startedAt).catch(() => null);
     const added = rows.filter((r) => !existing.has(r.mtrl)).length;

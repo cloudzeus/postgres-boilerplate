@@ -520,6 +520,13 @@ model SoftoneItem {
   isService  Boolean @default(false) // SODTYPE=52
   isActive   Boolean @default(true)
   myDataCode String? // MYDATACODE («Κατηγορία myDATA») — χαρακτηρισμός του μητρώου
+  // Μονάδες μέτρησης (MTRUNIT ids). Η ΠΟΣΟΤΗΤΑ ΑΓΟΡΑΣ στο PURDOC (`QTY`) είναι στη μονάδα αγορών και
+  // η SoftOne γράφει `QTY1 = QTY × buyRatio` στη βασική — π.χ. 2 κιβώτια × 100 = 200 τεμάχια.
+  unit1      String? // MTRUNIT1 «Μ.Μ» (βασική)
+  unitBuy    String? // MTRUNIT3 «Μ.Μ.Αγορών»
+  buyRatio   Float? // MU31 «Σχέση με κύρια» (βασικές ανά 1 μονάδα αγορών)
+  unitSell   String? // MTRUNIT4 «Μ.Μ.Πώλησης»
+  sellRatio  Float? // MU41
 
   @@index([name])
   @@index([code])

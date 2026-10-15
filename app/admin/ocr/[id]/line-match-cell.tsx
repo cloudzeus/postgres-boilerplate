@@ -8,6 +8,7 @@ import {
   FiTag, FiTool, FiX, FiPlusCircle, FiAlertTriangle,
   FiCheck, FiHardDrive, FiArrowLeft, FiChevronDown, FiPieChart, FiHelpCircle,
 } from 'react-icons/fi';
+import { ItemSupplierDialog } from '@/components/admin/item-supplier-dialog';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { RegistrySearch } from '@/components/admin/registry-search';
@@ -83,7 +84,7 @@ const EMPTY: AnalyticsValue = { id: null, label: null, source: null };
  */
 export function LineMatchCell({
   lineId, docId, match: initial, analytics: initialAnalytics, canManage, defaultKind, lineCategories, trdr,
-  target, lineCode, lineName, lineVatRate, lineUnit, lineTotal, lineEan, lineMfrCode, suggestion,
+  target, lineCode, lineName, lineVatRate, lineUnit, lineTotal, lineEan, lineMfrCode, lineQty, linePrice, suggestion,
 }: {
   lineId: string;
   docId: string;
@@ -109,6 +110,9 @@ export function LineMatchCell({
   /** Barcode (EAN) και κωδικός κατασκευαστή της γραμμής — για τη δημιουργία είδους. */
   lineEan?: string | null;
   lineMfrCode?: string | null;
+  /** Ποσότητα / τιμή μονάδας — για την προεπισκόπηση μονάδων στη δημιουργία είδους. */
+  lineQty?: number | null;
+  linePrice?: number | null;
   /** Το σύνολο της γραμμής — βοηθά να ξεχωρίσει ο εξοπλισμός (πάγιο) από τα μικροαντικείμενα. */
   lineTotal?: number | null;
   /** Έτοιμη πρόταση στόχου (οικογένεια δαπάνης / είδος χρέωσης) — ένα κλικ, και μαθαίνεται. */
@@ -119,6 +123,7 @@ export function LineMatchCell({
   const [match, setMatch] = React.useState<LineMatch | null>(initial);
   const [analytics, setAnalytics] = React.useState<LineAnalyticsState>(initialAnalytics);
   const [open, setOpen] = React.useState(false);
+  const [supplierOpen, setSupplierOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [projectScopeAll, setProjectScopeAll] = React.useState(false);
   const current = matchKindOf(match);
@@ -362,7 +367,19 @@ export function LineMatchCell({
 
   return (
     <div ref={rootRef} className="flex min-w-0 items-start gap-1.5">
-      <div className="min-w-0 flex-1">{display}</div>
+      <div className="min-w-0 flex-1">
+        {display}
+        {/* ΕΙΔΟΣ ΑΠΟ ΠΟΛΛΟΥΣ ΠΡΟΜΗΘΕΥΤΕΣ: ο κωδικός και η τιμή ΑΥΤΟΥ του προμηθευτή στο ίδιο είδος. */}
+        {match?.mtrl != null && !match.isService && trdr != null && (
+          <button
+            type="button" onClick={() => setSupplierOpen(true)}
+            className="mt-0.5 inline-flex min-h-6 cursor-pointer items-center gap-1 rounded text-[length:var(--fs-11)] font-medium text-sisyphus-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sisyphus-500"
+          >
+            <FiTag aria-hidden className="size-3" /> Κωδικός & τιμή προμηθευτή
+          </button>
+        )}
+      </div>
+      {supplierOpen && <ItemSupplierDialog open={supplierOpen} onOpenChange={setSupplierOpen} lineId={lineId} />}
       {match && (
         <button
           type="button"
@@ -740,6 +757,8 @@ export function LineMatchCell({
           initialUnit={lineUnit ?? null}
           initialEan={lineEan ?? null}
           initialMfrCode={lineMfrCode ?? null}
+          initialQty={lineQty ?? null}
+          initialPrice={linePrice ?? null}
           onCreated={(m) => {
             setCreating(false);
             setMatch({

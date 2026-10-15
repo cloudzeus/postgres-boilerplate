@@ -39,6 +39,10 @@ const Body = z.object({
   city: z.string().trim().max(100).nullable().optional(),
   phone: z.string().trim().max(50).nullable().optional(),
   email: z.string().trim().max(120).nullable().optional(),
+  phone2: z.string().trim().max(50).nullable().optional(),
+  fax: z.string().trim().max(50).nullable().optional(),
+  /** Ιστοσελίδα → `TRDR.WEBPAGE`. */
+  webpage: z.string().trim().max(200).nullable().optional(),
   /** ISO-2 χώρα έδρας· κενό ⇒ την παίρνουμε από το ίδιο το ΑΦΜ. */
   country: z.string().trim().regex(/^[A-Za-z]{2}$/, 'Κωδικός χώρας 2 γραμμάτων').nullable().optional(),
   /** Συντεταγμένες έδρας → `TRDR.LATITUDE` / `LONGITUDE`. Άγνωστο = απών, ποτέ 0. */
@@ -101,6 +105,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ afm: st
     city: b.city ?? null,
     phone: b.phone ?? null,
     email: b.email ?? null,
+    phone2: b.phone2 ?? null,
+    fax: b.fax ?? null,
+    webpage: b.webpage ?? null,
     country,
     // Το `traderRow` γράφει LATITUDE/LONGITUDE μόνο για έγκυρο ΖΕΥΓΟΣ — μια μισή
     // συντεταγμένη ή (0,0) παραλείπεται εντελώς.

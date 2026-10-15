@@ -3,6 +3,7 @@ import 'server-only';
 import { findDuplicatePosting } from '@/lib/ocr/duplicate-post';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
+import { decideLineUnits, hasBuyUnit } from '@/lib/ocr/line-units';
 import { getSetting } from '@/lib/settings';
 import { softoneCall, softoneGetData } from '@/lib/softone';
 import { normalizeDocRef } from '@/lib/doc-reference';
@@ -267,7 +268,7 @@ async function gather(id: string): Promise<Gathered> {
   const assetById = new Map(assetRows.map((r) => [r.mtrl, r]));
   const [itemRows, linRows, expenseRows] = await Promise.all([
     mtrls.length
-      ? prisma.softoneItem.findMany({ where: { mtrl: { in: mtrls } }, select: { mtrl: true, myDataCode: true } })
+      ? prisma.softoneItem.findMany({ where: { mtrl: { in: mtrls } }, select: { mtrl: true, myDataCode: true, unit1: true, unitBuy: true, buyRatio: true } })
       : Promise.resolve([]),
     lins.length
       ? prisma.softoneLineItem.findMany({
@@ -286,6 +287,10 @@ async function gather(id: string): Promise<Gathered> {
       : Promise.resolve([]),
   ]);
   const itemById = new Map(itemRows.map((r) => [r.mtrl, r]));
+  // Οι μονάδες του μητρώου, για να καταλάβουμε σε ΠΟΙΑ μονάδα τυπώνει την ποσότητα το τιμολόγιο.
+  const unitRows = itemRows.some((r) => hasBuyUnit(r))
+    ? await prisma.softoneLookup.findMany({ where: { kind: 'MTRUNIT' }, select: { code: true, name: true } })
+    : [];
   const linById = new Map(linRows.map((r) => [r.mtrl, r]));
   const expenseById = new Map(expenseRows.map((r) => [r.expn, r]));
 
@@ -349,6 +354,8 @@ async function gather(id: string): Promise<Gathered> {
       prjc: i.softonePrjc,
       prjcStage: i.softonePrjcStage,
       myDataCode,
+      // Μονάδα αγορών: η γραμμή φεύγει ως QTY στη μονάδα αγορών (βλ. `purchaseQtyPrice`).
+      ...(item ? (({ buyRatio, qtyInBase }) => ({ buyRatio, qtyInBase }))(decideLineUnits(item, document.lines[i.rowIndex], unitRows)) : {}),
       // Το πάγιο χαρακτηρίζεται από τη λογιστική του κατηγορία στο SoftOne — όχι παρατήρηση εδώ.
       noClassification: Boolean(matched) && !hasClass && i.softoneAsset == null,
     };
@@ -695,3 +702,4 @@ export async function syncPostedMark(id: string): Promise<MarkSyncResult> {
   }
   return { ref, mark, changed: true };
 }
+

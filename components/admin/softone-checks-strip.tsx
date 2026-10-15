@@ -5,6 +5,7 @@ import { isValidAfm, vatCountry } from '@/lib/ocr/validate';
 import { countryLabel } from '@/lib/countries';
 import { ViesCheck } from '@/components/admin/vies-check';
 import { ItemsRescanButton } from '@/components/admin/items-rescan-button';
+import type { TraderContacts } from '@/components/admin/create-trader-dialog';
 import * as React from 'react';
 import {
   FiAlertOctagon, FiAlertTriangle, FiCheck, FiChevronDown, FiChevronRight, FiCopy, FiLoader,
@@ -38,6 +39,7 @@ type Checks = {
     issuerVatId?: string | null;
     /** Η χώρα του μητρώου SoftOne (`null` = λείπει από το μητρώο · `undefined` = δεν ελέγχθηκε). */
     softoneCountry?: { id: string; name: string } | null;
+    contacts?: TraderContacts;
     sodtype: number | null; required: RequiredTrader | null; mismatch: boolean;
   };
   items: {
@@ -293,6 +295,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                     {!foreignCountry && afmLooksValid(data.supplier.afm) && (
                       <AadeVerifyPanel
                         afm={data.supplier.afm}
+                        contacts={data.supplier.contacts}
                         kind={req?.kind ?? null}
                         onCreated={() => void load()}
                       />
@@ -399,6 +402,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
           kind={req.kind}
           fallbackName={data.supplier.name ?? data.supplier.issuerName ?? null}
           countryHint={foreignCountry}
+          contacts={data.supplier.contacts}
           reason={data.target?.reason ?? null}
           onCreated={() => { setCreatingTrader(false); void load(); emitDocLinesChanged(docId); }}
         />
