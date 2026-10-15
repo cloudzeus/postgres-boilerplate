@@ -3,7 +3,8 @@
 import * as React from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
-import { FiRefreshCw, FiGlobe, FiUsers } from 'react-icons/fi';
+import { FiRefreshCw, FiGlobe, FiUsers, FiFileText } from 'react-icons/fi';
+import { TraderDocsPanel } from '@/components/admin/trader-docs-panel';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,8 @@ export type TraderRecord = {
   fax: string | null;
   email: string | null;
   webpage: string | null;
+  /** Σκαναρισμένα παραστατικά από αυτόν (συνδεδεμένα ή με τον ίδιο ΑΦΜ). */
+  docCount?: number;
 };
 
 // SoftOne «Συναλλασσόμενοι» in the ERP's own order. Colors are DG-palette hex
@@ -110,6 +113,21 @@ export function TradersView({
             {row.original.profession && <div className="truncate text-[length:var(--fs-10)] text-muted-foreground">{row.original.profession}</div>}
           </div>
         ),
+      },
+      {
+        id: 'docs', accessorFn: (r) => r.docCount ?? 0, header: 'Παραστατικά', size: 110,
+        cell: ({ row }) => {
+          const n = row.original.docCount ?? 0;
+          return n > 0 ? (
+            <button
+              type="button" onClick={() => row.toggleExpanded()} aria-expanded={row.getIsExpanded()}
+              className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-full bg-sisyphus-50 px-2 text-[length:var(--fs-11)] font-semibold tabular-nums text-sisyphus-700 hover:bg-sisyphus-100 dark:bg-sisyphus-500/15 dark:text-sisyphus-300"
+              title="Τα σκαναρισμένα παραστατικά του"
+            >
+              <FiFileText aria-hidden className="size-3" /> {n}
+            </button>
+          ) : DASH;
+        },
       },
     ];
     if (activeType == null) {
@@ -239,6 +257,7 @@ export function TradersView({
             searchKey="name"
             searchPlaceholder="Αναζήτηση (κωδικός, επωνυμία, ΑΦΜ, ΔΟΥ, πόλη, τηλ…)"
             persistKey="admin.traders.table.v1"
+            expandable={(r) => <TraderDocsPanel trdr={r.trdr} count={r.docCount ?? 0} />}
             toolbar={toolbar}
           />
         </div>
