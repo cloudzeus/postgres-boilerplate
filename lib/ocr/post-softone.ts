@@ -6,6 +6,7 @@ import { prisma } from '@/lib/db';
 import { decideLineUnits, hasBuyUnit } from '@/lib/ocr/line-units';
 import { getSetting } from '@/lib/settings';
 import { softoneCall, softoneGetData } from '@/lib/softone';
+import { fetchNoteState } from '@/lib/softone-sync/delivery-notes';
 import { normalizeDocRef } from '@/lib/doc-reference';
 import { buildReviewFlags } from '@/lib/templates/run-logic';
 import type { DocumentJson } from './canonical';
@@ -28,7 +29,7 @@ const vatRateOf = (v: unknown): number | null => {
 /** Ο διακόπτης ασφαλείας. Κλειστός = καμία εγγραφή δεν φεύγει προς το SoftOne (μόνο dry-run). */
 export const POSTING_ENABLED_KEY = 'softone.postingEnabled';
 
-export type PostErrorCode = 'not_found' | 'posting_disabled' | 'already_posted' | 'duplicate' | BlockerCode;
+export type PostErrorCode = 'not_found' | 'posting_disabled' | 'already_posted' | 'duplicate' | 'conversion_check' | BlockerCode;
 
 export class PostError extends Error {
   constructor(public code: PostErrorCode, message: string) {
@@ -44,6 +45,7 @@ export class PostError extends Error {
  */
 export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   not_found: 'Το έγγραφο δεν βρέθηκε',
+  conversion_check: 'Ο έλεγχος του μετασχηματισμού από δελτίο απέτυχε — τίποτα δεν γράφτηκε',
   not_completed: 'Το έγγραφο δεν έχει ολοκληρωθεί',
   no_category: 'Δεν έχει οριστεί κατηγορία εγγράφου',
   line_discount_ambiguous: 'Υπάρχει γραμμή με έκπτωση που δεν συμφωνεί με το σύνολό της — δεν μπορεί να κριθεί αν είναι ποσοστό ή ποσό, και λάθος ερμηνεία γράφει λάθος ποσό στο SoftOne',
@@ -206,7 +208,19 @@ async function loadTarget(
  * per-line SoftOne matches and the VAT registry. Pure from here on — the dry-run and the real post
  * see EXACTLY the same payload and the same blockers, which is the whole point of the preview.
  */
-async function gather(id: string): Promise<Gathered> {
+/**
+ * ΜΕΤΑΣΧΗΜΑΤΙΣΜΟΣ από δελτίο αποστολής: η σειρά-στόχος (π.χ. 2061 «Τιμολόγιο Αγοράς», ΟΧΙ η σειρά
+ * που έχει το έγγραφο — ένα «ΔΑ-Τιμολόγιο» θα ξαναπερνούσε την ποσότητα) και, ανά γραμμή, οι γραμμές
+ * του δελτίου που καλύπτει. Βλ. `lib/ocr/delivery-note-convert.ts`.
+ */
+export interface ConversionSpec {
+  series: number;
+  links: Map<number, { findoc: number; mtrlines: number; qty1: number }[]>;
+  /** Τα δελτία-πηγές — για τον έλεγχο μετά την καταχώριση. */
+  findocs: number[];
+}
+
+async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
   const doc = await prisma.ocrDocument.findUnique({
     where: { id },
     select: {
@@ -238,7 +252,7 @@ async function gather(id: string): Promise<Gathered> {
     }),
     // Οι χειροκίνητες αντιστοιχίσεις συντελεστή → κωδικού ΦΠΑ (`lib/ocr/vat-map.ts`).
     getSetting<unknown>(VAT_RATE_MAP_SETTING, {}).catch(() => ({})),
-    loadTarget(doc.softoneSeries, doc.seriesSource),
+    conv ? loadTarget(String(conv.series), 1251) : loadTarget(doc.softoneSeries, doc.seriesSource),
     // Ο ΤΥΠΟΣ του συναλλασσομένου (12/16) από τον τοπικό καθρέφτη: τον κρίνει ο έλεγχος
     // `trader_kind_mismatch`. `null` = δεν τον ξέρουμε, οπότε δεν κρίνουμε.
     doc.softoneTrdr
@@ -303,7 +317,9 @@ async function gather(id: string): Promise<Gathered> {
     parseVatRateOverrides(vatOverrides),
   );
 
-  const series = Number(doc.softoneSeries);
+  const seriesCode = conv ? String(conv.series) : doc.softoneSeries;
+  const seriesSource = conv ? 1251 : doc.seriesSource;
+  const series = Number(seriesCode);
   const seriesOk = Number.isFinite(series) && series > 0;
   const lineCtx: PurdocLineCtx[] = items.map((i) => {
     const item = i.softoneMtrl != null ? itemById.get(i.softoneMtrl) : undefined;
@@ -358,6 +374,7 @@ async function gather(id: string): Promise<Gathered> {
       ...(item ? (({ buyRatio, qtyInBase }) => ({ buyRatio, qtyInBase }))(decideLineUnits(item, document.lines[i.rowIndex], unitRows)) : {}),
       // Το πάγιο χαρακτηρίζεται από τη λογιστική του κατηγορία στο SoftOne — όχι παρατήρηση εδώ.
       noClassification: Boolean(matched) && !hasClass && i.softoneAsset == null,
+      ...(conv?.links.get(i.rowIndex)?.length ? { sourceLinks: conv.links.get(i.rowIndex) } : {}),
     };
   });
 
@@ -382,8 +399,8 @@ async function gather(id: string): Promise<Gathered> {
     status: doc.status,
     category: doc.category,
     softoneTrdr: doc.softoneTrdr,
-    softoneSeries: seriesOk ? doc.softoneSeries : null,
-    seriesSource: doc.seriesSource,
+    softoneSeries: seriesOk ? seriesCode : null,
+    seriesSource,
     seriesKnown: seriesTarget.known,
     seriesEnabled: seriesTarget.enabled,
     traderSodtype: traderRow?.sodtype ?? null,
@@ -514,10 +531,46 @@ export interface PostOptions {
   verified?: boolean;
   /** Ποιος επιβεβαίωσε (μόνο όταν `verified`). */
   verifiedById?: string | null;
+  /** Μετασχηματισμός από δελτίο αποστολής (σειρά-στόχος + σύνδεση γραμμών). */
+  conversion?: ConversionSpec;
+}
+
+/** Ό,τι θα έστελνε η καταχώριση — με ή χωρίς μετασχηματισμό — για τον έλεγχο του δελτίου. ΔΕΝ γράφει τίποτα. */
+export async function gatherForConversion(id: string, conv?: ConversionSpec) {
+  return gather(id, conv);
+}
+
+/**
+ * ΔΟΚΙΜΗ ΧΩΡΙΣ ΑΠΟΘΗΚΕΥΣΗ (`calculate`) του τιμολογίου από δελτίο: η SoftOne πρέπει να δεχτεί το
+ * payload, να ΚΡΑΤΗΣΕΙ τη σύνδεση σε κάθε γραμμή και να βγάλει το ίδιο σύνολο με το χαρτί.
+ * Επιστρέφει μήνυμα αποτυχίας ή `null`.
+ */
+export async function conversionCalculateCheck(payload: PostingPayload, documentTotal: number | null): Promise<{ error: string | null; total: number | null }> {
+  const res = await softoneCall<{ success?: boolean; error?: string; data?: Record<string, Record<string, unknown>[]> }>('calculate', {
+    ...payload,
+    LOCATEINFO: `${payload.OBJECT}:SUMAMNT;ITELINES:LINENUM,MTRL,FINDOCS,MTRLINESS`,
+  });
+  if (res.success === false) return { error: `Η SoftOne απέρριψε τον υπολογισμό: ${res.error ?? 'άγνωστο σφάλμα'}`, total: null };
+  const sent = (payload.DATA.ITELINES ?? []) as { FINDOCS?: number }[];
+  const back = (res.data?.ITELINES ?? []) as Record<string, unknown>[];
+  const linkedSent = sent.filter((l) => l.FINDOCS != null).length;
+  const linkedBack = back.filter((l) => Number(l.FINDOCS) > 0 && Number(l.MTRLINESS) > 0).length;
+  if (linkedBack < linkedSent) {
+    return { error: `Η SoftOne δεν κράτησε τη σύνδεση με το δελτίο σε ${linkedSent - linkedBack} από ${linkedSent} γραμμές — ο μετασχηματισμός σταμάτησε πριν γραφτεί οτιδήποτε.`, total: null };
+  }
+  const head = res.data?.[payload.OBJECT]?.[0];
+  const total = head?.SUMAMNT == null ? null : Number(String(head.SUMAMNT).replace(',', '.'));
+  if (documentTotal != null && total != null && Number.isFinite(total) && Math.abs(total - documentTotal) > 0.02) {
+    return {
+      error: `Το σύνολο της SoftOne (${total.toFixed(2)} €) διαφέρει από το σύνολο του τιμολογίου (${documentTotal.toFixed(2)} €) — έλεγξε γραμμές, ΦΠΑ και εκπτώσεις πριν τον μετασχηματισμό.`,
+      total,
+    };
+  }
+  return { error: null, total };
 }
 
 export async function postDocumentToSoftone(id: string, opts: PostOptions = {}): Promise<{ ref: string; warning?: string }> {
-  const { doc, document, ctx, blockers, payload, accounts } = await gather(id);
+  const { doc, document, ctx, blockers, payload, accounts } = await gather(id, opts.conversion);
   // ΙΔΕΜΠΟΤΗΤΑ, πρώτο απ' όλα: ένα δεύτερο κλικ (ή μια δεύτερη εκτέλεση προτύπου) δεν δημιουργεί
   // δεύτερο παραστατικό στο SoftOne. Πριν από κάθε έλεγχο εμποδίων — ένα ήδη καταχωρισμένο
   // παραστατικό δεν είναι «μπλοκαρισμένο», είναι τελειωμένο.
@@ -537,6 +590,13 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
     throw new PostError('duplicate', dup.where === 'app'
       ? `${POST_ERROR_TEXT.duplicate} από το «${dup.fileName ?? 'άλλο αρχείο'}»${dup.ref ? ` (SoftOne ${dup.ref})` : ''}. Αν είναι διπλό ανέβασμα, διάγραψέ το.`
       : `${POST_ERROR_TEXT.duplicate} στο SoftOne${dup.ref ? ` (${dup.ref})` : ''} — πιθανώς σε άλλη καρτέλα του ίδιου προμηθευτή.`);
+  }
+
+  // Από δελτίο: πρώτα δοκιμή χωρίς αποθήκευση — αν η SoftOne δεν κρατά τη σύνδεση ή το σύνολο
+  // διαφέρει, ΤΙΠΟΤΑ δεν γράφεται (ούτε καν `postStatus`).
+  if (opts.conversion) {
+    const check = await conversionCalculateCheck(payload, document.totals?.total ?? null);
+    if (check.error) throw new PostError('conversion_check', check.error);
   }
 
   await prisma.ocrDocument.update({ where: { id }, data: { postStatus: 'PENDING' } });
@@ -596,6 +656,22 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
     // δυνατή σημείωση για τον χρήστη και τον integrator.
     const sentAssets = payload.DATA.ASSLINES?.length ?? 0;
     let warning: string | undefined;
+    // ΜΕΤΑΣΧΗΜΑΤΙΣΜΟΣ: κάθε γραμμή που στάλθηκε με δελτίο-πηγή πρέπει να γυρίσει με αυτό, και τα
+    // δελτία να έχουν πλέον μετασχηματιστεί. Το τιμολόγιο ΥΠΑΡΧΕΙ ήδη: αποτυχία εδώ = προειδοποίηση.
+    if (opts.conversion) {
+      const sentLinked = ((payload.DATA.ITELINES ?? []) as { FINDOCS?: number }[]).filter((l) => l.FINDOCS != null).length;
+      const back = (tables.ITELINES ?? []) as Record<string, unknown>[];
+      const backLinked = back.filter((l) => Number(l.FINDOCS) > 0).length;
+      const state = await fetchNoteState(opts.conversion.findocs).catch(() => null);
+      const open = state ? state.filter((x) => x.transformed === 0).map((x) => x.findoc) : null;
+      if (backLinked < sentLinked || open == null || open.length) {
+        warning = `ΜΕΤΑΣΧΗΜΑΤΙΣΜΟΣ: το τιμολόγιο ${ref} καταχωρίστηκε, αλλά `
+          + (backLinked < sentLinked ? `μόνο ${backLinked} από ${sentLinked} γραμμές δείχνουν στο δελτίο` : '')
+          + (backLinked < sentLinked && (open == null || open.length) ? ' και ' : '')
+          + (open == null ? 'η κατάσταση των δελτίων δεν διαβάστηκε' : open.length ? `τα δελτία ${open.join(', ')} εμφανίζονται ακόμη ανοιχτά` : '')
+          + '. Έλεγξε τα «Σχετικά παραστατικά» στη SoftOne — ΜΗΝ ξανακαταχωρίσεις.';
+      }
+    }
     if (sentAssets > 0) {
       const back = (tables.ASSLINES ?? []) as Record<string, unknown>[];
       const linked = back.filter((l) => Number(l.ASSDEPR) > 0).length;

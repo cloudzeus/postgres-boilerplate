@@ -1,4 +1,5 @@
 import { NAME_CASE_OPTIONS } from '@/lib/item-naming';
+import { DEFAULT_CONVERSION_MAP } from '@/lib/ocr/delivery-note-match';
 import { prisma } from '@/lib/db';
 
 // Setting categories used in admin UI.
@@ -45,6 +46,14 @@ export const SETTING_CATALOG: SettingDef[] = [
     description: 'Περιγραφή είδους/υπηρεσίας σε άλλη γλώσσα μεταφράζεται στα Ελληνικά (NAME) και η αρχική αποθηκεύεται στην «Περιγραφή 2» (NAME1). Στη φόρμα φαίνεται πριν τη δημιουργία, με «Επαναφορά».',
     type: 'boolean',
     defaultValue: false,
+  },
+  {
+    key: 'setup.deliveryNoteConversion',
+    category: 'setup',
+    label: 'Μετασχηματισμός δελτίων αποστολής',
+    description: 'Σε ποια σειρά τιμολογίου μετασχηματίζεται κάθε σειρά δελτίου αποστολής αγορών, ως «δελτίο=τιμολόγιο» χωρισμένα με κόμμα (π.χ. 2041=2061, 2043=3261). Το τιμολόγιο ΔΕΝ ξαναπερνά ποσότητα: τη μετέφερε ήδη το δελτίο — γι’ αυτό στόχος είναι «Τιμολόγιο Αγοράς», όχι «ΔΑ-Τιμολόγιο».',
+    type: 'text',
+    defaultValue: DEFAULT_CONVERSION_MAP,
   },
 
   // i18n — application-wide language config

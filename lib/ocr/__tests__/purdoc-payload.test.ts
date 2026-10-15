@@ -793,3 +793,32 @@ describe('purchaseQtyPrice', () => {
     expect(purchaseQtyPrice(3, 10, null, true)).toEqual({ QTY: 3, PRICE: 10 });
   });
 });
+
+describe('buildPurdocPayload — μετασχηματισμός από δελτίο αποστολής', () => {
+  it('γραμμή με πηγή: FINDOCS + MTRLINESS, ίδια ποσότητα και τιμή', () => {
+    const p = buildPurdocPayload(doc(), ctx({
+      lines: [
+        { rowIndex: 0, mtrl: 555, expn: null, isService: false, sourceLinks: [{ findoc: 2720, mtrlines: 3, qty1: 2 }] },
+        { rowIndex: 1, mtrl: 666, expn: null, isService: true },
+      ],
+    }));
+    expect(p.DATA.ITELINES).toEqual([expect.objectContaining({ MTRL: 555, QTY: 2, PRICE: 50, FINDOCS: 2720, MTRLINESS: 3 })]);
+    // Η υπηρεσία δεν περνά από δελτίο: χωρίς σύνδεση.
+    expect(p.DATA.SRVLINES?.[0]).not.toHaveProperty('FINDOCS');
+  });
+  it('μία γραμμή τιμολογίου από δύο γραμμές δελτίου: δύο γραμμές, ίδια τιμή, ίδια συνολική αξία', () => {
+    const p = buildPurdocPayload(doc(), ctx({
+      lines: [{ rowIndex: 0, mtrl: 555, expn: null, isService: false, sourceLinks: [{ findoc: 1, mtrlines: 1, qty1: 0.5 }, { findoc: 2, mtrlines: 4, qty1: 1.5 }] }],
+    }));
+    const rows = p.DATA.ITELINES as { QTY: number; PRICE: number; FINDOCS: number; MTRLINESS: number; LINENUM: number }[];
+    expect(rows.map((r) => [r.FINDOCS, r.MTRLINESS, r.QTY])).toEqual([[1, 1, 0.5], [2, 4, 1.5]]);
+    expect(rows.reduce((t, r) => t + r.QTY * r.PRICE, 0)).toBe(100);
+    expect(new Set(rows.map((r) => r.LINENUM)).size).toBe(2);
+  });
+  it('μονάδα αγορών: η ποσότητα της πηγής (βασικές) γίνεται κιβώτια (÷ MU31)', () => {
+    const p = buildPurdocPayload(doc(), ctx({
+      lines: [{ rowIndex: 0, mtrl: 555, expn: null, isService: false, buyRatio: 100, sourceLinks: [{ findoc: 9, mtrlines: 1, qty1: 200 }] }],
+    }));
+    expect(p.DATA.ITELINES?.[0]).toMatchObject({ QTY: 2, PRICE: 50, FINDOCS: 9 });
+  });
+});

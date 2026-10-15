@@ -61,6 +61,12 @@ export type PurdocLineCtx = {
   /** `true` όταν το μητρώο δεν κουβαλά κανέναν χαρακτηρισμό myDATA (προειδοποίηση, όχι εμπόδιο). */
   noClassification?: boolean;
   /**
+   * ΜΕΤΑΣΧΗΜΑΤΙΣΜΟΣ από δελτίο αποστολής: οι γραμμές του δελτίου (σε βασικές μονάδες) που καλύπτει
+   * αυτή η γραμμή. Μία γραμμή-πηγή ⇒ μία γραμμή ITELINES με `FINDOCS`/`MTRLINESS`· πολλές ⇒ τόσες
+   * γραμμές, με την ίδια τιμή (η αξία μοιράζεται κατά ποσότητα). Βλ. `lib/ocr/delivery-note-match.ts`.
+   */
+  sourceLinks?: { findoc: number; mtrlines: number; qty1: number }[];
+  /**
    * `true` = ΜΗΔΕΝΙΚΗ γραμμή που ο χρήστης παρέλειψε ρητά (π.χ. «Εγγύηση 0,00» σε λογαριασμό ρεύματος).
    * Δεν στέλνεται και δεν μετράει ως αντιστοίχιστη: δεν αλλάζει κανένα ποσό. Παραλειμμένη γραμμή
    * ΜΕ ποσό δεν παίρνει ποτέ αυτή τη σημαία — αν έφευγε χωρίς αυτήν, τα σύνολα θα ήταν λάθος.
@@ -174,6 +180,8 @@ export type PurdocItemLine = {
   DISC1VAL?: number;
   VAT?: number; COMMENTS?: string; MYDATACODE?: string;
   COSTCNTR?: number; PRJC?: number; PRJCSTAGE?: number;
+  /** Μετασχηματισμός: το δελτίο-πηγή (`FINDOC`) και η γραμμή του (`MTRLINES`). */
+  FINDOCS?: number; MTRLINESS?: number;
 };
 /**
  * Γραμμή ΠΑΓΙΟΥ (ASSLINES, DB MTRLINES με SODTYPE 54) σε PURDOC.
@@ -633,20 +641,34 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
     if (target === 'SXDOCLINES') return; // δεν φτάνει ποτέ εδώ (το `lineFits` το έκοψε) — για τον τύπο
     const bucket = items[target];
     const qp = purchaseQtyPrice(num(line.quantity, 1), num(line.unitPrice, 0), match.buyRatio, match.qtyInBase === true);
-    const row: PurdocItemLine = {
-      LINENUM: FIRST_LINENUM + bucket.length,
-      MTRL: match.mtrl as number,
-      QTY: qp.QTY,
-      PRICE: qp.PRICE,
-      ...discountFields(line),
-      ...analyticsOf(match),
-    };
-    if (vat != null) row.VAT = vat;
-    if (name) row.COMMENTS = name;
-    // Ο χαρακτηρισμός myDATA υπάρχει ΜΟΝΟ σε αυτούς τους τρεις πίνακες γραμμών.
     const cls = text(match.myDataCode);
-    if (cls) row.MYDATACODE = cls;
-    bucket.push(row);
+    const makeRow = (QTY: number): PurdocItemLine => {
+      const row: PurdocItemLine = {
+        LINENUM: FIRST_LINENUM + bucket.length,
+        MTRL: match.mtrl as number,
+        QTY,
+        PRICE: qp.PRICE,
+        ...discountFields(line),
+        ...analyticsOf(match),
+      };
+      if (vat != null) row.VAT = vat;
+      if (name) row.COMMENTS = name;
+      // Ο χαρακτηρισμός myDATA υπάρχει ΜΟΝΟ σε αυτούς τους τρεις πίνακες γραμμών.
+      if (cls) row.MYDATACODE = cls;
+      return row;
+    };
+    // Από δελτίο: μία γραμμή ανά γραμμή-πηγή, ποσότητα στη μονάδα αγορών (βασικές ÷ MU31).
+    if (target === 'ITELINES' && match.sourceLinks?.length) {
+      const r = Number(match.buyRatio) > 0 ? Number(match.buyRatio) : 1;
+      for (const s of match.sourceLinks) {
+        const row = makeRow(Math.round((s.qty1 / r) * 1_000_000) / 1_000_000);
+        row.FINDOCS = s.findoc;
+        row.MTRLINESS = s.mtrlines;
+        bucket.push(row);
+      }
+      return;
+    }
+    bucket.push(makeRow(qp.QTY));
   });
 
   const DATA: PostingPayload['DATA'] = { [object]: [header] };

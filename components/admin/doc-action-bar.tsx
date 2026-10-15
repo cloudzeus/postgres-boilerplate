@@ -3,7 +3,8 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { FiSend, FiCheck, FiAlertTriangle, FiLoader, FiDatabase } from 'react-icons/fi';
+import { FiSend, FiCheck, FiAlertTriangle, FiLoader, FiDatabase, FiTruck } from 'react-icons/fi';
+import { DeliveryNoteDialog } from '@/components/admin/delivery-note-dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { DOC_CATEGORY_OPTIONS } from '@/lib/ocr/doc-category';
@@ -56,6 +57,8 @@ export function DocActionBar({
   const [dup, setDup] = React.useState<{ status: 'duplicate' | 'clear' | 'unknown'; message: string } | null>(null);
   const [dupBusy, setDupBusy] = React.useState(false);
   const [markBusy, setMarkBusy] = React.useState(false);
+  /** «Από δελτίο αποστολής» — μετασχηματισμός αντί για απλή καταχώριση. */
+  const [noteOpen, setNoteOpen] = React.useState(false);
 
   /** Ο ΜΑΡΚ σε ήδη καταχωρισμένο παραστατικό (όσα καταχωρίστηκαν πριν η εφαρμογή γράφει το σωστό πεδίο). */
   async function syncMark() {
@@ -240,14 +243,23 @@ export function DocActionBar({
               )}
             </>
           ) : (
+            <>
+            {canPost && !posted && (
+              <button type="button" onClick={() => setNoteOpen(true)} className={BTN_GHOST}
+                title="Το τιμολόγιο ήρθε μετά το δελτίο αποστολής: σύγκριση με τα ανοιχτά δελτία του προμηθευτή και μετασχηματισμός σε τιμολόγιο">
+                <FiTruck className="size-3.5" /> Από δελτίο αποστολής
+              </button>
+            )}
             <button type="button" disabled={!canPost || !ready || posting || dupBusy} onClick={askConfirm} className={BTN_POST}
               title={!canPost ? 'Δεν έχεις δικαίωμα καταχώρισης' : posted ? 'Έχει ήδη καταχωρηθεί' : !ready ? 'Λύσε πρώτα τα βήματα που μένουν' : undefined}>
               {dupBusy ? <FiLoader className="size-3.5 animate-spin" /> : <FiSend className="size-3.5" />}
               {posted ? 'Καταχωρήθηκε' : dupBusy ? 'Έλεγχος διπλοτύπου…' : 'Καταχώριση στο SoftOne'}
             </button>
+            </>
           )}
         </div>
       </div>
+      {noteOpen && <DeliveryNoteDialog docId={docId} open={noteOpen} onOpenChange={setNoteOpen} onDone={() => void load()} />}
     </div>
   );
 }
