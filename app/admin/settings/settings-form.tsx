@@ -17,13 +17,14 @@ import { LOCALES } from '@/i18n/locales';
 import { MediaPicker, type PickedMediaFile } from '@/components/media/media-picker';
 import { SoftoneResyncPanel } from '@/components/admin/softone-resync';
 
-type ItemType = 'text'|'password'|'url'|'email'|'number'|'boolean'|'textarea'|'locale'|'locales-multi'|'media';
+type ItemType = 'text'|'password'|'url'|'email'|'number'|'boolean'|'textarea'|'locale'|'locales-multi'|'media'|'select';
 type Item = {
   key: string;
   category: string;
   label: string;
   description?: string;
   type: ItemType;
+  options?: { value: string; label: string }[];
   isSecret: boolean;
   value: unknown;
   hasValue: boolean;
@@ -139,6 +140,20 @@ export function SettingsForm({ items, categories }: { items: Item[]; categories:
     if (item.type === 'locales-multi') {
       const arr = Array.isArray(v) ? (v as string[]) : (typeof v === 'string' ? safeParseStringArray(v) : []);
       return <LocaleMultiSelect value={arr} onChange={(next) => update(item.key, next)} />;
+    }
+
+    // Λίστα επιλογών
+    if (item.type === 'select') {
+      return (
+        <Select value={String(v ?? '')} onValueChange={(nv) => update(item.key, nv)}>
+          <SelectTrigger id={item.key} className="w-full">
+            <SelectValue placeholder="Επίλεξε" />
+          </SelectTrigger>
+          <SelectContent>
+            {(item.options ?? []).map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      );
     }
 
     // Boolean

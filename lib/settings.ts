@@ -1,7 +1,9 @@
+import { NAME_CASE_OPTIONS } from '@/lib/item-naming';
 import { prisma } from '@/lib/db';
 
 // Setting categories used in admin UI.
 export const SETTING_CATEGORIES = [
+  { id: 'setup', label: 'Αρχικοποίηση εφαρμογής' },
   { id: 'company', label: 'Στοιχεία εταιρίας' },
   { id: 'i18n', label: 'Γλώσσες εφαρμογής' },
   { id: 'integrations', label: 'Διασυνδέσεις' },
@@ -18,12 +20,33 @@ export interface SettingDef {
   category: typeof SETTING_CATEGORIES[number]['id'];
   label: string;
   description?: string;
-  type: 'text' | 'password' | 'url' | 'email' | 'number' | 'boolean' | 'textarea' | 'locale' | 'locales-multi' | 'media';
+  type: 'text' | 'password' | 'url' | 'email' | 'number' | 'boolean' | 'textarea' | 'locale' | 'locales-multi' | 'media' | 'select';
+  /** Για `select`: οι επιλογές. */
+  options?: { value: string; label: string }[];
   isSecret?: boolean;
   defaultValue?: string | number | boolean | string[];
 }
 
 export const SETTING_CATALOG: SettingDef[] = [
+  // Αρχικοποίηση εφαρμογής — αποφάσεις που παίρνονται μία φορά, στο στήσιμο (βλ. lib/item-naming.ts)
+  {
+    key: 'setup.itemNameCase',
+    category: 'setup',
+    label: 'Ονόματα νέων ειδών & υπηρεσιών',
+    description: 'Πώς γράφεται η περιγραφή (NAME) όταν δημιουργείται είδος ή υπηρεσία στη SoftOne. Κεφαλαία: χωρίς τόνους. Πεζά: με τόνους — όσους λείπουν (κείμενο από ΚΕΦΑΛΑΙΑ) τους βάζει το AI, και γίνεται δεκτό μόνο αν άλλαξαν αποκλειστικά τόνοι. Δεν αλλάζει τα υπάρχοντα είδη.',
+    type: 'select',
+    options: NAME_CASE_OPTIONS,
+    defaultValue: 'asis',
+  },
+  {
+    key: 'setup.itemAutoTranslate',
+    category: 'setup',
+    label: 'Αυτόματη μετάφραση ξένων περιγραφών',
+    description: 'Περιγραφή είδους/υπηρεσίας σε άλλη γλώσσα μεταφράζεται στα Ελληνικά (NAME) και η αρχική αποθηκεύεται στην «Περιγραφή 2» (NAME1). Στη φόρμα φαίνεται πριν τη δημιουργία, με «Επαναφορά».',
+    type: 'boolean',
+    defaultValue: false,
+  },
+
   // i18n — application-wide language config
   {
     key: 'i18n.defaultLocale',

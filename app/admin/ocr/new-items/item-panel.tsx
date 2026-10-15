@@ -1,6 +1,6 @@
 'use client';
 
-import { TranslateButton, TranslatedFrom, useGreekTranslation } from '@/components/admin/translate-greek';
+import { NamePreview, TranslateButton, TranslatedFrom, useGreekTranslation, useItemNaming, useNamePreview } from '@/components/admin/translate-greek';
 import { ItemUnitsSection } from '@/components/admin/item-units-section';
 import { ratioFromText, unitsError } from '@/lib/item-units';
 import * as React from 'react';
@@ -196,6 +196,8 @@ export function ItemPanel({
   onMatch: (target: { mtrl?: number; expn?: number; lin?: number }, isService: boolean) => void | Promise<void>;
   onCreate: (input: {
     kind: MatchKind; code: string; name: string; vat: string | null; unit: string | null;
+    /** Η αρχική (ξένη) περιγραφή όταν το `name` είναι μετάφραση → `NAME1`. */
+    original?: string | null;
     /** Τιμή **χονδρικής** (καθαρή) — γράφεται στο `PRICEW`. */
     price: number | null;
     /** Ο κωδικός της γραμμής — ο server τον χρειάζεται για να ξαναπροτείνει σωστά μετά από 409. */
@@ -330,7 +332,11 @@ export function ItemPanel({
   }, [group.key, group.code, category]);
 
   const set = (k: keyof typeof form, v: string) => setForm((s) => ({ ...s, [k]: v }));
-  const tr = useGreekTranslation(form.name, (v) => set('name', v), group.lines[0]?.id ?? null, group.key);
+  // Ρυθμίσεις → «Αρχικοποίηση εφαρμογής»: μόνο είδη/υπηρεσίες (όχι έξοδα).
+  const naming = useItemNaming();
+  const namingApplies = category === 'product' || category === 'service';
+  const tr = useGreekTranslation(form.name, (v) => set('name', v), group.lines[0]?.id ?? null, group.key, namingApplies && !!naming?.autoTranslate && !locked);
+  const namePreview = useNamePreview(form.name, tr.original, namingApplies ? naming : null, group.lines[0]?.id ?? null);
 
   const errors: Record<string, string | null> = {
     code: form.code.trim() ? null : 'Ο κωδικός είναι υποχρεωτικός.',
@@ -353,6 +359,7 @@ export function ItemPanel({
     kind: category ?? 'product',
     code: form.code.trim(),
     name: form.name.trim(),
+    original: category === 'product' || category === 'service' ? tr.original : undefined,
     vat: form.vat || null,
     unit: needsUnit ? form.unit || null : null,
     price: form.price.trim() ? Number(form.price.replace(',', '.')) : null,
@@ -363,7 +370,7 @@ export function ItemPanel({
       ? { buy: form.buy || null, buyRatio: ratioNum(form.buyRatio), sell: form.sell || null, sellRatio: ratioNum(form.sellRatio) }
       : undefined,
   }), [
-    group.afm, group.pattern, group.code, category, form.code, form.name, form.vat, form.unit,
+    group.afm, group.pattern, group.code, category, form.code, form.name, tr.original, form.vat, form.unit,
     form.price, form.itemGroup, form.itemCategory, needsUnit, form.buy, form.buyRatio, form.sell, form.sellRatio,
   ]);
 
@@ -435,7 +442,7 @@ export function ItemPanel({
     if (invalid) return;
     if (!category) return;
     const outcome = await onCreate({
-      kind: category, code: body.code, name: body.name, vat: body.vat, unit: body.unit,
+      kind: category, code: body.code, name: body.name, original: body.original, vat: body.vat, unit: body.unit,
       price: body.price, supplierCode: body.supplierCode,
       group: body.group, category: body.category, units: body.units,
     });
@@ -773,6 +780,7 @@ export function ItemPanel({
                 {!locked && (tr.offer || tr.busy) && <TranslateButton busy={tr.busy} onClick={() => void tr.translate()} />}
               </div>
               {tr.original != null && <TranslatedFrom original={tr.original} onRestore={tr.restore} />}
+              <NamePreview typed={form.name} preview={namePreview} />
             </Field>
 
             <div className="grid grid-cols-2 gap-2">

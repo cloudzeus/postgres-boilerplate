@@ -5,19 +5,39 @@
 import * as React from 'react';
 import { FiGlobe, FiLoader, FiRotateCcw } from 'react-icons/fi';
 import { toast } from 'sonner';
+import { looksForeign, parseNameCase, type NameCase } from '@/lib/item-naming';
 
-/** Έχει το κείμενο περισσότερα λατινικά από ελληνικά γράμματα; (τότε αξίζει μετάφραση) */
-export function looksForeign(text: string): boolean {
-  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
-  const greek = (text.match(/[Α-Ωα-ωάέήίόύώΆΈΉΊΌΎΏϊϋΐΰ]/g) ?? []).length;
-  return latin >= 4 && latin > greek;
+export { looksForeign };
+
+export interface ItemNamingCfg { nameCase: NameCase; autoTranslate: boolean }
+let namingCache: Promise<ItemNamingCfg> | null = null;
+
+/** Ρυθμίσεις → «Αρχικοποίηση εφαρμογής» (μία φορά ανά σελίδα). */
+export function useItemNaming(): ItemNamingCfg | null {
+  const [cfg, setCfg] = React.useState<ItemNamingCfg | null>(null);
+  React.useEffect(() => {
+    namingCache ??= fetch('/api/admin/ocr/item-naming', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => ({ nameCase: parseNameCase(d?.nameCase), autoTranslate: d?.autoTranslate === true }))
+      .catch(() => { namingCache = null; return { nameCase: 'asis' as NameCase, autoTranslate: false }; });
+    let alive = true;
+    void namingCache.then((c) => { if (alive) setCfg(c); });
+    return () => { alive = false; };
+  }, []);
+  return cfg;
 }
 
-export function useGreekTranslation(value: string, setValue: (v: string) => void, lineId?: string | null, resetKey?: unknown) {
+/**
+ * `auto`: με τη ρύθμιση «Αυτόματη μετάφραση» η ξένη περιγραφή μεταφράζεται ΜΟΛΙΣ ανοίξει η φόρμα
+ * (μία φορά ανά γραμμή/ομάδα) — ο χρήστης τη βλέπει πριν τη δημιουργία και μπορεί να την επαναφέρει.
+ * Η αρχική (`original`) πάει στην «Περιγραφή 2» (NAME1) της SoftOne.
+ */
+export function useGreekTranslation(value: string, setValue: (v: string) => void, lineId?: string | null, resetKey?: unknown, auto = false) {
   const [busy, setBusy] = React.useState(false);
   const [original, setOriginal] = React.useState<string | null>(null);
+  const autoDone = React.useRef(false);
   // Άλλη γραμμή/ομάδα ⇒ η «αρχική» της προηγούμενης δεν ισχύει πια.
-  React.useEffect(() => { setOriginal(null); }, [resetKey]);
+  React.useEffect(() => { setOriginal(null); autoDone.current = false; }, [resetKey]);
   const translate = async () => {
     if (busy || !value.trim()) return;
     setBusy(true);
@@ -33,7 +53,47 @@ export function useGreekTranslation(value: string, setValue: (v: string) => void
     } catch { toast.error('Σφάλμα δικτύου.'); } finally { setBusy(false); }
   };
   const restore = () => { if (original != null) { setValue(original); setOriginal(null); } };
+  React.useEffect(() => {
+    if (!auto || autoDone.current || busy || original != null || !looksForeign(value)) return;
+    autoDone.current = true;
+    void translate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, value, resetKey]);
   return { busy, original, translate, restore, offer: looksForeign(value) && original == null };
+}
+
+/**
+ * Τι ΑΚΡΙΒΩΣ θα γραφτεί (NAME / NAME1) με τη ρύθμιση πεζών/κεφαλαίων — ρωτά τον server, που κάνει
+ * και τον τονισμό των πεζών. `null` όσο δεν χρειάζεται («όπως γράφονται», χωρίς αρχική).
+ */
+export function useNamePreview(name: string, original: string | null, cfg: ItemNamingCfg | null, lineId?: string | null) {
+  const [out, setOut] = React.useState<{ name: string; name1: string | null } | null>(null);
+  const needed = !!cfg && !!name.trim() && (cfg.nameCase !== 'asis' || original != null);
+  React.useEffect(() => {
+    if (!needed) { setOut(null); return; }
+    let alive = true;
+    const t = setTimeout(() => {
+      fetch('/api/admin/ocr/item-naming', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim().slice(0, 200), original, lineId: lineId ?? undefined }),
+      }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (alive) setOut(d?.name ? { name: d.name, name1: d.name1 ?? null } : null); })
+        .catch(() => { if (alive) setOut(null); });
+    }, 500);
+    return () => { alive = false; clearTimeout(t); };
+  }, [needed, name, original, lineId]);
+  return out;
+}
+
+/** «Στη SoftOne: …» κάτω από το πεδίο — μόνο όταν διαφέρει από ό,τι γράφει το πεδίο ή υπάρχει NAME1. */
+export function NamePreview({ typed, preview }: { typed: string; preview: { name: string; name1: string | null } | null }) {
+  if (!preview || (preview.name === typed.trim() && !preview.name1)) return null;
+  return (
+    <p className="min-w-0 text-[length:var(--fs-11)] text-muted-foreground">
+      <span className="font-medium text-foreground/80">Στη SoftOne:</span>{' '}
+      <span className="break-words text-foreground">«{preview.name}»</span>
+      {preview.name1 && <> · <span className="font-medium text-foreground/80">Περιγραφή 2:</span> <span className="break-words">«{preview.name1}»</span></>}
+    </p>
+  );
 }
 
 /** Κουμπί δίπλα στο πεδίο (ίδιο ύψος h-8). */

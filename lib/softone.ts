@@ -1039,6 +1039,8 @@ export async function softoneCheckPurchaseDoc(
 export interface CreateItemInput {
   code: string;
   name: string;
+  /** «Περιγραφή 2» → `ITEM.NAME1`: η αρχική (ξένη) περιγραφή όταν το `name` είναι μετάφραση. */
+  name2?: string | null;
   isService: boolean;
   vat: string;          // VAT code (smallint as string)
   unit: string;         // MTRUNIT id (smallint as string)
@@ -1187,6 +1189,7 @@ export function buildItemPayload(input: CreateItemInput):
   const row: Record<string, unknown> = {
     CODE: input.code,
     NAME: input.name,
+    ...(String(input.name2 ?? '').trim() ? { NAME1: String(input.name2).trim().slice(0, 128) } : {}),
     MTRTYPE: 0,
     VAT: input.vat,
     MTRUNIT1: input.unit,

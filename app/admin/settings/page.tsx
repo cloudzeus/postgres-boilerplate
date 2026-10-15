@@ -18,6 +18,7 @@ export default async function SettingsPage() {
       label: def.label,
       description: def.description,
       type: def.type,
+      options: def.options,
       isSecret: !!def.isSecret,
       value: def.isSecret && typeof raw === 'string' && raw ? maskSecret(raw) : raw,
       hasValue: map.has(def.key),

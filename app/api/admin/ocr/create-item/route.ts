@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { normalizeUnitPair, unitsError } from '@/lib/item-units';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
+import { resolveItemNames } from '@/lib/item-naming-server';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { applyMatchToLine, QueueError } from '@/lib/ocr/queues';
@@ -41,6 +42,12 @@ const Body = z.object({
   kind: z.enum(['product', 'service', 'expense', 'lineitem']).optional(),
   code: z.string().trim().min(1).max(50),
   name: z.string().trim().min(1).max(200),
+  /**
+   * Η ΑΡΧΙΚΗ (ξένη) περιγραφή όταν το `name` είναι μετάφρασή της → `NAME1`. `null` = ο χρήστης
+   * αποφάσισε χωρίς μετάφραση· απούσα = μαζική δημιουργία (ο server μεταφράζει αν το ορίζουν οι
+   * Ρυθμίσεις → «Αρχικοποίηση εφαρμογής»). Βλ. `lib/item-naming-server.ts`.
+   */
+  original: z.string().trim().max(500).nullable().optional(),
   /** Συμβατότητα με τον παλιό καλών: `isService` αντί για `kind`. */
   isService: z.boolean().optional(),
   vat: z.string().trim().max(20).nullable().optional(),
@@ -255,8 +262,10 @@ export async function POST(req: Request) {
   const supplier = supplierTrdr && b.saveSupplierCode !== false
     ? { trdr: supplierTrdr, code: b.supplierCode || null, name: lineDoc?.name ?? null }
     : null;
+  // Πεζά/κεφαλαία + (αυτόματη) μετάφραση με την αρχική στο NAME1 — Ρυθμίσεις → «Αρχικοποίηση εφαρμογής».
+  const names = await resolveItemNames({ name: b.name, original: b.original, ref: b.lineId ?? null });
   const itemInput = {
-    code: b.code, name: b.name, isService, vat, unit,
+    code: b.code, name: names.name, name2: names.name1, isService, vat, unit,
     units: isService ? null : b.units ?? null,
     price: b.price ?? null,
     group: b.group || null, category: b.category || null,
@@ -284,11 +293,11 @@ export async function POST(req: Request) {
     : { unit1: unit, unitBuy: buy.unit, buyRatio: buy.ratio, unitSell: sell.unit, sellRatio: sell.ratio };
   await prisma.softoneItem.upsert({
     where: { mtrl },
-    update: { code: b.code, name: b.name, isService, isActive: true, code1: b.code1 || null, code2: b.code2 || null, ...mirrorUnits },
-    create: { mtrl, code: b.code, name: b.name, isService, isActive: true, code1: b.code1 || null, code2: b.code2 || null, ...mirrorUnits },
+    update: { code: b.code, name: names.name, name2: names.name1, isService, isActive: true, code1: b.code1 || null, code2: b.code2 || null, ...mirrorUnits },
+    create: { mtrl, code: b.code, name: names.name, name2: names.name1, isService, isActive: true, code1: b.code1 || null, code2: b.code2 || null, ...mirrorUnits },
   }).catch(() => null);
 
-  return finish(b, u, { mtrl, code: b.code, name: b.name, kind, isService });
+  return finish(b, u, { mtrl, code: b.code, name: names.name, kind, isService });
 }
 
 const numOrNull = (v: unknown): number | null => {

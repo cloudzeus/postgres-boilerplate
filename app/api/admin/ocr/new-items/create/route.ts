@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { normalizeUnitPair, unitsError } from '@/lib/item-units';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
+import { resolveItemNames } from '@/lib/item-naming-server';
 import { requirePermission } from '@/lib/rbac';
 import { logAudit } from '@/lib/audit';
 import { applyMatchToGroup, QueueError } from '@/lib/ocr/queues';
@@ -27,6 +28,12 @@ const Body = z.object({
   /** Ο κωδικός που κουβαλά η γραμμή του τιμολογίου — για να ξαναπροταθεί σωστά μετά από 409. */
   supplierCode: z.string().trim().max(50).nullable().optional(),
   name: z.string().trim().min(1).max(200),
+  /**
+   * Η ΑΡΧΙΚΗ (ξένη) περιγραφή όταν το `name` είναι μετάφρασή της → `NAME1`. `null` = ο χρήστης
+   * αποφάσισε χωρίς μετάφραση· απούσα = μαζική δημιουργία (ο server μεταφράζει αν το ορίζουν οι
+   * Ρυθμίσεις → «Αρχικοποίηση εφαρμογής»). Βλ. `lib/item-naming-server.ts`.
+   */
+  original: z.string().trim().max(500).nullable().optional(),
   vat: z.string().trim().max(20).nullable().optional(),
   unit: z.string().trim().max(20).nullable().optional(),
   /** Μονάδα αγορών/πώλησης + σχέση με τη βασική (βλ. `lib/item-units.ts`). Μόνο για είδος. */
@@ -104,8 +111,10 @@ export async function POST(req: Request) {
   }
   const unitsErr = isService ? null : unitsError({ base: unit, ...(b.units ?? {}) });
   if (unitsErr) return NextResponse.json({ error: 'invalid_units', field: 'units', message: unitsErr }, { status: 400 });
+  // Πεζά/κεφαλαία + (αυτόματη) μετάφραση με την αρχική στο NAME1 — Ρυθμίσεις → «Αρχικοποίηση εφαρμογής».
+  const names = await resolveItemNames({ name: b.name, original: b.original, ref: null });
   const itemInput = {
-    code: b.code, name: b.name, isService, vat, unit,
+    code: b.code, name: names.name, name2: names.name1, isService, vat, unit,
     units: isService ? null : b.units ?? null,
     // ΜΟΝΟ χονδρική: το σύστημα καταχωρεί αγορές/έξοδα/πάγια και δεν πουλά — δεν έχει καμία
     // βάση να ορίσει τιμή λιανικής (δες `buildItemPayload`).
@@ -134,11 +143,11 @@ export async function POST(req: Request) {
     : { unit1: unit, unitBuy: buy.unit, buyRatio: buy.ratio, unitSell: sell.unit, sellRatio: sell.ratio };
   await prisma.softoneItem.upsert({
     where: { mtrl },
-    update: { code: b.code, name: b.name, isService, isActive: true, ...mirrorUnits },
-    create: { mtrl, code: b.code, name: b.name, isService, isActive: true, ...mirrorUnits },
+    update: { code: b.code, name: names.name, name2: names.name1, isService, isActive: true, ...mirrorUnits },
+    create: { mtrl, code: b.code, name: names.name, name2: names.name1, isService, isActive: true, ...mirrorUnits },
   }).catch(() => null);
 
-  return finish(b, u, { mtrl, code: b.code, name: b.name, kind: b.kind, isService });
+  return finish(b, u, { mtrl, code: b.code, name: names.name, kind: b.kind, isService });
 }
 
 /** Μετά τη δημιουργία: αντιστοίχιση όλης της ομάδας + μνήμη + audit. */

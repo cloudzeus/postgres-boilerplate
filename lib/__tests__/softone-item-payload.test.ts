@@ -26,3 +26,15 @@ describe('buildItemPayload — κωδικοί αγοράς', () => {
     expect(p.DATA).not.toHaveProperty('MTRSUPCODE');
   });
 });
+
+describe('buildItemPayload — Περιγραφή 2 (NAME1)', () => {
+  it('η αρχική ξένη περιγραφή πάει στο NAME1, σε είδος και σε υπηρεσία', () => {
+    const p = buildItemPayload({ ...base, name: 'ΣΩΛΗΝΑΣ ΛΕΙΟΣ', name2: 'TUBO SMOOTH' });
+    expect((p.DATA as { ITEM: Record<string, unknown>[] }).ITEM[0]).toMatchObject({ NAME: 'ΣΩΛΗΝΑΣ ΛΕΙΟΣ', NAME1: 'TUBO SMOOTH' });
+    const s = buildItemPayload({ ...base, isService: true, name2: 'Service fee' });
+    expect((s.DATA as { SERVICE: Record<string, unknown>[] }).SERVICE[0].NAME1).toBe('Service fee');
+  });
+  it('χωρίς αρχική: κανένα NAME1 (δεν σβήνουμε τίποτα)', () => {
+    expect((buildItemPayload(base).DATA as { ITEM: Record<string, unknown>[] }).ITEM[0]).not.toHaveProperty('NAME1');
+  });
+});

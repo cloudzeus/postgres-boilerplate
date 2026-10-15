@@ -22,7 +22,7 @@ import { matchUnit, unitOptions } from '@/lib/ocr/unit-match';
 import { ratioFromText, unitsError } from '@/lib/item-units';
 import { ItemUnitsSection } from '@/components/admin/item-units-section';
 import { Field, FormSection, FormSelect, RowHint, fieldCls } from '@/components/admin/form-kit';
-import { TranslateButton, TranslatedFrom, useGreekTranslation } from '@/components/admin/translate-greek';
+import { NamePreview, TranslateButton, TranslatedFrom, useGreekTranslation, useItemNaming, useNamePreview } from '@/components/admin/translate-greek';
 
 /** Μονάδες «συσκευασίας»: όταν το τιμολόγιο γράφει μία από αυτές, η βασική είναι μάλλον το τεμάχιο. */
 const PACK_UNIT = /^(κιβ|κουτ|πακ|συσκ|παλ|δοχ|σακ|ρολ)/i;
@@ -426,12 +426,16 @@ export function CreateRegistryEntryModal({
   };
 
   const set = (k: keyof FormState, v: string) => setF((s) => ({ ...s, [k]: v }));
-  const tr = useGreekTranslation(f.name, (v) => set('name', v), lineId, open);
+  // Ρυθμίσεις → «Αρχικοποίηση εφαρμογής»: μόνο είδη/υπηρεσίες (όχι έξοδα / είδη χρέωσης).
+  const naming = useItemNaming();
+  const tr = useGreekTranslation(f.name, (v) => set('name', v), lineId, open, open && isItem && !!naming?.autoTranslate);
+  const namePreview = useNamePreview(f.name, tr.original, isItem && open ? naming : null, lineId);
 
   const body = React.useCallback((overrides: Partial<{ dryRun: boolean }> = {}) => ({
     kind,
     code: f.code.trim() || '—',
     name: f.name.trim() || '—',
+    original: isItem ? tr.original : undefined,
     vat: f.vat || null,
     unit: hasUnit ? (f.unit || null) : null,
     price: isItem && f.price ? Number(f.price) : null,
@@ -449,7 +453,7 @@ export function CreateRegistryEntryModal({
       : undefined,
     dryRun: true,
     ...overrides,
-  }), [kind, f, hasUnit, isItem, needsTemplate, template, account.code, lineId, initialCode, code1, code2, saveSupplierCode, alt]);
+  }), [kind, f, tr.original, hasUnit, isItem, needsTemplate, template, account.code, lineId, initialCode, code1, code2, saveSupplierCode, alt]);
 
   /** Για χρεοπίστωση: διάβασε ζωντανά το πρότυπο και κρίνε το ΠΡΙΝ σταλεί οτιδήποτε. */
   const pickTemplate = async (p: { id: number; code: string; name: string }) => {
@@ -700,6 +704,7 @@ export function CreateRegistryEntryModal({
                   {(tr.offer || tr.busy) && <TranslateButton busy={tr.busy} onClick={() => void tr.translate()} />}
                 </div>
                 {tr.original != null && <TranslatedFrom original={tr.original} onRestore={tr.restore} />}
+                {isItem && <NamePreview typed={f.name} preview={namePreview} />}
               </Field>
               <div className="grid grid-cols-12 gap-x-3 gap-y-2">
                 <Field label="Κωδικός" required htmlFor="reg-code" className={isItem ? 'col-span-12 sm:col-span-5' : 'col-span-12 sm:col-span-6'}>
