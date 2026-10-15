@@ -3,7 +3,8 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { FiRefreshCw } from 'react-icons/fi';
+import { FiLink, FiRefreshCw } from 'react-icons/fi';
+import { StatCard } from '@/components/admin/stat-card';
 import type { LineCoverage } from '@/lib/ocr/coverage';
 
 /**
@@ -30,28 +31,19 @@ export function MatchCoverage({ coverage, canRematch }: { coverage: LineCoverage
   };
 
   return (
-    <div className="relative overflow-hidden rounded-lg border border-border bg-card px-4 py-3 shadow-fluent-2">
-      <span className="absolute left-0 top-0 h-full w-1 bg-emerald-500" />
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-[length:var(--fs-10)] font-bold uppercase tracking-wider text-muted-foreground">Αντιστοίχιση γραμμών</p>
-        {canRematch && (
-          <button
-            type="button" onClick={rematch} disabled={busy}
-            title="Εφαρμόζει ξανά ό,τι έχει μάθει η εφαρμογή σε όλα τα ανοιχτά παραστατικά"
-            aria-label="Επανεφαρμογή μνήμης"
-            className="-mr-1 -mt-1 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-60"
-          >
-            <FiRefreshCw className={`size-3.5 ${busy ? 'animate-spin' : ''}`} aria-hidden />
-          </button>
-        )}
-      </div>
-      <p className="mt-0.5 text-title-2 font-bold tabular-nums tracking-tight text-foreground">{pct}%</p>
-      <p className="text-[length:var(--fs-11)] tabular-nums text-muted-foreground">
-        {coverage.matched}/{coverage.total} γραμμές · {coverage.docsComplete}/{coverage.docs} παραστατικά πλήρη
-      </p>
-      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
-        <div className="h-full rounded-full bg-emerald-500 transition-[width] duration-300" style={{ width: `${pct}%` }} />
-      </div>
-    </div>
+    <StatCard
+      label="Αντιστοίχιση" value={pct} unit="%" icon={<FiLink />} tone="emerald" progress={pct}
+      sub={<>{coverage.matched}/{coverage.total} γραμμές · {coverage.docsComplete}/{coverage.docs} παραστατικά πλήρη</>}
+      aside={canRematch ? (
+        <button
+          type="button" onClick={rematch} disabled={busy}
+          title="Επανεφαρμογή μνήμης: ό,τι έχει μάθει η εφαρμογή, σε όλα τα ανοιχτά παραστατικά"
+          aria-label="Επανεφαρμογή μνήμης"
+          className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-60"
+        >
+          <FiRefreshCw className={`size-3.5 ${busy ? 'animate-spin' : ''}`} aria-hidden />
+        </button>
+      ) : undefined}
+    />
   );
 }

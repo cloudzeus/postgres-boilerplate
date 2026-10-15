@@ -54,30 +54,30 @@ export default async function AdminHomePage({
       ) : (
         <>
           {/* 2 — KPIs */}
-          <section aria-label="Βασικοί δείκτες" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <section aria-label="Βασικοί δείκτες" className="grid auto-rows-fr grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <KpiCard
               label="Έγγραφα" datum={data.kpis.created} rangeLabel={rangeLabel}
-              icon={<FiFileText />} href="/admin/ocr"
+              icon={<FiFileText />} tone="blue" href="/admin/ocr"
             />
             <KpiCard
-              label="Ολοκληρώθηκαν" datum={data.kpis.completed} rangeLabel={rangeLabel}
-              icon={<FiCheckCircle />} href="/admin/ocr"
+              label="Επιτυχημένα" datum={data.kpis.completed} rangeLabel={rangeLabel}
+              icon={<FiCheckCircle />} tone="emerald" href="/admin/ocr"
             />
             <KpiCard
               label="Σε έλεγχο" datum={data.kpis.review} rangeLabel={rangeLabel}
-              icon={<FiAlertTriangle />} href="/admin/ocr/pending" invert
+              icon={<FiAlertTriangle />} tone="amber" href="/admin/ocr/pending" invert
             />
             <KpiCard
-              label="Καταχωρήθηκαν στο SoftOne" datum={data.kpis.posted} rangeLabel={rangeLabel}
-              icon={<FiUploadCloud />} href="/admin/ocr"
+              label="Στο SoftOne" datum={data.kpis.posted} rangeLabel={rangeLabel}
+              icon={<FiUploadCloud />} tone="violet" href="/admin/ocr"
             />
             <KpiCard
               label="Αποτυχίες" datum={data.kpis.failed} rangeLabel={rangeLabel}
-              icon={<FiXCircle />} href="/admin/ocr" invert
+              icon={<FiXCircle />} tone="red" href="/admin/ocr" invert
             />
             <KpiCard
               label="Κόστος AI" datum={data.kpis.costEur} rangeLabel={rangeLabel}
-              icon={<FiCpu />} href="/admin/ai-usage" format={fmtEur} invert
+              icon={<FiCpu />} tone="slate" href="/admin/ai-usage" format={fmtEur} invert
             />
           </section>
 

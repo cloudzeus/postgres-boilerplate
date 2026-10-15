@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { FiArrowRight, FiUploadCloud, FiInbox, FiExternalLink } from 'react-icons/fi';
+import { FiArrowRight, FiUploadCloud, FiInbox, FiExternalLink, FiDollarSign, FiList, FiCalendar } from 'react-icons/fi';
+import { StatCard } from '@/components/admin/stat-card';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { PageHeader } from '@/components/admin/page-header';
@@ -70,6 +71,7 @@ export default async function OcrPostedPage() {
   });
 
   const sum = rows.reduce((t, r) => t + (r.total ?? 0), 0);
+  const lineCount = rows.reduce((t, r) => t + r.lines, 0);
 
   // Ομαδοποίηση ανά ημέρα ΑΝΑΡΤΗΣΗΣ — αυτό ρωτά ο λογιστής («τι έστειλα σήμερα;»).
   const groups = new Map<string, Row[]>();
@@ -104,23 +106,11 @@ export default async function OcrPostedPage() {
         </div>
       ) : (
         <>
-          <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <div className="rounded-lg border border-border bg-card px-3 py-2.5 shadow-fluent-2">
-              <p className="text-[length:var(--fs-10)] font-bold uppercase tracking-wider text-muted-foreground">Παραστατικά</p>
-              <p className="mt-0.5 text-title-2 font-bold tabular-nums text-foreground">{rows.length}</p>
-            </div>
-            <div className="rounded-lg border border-border bg-card px-3 py-2.5 shadow-fluent-2">
-              <p className="text-[length:var(--fs-10)] font-bold uppercase tracking-wider text-muted-foreground">Συνολική αξία</p>
-              <p className="mt-0.5 text-title-2 font-bold tabular-nums text-foreground">{eur(sum)}</p>
-            </div>
-            <div className="rounded-lg border border-border bg-card px-3 py-2.5 shadow-fluent-2">
-              <p className="text-[length:var(--fs-10)] font-bold uppercase tracking-wider text-muted-foreground">Γραμμές</p>
-              <p className="mt-0.5 text-title-2 font-bold tabular-nums text-foreground">{rows.reduce((t, r) => t + r.lines, 0)}</p>
-            </div>
-            <div className="rounded-lg border border-border bg-card px-3 py-2.5 shadow-fluent-2">
-              <p className="text-[length:var(--fs-10)] font-bold uppercase tracking-wider text-muted-foreground">Ημέρες ανάρτησης</p>
-              <p className="mt-0.5 text-title-2 font-bold tabular-nums text-foreground">{groups.size}</p>
-            </div>
+          <section className="grid auto-rows-fr grid-cols-2 gap-3 md:grid-cols-4">
+            <StatCard label="Παραστατικά" value={rows.length} icon={<FiUploadCloud />} tone="violet" sub="αναρτήθηκαν στη SoftOne" />
+            <StatCard label="Συνολική αξία" value={eur(sum)} icon={<FiDollarSign />} tone="emerald" sub={rows.length ? `μ.ό. ${eur(sum / rows.length)} / παραστατικό` : undefined} />
+            <StatCard label="Γραμμές" value={lineCount} icon={<FiList />} tone="blue" sub={rows.length ? `${(lineCount / rows.length).toLocaleString('el-GR', { maximumFractionDigits: 1 })} ανά παραστατικό` : undefined} />
+            <StatCard label="Ημέρες ανάρτησης" value={groups.size} icon={<FiCalendar />} tone="amber" sub="διαφορετικές ημέρες" />
           </section>
 
           <div className="space-y-4">

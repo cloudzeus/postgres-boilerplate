@@ -1,6 +1,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { FiArrowUpRight, FiArrowDownRight, FiMinus, FiCheckCircle, FiChevronRight, FiFile } from 'react-icons/fi';
+import { StatCard, type StatTone } from '@/components/admin/stat-card';
 import { donutSlices, share, RANGES, type Range } from '@/lib/dashboard/series';
 import type {
   KpiDatum, BreakdownItem, AttentionRow, RecentDoc, SupplierRow, TemplateHealth,
@@ -52,12 +53,13 @@ export interface KpiProps {
   /** `true` όταν η άνοδος είναι κακό νέο (αποτυχίες, κόστος) — αλλάζει μόνο το χρώμα. */
   invert?: boolean;
   rangeLabel: string;
+  tone?: StatTone;
 }
 
-export function KpiCard({ label, datum, icon, href, format = fmtInt, invert, rangeLabel }: KpiProps) {
+export function KpiCard({ label, datum, icon, href, format = fmtInt, invert, rangeLabel, tone = 'blue' }: KpiProps) {
   const { dir, pct } = datum.delta;
   const good = dir === 'flat' ? null : (dir === 'up') !== Boolean(invert);
-  const tone = good === null
+  const chipTone = good === null
     ? 'text-muted-foreground bg-[var(--muted)]'
     : good
       ? 'text-[#1B7A4E] bg-[#E8F5EE]'
@@ -74,29 +76,21 @@ export function KpiCard({ label, datum, icon, href, format = fmtInt, invert, ran
     ? `${dirWord} κατά ${format(Math.abs(datum.delta.diff))} — η προηγούμενη περίοδος ήταν μηδενική`
     : `${dirWord} ${fmtPct(pct, pct < 10 ? 1 : 0)} έναντι της προηγούμενης περιόδου (${format(datum.previous)})`;
 
+  // Η μεταβολή πάει στη γραμμή πληροφορίας (όχι δίπλα στην ετικέτα), ώστε η ετικέτα να έχει όλο το
+  // πλάτος και όλες οι κάρτες της εφαρμογής να έχουν την ίδια δομή.
   return (
-    <Link
-      href={href}
-      className={`cx-card cx-transition block p-4 hover:-translate-y-0.5 hover:shadow-fluent-4 ${FOCUS}`}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <span aria-hidden className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm bg-[var(--cx-accent-soft)] text-primary [&_svg]:size-4">
-          {icon}
+    <StatCard
+      href={href} label={label} icon={icon} tone={tone} value={format(datum.value)}
+      sub={
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <span className={`inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-px font-semibold ${chipTone}`} aria-label={deltaAria}>
+            <DirIcon aria-hidden className="size-3" />
+            <span aria-hidden className="tabular-nums">{chipText}</span>
+          </span>
+          <span className="truncate">{rangeLabel}</span>
         </span>
-        <span
-          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-caption font-semibold ${tone}`}
-          aria-label={deltaAria}
-        >
-          <DirIcon aria-hidden className="size-3" />
-          <span aria-hidden className="tabular-nums">{chipText}</span>
-        </span>
-      </div>
-      <div className="mt-3 text-title-2 font-semibold leading-none tabular-nums text-foreground">
-        {format(datum.value)}
-      </div>
-      <div className="mt-1 text-body-sm text-muted-foreground">{label}</div>
-      <div className="mt-0.5 text-caption text-muted-foreground/80">{rangeLabel}</div>
-    </Link>
+      }
+    />
   );
 }
 

@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
-import { FiCpu, FiDownload } from 'react-icons/fi';
+import { FiCalendar, FiClock, FiCpu, FiDownload, FiTrendingUp } from 'react-icons/fi';
+import { StatCard } from '@/components/admin/stat-card';
 import { prisma } from '@/lib/db';
 import { getCurrentUserWithPermissions } from '@/lib/rbac';
 import { getSetting } from '@/lib/settings';
@@ -139,12 +140,12 @@ export default async function AiUsagePage() {
         }
       />
 
-      {/* KPI strip */}
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Kpi label="Σήμερα"     value={fmtEur(toEur(totalCostToday))} sub={`${fmtNum(today._count._all)} κλήσεις`} accent="sisyphus" />
-        <Kpi label="Τρέχων μήνας" value={fmtEur(toEur(totalCostMonth))} sub={`${fmtNum(monthRows._count._all)} κλήσεις`} accent="emerald" />
-        <Kpi label="Σύνολο"     value={fmtEur(toEur(totalCostAll))}   sub={`${fmtNum(overall._count._all)} κλήσεις`} accent="amber" />
-        <Kpi label="Tokens (μήνας)" value={fmtNum(Number(monthRows._sum.totalTokens ?? 0))} sub="input + output" accent="sisyphus" />
+      {/* KPI strip — ίδια κάρτα με όλη την εφαρμογή */}
+      <section className="grid auto-rows-fr grid-cols-2 gap-3 md:grid-cols-4">
+        <StatCard label="Σήμερα" value={fmtEur(toEur(totalCostToday))} icon={<FiClock />} tone="blue" sub={`${fmtNum(today._count._all)} κλήσεις`} />
+        <StatCard label="Τρέχων μήνας" value={fmtEur(toEur(totalCostMonth))} icon={<FiCalendar />} tone="emerald" sub={`${fmtNum(monthRows._count._all)} κλήσεις`} />
+        <StatCard label="Σύνολο" value={fmtEur(toEur(totalCostAll))} icon={<FiTrendingUp />} tone="amber" sub={`${fmtNum(overall._count._all)} κλήσεις`} />
+        <StatCard label="Tokens (μήνας)" value={fmtNum(Number(monthRows._sum.totalTokens ?? 0))} icon={<FiCpu />} tone="violet" sub="input + output" />
       </section>
 
       {/* Tokens per model chart */}
@@ -261,18 +262,6 @@ export default async function AiUsagePage() {
           </table>
         </div>
       </section>
-    </div>
-  );
-}
-
-function Kpi({ label, value, sub, accent }: { label: string; value: string; sub: string; accent: 'sisyphus' | 'emerald' | 'amber' }) {
-  const accentMap = { sisyphus: 'bg-sisyphus-500', emerald: 'bg-emerald-500', amber: 'bg-amber-500' } as const;
-  return (
-    <div className="relative overflow-hidden rounded-lg border border-border bg-card px-4 py-3 shadow-fluent-2">
-      <span className={`absolute left-0 top-0 h-full w-1 ${accentMap[accent]}`} />
-      <p className="text-[length:var(--fs-10)] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="mt-0.5 text-title-2 font-bold tabular-nums tracking-tight text-foreground">{value}</p>
-      <p className="text-[length:var(--fs-11)] text-muted-foreground">{sub}</p>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { withFeesFromDocument } from '@/lib/ocr/canonical';
-import { FiFileText } from 'react-icons/fi';
+import { FiCheckCircle, FiClock, FiFileText, FiUploadCloud } from 'react-icons/fi';
+import { StatCard, StatGrid } from '@/components/admin/stat-card';
 import { detectUtility, utilityInputFromDocument } from '@/lib/ocr/utility-bills';
 import { lineCoverage } from '@/lib/ocr/coverage';
 import { MatchCoverage } from '@/components/admin/match-coverage';
@@ -112,14 +113,14 @@ export default async function AdminOcrPage() {
         helpAnchor="ocr"
       />
 
-      {/* Stats strip */}
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <StatTile label="Σύνολο" value={stats.total} accent="sisyphus" />
-        <StatTile label="Επιτυχημένα" value={stats.completed} accent="emerald" />
-        <StatTile label="Σε εκκρεμότητα" value={stats.pending} accent="amber" />
-        <StatTile label="Αναρτημένα" value={stats.posted} accent="sisyphus" />
+      {/* Στατιστικά — ίδια κάρτα παντού (components/admin/stat-card) */}
+      <StatGrid>
+        <StatCard label="Σύνολο" value={fmtInt(stats.total)} icon={<FiFileText />} tone="blue" sub="έγγραφα στη λίστα" />
+        <StatCard label="Επιτυχημένα" value={fmtInt(stats.completed)} icon={<FiCheckCircle />} tone="emerald" sub={`${pctOf(stats.completed, stats.total)}% του συνόλου`} progress={pctOf(stats.completed, stats.total)} />
+        <StatCard label="Σε εκκρεμότητα" value={fmtInt(stats.pending)} icon={<FiClock />} tone="amber" sub={stats.pending ? 'προς επεξεργασία' : 'καμία εκκρεμότητα'} />
+        <StatCard label="Αναρτημένα" value={fmtInt(stats.posted)} icon={<FiUploadCloud />} tone="violet" sub={`${pctOf(stats.posted, stats.completed)}% των επιτυχημένων`} progress={pctOf(stats.posted, stats.completed)} />
         <MatchCoverage coverage={coverage} canRematch={canCategorize} />
-      </section>
+      </StatGrid>
 
       <OcrUploadForm />
 
@@ -144,17 +145,5 @@ function computeStats(rows: OcrRow[]) {
   };
 }
 
-function StatTile({ label, value, accent }: { label: string; value: number; accent: 'sisyphus' | 'emerald' | 'amber' }) {
-  const accentMap = {
-    sisyphus: 'bg-sisyphus-500',
-    emerald:  'bg-emerald-500',
-    amber:    'bg-amber-500',
-  } as const;
-  return (
-    <div className="relative overflow-hidden rounded-lg border border-border bg-card px-4 py-3 shadow-fluent-2">
-      <span className={`absolute left-0 top-0 h-full w-1 ${accentMap[accent]}`} />
-      <p className="text-[length:var(--fs-10)] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="mt-0.5 text-title-2 font-bold tabular-nums tracking-tight text-foreground">{value}</p>
-    </div>
-  );
-}
+const fmtInt = (n: number) => n.toLocaleString('el-GR');
+const pctOf = (n: number, of: number) => (of ? Math.round((n / of) * 100) : 0);

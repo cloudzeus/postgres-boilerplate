@@ -3,6 +3,7 @@ import { FiAlertCircle, FiArrowRight, FiCheckCircle } from 'react-icons/fi';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { PageHeader } from '@/components/admin/page-header';
+import { StatCard } from '@/components/admin/stat-card';
 import {
   reconMeta, reconMetaFor, deriveReconStatus, RECON_PENDING_ORDER,
   type ReconInput, type ReconStatus,
@@ -81,18 +82,17 @@ export default async function OcrPendingPage() {
         </div>
       ) : (
         <>
-          <section className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+          <section className="grid auto-rows-fr grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
             {ordered.map((g) => (
-              <a
+              <StatCard
                 key={g.meta.status}
                 href={`#${g.meta.status}`}
-                className="relative overflow-hidden rounded-lg border border-border bg-card px-3 py-2.5 shadow-fluent-2"
-                style={{ borderColor: g.meta.tone.bd }}
-              >
-                <span className="absolute left-0 top-0 h-full w-1" style={{ backgroundColor: g.meta.tone.fg }} />
-                <p className="text-[length:var(--fs-10)] font-bold uppercase tracking-wider" style={{ color: g.meta.tone.fg }}>{g.meta.label}</p>
-                <p className="mt-0.5 text-title-2 font-bold tabular-nums tracking-tight text-foreground">{g.items.length}</p>
-              </a>
+                label={g.meta.label}
+                value={g.items.length}
+                icon={<FiAlertCircle />}
+                color={{ fg: g.meta.tone.fg, bg: g.meta.tone.bg }}
+                sub={`${Math.round((g.items.length / totalPending) * 100)}% των εκκρεμοτήτων`}
+              />
             ))}
           </section>
 

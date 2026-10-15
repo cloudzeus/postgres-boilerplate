@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { FiZap, FiCheckCircle, FiTruck, FiBox, FiTool, FiExternalLink, FiDownload, FiCode } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { StatCard } from '@/components/admin/stat-card';
 import { RunStatusPill } from '@/components/templates/run-status-pill';
 import type { RunStatus } from '@/lib/templates/schema';
 
@@ -110,17 +111,22 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
           ⚠ {kpi.duplicates} {kpi.duplicates === 1 ? 'παραστατικό υπάρχει ήδη' : 'παραστατικά υπάρχουν ήδη'} στο SoftOne — έλεγξε πριν την καταχώριση.
         </div>
       )}
-      {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi label="Παραστατικά" value={`${kpi.completed}/${kpi.total}`} hint="ολοκληρωμένα" />
-        <Kpi label="Προμηθευτές" value={`${kpi.suppliers}/${kpi.total}`} hint="ταυτοποιήθηκαν" accent="#047857" />
-        <Kpi label="Γραμμές" value={`${kpi.linesMatched}/${kpi.linesTotal}`} hint="αντιστοιχίστηκαν" accent="#1D4ED8" />
-        <div className="rounded-xl border border-border bg-card p-3 shadow-card flex flex-col justify-between">
-          <span className="text-[length:var(--fs-11)] text-muted-foreground">Αντιστοιχίσεις</span>
-          <Button size="sm" onClick={runAll} disabled={running} className="mt-1">
-            <FiZap className="mr-1.5 h-3.5 w-3.5" /> {running ? `Εκτέλεση… ${progress}%` : 'Τρέξε όλες'}
-          </Button>
-        </div>
+      {/* KPIs — ίδια κάρτα με όλη την εφαρμογή */}
+      <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Παραστατικά" value={`${kpi.completed}/${kpi.total}`} icon={<FiCheckCircle />} tone="blue" sub="ολοκληρωμένα" progress={pctOf(kpi.completed, kpi.total)} />
+        <StatCard label="Προμηθευτές" value={`${kpi.suppliers}/${kpi.total}`} icon={<FiTruck />} tone="emerald" sub="ταυτοποιήθηκαν" progress={pctOf(kpi.suppliers, kpi.total)} />
+        <StatCard label="Γραμμές" value={`${kpi.linesMatched}/${kpi.linesTotal}`} icon={<FiBox />} tone="violet" sub="αντιστοιχίστηκαν" progress={pctOf(kpi.linesMatched, kpi.linesTotal)} />
+        <StatCard
+          label="Πρότυπα" icon={<FiZap />} tone="amber"
+          value={running ? progress : '—'} unit={running ? '%' : undefined}
+          sub={running ? 'εκτέλεση σε εξέλιξη…' : 'όλα τα πρότυπα σε όλα τα αρχεία'}
+          progress={running ? progress : null}
+          aside={
+            <Button size="sm" onClick={runAll} disabled={running} className="h-7 px-2.5 text-[length:var(--fs-12)]">
+              <FiZap className="mr-1 h-3.5 w-3.5" /> Τρέξε όλες
+            </Button>
+          }
+        />
       </div>
 
       {/* Template exports for the whole folder — one Excel with a sheet per template, or a JSON array. */}
@@ -205,15 +211,7 @@ export function BatchDetailClient({ batchId, rows }: { batchId: string; rows: Ro
   );
 }
 
-function Kpi({ label, value, hint, accent = 'currentColor' }: { label: string; value: string; hint: string; accent?: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-3 shadow-card">
-      <p className="text-[length:var(--fs-11)] text-muted-foreground">{label}</p>
-      <p className="text-xl font-bold tabular-nums" style={{ color: accent }}>{value}</p>
-      <p className="text-[length:var(--fs-10)] text-muted-foreground">{hint}</p>
-    </div>
-  );
-}
+const pctOf = (n: number, of: number) => (of ? Math.round((n / of) * 100) : 0);
 
 function kindBadge(kind: string | null) {
   if (!kind || kind === 'unknown') return <span className="text-muted-foreground/50">—</span>;
