@@ -1,6 +1,8 @@
 'use client';
 import * as React from 'react';
 import { FiSearch, FiCheckCircle, FiAlertTriangle, FiSlash } from 'react-icons/fi';
+import { toast } from 'sonner';
+import { KadField, kadPayload, useKadRemoved, type TraderKads } from '@/components/admin/kad-field';
 
 /**
  * ΕΞΑΚΡΙΒΩΣΗ ΣΤΗΝ ΑΑΔΕ, ΧΩΡΙΣ ΝΑ ΓΡΑΦΤΕΙ ΤΙΠΟΤΑ.
@@ -21,6 +23,8 @@ type Preview = {
   legalForm: string | null; isActive: boolean;
   // `key` = η ΤΑΥΤΟΤΗΤΑ της γραμμής IRSDATA που στέλνεται στο SoftOne· `code`/`name` είναι για τον άνθρωπο.
   softoneDoy?: { office: { key: string; code: string; name: string } | null; note?: string | null } | null;
+  /** ΚΑΔ ΑΑΔΕ → μητρώο ΚΑΔ του SoftOne (`lib/kad.ts`). */
+  softoneKad?: TraderKads;
 };
 
 const Row = ({ aade, softone, value, hint }: {
@@ -45,6 +49,7 @@ export function AadeVerifyPanel({ afm, kind, onCreated }: {
   onCreated?: () => void;
 }) {
   const [data, setData] = React.useState<Preview | null>(null);
+  const [kadRemoved, toggleKad] = useKadRemoved(data);
   const [busy, setBusy] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
   /**
@@ -70,11 +75,17 @@ export function AadeVerifyPanel({ afm, kind, onCreated }: {
           kind, name: data.name ?? '', code: codeRes?.code ?? null, country: 'GR',
           irsData: data.softoneDoy?.office?.key ?? null,
           profession: data.profession, address: data.address, zip: data.zip, city: data.city,
+          ...kadPayload(data.softoneKad, kadRemoved),
           dryRun: false,
         }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { setError(d?.message ?? 'Η καταχώριση στο SoftOne απέτυχε.'); return; }
+      if (Array.isArray(d?.warnings) && d.warnings.includes('kad_not_saved')) {
+        toast.warning('Η καρτέλα δημιουργήθηκε, αλλά ο ΚΑΔ δεν αποθηκεύτηκε στο SoftOne.', {
+          description: 'Συμπλήρωσέ τον στην καρτέλα μέσα στο SoftOne (Επιπλέον στοιχεία → Κ.Α.Δ.).',
+        });
+      }
       setConfirming(false);
       onCreated?.();
     } catch {
@@ -150,6 +161,15 @@ export function AadeVerifyPanel({ afm, kind, onCreated }: {
               : (data.softoneDoy?.note ?? 'Δεν αντιστοιχίστηκε σε Δ.Ο.Υ. του SoftOne — η καρτέλα θα δημιουργηθεί χωρίς αυτήν.')}
           />
           <Row aade="Επάγγελμα" softone="JOBTYPETRD" value={data.profession} />
+          {data.softoneKad && (data.softoneKad.primary || data.softoneKad.secondary) && (
+            <div className="grid grid-cols-[9rem_1fr] gap-x-2 border-b border-border/50 py-1">
+              <div className="min-w-0">
+                <div className="truncate text-[length:var(--fs-11)] font-semibold text-foreground">ΚΑΔ</div>
+                <div className="truncate font-mono text-[length:var(--fs-10)] text-muted-foreground">→ KAD / KAD1</div>
+              </div>
+              <KadField kads={data.softoneKad} removed={kadRemoved} onToggle={toggleKad} />
+            </div>
+          )}
           <Row aade="Διεύθυνση" softone="ADDRESS" value={data.address} />
           <Row aade="Πόλη" softone="CITY" value={data.city} />
           <Row aade="Τ.Κ." softone="ZIP" value={data.zip} />

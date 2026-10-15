@@ -2,6 +2,7 @@
 
 import { AfmRecover } from '@/components/admin/afm-recover';
 import { isValidAfm, vatCountry } from '@/lib/ocr/validate';
+import { countryLabel } from '@/lib/countries';
 import * as React from 'react';
 import {
   FiAlertOctagon, FiAlertTriangle, FiCheck, FiChevronDown, FiChevronRight, FiCopy, FiLoader,
@@ -242,9 +243,36 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                     {/* ΑΦΜ που λείπει ή δεν περνά τον έλεγχο: η ΑΑΔΕ δεν έχει τι να ψάξει — πρώτα
                         ξαναδιαβάζεται το αρχείο. Με σωστό ΑΦΜ εμφανίζεται κανονικά η εξακρίβωση. */}
                     {!afmLooksValid(data.supplier.afm) && (
-                      <AfmRecover docId={docId} onDone={() => { void load(); emitDocLinesChanged(docId); }} />
+                      <>
+                        <AfmRecover docId={docId} onDone={() => { void load(); emitDocLinesChanged(docId); }} />
+                        {/* Ένα ξένο ΑΦΜ ΧΩΡΙΣ πρόθεμα χώρας μοιάζει «μη έγκυρο ελληνικό». Δεν είναι
+                            λάθος ανάγνωσης — ο διάλογος ζητά τη χώρα και δημιουργεί χωρίς ΑΑΔΕ. */}
+                        {req && data.supplier.afm && (
+                          <button
+                            type="button" onClick={() => setCreatingTrader(true)}
+                            className="text-left text-[length:var(--fs-11)] font-medium text-sisyphus-600 underline-offset-2 hover:underline"
+                          >
+                            Ο εκδότης είναι από άλλη χώρα; Δημιουργία {req.labelAcc} χωρίς ΑΑΔΕ
+                          </button>
+                        )}
+                      </>
                     )}
-                    {afmLooksValid(data.supplier.afm) && (
+                    {/* Ξένος εκδότης (πρόθεμα χώρας): η ΑΑΔΕ δεν τον ξέρει — καμία εξακρίβωση εκεί,
+                        κατευθείαν δημιουργία με τη χώρα του ΑΦΜ. */}
+                    {isForeignAfm(data.supplier.afm) && req && (
+                      <div className="space-y-1">
+                        <p className="text-[length:var(--fs-11)] text-muted-foreground">
+                          Εκδότης από {countryLabel(vatCountry(data.supplier.afm))} — δεν χρειάζεται έλεγχος στην ΑΑΔΕ.
+                        </p>
+                        <button
+                          type="button" onClick={() => setCreatingTrader(true)}
+                          className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-sisyphus-500 px-2.5 py-1.5 text-[length:var(--fs-12)] font-semibold text-white shadow-fluent-2 transition hover:bg-sisyphus-600"
+                        >
+                          Δημιουργία {req.labelAcc}
+                        </button>
+                      </div>
+                    )}
+                    {afmLooksValid(data.supplier.afm) && !isForeignAfm(data.supplier.afm) && (
                       <AadeVerifyPanel
                         afm={data.supplier.afm}
                         kind={req?.kind ?? null}
@@ -415,6 +443,11 @@ function SegmentAction({
 }
 
 /** Έγκυρο = ελληνικό που περνά τον έλεγχο, ή ξένο με πρόθεμα χώρας. Ό,τι άλλο θέλει επανάγνωση. */
+function isForeignAfm(afm: string | null | undefined): boolean {
+  const c = vatCountry(String(afm ?? '').trim());
+  return c != null && c !== 'GR';
+}
+
 function afmLooksValid(afm: string | null | undefined): boolean {
   const a = String(afm ?? '').trim();
   if (!a) return false;

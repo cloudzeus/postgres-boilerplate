@@ -11,6 +11,8 @@ import {
 import { TRADER_KIND_TEXT, type TraderKindName } from '@/lib/ocr/posting-target';
 import type { TaxOfficeMapping } from '@/lib/tax-office';
 import { cn } from '@/lib/utils';
+import { VAT_COUNTRY_CODES, isValidAfm, vatCountry } from '@/lib/ocr/validate';
+import { countryLabel } from '@/lib/countries';
 import { KadField, kadPayload, useKadRemoved, type TraderKads } from '@/components/admin/kad-field';
 
 type Preview = {
@@ -21,6 +23,10 @@ type Preview = {
   profession: string | null; address: string | null; zip: string | null; city: string | null;
   legalForm: string | null; isActive: boolean;
 };
+
+/** Οι χώρες με γνωστό πρόθεμα ΑΦΜ (εκτός Ελλάδας — αυτή δεν ζητείται εδώ). Το «XI» είναι πρόθεμα, όχι χώρα. */
+const COUNTRY_OPTIONS = [...VAT_COUNTRY_CODES].filter((c) => c !== 'XI')
+  .sort((a, b) => countryLabel(a).localeCompare(countryLabel(b), 'el'));
 
 type CodeSuggestion = { code: string | null; source: 'pattern' | 'mask' | 'none'; taken: number; stale: boolean };
 
@@ -70,8 +76,17 @@ export function CreateTraderDialog({
   const [codeOffer, setCodeOffer] = React.useState<string | null>(null);
   const proposed = React.useRef<string | null>(null);
 
-  const cleanAfm = afmInput.replace(/\D/g, '');
-  const isGreek = /^\d{9}$/.test(cleanAfm);
+  const [countryPick, setCountryPick] = React.useState('');
+  // Το ΑΦΜ ΜΕ το πρόθεμα χώρας (π.χ. «ATU12345678»). Πριν κρατούσαμε μόνο τα ψηφία: ένα ξένο ΑΦΜ
+  // έχανε το πρόθεμά του, γινόταν «ελληνικό», έπεφτε στον έλεγχο της ΑΑΔΕ και ο διάλογος κολλούσε.
+  const rawAfm = afmInput.toUpperCase().replace(/[\s.\-/]/g, '');
+  const prefixCountry = vatCountry(rawAfm);
+  // Η χώρα: από το πρόθεμα· αλλιώς ό,τι διάλεξε ο χρήστης.
+  const country = prefixCountry ?? (countryPick || null);
+  const isForeign = country != null && country !== 'GR';
+  // Ελληνικό ΑΦΜ στέλνεται πάντα σκέτο (χωρίς «EL»).
+  const cleanAfm = isForeign ? rawAfm : rawAfm.replace(/^(EL|GR)/, '').replace(/\D/g, '');
+  const isGreek = !isForeign && /^\d{9}$/.test(cleanAfm);
 
   const runLookup = React.useCallback(async (theAfm: string) => {
     const clean = theAfm.replace(/\D/g, '');
@@ -99,15 +114,19 @@ export function CreateTraderDialog({
   // Άνοιγμα: καθάρισε, άντλησε ΑΑΔΕ και ζήτα προτεινόμενο κωδικό ΑΥΤΟΥ του τύπου.
   React.useEffect(() => {
     if (!open) return;
-    const initAfm = (afm || '').replace(/\D/g, '');
+    const initAfm = (afm || '').toUpperCase().replace(/[\s.\-/]/g, '');
     setAfmInput(initAfm);
+    setCountryPick('');
     setName(fallbackName || '');
     // Η «Δοκιμή» ξεκινά ΑΝΟΙΧΤΗ μέχρι να μάθουμε τον διακόπτη — ποτέ δεν υποθέτουμε «στείλ' το».
     setCode(''); setData(null); setError(null); setDryPayload(null); setDryRun(true);
     setCodeError(null); setCodeOffer(null); setSuggestion(null);
     proposed.current = null;
-    if (/^\d{9}$/.test(initAfm)) void runLookup(initAfm);
-    else setError('Το ΑΦΜ του παραστατικού δεν είναι ελληνικό 9ψήφιο — διόρθωσέ το για άντληση ΑΑΔΕ ή συμπλήρωσε χειροκίνητα.');
+    // Ξένος εκδότης (πρόθεμα χώρας): η ΑΑΔΕ δεν έχει θέση — καμία κλήση, κανένα σφάλμα.
+    const initCountry = vatCountry(initAfm);
+    if (initCountry && initCountry !== 'GR') return;
+    const greek = initAfm.replace(/^(EL|GR)/, '');
+    if (/^\d{9}$/.test(greek) && isValidAfm(greek)) void runLookup(greek);
   }, [open, afm, fallbackName, runLookup]);
 
   /**
@@ -154,19 +173,21 @@ export function CreateTraderDialog({
 
   const submit = async () => {
     if (!name.trim() || !cleanAfm) { toast.error('Συμπλήρωσε Επωνυμία και ΑΦΜ.'); return; }
+    if (!country && !isValidAfm(cleanAfm)) { toast.error('Διάλεξε τη χώρα του εκδότη — το ΑΦΜ δεν είναι ελληνικό.'); return; }
     setSubmitting(true);
     setCodeError(null); setCodeOffer(null);
     try {
-      const res = await fetch(`/api/admin/ocr/new-traders/${cleanAfm}/create`, {
+      const res = await fetch(`/api/admin/ocr/new-traders/${encodeURIComponent(cleanAfm)}/create`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           kind,
           name: name.trim(),
           code: code.trim() || null,
-          country: 'GR',
-          irsData: data?.softoneDoy?.office?.key ?? null,
-          profession: data?.profession ?? null,
-          ...kadPayload(data?.softoneKad, kadRemoved),
+          country: country ?? 'GR',
+          // Δ.Ο.Υ./ΚΑΔ υπάρχουν μόνο για ελληνικό εκδότη με απάντηση ΑΑΔΕ.
+          irsData: isForeign ? null : data?.softoneDoy?.office?.key ?? null,
+          profession: isForeign ? null : data?.profession ?? null,
+          ...(isForeign ? { kad: null, kad1: null } : kadPayload(data?.softoneKad, kadRemoved)),
           address: data?.address ?? null,
           zip: data?.zip ?? null,
           city: data?.city ?? null,
@@ -217,7 +238,7 @@ export function CreateTraderDialog({
         <DialogHeader className="gap-1 border-b border-border px-5 pb-4 pt-5">
           <DialogTitle className="flex items-center gap-2.5 text-[length:var(--fs-15)]">
             <span className="grid h-8 w-8 place-items-center rounded-lg bg-sisyphus-50 text-sisyphus-600"><FiUser className="h-4 w-4" /></span>
-            Νέος {text.nom} {isGreek ? 'από ΑΑΔΕ' : ''}
+            Νέος {text.nom} {isGreek ? 'από ΑΑΔΕ' : isForeign ? `— ${countryLabel(country)}` : ''}
           </DialogTitle>
           <DialogDescription className="text-[length:var(--fs-12)]">
             Ο τύπος καρτέλας δεν επιλέγεται: τον ορίζει η σειρά του παραστατικού.
@@ -229,15 +250,37 @@ export function CreateTraderDialog({
           <div className="grid gap-1.5">
             <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">ΑΦΜ <span className="text-destructive">*</span></span>
             <div className="flex gap-2">
-              <Input value={afmInput} onChange={(e) => setAfmInput(e.target.value)} placeholder="9ψήφιο ελληνικό ΑΦΜ" className="h-9 font-mono text-[length:var(--fs-13)]" />
-              <Button variant="outline" className="h-9 shrink-0 text-[length:var(--fs-12)]" disabled={!isGreek || loading} onClick={() => runLookup(afmInput)}>
-                <FiDownloadCloud className="mr-1.5 h-3.5 w-3.5" /> {loading ? 'Άντληση…' : 'Άντληση ΑΑΔΕ'}
-              </Button>
+              <Input value={afmInput} onChange={(e) => { setAfmInput(e.target.value); setError(null); }} placeholder="ΑΦΜ (ξένο με πρόθεμα χώρας, π.χ. DE123456789)" className="h-9 font-mono text-[length:var(--fs-13)]" />
+              {!isForeign && (
+                <Button variant="outline" className="h-9 shrink-0 text-[length:var(--fs-12)]" disabled={!isGreek || loading} onClick={() => runLookup(cleanAfm)}>
+                  <FiDownloadCloud className="mr-1.5 h-3.5 w-3.5" /> {loading ? 'Άντληση…' : 'Άντληση ΑΑΔΕ'}
+                </Button>
+              )}
             </div>
-            {!isGreek && afmInput && (
-              <span className="text-[length:var(--fs-11)] text-amber-700">Μη ελληνικό/μη έγκυρο ΑΦΜ — η ΑΑΔΕ δεν είναι διαθέσιμη. Μπορείς να δημιουργήσεις χειροκίνητα.</span>
-            )}
+            {isForeign ? (
+              <span className="text-[length:var(--fs-11)] text-muted-foreground">
+                Εκδότης από {countryLabel(country)} — δεν χρειάζεται έλεγχος στην ΑΑΔΕ. Συμπλήρωσε την επωνυμία και δημιούργησε.
+              </span>
+            ) : afmInput && !isValidAfm(cleanAfm) ? (
+              <span className="text-[length:var(--fs-11)] text-amber-700">
+                Δεν είναι έγκυρο ελληνικό ΑΦΜ. Αν ο εκδότης είναι από άλλη χώρα, διάλεξέ την παρακάτω· αλλιώς διόρθωσε το ΑΦΜ.
+              </span>
+            ) : null}
           </div>
+
+          {!prefixCountry && afmInput && !isValidAfm(cleanAfm) && (
+            <label className="grid gap-1.5">
+              <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Χώρα εκδότη <span className="text-destructive">*</span></span>
+              <select
+                value={countryPick}
+                onChange={(e) => { setCountryPick(e.target.value); setError(null); setData(null); }}
+                className="h-9 rounded-md border border-input bg-background px-2 text-[length:var(--fs-13)]"
+              >
+                <option value="">— Διάλεξε χώρα —</option>
+                {COUNTRY_OPTIONS.map((c) => <option key={c} value={c}>{countryLabel(c)}</option>)}
+              </select>
+            </label>
+          )}
 
           <label className="grid gap-1.5">
             <span className="text-[length:var(--fs-11)] font-medium text-muted-foreground">Επωνυμία <span className="text-destructive">*</span></span>

@@ -13,7 +13,7 @@ import { Combobox } from '@/components/ui/combobox';
 import { TraderSearch } from '@/components/admin/trader-search';
 import { cn } from '@/lib/utils';
 import { COUNTRY_NAMES_EL, countryLabel } from '@/lib/countries';
-import { VAT_COUNTRY_CODES, viesPrefix } from '@/lib/ocr/validate';
+import { VAT_COUNTRY_CODES, isValidAfm, viesPrefix } from '@/lib/ocr/validate';
 import { applyVatPrefix, vatPrefixFor } from '@/lib/ocr/vat-prefix';
 import { validCoords, formatCoords } from '@/lib/coords';
 import { planRegistryFill, registryValue, type FieldSource } from '@/lib/ocr/registry-fill';
@@ -165,7 +165,7 @@ type AadeState = 'loading' | 'ready' | 'missing' | 'invalid' | 'forbidden' | 'er
 /** Τι λέμε στον χρήστη ανά κατάσταση — μόνο το `error` έχει νόημα να ξαναδοκιμαστεί. */
 const AADE_MESSAGE: Record<Exclude<AadeState, 'loading' | 'ready' | 'foreign'>, string> = {
   missing: 'Το ΑΦΜ δεν βρέθηκε στην ΑΑΔΕ — συμπλήρωσε τα στοιχεία χειροκίνητα.',
-  invalid: 'Μη έγκυρο ΑΦΜ (9 ψηφία) — συμπλήρωσε τα στοιχεία χειροκίνητα.',
+  invalid: 'Δεν είναι έγκυρο ελληνικό ΑΦΜ. Αν ο εκδότης είναι από άλλη χώρα, διάλεξε τη «Χώρα» παρακάτω — δεν χρειάζεται έλεγχος στην ΑΑΔΕ.',
   forbidden: 'Χρειάζεται δικαίωμα «ocr.categorize».',
   error: 'Η ΑΑΔΕ δεν απάντησε.',
 };
@@ -699,7 +699,7 @@ export function TraderPanel({
     setViesBusy(true);
     setVies(null);
     try {
-      const res = await fetch(`/api/admin/vies?vat=${encodeURIComponent(group.afm)}`);
+      const res = await fetch(`/api/admin/vies?vat=${encodeURIComponent(applyVatPrefix(group.afm, form.country || group.country || 'GR'))}`);
       const d = (await res.json().catch(() => null)) as ViesResult | null;
       setVies(d ?? { valid: null, name: null, address: null, error: 'vies_unreachable' });
     } catch {
@@ -839,14 +839,16 @@ export function TraderPanel({
   // Το πεδίο κρατά ακόμη ΑΚΡΙΒΩΣ ό,τι προτείναμε — μόλις το αλλάξει ο χρήστης, το chip φεύγει.
   const isProposedCode = !!lastProposal.current && form.code.trim() === lastProposal.current;
 
-  const isForeign = group.isForeign;
-  const viesCountry = viesPrefix(group.afm);
   // Το ΑΦΜ όπως θα αποθηκευτεί: αν το OCR διάβασε γυμνά ψηφία αλλά η χώρα (από τη
   // διεύθυνση, το VIES ή την επιλογή του χρήστη) δεν είναι η Ελλάδα, μπαίνει το
   // πρόθεμά της. Ελληνικό ΑΦΜ δεν προθεματίζεται ποτέ.
   const activeCountry = form.country || group.country || 'GR';
   const effectiveAfm = applyVatPrefix(group.afm, activeCountry);
   const addedPrefix = effectiveAfm !== group.afm ? vatPrefixFor(activeCountry) : null;
+  // Ξένος = η χώρα του ΑΦΜ ή ΑΥΤΗ ΠΟΥ ΔΙΑΛΕΞΕ Ο ΧΡΗΣΤΗΣ δεν είναι η Ελλάδα. Τότε η ΑΑΔΕ δεν έχει
+  // θέση: ούτε έλεγχος ούτε σημείωση «μη έγκυρο ΑΦΜ» — το ελληνικό μητρώο δεν τον ξέρει.
+  const isForeign = group.isForeign || (!!form.country && form.country !== 'GR');
+  const viesCountry = viesPrefix(effectiveAfm);
 
   const rows: { key: FieldKey; label: string; ocr: string | null; aadeValue: string | null; apply?: () => void }[] = [
     { key: 'name', label: 'Επωνυμία', ocr: group.name, aadeValue: aade?.name || null, apply: () => aade?.name && set('name', aade.name, 'aade') },
@@ -923,7 +925,7 @@ export function TraderPanel({
 
           <p className="mb-2 text-[length:var(--fs-12)] text-muted-foreground">
             Δεν γίνεται αναζήτηση στην ΑΑΔΕ — ο εκδότης δεν είναι ελληνικός. Το ΑΦΜ
-            κρατά το πρόθεμα της χώρας ({countryLabel(group.country)}).
+            κρατά το πρόθεμα της χώρας ({countryLabel(activeCountry)}).
           </p>
 
           {!viesCountry && (
@@ -1670,8 +1672,9 @@ function seed(group: TraderGroup, offices: TaxOffice[]): FormState {
     kind: group.suggestedKind,
     code: '',
     name: group.name ?? '',
-    // Η χώρα βγαίνει από το ίδιο το ΑΦΜ· άγνωστη ⇒ Ελλάδα, όπως και σήμερα.
-    country: group.country ?? 'GR',
+    // Η χώρα βγαίνει από το ίδιο το ΑΦΜ. Άγνωστη: Ελλάδα ΜΟΝΟ αν είναι έγκυρο ελληνικό ΑΦΜ — αλλιώς
+    // μένει κενή και ζητείται (ένα ξένο ΑΦΜ χωρίς πρόθεμα δεν περνά ποτέ τον έλεγχο της ΑΑΔΕ).
+    country: group.country ?? (isValidAfm(group.afm) ? 'GR' : ''),
     irsData: group.isForeign ? '' : ocrDoyKey(group.doy, offices),
     profession: group.profession ?? '',
     address: group.address ?? '',
