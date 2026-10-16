@@ -85,6 +85,22 @@ function DialogContent({
   )
 }
 
+/**
+ * Το σώμα ενός παραθύρου που ΚΥΛΑ ΜΟΝΟ ΑΥΤΟ: κεφαλίδα και υποσέλιδο μένουν σταθερά και η μπάρα
+ * κύλισης ζει μέσα στην κάρτα, μακριά από τις στρογγυλεμένες γωνίες. Χρήση με
+ * `<DialogContent className="flex max-h-[92dvh] flex-col gap-0 overflow-hidden p-0">`:
+ *   <DialogHeader className="px-5 pt-4 pb-3" /> <DialogBody>…</DialogBody> <DialogFooter className="m-0" />
+ */
+function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-body"
+      className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-3 [scrollbar-gutter:stable]", className)}
+      {...props}
+    />
+  )
+}
+
 function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -156,6 +172,7 @@ function DialogDescription({
 
 export {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,

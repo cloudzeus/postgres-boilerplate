@@ -10,7 +10,7 @@ import { FiAlertTriangle, FiCheckCircle, FiLoader, FiTag, FiTrendingDown, FiUser
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { ItemSupplierState } from '@/lib/item-supplier';
 import { Field as KitField, FormSection, RowHint, fieldCls } from '@/components/admin/form-kit';
 import { cn } from '@/lib/utils';
@@ -103,8 +103,8 @@ export function ItemSupplierDialog({ open, onOpenChange, lineId }: { open: boole
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[92dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="border-b border-border px-5 pt-4 pb-3 pr-12">
           <DialogTitle className="flex items-center gap-2 text-[length:var(--fs-15)]">
             <FiTag aria-hidden className="size-4 text-sisyphus-600" /> Κωδικός & τιμή προμηθευτή
           </DialogTitle>
@@ -113,6 +113,7 @@ export function ItemSupplierDialog({ open, onOpenChange, lineId }: { open: boole
             {data && <> · από <strong>{data.supplierName}</strong></>}
           </DialogDescription>
         </DialogHeader>
+        <DialogBody className="space-y-3">
 
         {busy === 'load' && <div className="space-y-2" role="status"><span className="sr-only">Ανάγνωση από τη SoftOne…</span>{[0, 1, 2].map((i) => <div key={i} className="h-7 animate-pulse rounded bg-muted motion-reduce:animate-none" />)}</div>}
         {loadError && (
@@ -198,7 +199,9 @@ export function ItemSupplierDialog({ open, onOpenChange, lineId }: { open: boole
           </div>
         )}
 
-        <DialogFooter className="gap-2">
+        </DialogBody>
+
+        <DialogFooter className="m-0 px-5 py-3 gap-2">
           {postingEnabled === false && (
             <span className="mr-auto self-center text-[length:var(--fs-11)] text-muted-foreground">Οι εγγραφές στη SoftOne είναι κλειστές — μόνο προεπισκόπηση.</span>
           )}

@@ -13,7 +13,7 @@ import {
   FiAlertTriangle, FiArrowRight, FiCheckCircle, FiFileText, FiLoader, FiRefreshCw, FiTruck, FiXCircle,
 } from 'react-icons/fi';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { FormSection } from '@/components/admin/form-kit';
 import { confirmAction } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
@@ -105,8 +105,8 @@ export function DeliveryNoteDialog({ docId, open, onOpenChange, onDone }: { docI
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[92dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="border-b border-border px-5 pt-4 pb-3 pr-12">
           <DialogTitle className="flex items-center gap-2 text-[length:var(--fs-15)]">
             <FiTruck aria-hidden className="size-4 text-sisyphus-600" /> Από δελτίο αποστολής
           </DialogTitle>
@@ -115,6 +115,7 @@ export function DeliveryNoteDialog({ docId, open, onOpenChange, onDone }: { docI
             {data?.referencedNote && <> Το τιμολόγιο αναφέρει δελτίο <strong className="text-foreground">«{data.referencedNote}»</strong>.</>}
           </DialogDescription>
         </DialogHeader>
+        <DialogBody className="space-y-3">
 
         {busy === 'load' && <div className="space-y-2" role="status"><span className="sr-only">Ανάγνωση από τη SoftOne…</span>{[0, 1, 2].map((i) => <div key={i} className="h-8 animate-pulse rounded bg-muted motion-reduce:animate-none" />)}</div>}
         {error && (
@@ -233,7 +234,9 @@ export function DeliveryNoteDialog({ docId, open, onOpenChange, onDone }: { docI
           </div>
         )}
 
-        <DialogFooter>
+        </DialogBody>
+
+        <DialogFooter className="m-0 px-5 py-3">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy === 'convert'}>Κλείσιμο</Button>
           <Button onClick={() => void convert()} disabled={!canConvert} className="bg-emerald-600 text-white hover:bg-emerald-700">
             {busy === 'convert' ? <FiLoader aria-hidden className="mr-1.5 size-3.5 animate-spin" /> : <FiTruck aria-hidden className="mr-1.5 size-3.5" />}

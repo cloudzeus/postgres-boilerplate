@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import { FiAlertTriangle, FiArrowRight, FiCheckCircle, FiEdit3, FiGlobe, FiLoader, FiMapPin, FiPhone, FiShield, FiUser } from 'react-icons/fi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field, FormSection, FormSelect, RowHint, fieldCls } from '@/components/admin/form-kit';
 import { ViesCheck, type ViesCheckResult } from '@/components/admin/vies-check';
 import { isValidAfm } from '@/lib/ocr/validate';
@@ -167,8 +167,8 @@ export function TraderEditDialog({ trdr, mode, open, onOpenChange, canManage }: 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[92dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="border-b border-border px-5 pt-4 pb-3 pr-12">
           <DialogTitle className="flex items-center gap-2 text-[length:var(--fs-15)]">
             <FiEdit3 aria-hidden className="size-4 text-sisyphus-600" /> {readOnly ? 'Καρτέλα συναλλασσομένου' : 'Τροποποίηση συναλλασσομένου'}
           </DialogTitle>
@@ -176,6 +176,7 @@ export function TraderEditDialog({ trdr, mode, open, onOpenChange, canManage }: 
             {data ? <><span className="font-mono">{data.code}</span> — {s(data.values.name)} · τα στοιχεία διαβάστηκαν τώρα από τη SoftOne</> : 'Ανάγνωση από τη SoftOne…'}
           </DialogDescription>
         </DialogHeader>
+        <DialogBody className="space-y-3">
 
         {busy === 'load' && <div className="space-y-2" role="status"><span className="sr-only">Ανάγνωση…</span>{[0, 1, 2, 3].map((i) => <div key={i} className="h-8 animate-pulse rounded bg-muted motion-reduce:animate-none" />)}</div>}
         {loadError && (
@@ -309,7 +310,9 @@ export function TraderEditDialog({ trdr, mode, open, onOpenChange, canManage }: 
           </div>
         )}
 
-        <DialogFooter>
+        </DialogBody>
+
+        <DialogFooter className="m-0 px-5 py-3">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy === 'save'}>Κλείσιμο</Button>
           {!readOnly && data && (
             preview && preview.length > 0 ? (
