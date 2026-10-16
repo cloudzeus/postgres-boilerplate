@@ -68,8 +68,97 @@ const CURSOR_JS = `
   if (document.readyState === 'loading') addEventListener('DOMContentLoaded', add); else add();
 })();`;
 
+// ── Θόλωμα προσωπικών δεδομένων ΜΕΣΑ στη σελίδα, κατά τη λήψη ─────────────────────────────
+// Ονόματα (από τη βάση), ΑΦΜ/VAT, email, τηλέφωνα, IBAN, ΜΑΡΚ, UID, και τα ίδια τα έγγραφα (PDF,
+// μικρογραφίες). Τρέχει συνεχώς (MutationObserver), ώστε να ακολουθεί κύλισμα και παράθυρα.
+// Απενεργοποίηση: CAPTURE_MASK=0.
+const MASK = process.env.CAPTURE_MASK !== '0';
+/** Τρέχει ΜΕΣΑ στη σελίδα (περνά με `.toString()` — καμία ανάγκη για escaping). */
+function maskRuntime(names) {
+  if (window.__mask) return; window.__mask = true;
+  // Σύγκριση χωρίς τόνους/κεφαλαία, και ΜΟΝΟ ως ολόκληρες λέξεις («ΚΤΕΛ» ≠ «Εκτελέσεις»).
+  const fold = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLocaleLowerCase('el-GR');
+  const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const NAME_RX = names.length
+    ? new RegExp(`(?<![\\p{L}\\p{N}])(?:${names.map((n) => esc(fold(n))).sort((a, b) => b.length - a.length).join('|')})(?![\\p{L}\\p{N}])`, 'u')
+    : null;
+  // Κωδικοί λογαριασμών γενικής (62.00.00.0006) ΔΕΝ είναι τηλέφωνα.
+  const ACCOUNT = /\b\d{2}\.\d{2}\.\d{2}(?:\.\d{2,4})?\b/g;
+  const RX = [
+    /(^|[^\d])\d{9}([^\d]|$)/,                                   // ελληνικό ΑΦΜ (και άλλοι 9ψήφιοι)
+    /\b(?:EL|GR|AT|BE|BG|CY|CZ|DE|DK|EE|ES|FI|FR|HR|HU|IE|IT|LT|LU|LV|MT|NL|PL|PT|RO|SE|SI|SK|XI|GB|NO)\s?U?\d{7,12}[A-Z]?\b/,
+    /CHE[-\s]?\d{3}\.?\d{3}\.?\d{3}/,
+    /[\w.+-]+@[\w-]+\.[\w.]+/,                                    // email
+    /\bGR\d{2}[\s\d]{20,}/,                                       // IBAN
+    /(^|[^\d])\d{15}([^\d]|$)/,                                   // ΜΑΡΚ
+    /\b[A-F0-9]{32,}\b/i,                                         // UID / hash
+  ];
+  const PHONE = /\+?\d[\d\s.\-()]{8,}\d/;
+  const digits = (s) => (s.match(/\d/g) || []).length;
+  const sensitive = (t) => {
+    if (!t || t.trim().length < 3) return false;
+    if (NAME_RX && NAME_RX.test(fold(t))) return true;
+    if (RX.some((r) => r.test(t))) return true;
+    const m = t.replace(ACCOUNT, ' ').match(PHONE);
+    return !!m && digits(m[0]) >= 10;
+  };
+  const BLUR = 'blur(6px)';
+  const scan = () => {
+    if (!document.body) return;
+    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = w.nextNode())) {
+      const el = n.parentElement;
+      if (!el || el.dataset.masked || el.closest('#__cursor')) continue;
+      if (sensitive(n.nodeValue)) { el.style.filter = BLUR; el.dataset.masked = '1'; }
+    }
+    document.querySelectorAll('input, textarea').forEach((i) => { i.style.filter = sensitive(i.value) ? BLUR : ''; });
+    document.querySelectorAll('iframe, img').forEach((f) => {
+      if (f.dataset.masked) return;
+      const r = f.getBoundingClientRect();
+      if (f.tagName === 'IMG' && (r.width < 80 || r.height < 80)) return;   // λογότυπα, avatars
+      f.style.filter = 'blur(4px)'; f.dataset.masked = '1';
+    });
+  };
+  let queued = false;
+  const tick = () => { if (queued) return; queued = true; requestAnimationFrame(() => { queued = false; scan(); }); };
+  const start = () => {
+    scan();
+    new MutationObserver(tick).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['value'] });
+    document.addEventListener('input', tick, true);
+    setInterval(scan, 500);
+  };
+  if (document.readyState === 'loading') addEventListener('DOMContentLoaded', start); else start();
+}
+const maskJs = (names) => `(${maskRuntime.toString()})(${JSON.stringify(names)});`;
+
+async function sensitiveNames() {
+  const { PrismaClient } = await import('@prisma/client');
+  const { PrismaPg } = await import('@prisma/adapter-pg');
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL, max: 2 }) });
+  try {
+    const [traders, docs, tpls] = await Promise.all([
+      db.softoneTrader.findMany({ select: { name: true } }),
+      db.ocrDocument.findMany({ select: { extractedData: true, softoneName: true }, take: 2000 }),
+      db.extractionTemplate.findMany({ select: { name: true } }),
+    ]);
+    const out = new Set();
+    const add = (v) => { const t = String(v ?? '').replace(/\s+/g, ' ').trim(); if (t.length >= 4) out.add(t); };
+    traders.forEach((t) => add(t.name));
+    tpls.forEach((t) => add(String(t.name).split(' — ')[0]));
+    for (const d of docs) {
+      add(d.softoneName);
+      const x = d.extractedData ?? {};
+      ['companyName', 'storeName', 'customerName', 'buyerName', 'issuerName'].forEach((k) => add(x?.[k]));
+      add(x?.issuer?.name); add(x?.recipient?.name);
+    }
+    return [...out];
+  } finally { await db.$disconnect(); }
+}
+
 const pause = (page, ms) => page.waitForTimeout(ms);
 let mouse = { x: W / 2, y: H / 2 };
+let NAMES_TO_MASK = [];
 
 async function cursorTo(page, target, { steps = 28 } = {}) {
   const loc = typeof target === 'string' ? page.locator(target).first() : target;
@@ -281,6 +370,8 @@ async function main() {
   const raw = process.env.WIKI_USER_SUPER_ADMIN ?? '';
   const sep = raw.indexOf(':');
   if (sep < 0) throw new Error('Λείπει WIKI_USER_SUPER_ADMIN=email:password στο .env');
+  NAMES_TO_MASK = MASK ? await sensitiveNames() : [];
+  if (MASK) console.log(`🔒 θόλωμα: ${NAMES_TO_MASK.length} ονόματα + ΑΦΜ/email/τηλέφωνα/IBAN/ΜΑΡΚ + έγγραφα`);
   const browser = await chromium.launch({ channel: 'chromium' });
 
   // Σύνδεση μία φορά — οι σκηνές ξεκινούν συνδεδεμένες (storage state).
@@ -305,6 +396,7 @@ async function main() {
       recordVideo: { dir: vdir, size: { width: W, height: H } },
     });
     await ctx.addInitScript(CURSOR_JS);
+    if (MASK) await ctx.addInitScript(maskJs(NAMES_TO_MASK));
     const page = await ctx.newPage();
     mouse = { x: W / 2, y: H / 2 };
     let ok = true;
