@@ -289,7 +289,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                         >
                           Δημιουργία {req.labelAcc}
                         </button>
-                        <ViesCheck vat={data.supplier.issuerVatId ?? null} />
+                        <ViesCheck vat={data.supplier.issuerVatId ?? null} trader={{ name: data.supplier.issuerName ?? null }} />
                       </div>
                     )}
                     {!foreignCountry && afmLooksValid(data.supplier.afm) && (

@@ -2376,3 +2376,25 @@ model SoftoneAsset {
   @@index([name])
   @@index([code])
 }
+
+/// Ιστορικό ελέγχων ξένου ΑΦΜ (VIES / HMRC / Brønnøysund / UID) — cache 30 ημερών ΚΑΙ αποδεικτικό
+/// ελέγχου (αριθμός ελέγχου της αρχής). Βλ. lib/foreign-vat-check.ts.
+model VatCheck {
+  id                 String   @id @default(cuid())
+  vat                String // κανονική μορφή: πρόθεμα + σώμα (IT01808880270, CHE116281710, NO923609016)
+  countryCode        String
+  valid              Boolean?
+  name               String?
+  address            String?
+  provider           String?
+  source             String?
+  consultationNumber String?
+  requester          String?
+  match              Json?
+  error              String?
+  message            String?
+  createdById        String?
+  createdAt          DateTime @default(now())
+
+  @@index([vat, createdAt])
+}

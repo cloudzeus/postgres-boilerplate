@@ -323,6 +323,7 @@ export function CreateTraderDialog({
             <FormSection tone="emerald" icon={<FiGlobe />} title="Έλεγχος VIES" aside="μόνο όταν τον πατάς">
               <ViesCheck
                 vat={applyVatPrefix(cleanAfm, country ?? '')}
+                trader={{ name: name.trim() || fallbackName || null }}
                 onResult={(r) => { if (r.valid && r.name && !name.trim()) setName(r.name); }}
               />
             </FormSection>

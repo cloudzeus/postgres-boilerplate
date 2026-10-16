@@ -10,6 +10,7 @@ const { rbac, db, cacheRows } = vi.hoisted(() => {
     cacheRows,
     rbac: { requirePermission: vi.fn(), hasPermission: vi.fn() },
     db: {
+      vatCheck: { findFirst: vi.fn(async (): Promise<Record<string, unknown> | null> => null), create: vi.fn(async () => ({})), findMany: vi.fn(async () => []) },
       geocodeCache: {
         findUnique: vi.fn(async ({ where }: { where: { key: string } }) => cacheRows.get(where.key) ?? null),
         update: vi.fn(async () => null),
@@ -27,6 +28,7 @@ vi.mock('@/lib/db', () => ({ prisma: db }));
 import { GET as vies } from '@/app/api/admin/vies/route';
 import { POST as geocode } from '@/app/api/admin/geocode/route';
 import { MISS_RETRY_DAYS } from '@/lib/geocode-cache';
+import { resetViesStatusCache } from '@/lib/vat-check/vies';
 
 const viesReq = (vat: string) =>
   new Request(`http://localhost/api/admin/vies?vat=${encodeURIComponent(vat)}`);
@@ -45,86 +47,99 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
-describe('GET /api/admin/vies — χωρίς TaxID key (απευθείας VIES)', () => {
-  beforeEach(() => { vi.stubEnv('TAXID_API_KEY', ''); });
+describe('GET /api/admin/vies — επίσημες δωρεάν αρχές (VIES / Brønnøysund / UID / HMRC)', () => {
+  const STATUS = { vow: { available: true }, countries: [{ countryCode: 'DE', availability: 'Available' }, { countryCode: 'CY', availability: 'Available' }, { countryCode: 'FR', availability: 'Unavailable' }] };
+  /** Δρομολόγηση ανά URL: το VIES ρωτά πρώτα `check-status`, μετά `check-vat-number`. */
+  const route = (handlers: Record<string, () => unknown>) => fetchMock.mockImplementation(async (url: string) => {
+    for (const [k, h] of Object.entries(handlers)) if (url.includes(k)) return h();
+    throw new Error(`unexpected ${url}`);
+  });
+  const vatCalls = () => fetchMock.mock.calls.filter(([u]) => String(u).includes('check-vat-number'));
 
-  it('σπάει το id σε countryCode + vatNumber και επιστρέφει επωνυμία/διεύθυνση', async () => {
-    fetchMock.mockResolvedValue(jsonRes({
-      countryCode: 'DE', vatNumber: '144960040', valid: true,
-      name: 'MUSTER GMBH', address: 'Friedrichstr. 1\n10117 Berlin',
-    }));
+  beforeEach(() => {
+    resetViesStatusCache();
+    vi.stubEnv('TAXID_API_KEY', '');
+    vi.stubEnv('COMPANY_OWN_VAT', '');
+    vi.stubEnv('HMRC_CLIENT_ID', '');
+    db.vatCheck.findFirst.mockResolvedValue(null);
+  });
+
+  it('σπάει το id σε countryCode + vatNumber, επιστρέφει επωνυμία/διεύθυνση και γράφει ιστορικό', async () => {
+    route({ 'check-status': () => jsonRes(STATUS), 'check-vat-number': () => jsonRes({ valid: true, name: 'MUSTER GMBH', address: 'Friedrichstr. 1\n10117 Berlin' }) });
     const res = await vies(viesReq('DE 144 960 040'));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
-      vat: 'DE144960040', countryCode: 'DE', valid: true, provider: 'vies',
-      name: 'MUSTER GMBH', address: 'Friedrichstr. 1 10117 Berlin',
+      vat: 'DE144960040', countryCode: 'DE', valid: true, provider: 'vies', source: 'VIES',
+      name: 'MUSTER GMBH', address: 'Friedrichstr. 1, 10117 Berlin',
     });
-    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)))
-      .toEqual({ countryCode: 'DE', vatNumber: '144960040' });
+    expect(JSON.parse(String((vatCalls()[0][1] as RequestInit).body))).toEqual({ countryCode: 'DE', vatNumber: '144960040' });
+    expect(db.vatCheck.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ vat: 'DE144960040', valid: true, createdById: 'u1' }) }));
+  });
+
+  it('ιστορικό 30 ημερών: καμία κλήση· με force=1 ρωτά ξανά', async () => {
+    db.vatCheck.findFirst.mockResolvedValue({ vat: 'CY10123456A', countryCode: 'CY', valid: true, name: 'X LTD', address: null, provider: 'vies', source: 'VIES', consultationNumber: 'WAPI1', createdAt: new Date('2026-10-10T10:00:00Z'), match: null, message: null });
+    const body = await (await vies(viesReq('CY10123456A'))).json();
+    expect(body).toMatchObject({ valid: true, cached: true, consultationNumber: 'WAPI1' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    route({ 'check-status': () => jsonRes(STATUS), 'check-vat-number': () => jsonRes({ valid: true, name: 'X LTD' }) });
+    await vies(new Request('http://localhost/api/admin/vies?vat=CY10123456A&force=1'));
+    expect(vatCalls()).toHaveLength(1);
   });
 
   it('«---» (κρυμμένο από το κράτος-μέλος) γίνεται null, όχι κείμενο', async () => {
-    fetchMock.mockResolvedValue(jsonRes({ valid: true, name: '---', address: '---' }));
-    const body = await (await vies(viesReq('CY10123456A'))).json();
-    expect(body).toMatchObject({ valid: true, name: null, address: null });
+    route({ 'check-status': () => jsonRes(STATUS), 'check-vat-number': () => jsonRes({ valid: true, name: '---', address: '---' }) });
+    expect(await (await vies(viesReq('CY10123456A'))).json()).toMatchObject({ valid: true, name: null, address: null });
   });
 
   it('άκυρο ΑΦΜ στο VIES → valid:false', async () => {
-    fetchMock.mockResolvedValue(jsonRes({ valid: false, name: '', address: '' }));
-    expect(await (await vies(viesReq('CY99999999X'))).json())
-      .toMatchObject({ valid: false, name: null, address: null });
+    route({ 'check-status': () => jsonRes(STATUS), 'check-vat-number': () => jsonRes({ valid: false, name: '', address: '' }) });
+    expect(await (await vies(viesReq('CY99999999X'))).json()).toMatchObject({ valid: false, name: null, address: null });
   });
 
-  it('σφάλμα του VIES μέσα σε 200 → valid:null, «δεν απαντά τώρα»', async () => {
-    fetchMock.mockResolvedValue(jsonRes({ userError: 'MS_UNAVAILABLE', valid: false }));
-    expect(await (await vies(viesReq('CY10123456A'))).json())
-      .toMatchObject({ valid: null, error: 'unavailable' });
+  it('κράτος εκτός λειτουργίας (check-status) → valid:null χωρίς κλήση ελέγχου', async () => {
+    route({ 'check-status': () => jsonRes(STATUS) });
+    expect(await (await vies(viesReq('FR12345678901'))).json()).toMatchObject({ valid: null, error: 'unavailable' });
+    expect(vatCalls()).toHaveLength(0);
   });
 
-  it('δίκτυο κάτω → valid:null χωρίς exception', async () => {
-    fetchMock.mockRejectedValue(new Error('ECONNRESET'));
-    const res = await vies(viesReq('CY10123456A'));
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ valid: null, error: 'network' });
+  it('VAT_BLOCKED μέσα σε 200 → valid:null, blocked', async () => {
+    route({ 'check-status': () => jsonRes(STATUS), 'check-vat-number': () => jsonRes({ actionSucceed: false, errorWrappers: [{ error: 'VAT_BLOCKED' }] }) });
+    expect(await (await vies(viesReq('CY10123456A'))).json()).toMatchObject({ valid: null, error: 'blocked' });
   });
 
-  it.each(['094073495', 'EL094073495', 'abc', ''])('ελληνικό/άκυρο id → 400 χωρίς κλήση (%j)', async (vat) => {
+  it('δίκτυο κάτω → valid:null χωρίς exception (μετά τις επαναλήψεις)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      fetchMock.mockRejectedValue(new Error('ECONNRESET'));
+      const p = vies(viesReq('CY10123456A'));
+      await vi.runAllTimersAsync();
+      const res = await p;
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ valid: null, error: 'network' });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['094073495', 'EL094073495', 'abc', ''])('ελληνικό/άκυρο id → χωρίς κλήση (%j)', async (vat) => {
     const res = await vies(viesReq(vat));
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe('not_foreign');
+    expect((await res.json()).error).toBe('invalid_format');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('Νορβηγία/ΗΒ χωρίς κλειδί: δεν καλύπτονται από το VIES — καμία κλήση', async () => {
-    const body = await (await vies(viesReq('NO974760827'))).json();
-    expect(body).toMatchObject({ valid: null, error: 'unsupported' });
-    expect(fetchMock).not.toHaveBeenCalled();
+  it('Νορβηγία → Brønnøysund (δωρεάν, χωρίς κλειδί)', async () => {
+    route({ 'data.brreg.no': () => jsonRes({ navn: 'NORSK AS', registrertIMvaregisteret: true }) });
+    expect(await (await vies(viesReq('NO974760827'))).json()).toMatchObject({ valid: true, name: 'NORSK AS', provider: 'brreg' });
   });
-});
 
-describe('GET /api/admin/vies — με TaxID key', () => {
-  beforeEach(() => { vi.stubEnv('TAXID_API_KEY', 'vat_test_key'); });
-
-  it('καλεί το taxid.dev με Bearer και διαβάζει company_name/company_address', async () => {
-    fetchMock.mockResolvedValue(jsonRes({
-      valid: true, status: 'active', vat_number: '01808880270', country_code: 'IT',
-      company_name: 'ESEMPIO S.P.A.', company_address: 'VIA ROMA 1\n30020 PAESE', source: 'VIES', cached: false,
-    }));
-    const body = await (await vies(viesReq('IT01808880270'))).json();
-    expect(body).toMatchObject({ valid: true, provider: 'taxid', name: 'ESEMPIO S.P.A.', address: 'VIA ROMA 1 30020 PAESE', source: 'VIES' });
+  it('ΗΒ χωρίς HMRC: εφεδρεία taxid.dev μόνο αν υπάρχει κλειδί', async () => {
+    expect(await (await vies(viesReq('GB553557881'))).json()).toMatchObject({ valid: null, error: 'not_configured' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.stubEnv('TAXID_API_KEY', 'vat_test_key');
+    route({ 'taxid.dev': () => jsonRes({ valid: true, company_name: 'UK LTD', source: 'HMRC' }) });
+    const body = await (await vies(viesReq('GB553557881'))).json();
+    expect(body).toMatchObject({ valid: true, name: 'UK LTD', provider: 'fallback' });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://www.taxid.dev/api/v1/validate/IT/01808880270');
+    expect(url).toBe('https://www.taxid.dev/api/v1/validate/GB/553557881');
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer vat_test_key');
-  });
-
-  it.each([[401, 'unauthorized'], [429, 'quota'], [503, 'unavailable']])('HTTP %i → %s', async (status, error) => {
-    fetchMock.mockResolvedValue({ ok: false, status, json: async () => ({}) });
-    expect(await (await vies(viesReq('DE144960040'))).json()).toMatchObject({ valid: null, error });
-  });
-
-  it('καλύπτει και Νορβηγία (μέσω taxid)', async () => {
-    fetchMock.mockResolvedValue(jsonRes({ valid: true, status: 'active', company_name: 'NORSK AS' }));
-    expect(await (await vies(viesReq('NO974760827'))).json()).toMatchObject({ valid: true, name: 'NORSK AS' });
   });
 });
 
