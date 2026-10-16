@@ -35,12 +35,18 @@ const DOC_POSTED = process.env.CAPTURE_DOC_POSTED ?? 'cmv9aj6o9000401qw9rdk6a3g'
 const DOC_LINES = process.env.CAPTURE_DOC_LINES ?? 'cmv6kuv0v000901lmls3lk5qt';  // με πολλές γραμμές
 const TEMPLATE = process.env.CAPTURE_TEMPLATE ?? 'cmtuba4j9001006d444lod9m9';
 const TRADER_ROW = process.env.CAPTURE_TRADER ?? 'SOL HELLAS';
+const DOC_FOREIGN = process.env.CAPTURE_DOC_FOREIGN ?? 'cmuh6oh5c0019s5d47mgqa58j'; // ξένος εκδότης (IT)
+const DOC_ASSET = process.env.CAPTURE_DOC_ASSET ?? 'cmppatl8n0001gkd4c6am4rdt';     // με γραμμή παγίου
 
 // ── Ορατός δρομέας + «κύμα» κλικ (το headless video δεν δείχνει δρομέα) ──────────────────
 const CURSOR_JS = `
 (() => {
   if (window.__fakeCursor) return; window.__fakeCursor = true;
   const add = () => {
+    // Το εικονίδιο του Next.js dev (κάτω αριστερά) δεν ανήκει στο βίντεο.
+    const st = document.createElement('style');
+    st.textContent = 'nextjs-portal{display:none!important}';
+    document.documentElement.appendChild(st);
     const c = document.createElement('div');
     c.id = '__cursor';
     Object.assign(c.style, { position: 'fixed', left: '0', top: '0', width: '22px', height: '22px', marginLeft: '-11px', marginTop: '-11px',
@@ -92,7 +98,7 @@ async function shot(page, scene, name) {
   console.log(`  📸 ${path.relative(ROOT, file)}`);
 }
 async function go(page, route) {
-  await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
   await page.waitForLoadState('networkidle', { timeout: 45000 }).catch(() => {});
   await page.mouse.move(mouse.x, mouse.y);
   await pause(page, 1200);
@@ -113,6 +119,10 @@ const SCENES = [
   } },
   { id: 's02', name: 'navigation', run: async (p) => {
     await go(p, '/admin');
+    // Οι ομάδες του μενού ανοίγουν μία-μία (κατάσταση UI μόνο).
+    for (const group of ['Δεδομένα', 'Λογιστική αρχικοποίηση', 'Σύστημα', 'Access control', 'Βοήθεια']) {
+      await click(p, p.getByRole('button', { name: new RegExp(`^${group}$`, 'i') }).first(), 700).catch(() => {});
+    }
     for (const label of ['Dashboard', 'Συναλλασσόμενοι', 'OCR / Έγγραφα', 'Νέοι συναλλασσόμενοι', 'Είδη & έξοδα', 'Εκκρεμότητες OCR', 'Πρότυπα εξαγωγής', 'Λογιστικό σχέδιο', 'Ρυθμίσεις', 'Χρήστες', 'Οδηγός Χρήστη']) {
       await hover(p, byRole(p, 'link', label), 650).catch(() => {});
     }
@@ -133,7 +143,9 @@ const SCENES = [
   } },
   { id: 's04', name: 'document', run: async (p) => {
     await go(p, `/admin/ocr/${DOC_LINES}`);
-    await pause(p, 2500);
+    // Η προβολή του PDF (iframe) φορτώνει από το CDN — περιμένουμε να αποδοθεί.
+    await p.locator('iframe').first().waitFor({ timeout: 30000 }).catch(() => {});
+    await pause(p, 6000);
     await shot(p, 's04', '1-document-fields');
     await scrollBy(p, 450); await shot(p, 's04', '2-checks');
     await scrollBy(p, 600); await shot(p, 's04', '3-lines');
@@ -150,6 +162,36 @@ const SCENES = [
     await pause(p, 3000);
     await shot(p, 's06', '1-queue');
     await scrollBy(p, 500); await shot(p, 's06', '2-panel');
+  } },
+  { id: 's05b', name: 'foreign-issuer', run: async (p) => {
+    await go(p, `/admin/ocr/${DOC_FOREIGN}`);
+    await p.locator('iframe').first().waitFor({ timeout: 30000 }).catch(() => {});
+    await pause(p, 5000);
+    await shot(p, 's05b', '1-foreign-doc');
+    await hover(p, byRole(p, 'button', /Έλεγχος ΑΦΜ \(VIES\)/), 1800).catch(() => {});
+    await shot(p, 's05b', '2-vies-button');
+    await go(p, '/admin/traders?type=12');
+    await click(p, byRole(p, 'button', /Ενέργειες για Azelis/), 1200).catch(() => {});
+    await shot(p, 's05b', '3-trader-menu');
+    await p.keyboard.press('Escape'); await pause(p, 600);
+  } },
+  { id: 's06b', name: 'item-panel', run: async (p) => {
+    await go(p, '/admin/ocr/new-items');
+    await pause(p, 3000);
+    // Επιλογή της πρώτης ομάδας της ουράς (μόνο επιλογή — καμία δημιουργία).
+    const row = p.locator('[role="option"], [data-queue-row], ul li button').first();
+    await click(p, row, 2500).catch(() => {});
+    await shot(p, 's06b', '1-item-panel');
+    await scrollBy(p, 500); await shot(p, 's06b', '2-units');
+    await scrollBy(p, 500); await shot(p, 's06b', '3-more');
+  } },
+  { id: 's07', name: 'lines', run: async (p) => {
+    await go(p, `/admin/ocr/${DOC_ASSET}`);
+    await p.locator('iframe').first().waitFor({ timeout: 30000 }).catch(() => {});
+    await pause(p, 5000);
+    await shot(p, 's07', '1-document');
+    await scrollBy(p, 900); await shot(p, 's07', '2-lines');
+    await scrollBy(p, 600); await shot(p, 's07', '3-lines-more');
   } },
   { id: 's08', name: 'posting', run: async (p) => {
     await go(p, `/admin/ocr/${DOC_OPEN}`);
@@ -239,7 +281,7 @@ async function main() {
   const raw = process.env.WIKI_USER_SUPER_ADMIN ?? '';
   const sep = raw.indexOf(':');
   if (sep < 0) throw new Error('Λείπει WIKI_USER_SUPER_ADMIN=email:password στο .env');
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ channel: 'chromium' });
 
   // Σύνδεση μία φορά — οι σκηνές ξεκινούν συνδεδεμένες (storage state).
   const authCtx = await browser.newContext({ viewport: { width: W, height: H }, locale: 'el-GR' });
