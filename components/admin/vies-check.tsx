@@ -20,7 +20,9 @@ export interface ViesCheckResult {
 const MATCH_LABEL: Record<string, string> = { name: 'Επωνυμία', street: 'Οδός', postalCode: 'ΤΚ', city: 'Πόλη' };
 const when = (iso?: string) => (iso ? new Date(iso).toLocaleString('el-GR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
 
-export function ViesCheck({ vat, trader, onResult, className }: {
+export function ViesCheck({ vat, trader, onResult, className, autoRun = false }: {
+  /** Τρέχει μόλις εμφανιστεί (π.χ. από «Εξακρίβωση VIES» του μενού) — ένα κλικ, όχι δύο. */
+  autoRun?: boolean;
   /** Το ΑΦΜ ΜΕ πρόθεμα χώρας (π.χ. «IT01808880270», «CHE-116.281.710», «NO923609016MVA»). */
   vat: string | null;
   /** Τα στοιχεία του χαρτιού — το VIES τα συγκρίνει με το μητρώο όπου το κράτος το υποστηρίζει. */
@@ -31,6 +33,7 @@ export function ViesCheck({ vat, trader, onResult, className }: {
   const [busy, setBusy] = React.useState(false);
   const [r, setR] = React.useState<ViesCheckResult | null>(null);
   React.useEffect(() => { setR(null); }, [vat]);
+  const ran = React.useRef<string | null>(null);
 
   const run = async (force = false) => {
     if (!vat || busy) return;
@@ -53,6 +56,13 @@ export function ViesCheck({ vat, trader, onResult, className }: {
       setBusy(false);
     }
   };
+
+  React.useEffect(() => {
+    if (!autoRun || !vat || ran.current === vat) return;
+    ran.current = vat;
+    void run(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRun, vat]);
 
   const copy = (s: string) => { void navigator.clipboard?.writeText(s).then(() => toast.success('Ο αριθμός ελέγχου αντιγράφηκε')); };
   const matches = r?.match ? Object.entries(r.match).filter(([, v]) => v && v !== 'NOT_PROCESSED') as [string, Flag][] : [];

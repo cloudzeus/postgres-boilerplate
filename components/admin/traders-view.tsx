@@ -3,7 +3,12 @@
 import * as React from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
-import { FiRefreshCw, FiGlobe, FiUsers, FiFileText } from 'react-icons/fi';
+import { FiRefreshCw, FiGlobe, FiUsers, FiFileText, FiMoreVertical, FiEdit3, FiShield, FiEye } from 'react-icons/fi';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { TraderEditDialog, type TraderDialogMode } from '@/components/admin/trader-edit-dialog';
+import { isValidAfm } from '@/lib/ocr/validate';
 import { TraderDocsPanel } from '@/components/admin/trader-docs-panel';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -47,6 +52,10 @@ const DASH = <span className="text-muted-foreground/40">—</span>;
 const muted = (v: string | null, mono = false) =>
   v ? <span className={cn('text-[length:var(--fs-12)] text-muted-foreground', mono && 'font-mono tabular-nums')}>{v}</span> : DASH;
 const normalizeUrl = (w: string) => (/^https?:\/\//i.test(w) ? w : `https://${w}`);
+/** Ξένος ΑΦΜ = πρόθεμα χώρας (εκτός EL/GR). */
+const foreignAfm = (afm: string | null) => !!afm && /^[A-Z]{2,3}\d/i.test(afm.replace(/[\s.-]/g, '')) && !/^(EL|GR)/i.test(afm.trim());
+/** Τύποι που τροποποιούνται (προμηθευτές, πελάτες, χρεώστες, πιστωτές). */
+const EDITABLE = new Set([12, 13, 15, 16]);
 
 export function TradersView({
   rows,
@@ -61,6 +70,8 @@ export function TradersView({
   const pathname = usePathname();
   const search = useSearchParams();
   const [busy, setBusy] = React.useState(false);
+  /** Ανοιχτό παράθυρο τροποποίησης/εξακρίβωσης. */
+  const [dialog, setDialog] = React.useState<{ trdr: number; mode: TraderDialogMode } | null>(null);
 
   const counts = React.useMemo(() => {
     const m = new Map<number, number>();
@@ -101,6 +112,48 @@ export function TradersView({
 
   const columns = React.useMemo<ColumnDef<TraderRecord>[]>(() => {
     const cols: ColumnDef<TraderRecord>[] = [
+      {
+        id: 'actions', header: '', size: 44, enableSorting: false, enableHiding: false,
+        cell: ({ row }) => {
+          const c = row.original;
+          const greek = isValidAfm(c.afm ?? '');
+          const foreign = foreignAfm(c.afm);
+          const editable = canManage && EDITABLE.has(c.sodtype);
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={`Ενέργειες για ${c.name}`}
+              >
+                <FiMoreVertical aria-hidden className="size-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-60">
+                <DropdownMenuLabel className="truncate text-[length:var(--fs-11)] font-normal text-muted-foreground">{c.code} · {c.name}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setDialog({ trdr: c.trdr, mode: 'edit' })} className="text-[length:var(--fs-13)]">
+                  {editable ? <><FiEdit3 aria-hidden className="mr-2 size-3.5" /> Τροποποίηση</> : <><FiEye aria-hidden className="mr-2 size-3.5" /> Προβολή καρτέλας</>}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!greek} onSelect={() => setDialog({ trdr: c.trdr, mode: 'aade' })} className="text-[length:var(--fs-13)]">
+                  <FiShield aria-hidden className="mr-2 size-3.5" /> Εξακρίβωση ΑΑΔΕ
+                  {!greek && <span className="ml-auto text-[length:var(--fs-10)] text-muted-foreground">όχι ελληνικός ΑΦΜ</span>}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!foreign} onSelect={() => setDialog({ trdr: c.trdr, mode: 'vies' })} className="text-[length:var(--fs-13)]">
+                  <FiGlobe aria-hidden className="mr-2 size-3.5" /> Εξακρίβωση VIES
+                  {!foreign && <span className="ml-auto text-[length:var(--fs-10)] text-muted-foreground">όχι ξένος ΑΦΜ</span>}
+                </DropdownMenuItem>
+                {(c.docCount ?? 0) > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => row.toggleExpanded(true)} className="text-[length:var(--fs-13)]">
+                      <FiFileText aria-hidden className="mr-2 size-3.5" /> Παραστατικά ({c.docCount})
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+        },
+      },
       {
         accessorKey: 'code', header: 'Κωδικός', size: 110,
         cell: ({ row }) => <span className="font-mono text-[length:var(--fs-12)] tabular-nums text-muted-foreground">{row.original.code || '—'}</span>,
@@ -212,7 +265,7 @@ export function TradersView({
     );
     return cols;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeType]);
+  }, [activeType, canManage]);
 
   const toolbar = canManage ? (
     <Button variant="secondary" size="sm" onClick={sync} disabled={busy}>
@@ -262,6 +315,12 @@ export function TradersView({
           />
         </div>
       </div>
+      {dialog && (
+        <TraderEditDialog
+          key={`${dialog.trdr}-${dialog.mode}`} trdr={dialog.trdr} mode={dialog.mode} canManage={canManage}
+          open onOpenChange={(o) => { if (!o) setDialog(null); }}
+        />
+      )}
     </div>
   );
 }
