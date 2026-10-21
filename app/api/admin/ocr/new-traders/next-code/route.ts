@@ -1,11 +1,7 @@
-import { softoneCodeRules } from '@/lib/softone-code-rules';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
-import { getSetting } from '@/lib/settings';
-import { softoneNextTraderCode, TRADER_KIND_SODTYPE } from '@/lib/softone';
-import { traderCodeMaskKey } from '@/lib/trader-code';
+import { proposeTraderCode } from '@/lib/softone-sync/trader-convert';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,20 +27,5 @@ export async function GET(req: Request) {
   }
   const kind = parsed.data;
 
-  const [mask, mirror, rules] = await Promise.all([
-    getSetting<string>(traderCodeMaskKey(kind), '').catch(() => ''),
-    prisma.softoneTrader
-      .findMany({ where: { sodtype: TRADER_KIND_SODTYPE[kind] }, select: { code: true } })
-      .catch(() => [] as { code: string }[]),
-    // Ο ΚΑΝΟΝΑΣ του SoftOne («Μορφή κωδικού» του μητρώου), πριν από κάθε πρόταση.
-    softoneCodeRules(kind),
-  ]);
-
-  const res = await softoneNextTraderCode(kind, {
-    mask: mask ?? '',
-    erpMask: rules.code,
-    fallbackCodes: mirror.map((r) => r.code),
-  });
-
-  return NextResponse.json({ kind, ...res, rule: { mask: rules.code, known: rules.known } });
+  return NextResponse.json({ kind, ...(await proposeTraderCode(kind)) });
 }

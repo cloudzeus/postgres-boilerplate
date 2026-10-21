@@ -1489,6 +1489,18 @@ export interface CreateSupplierInput {
    */
   kad?: number | null;
   kad1?: number | null;
+  /**
+   * ΑΝΤΙΓΡΑΦΗ ΑΠΟ ΥΠΑΡΧΟΥΣΑ ΚΑΡΤΕΛΑ (π.χ. προμηθευτής από πιστωτή): τιμές που η ίδια η SoftOne
+   * έδωσε, άρα γράφονται ως έχουν. `countryId` = `TRDR.COUNTRY` (υπερισχύει του ISO `country`),
+   * `vatStatus` = `VATSTS`, `payment` = `PAYMENT`, `currency` = `SOCURRENCY`. Η λογιστική κατηγορία
+   * (`TRDCATEGORY`) ΔΕΝ είναι εδώ: προμηθευτές και πιστωτές έχουν ΔΙΑΦΟΡΕΤΙΚΕΣ κατηγορίες (Demo:
+   * 50xx / 53xx), οπότε μια αντιγραφή θα έγραφε κατηγορία άλλου τύπου.
+   */
+  countryId?: string | null;
+  district?: string | null;
+  vatStatus?: string | null;
+  payment?: string | null;
+  currency?: string | null;
 }
 /**
  * Το SoftOne αρνήθηκε τη δημιουργία επειδή ΛΕΙΠΕΙ ο κωδικός;
@@ -1708,12 +1720,13 @@ function traderRow(input: CreateTraderInput, countries: SoftoneCountry[] = []): 
   };
   // `TRDR.COUNTRY` είναι αριθμητικό FK: γράφεται ΜΟΝΟ όταν ο ISO-2 βρεθεί στο
   // μητρώο. Χωρίς μητρώο (κενή λίστα) το πεδίο μένει στην προεπιλογή του SoftOne.
-  const countryId = matchCountryId(input.country, countries);
+  const countryId = /^\d+$/.test(String(input.countryId ?? '')) ? String(input.countryId) : matchCountryId(input.country, countries);
   if (countryId) row.COUNTRY = Number(countryId);
   if (input.code) row.CODE = input.code;
   if (input.irsData) row.IRSDATA = input.irsData;
   if (input.profession) row.JOBTYPETRD = input.profession;
   if (input.address) row.ADDRESS = input.address;
+  if (input.district) row.DISTRICT = input.district;
   if (input.zip) row.ZIP = input.zip;
   if (input.city) row.CITY = input.city;
   if (input.phone) row.PHONE01 = input.phone;
@@ -1721,6 +1734,9 @@ function traderRow(input: CreateTraderInput, countries: SoftoneCountry[] = []): 
   if (input.fax) row.FAX = input.fax;
   if (input.webpage) row.WEBPAGE = input.webpage;
   if (input.email) row.EMAIL = input.email;
+  for (const [col, v] of [['VATSTS', input.vatStatus], ['PAYMENT', input.payment], ['SOCURRENCY', input.currency]] as const) {
+    if (/^\d+$/.test(String(v ?? ''))) row[col] = Number(v);
+  }
   // Συντεταγμένες: ή και τα δύο πεδία με έγκυρο ζεύγος, ή κανένα. Ποτέ «0 = άγνωστο».
   const coords = validCoords(input.latitude, input.longitude);
   if (coords) {

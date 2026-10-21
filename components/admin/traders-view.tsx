@@ -3,11 +3,13 @@
 import * as React from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
-import { FiRefreshCw, FiGlobe, FiUsers, FiFileText, FiMoreVertical, FiEdit3, FiShield, FiEye } from 'react-icons/fi';
+import { FiRefreshCw, FiGlobe, FiUsers, FiFileText, FiMoreVertical, FiEdit3, FiShield, FiEye, FiRepeat } from 'react-icons/fi';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { TraderEditDialog, type TraderDialogMode } from '@/components/admin/trader-edit-dialog';
+import { TraderConvertDialog } from '@/components/admin/trader-convert-dialog';
+import { CONVERSION_BY_SODTYPE } from '@/lib/trader-convert';
 import { isValidAfm } from '@/lib/ocr/validate';
 import { TraderDocsPanel } from '@/components/admin/trader-docs-panel';
 import { toast } from 'sonner';
@@ -72,6 +74,8 @@ export function TradersView({
   const [busy, setBusy] = React.useState(false);
   /** Ανοιχτό παράθυρο τροποποίησης/εξακρίβωσης. */
   const [dialog, setDialog] = React.useState<{ trdr: number; mode: TraderDialogMode } | null>(null);
+  /** Καρτέλα για «Μετατροπή σε προμηθευτή/πιστωτή» (νέα καρτέλα του άλλου τύπου). */
+  const [converting, setConverting] = React.useState<number | null>(null);
 
   const counts = React.useMemo(() => {
     const m = new Map<number, number>();
@@ -141,6 +145,11 @@ export function TradersView({
                   <FiGlobe aria-hidden className="mr-2 size-3.5" /> Εξακρίβωση VIES
                   {!foreign && <span className="ml-auto text-[length:var(--fs-10)] text-muted-foreground">όχι ξένος ΑΦΜ</span>}
                 </DropdownMenuItem>
+                {canManage && CONVERSION_BY_SODTYPE[c.sodtype] && (
+                  <DropdownMenuItem onSelect={() => setConverting(c.trdr)} className="text-[length:var(--fs-13)]">
+                    <FiRepeat aria-hidden className="mr-2 size-3.5" /> Μετατροπή σε {CONVERSION_BY_SODTYPE[c.sodtype].toAcc}
+                  </DropdownMenuItem>
+                )}
                 {(c.docCount ?? 0) > 0 && (
                   <>
                     <DropdownMenuSeparator />
@@ -320,6 +329,9 @@ export function TradersView({
           key={`${dialog.trdr}-${dialog.mode}`} trdr={dialog.trdr} mode={dialog.mode} canManage={canManage}
           open onOpenChange={(o) => { if (!o) setDialog(null); }}
         />
+      )}
+      {converting != null && (
+        <TraderConvertDialog key={converting} trdr={converting} open onOpenChange={(o) => { if (!o) setConverting(null); }} />
       )}
     </div>
   );

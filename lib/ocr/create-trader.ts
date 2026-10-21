@@ -36,6 +36,9 @@ export interface CreateTraderJob {
     latitude: number | null; longitude: number | null;
     /** `KADTAXIS` κλειδιά· λείπουν σε εργασίες ουράς παλαιότερης έκδοσης. */
     kad?: number | null; kad1?: number | null;
+    /** Αντιγραφή από υπάρχουσα καρτέλα (`lib/softone-sync/trader-convert.ts`): τιμές της SoftOne ως έχουν. */
+    countryId?: string | null; district?: string | null;
+    vatStatus?: string | null; payment?: string | null; currency?: string | null;
   };
   actor: { id: string; email: string } | null;
 }
@@ -82,7 +85,7 @@ export async function createTraderInSoftone(job: CreateTraderJob): Promise<Creat
   // Το μητρώο χωρών είναι cached 24ω μέσα στη διεργασία. Χωρίς αυτό ο συναλλασσόμενος
   // δημιουργείται κανονικά, απλώς χωρίς `COUNTRY` — γι' αυτό η αποτυχία του δεν σταματά τίποτα.
   const countries: SoftoneCountry[] = await softoneFetchCountries().catch(() => []);
-  const warnings = matchCountryId(input.country, countries) ? [] : ['country_not_found'];
+  const warnings = input.countryId || matchCountryId(input.country, countries) ? [] : ['country_not_found'];
 
   const label = TRADER_KIND_LABEL[kind];
   const sodtype = TRADER_KIND_SODTYPE[kind];
@@ -121,7 +124,7 @@ export async function createTraderInSoftone(job: CreateTraderJob): Promise<Creat
   const mirror = {
     code, name: input.name, afm: input.afm, sodtype, kind: label, isActive: true,
     doy: input.irsData, profession: input.profession,
-    address: input.address, zip: input.zip, city: input.city,
+    address: input.address, district: input.district ?? null, zip: input.zip, city: input.city,
     phone: input.phone, email: input.email,
     phone2: input.phone2 ?? null, fax: input.fax ?? null, webpage: input.webpage ?? null,
   };
