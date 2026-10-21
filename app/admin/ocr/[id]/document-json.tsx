@@ -8,6 +8,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { FiAlertTriangle, FiCheckCircle, FiChevronDown, FiChevronRight, FiCode, FiCopy, FiDownload, FiHelpCircle, FiRefreshCw, FiUploadCloud } from 'react-icons/fi';
 import { toast } from 'sonner';
+import { durationText, elapsedSuffix, useElapsedSeconds } from '@/lib/use-elapsed';
 import { Button } from '@/components/ui/button';
 import { useDocLinesChanged } from '@/components/admin/doc-lines-events';
 import type { DocumentEnvelope } from '@/lib/ocr/canonical';
@@ -114,6 +115,7 @@ export function DocumentJsonCard({ docId, canPost, showPosting = true }: {
   const [refOpen, setRefOpen] = React.useState(false);
   const [payloadOpen, setPayloadOpen] = React.useState(false);
   const [posting, setPosting] = React.useState(false);
+  const postingFor = useElapsedSeconds(posting);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -179,7 +181,7 @@ export function DocumentJsonCard({ docId, canPost, showPosting = true }: {
       const res = await fetch(`/api/admin/ocr/${docId}/post-softone`, { method: 'POST' });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.message ?? body.error ?? `Σφάλμα ${res.status}`);
-      toast.success(`Καταχωρίστηκε στο SoftOne (${body.ref})`);
+      toast.success(`Καταχωρίστηκε στο SoftOne (${body.ref})${durationText(body.timings?.total)}`);
       setDup(null);
       await load();
     } catch (e) {
@@ -277,7 +279,7 @@ export function DocumentJsonCard({ docId, canPost, showPosting = true }: {
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <Button size="sm" variant={dup.status === 'clear' ? 'default' : 'secondary'}
                   onClick={doPost} disabled={posting}>
-                  <FiUploadCloud /> {posting ? 'Καταχώριση…'
+                  <FiUploadCloud /> {posting ? `Καταχώριση…${elapsedSuffix(postingFor)}`
                     : dup.status === 'clear' ? 'Αποστολή στο SoftOne' : 'Αποστολή παρ’ όλα αυτά'}
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setDup(null)} disabled={posting}>Άκυρο</Button>

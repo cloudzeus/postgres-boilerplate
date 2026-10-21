@@ -44,4 +44,12 @@ describe('findDuplicatePosting', () => {
     db.softoneTrader.findMany.mockResolvedValue([{ trdr: 2789, afm: MARG }]);
     await expect(findDuplicatePosting(input)).resolves.toBeNull();
   });
+
+  it('η καρτέλα που μόλις βρέθηκε καθαρή ΔΕΝ ξαναρωτιέται· οι άλλες του ΑΦΜ ναι', async () => {
+    db.softoneTrader.findMany.mockResolvedValue([{ trdr: 2789, afm: MARG }, { trdr: 2792, afm: MARG }]);
+    await expect(findDuplicatePosting({ ...input, skipSoftoneTrdr: 2792 })).resolves.toBeNull();
+    expect(s1.softoneCheckPurchaseDoc).toHaveBeenCalledTimes(1);
+    expect(s1.softoneCheckPurchaseDoc.mock.calls[0][0]).toBe(2789);
+  });
 });
+

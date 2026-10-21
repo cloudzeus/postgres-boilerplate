@@ -37,6 +37,13 @@ export async function findDuplicatePosting(input: {
   afm: string | null | undefined;
   type: { series: string | null; number: string | null };
   date: string | null | undefined;
+  /**
+   * Καρτέλα που ο ΙΔΙΟΣ έλεγχος στο SoftOne (`softoneCheckPurchaseDoc`, ίδια κριτήρια) βρήκε καθαρή
+   * πριν από λίγο — στο «Καταχώριση» τρέχει ακριβώς πριν από το παράθυρο επιβεβαίωσης. Δεν ξαναρωτάμε
+   * το ERP για αυτήν: ήταν μία ανάγνωση παραπάνω σε κάθε καταχώριση, και όταν η SoftOne αργούσε,
+   * έως 30″ επιπλέον. Οι ΑΛΛΕΣ καρτέλες του ΑΦΜ ελέγχονται κανονικά.
+   */
+  skipSoftoneTrdr?: number | null;
 }): Promise<DuplicatePosting | null> {
   const afm = normalizeAfm(input.afm);
   const number = input.type.number;
@@ -60,11 +67,13 @@ export async function findDuplicatePosting(input: {
     where: { afm: { contains: afm } }, select: { trdr: true, afm: true },
   })).filter((t) => normalizeAfm(t.afm) === afm);
   const ref = documentReference(input.type);
-  if (!ref.taxSeriesNum) return null;
-  for (const t of traders) {
-    const r = await softoneCheckPurchaseDoc(t.trdr, { number: ref.taxSeriesNum, fincode: ref.fincode }, input.date ?? null)
-      .catch(() => ({ exists: false, ref: null }));
-    if (r.exists) return { where: 'softone', ref: r.ref };
-  }
-  return null;
+  const taxSeriesNum = ref.taxSeriesNum;
+  if (!taxSeriesNum) return null;
+  // ΠΑΡΑΛΛΗΛΑ: μία ανάγνωση ανά καρτέλα, ανεξάρτητες μεταξύ τους — σε σειρά ο χρόνος αθροιζόταν.
+  const checks = await Promise.all(traders
+    .filter((t) => t.trdr !== input.skipSoftoneTrdr)
+    .map((t) => softoneCheckPurchaseDoc(t.trdr, { number: taxSeriesNum, fincode: ref.fincode }, input.date ?? null)
+      .catch(() => ({ exists: false, ref: null }))));
+  const hit = checks.find((r) => r.exists);
+  return hit ? { where: 'softone', ref: hit.ref } : null;
 }

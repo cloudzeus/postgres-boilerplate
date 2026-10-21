@@ -187,15 +187,26 @@ const READ_SERVICES = new Set([
 ]);
 /** Μια ανάγνωση που δεν απαντά σε τόσο χρόνο έχει κολλήσει (στη μέτρηση απαντούν σε ~0,2″). */
 const READ_TIMEOUT_MS = 15_000;
-const PING_TIMEOUT_MS = 8_000;
+/** Το `ping` απαντά σε ~0,1–0,4″· αν αργήσει τόσο, ο host δεν είναι διαθέσιμος — δεν το περιμένουμε άλλο. */
+const PING_TIMEOUT_MS = 5_000;
 /** Οι εγγραφές μπορεί να είναι νόμιμα αργές (νέο παραστατικό με πολλές γραμμές). */
 const WRITE_TIMEOUT_MS = 90_000;
 /** Μετά από τόση αδράνεια, η ανοιχτή σύνδεση keep-alive μπορεί να έχει κλείσει σιωπηλά. */
 const IDLE_WARMUP_MS = 20_000;
 const SLOW_CALL_MS = 3_000;
 let lastOkAt = 0;
+/** Ένα «ζέσταμα» τη φορά: παράλληλες εγγραφές μετά από αδράνεια μοιράζονται το ίδιο ping. */
+let warming: Promise<void> | null = null;
 /** Μόνο για tests: ορίζει πότε απάντησε τελευταία φορά το SoftOne (για το «ζέσταμα» πριν από εγγραφή). */
 export function __setSoftoneLastOkAt(at: number): void { lastOkAt = at; }
+
+/**
+ * Το `ping` της SoftOne ΔΕΝ απαντά JSON αλλά απλό κείμενο (`0;<serial>`, μετρημένο στη Demo
+ * 21/10/2026). Το `JSON.parse` αποτύγχανε και κάθε ping μετρούσε ως «Μη αναγνώσιμη απάντηση»: το
+ * «ζέσταμα» πριν από εγγραφή δεν ανανέωνε ποτέ το `lastOkAt`, και ο έλεγχος «απαντά ο host;»
+ * έλεγε «όχι» σε host που απαντούσε. HTTP 200 στο ping = ο host ζει, ό,τι κι αν γράφει.
+ */
+const isAlivePingReply = (e: unknown) => e instanceof SoftoneTransportError && e.httpStatus === 200;
 
 const isTimeout = (e: unknown) => (e as { name?: string })?.name === 'TimeoutError' || (e as { name?: string })?.name === 'AbortError';
 
@@ -217,8 +228,13 @@ export async function softoneFetch<T = Record<string, unknown>>(
   const service = String((payload as { service?: unknown; SERVICE?: unknown }).service ?? (payload as { SERVICE?: unknown }).SERVICE ?? '').toLowerCase();
   const isRead = READ_SERVICES.has(service);
   if (!isRead && Date.now() - lastOkAt > IDLE_WARMUP_MS) {
-    // Ζεσταίνει (ή αντικαθιστά) τη σύνδεση. Αποτυχία εδώ δεν σταματά τίποτα — η εγγραφή θα πει την αλήθεια.
-    await softoneFetch(endpoint, { service: 'ping' }).catch(() => null);
+    // Ζεσταίνει (ή αντικαθιστά) τη σύνδεση. ΜΙΑ προσπάθεια, χωρίς επανάληψη: πριν ήταν 8″ + 8″, δηλαδή
+    // 16″ αναμονή ΠΡΙΝ καν φύγει η εγγραφή όταν ο host αργούσε. Αποτυχία εδώ δεν σταματά τίποτα — η
+    // εγγραφή θα πει την αλήθεια.
+    warming ??= softoneFetchOnce(endpoint, { service: 'ping' }, PING_TIMEOUT_MS)
+      .then(() => { lastOkAt = Date.now(); }, (e) => { if (isAlivePingReply(e)) lastOkAt = Date.now(); })
+      .finally(() => { warming = null; });
+    await warming;
   }
   const attempts = isRead ? 2 : 1;
   for (let attempt = 1; ; attempt++) {
@@ -230,6 +246,10 @@ export async function softoneFetch<T = Record<string, unknown>>(
       if (ms > SLOW_CALL_MS) console.warn(`[softone] ${service || '?'} αργή απάντηση: ${ms}ms`);
       return out;
     } catch (e) {
+      if (service === 'ping' && isAlivePingReply(e)) {
+        lastOkAt = Date.now();
+        return { success: true } as T;
+      }
       const retryable = isRead && attempt < attempts && e instanceof SoftoneTransportError && e.phase !== 'not_sent' && e.httpStatus == null;
       if (!retryable) throw e;
       console.warn(`[softone] ${service} απέτυχε μετά από ${Date.now() - started}ms (${(e as Error).message.slice(0, 80)}) — νέα προσπάθεια`);

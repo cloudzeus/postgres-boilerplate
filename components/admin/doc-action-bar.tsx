@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { durationText, elapsedSuffix, useElapsedSeconds } from '@/lib/use-elapsed';
 import { FiSend, FiCheck, FiAlertTriangle, FiLoader, FiDatabase, FiTruck } from 'react-icons/fi';
 import { DeliveryNoteDialog } from '@/components/admin/delivery-note-dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -51,11 +52,13 @@ export function DocActionBar({
   const [preview, setPreview] = React.useState<Preview | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [posting, setPosting] = React.useState(false);
+  const postingFor = useElapsedSeconds(posting);
   const [confirm, setConfirm] = React.useState(false);
   const [tenant, setTenant] = React.useState<string | null>(null);
   /** Το αποτέλεσμα του ελέγχου διπλοτύπου — τρέχει ΠΡΙΝ εμφανιστεί το «Ναι, καταχώρισέ το». */
   const [dup, setDup] = React.useState<{ status: 'duplicate' | 'clear' | 'unknown'; message: string } | null>(null);
   const [dupBusy, setDupBusy] = React.useState(false);
+  const dupFor = useElapsedSeconds(dupBusy);
   const [markBusy, setMarkBusy] = React.useState(false);
   /** «Από δελτίο αποστολής» — μετασχηματισμός αντί για απλή καταχώριση. */
   const [noteOpen, setNoteOpen] = React.useState(false);
@@ -123,7 +126,7 @@ export function DocActionBar({
       const r = await fetch(`/api/admin/ocr/${docId}/post-softone`, { method: 'POST' });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.message ?? j?.error ?? `HTTP ${r.status}`);
-      toast.success(`Καταχωρήθηκε στο SoftOne · FINDOC ${j.ref}`);
+      toast.success(`Καταχωρήθηκε στο SoftOne · FINDOC ${j.ref}${durationText(j.timings?.total)}`);
       setConfirm(false);
       await load();
       router.refresh();
@@ -238,7 +241,7 @@ export function DocActionBar({
               <button type="button" onClick={() => { setConfirm(false); setDup(null); }} className={BTN_GHOST}>Πίσω</button>
               {dup?.status !== 'duplicate' && (
                 <button type="button" onClick={post} disabled={posting} className={BTN_POST}>
-                  <FiSend className="size-3.5" /> {posting ? 'Καταχώριση…' : 'Ναι, καταχώρισέ το'}
+                  <FiSend className="size-3.5" /> {posting ? `Καταχώριση…${elapsedSuffix(postingFor)}` : 'Ναι, καταχώρισέ το'}
                 </button>
               )}
             </>
@@ -253,7 +256,7 @@ export function DocActionBar({
             <button type="button" disabled={!canPost || !ready || posting || dupBusy} onClick={askConfirm} className={BTN_POST}
               title={!canPost ? 'Δεν έχεις δικαίωμα καταχώρισης' : posted ? 'Έχει ήδη καταχωρηθεί' : !ready ? 'Λύσε πρώτα τα βήματα που μένουν' : undefined}>
               {dupBusy ? <FiLoader className="size-3.5 animate-spin" /> : <FiSend className="size-3.5" />}
-              {posted ? 'Καταχωρήθηκε' : dupBusy ? 'Έλεγχος διπλοτύπου…' : 'Καταχώριση στο SoftOne'}
+              {posted ? 'Καταχωρήθηκε' : dupBusy ? `Έλεγχος διπλοτύπου…${elapsedSuffix(dupFor)}` : 'Καταχώριση στο SoftOne'}
             </button>
             </>
           )}

@@ -57,10 +57,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   try {
     // ΕΔΩ — και μόνο εδώ — η ανάρτηση είναι ανθρώπινη επιβεβαίωση της ανάγνωσης: κάποιος πάτησε το
     // κουμπί. Ο εκτελεστής προτύπων περνάει από την ίδια συνάρτηση χωρίς αυτή τη σημαία.
-    const { ref } = await postDocumentToSoftone(id, {
+    const { ref, timings } = await postDocumentToSoftone(id, {
       syncTemplateRun: true, verified: true, verifiedById: user.id,
     });
-    return NextResponse.json({ ok: true, ref });
+    return NextResponse.json({ ok: true, ref, timings });
   } catch (err) {
     if (err instanceof PostError) {
       const status = err.code === 'not_found' ? 404 : err.code === 'posting_disabled' ? 409 : 422;

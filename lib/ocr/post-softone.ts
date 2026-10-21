@@ -569,8 +569,41 @@ export async function conversionCalculateCheck(payload: PostingPayload, document
   return { error: null, total };
 }
 
-export async function postDocumentToSoftone(id: string, opts: PostOptions = {}): Promise<{ ref: string; warning?: string }> {
+/** Ο έλεγχος διπλού του «Καταχώριση» (πριν από το παράθυρο επιβεβαίωσης) θεωρείται φρέσκος για τόσο. */
+const FRESH_DUPLICATE_CHECK_MS = 5 * 60_000;
+
+/**
+ * Χρόνος ανά βήμα της καταχώρισης. «Τεράστια καθυστέρηση» χωρίς μέτρηση δεν διορθώνεται: εδώ φαίνεται
+ * αν φταίει η SoftOne (setData / read-back) ή η εφαρμογή (gather), στο log του server και στο UI.
+ */
+export type PostTimings = Record<string, number> & { total: number };
+function stepTimer() {
+  const t0 = Date.now();
+  let last = t0;
+  const steps: Record<string, number> = {};
+  return {
+    mark(step: string) { const now = Date.now(); steps[step] = now - last; last = now; },
+    done(): PostTimings { return { ...steps, total: Date.now() - t0 }; },
+  };
+}
+
+export async function postDocumentToSoftone(id: string, opts: PostOptions = {}): Promise<{ ref: string; warning?: string; timings: PostTimings }> {
+  const timer = stepTimer();
+  try {
+    const out = await postDocument(id, opts, timer.mark);
+    const timings = timer.done();
+    console.info(`[post] ${id} → ${out.ref} σε ${timings.total}ms`, JSON.stringify(timings));
+    return { ...out, timings };
+  } catch (e) {
+    const timings = timer.done();
+    if (timings.total > 3_000) console.warn(`[post] ${id} απέτυχε μετά από ${timings.total}ms`, JSON.stringify(timings));
+    throw e;
+  }
+}
+
+async function postDocument(id: string, opts: PostOptions, mark: (step: string) => void): Promise<{ ref: string; warning?: string }> {
   const { doc, document, ctx, blockers, payload, accounts } = await gather(id, opts.conversion);
+  mark('gather');
   // ΙΔΕΜΠΟΤΗΤΑ, πρώτο απ' όλα: ένα δεύτερο κλικ (ή μια δεύτερη εκτέλεση προτύπου) δεν δημιουργεί
   // δεύτερο παραστατικό στο SoftOne. Πριν από κάθε έλεγχο εμποδίων — ένα ήδη καταχωρισμένο
   // παραστατικό δεν είναι «μπλοκαρισμένο», είναι τελειωμένο.
@@ -580,12 +613,23 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
   if (blockers.length) {
     throw new PostError(blockers[0], blockers.map((c) => blockerMessage(c, accounts)).join(' · '));
   }
-  if ((await getSetting<boolean>(POSTING_ENABLED_KEY)) !== true) {
+  const [enabled, lastCheck] = await Promise.all([
+    getSetting<boolean>(POSTING_ENABLED_KEY),
+    prisma.ocrDocument.findUnique({ where: { id }, select: { softoneTrdr: true, softoneDocExists: true, softoneDocChecked: true } }),
+  ]);
+  if (enabled !== true) {
     // Σκόπιμα ΠΡΙΝ από οποιαδήποτε εγγραφή: ένα κλειστό σύστημα δεν αλλάζει καν `postStatus`.
     throw new PostError('posting_disabled', POST_ERROR_TEXT.posting_disabled);
   }
   // ΤΟ ΙΔΙΟ ΧΑΡΤΙ ΔΕΝ ΚΑΤΑΧΩΡΙΖΕΤΑΙ ΔΥΟ ΦΟΡΕΣ — με ΑΦΜ + αριθμό, όχι με καρτέλα (βλ. duplicate-post.ts).
-  const dup = await findDuplicatePosting({ id, afm: document.issuer.vat, type: document.type, date: document.date });
+  // Η καρτέλα που μόλις βρέθηκε καθαρή στο παράθυρο επιβεβαίωσης δεν ξαναρωτιέται· οι άλλες ναι.
+  const freshClear = lastCheck?.softoneDocExists === false && lastCheck.softoneTrdr === ctx.trdr
+    && lastCheck.softoneDocChecked != null && Date.now() - lastCheck.softoneDocChecked.getTime() < FRESH_DUPLICATE_CHECK_MS;
+  const dup = await findDuplicatePosting({
+    id, afm: document.issuer.vat, type: document.type, date: document.date,
+    skipSoftoneTrdr: freshClear ? ctx.trdr : null,
+  });
+  mark('duplicates');
   if (dup) {
     throw new PostError('duplicate', dup.where === 'app'
       ? `${POST_ERROR_TEXT.duplicate} από το «${dup.fileName ?? 'άλλο αρχείο'}»${dup.ref ? ` (SoftOne ${dup.ref})` : ''}. Αν είναι διπλό ανέβασμα, διάγραψέ το.`
@@ -596,6 +640,7 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
   // διαφέρει, ΤΙΠΟΤΑ δεν γράφεται (ούτε καν `postStatus`).
   if (opts.conversion) {
     const check = await conversionCalculateCheck(payload, document.totals?.total ?? null);
+    mark('calculate');
     if (check.error) throw new PostError('conversion_check', check.error);
   }
 
@@ -603,6 +648,7 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
   try {
     const object = ctx.target.object;
     const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>('setData', payload);
+    mark('setData');
     // ΚΑΘΑΡΗ αποτυχία: το SoftOne είπε «όχι». Τίποτα δεν δημιουργήθηκε.
     if (res.success === false) {
       throw new Error(res.error ?? `setData ${object} απέτυχε (code ${res.errorcode ?? '?'})`);
@@ -633,6 +679,7 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
 
     // Η επαλήθευση διαβάζει ΤΟ ΙΔΙΟ object που γράφτηκε — αλλιώς «επιβεβαιώνει» άλλο παραστατικό.
     const tables = await softoneGetData(object, ref);
+    mark('readBack');
     // ΜΟΝΟ η κεφαλίδα του object μετράει. Ένα «πάρε ό,τι βρεις» θα μπορούσε να πιάσει `MTRDOC` ή
     // κάποιον πίνακα γραμμών, που δεν έχει FINCODE/TRDR — και θα «επιβεβαίωνε» με undefined.
     const row = tables[object]?.[0];
@@ -663,6 +710,7 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
       const back = (tables.ITELINES ?? []) as Record<string, unknown>[];
       const backLinked = back.filter((l) => Number(l.FINDOCS) > 0).length;
       const state = await fetchNoteState(opts.conversion.findocs).catch(() => null);
+      mark('noteState');
       const open = state ? state.filter((x) => x.transformed === 0).map((x) => x.findoc) : null;
       if (backLinked < sentLinked || open == null || open.length) {
         warning = `ΜΕΤΑΣΧΗΜΑΤΙΣΜΟΣ: το τιμολόγιο ${ref} καταχωρίστηκε, αλλά `

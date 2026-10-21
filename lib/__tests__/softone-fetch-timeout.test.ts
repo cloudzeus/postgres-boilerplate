@@ -8,6 +8,8 @@ vi.mock('@/lib/settings', () => ({ getSetting: async () => undefined, setSetting
 import { __setSoftoneLastOkAt, softoneFetch, SoftoneTransportError } from '@/lib/softone';
 
 const ok = (payload: unknown) => ({ status: 200, headers: { get: () => null }, arrayBuffer: async () => iconv.encode(JSON.stringify(payload), 'win1253') });
+/** Η πραγματική απάντηση του `ping`: απλό κείμενο, όχι JSON. */
+const text = (body: string) => ({ status: 200, headers: { get: () => null }, arrayBuffer: async () => iconv.encode(body, 'win1253') });
 const timeout = () => Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
 
 let services: string[] = [];
@@ -49,5 +51,25 @@ describe('softoneFetch — χρονικό όριο και επανάληψη', (
     expect(e).toBeInstanceOf(SoftoneTransportError);
     expect(e.phase).toBe('unknown');
     expect(services).toEqual(['setData']);
+  });
+
+  it('ping με απάντηση απλού κειμένου («0;serial») = ο host ζει', async () => {
+    script.push(() => text('0;011023604205'));
+    await expect(softoneFetch('https://x/s1services', { service: 'ping' })).resolves.toEqual({ success: true });
+  });
+
+  it('το ζέσταμα πριν από εγγραφή είναι ΜΙΑ προσπάθεια: ping που κόλλησε δεν ξαναστέλνεται', async () => {
+    __setSoftoneLastOkAt(0);
+    script.push(() => { throw timeout(); }, () => ok({ success: true, id: 7 }));
+    await expect(softoneFetch('https://x/s1services', { service: 'setData' })).resolves.toMatchObject({ id: 7 });
+    expect(services).toEqual(['ping', 'setData']);
+  });
+
+  it('μετά από ping-κείμενο η επόμενη εγγραφή δεν ξαναζεσταίνει', async () => {
+    __setSoftoneLastOkAt(0);
+    script.push(() => text('0;1'), () => ok({ success: true, id: 1 }), () => ok({ success: true, id: 2 }));
+    await softoneFetch('https://x/s1services', { service: 'setData' });
+    await softoneFetch('https://x/s1services', { service: 'setData' });
+    expect(services).toEqual(['ping', 'setData', 'setData']);
   });
 });
