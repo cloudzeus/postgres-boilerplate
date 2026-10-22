@@ -1,6 +1,7 @@
 import { remark } from 'remark';
 import remarkGfm from 'remark-gfm';
 import remarkHtml from 'remark-html';
+import { videoHtml } from './videos';
 
 function parseAttrs(s: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -19,6 +20,12 @@ function preprocess(src: string, moduleKey: string, slug: string): string {
     const src = a.src?.startsWith('/') ? a.src : `/wiki/screenshots/${moduleKey}/${slug}/${a.src ?? ''}`;
     const caption = (a.caption ?? '').replace(/"/g, '&quot;');
     return `<figure class="wiki-screenshot"><img src="${src}" alt="${caption}" loading="lazy" />${caption ? `<figcaption>${caption}</figcaption>` : ''}</figure>`;
+  });
+
+  // Βίντεο-επεξήγηση (lib/wiki/videos.ts): <Video id="Expenses" caption="…" />
+  out = out.replace(/<Video\s+([^/>]*)\/>/g, (_, attrs) => {
+    const a = parseAttrs(attrs);
+    return videoHtml(a.id ?? '', a.caption);
   });
 
   out = out.replace(/<RoleBadge\s+role="([^"]+)"\s*\/>/g, '<span class="wiki-role-badge">$1</span>');

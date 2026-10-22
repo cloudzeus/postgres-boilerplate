@@ -50,6 +50,10 @@ const FIX: Record<string, BlockerFix> = {
   credit_not_linked: tool('credit-link', 'Σύνδεση με αρχικό'),
   withholding_unhandled: tool('withholding', 'Δες την παρακράτηση'),
   approval_required: tool('approval', 'Εγκρίσεις'),
+  serials_count_mismatch: tool('lines', 'Διόρθωσε σειριακούς'),
+  serials_bad_format: tool('lines', 'Διόρθωσε σειριακούς'),
+  // Παρατηρήσεις (δεν εμποδίζουν) — με δρόμο κι αυτές.
+  serials_missing: tool('lines', 'Πρόσθεσε σειριακούς'),
 };
 
 export function blockerFix(code: string): BlockerFix | null {

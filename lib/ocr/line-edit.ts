@@ -16,6 +16,13 @@ export interface LineValues {
   /** Καθαρή αξία γραμμής (μετά την έκπτωση, χωρίς ΦΠΑ). */
   net: number | null;
   vatRate: number | null;
+  /** Σειριακοί αριθμοί (S/N) της γραμμής· λείπει = δεν αλλάζουν. Βλ. `lib/ocr/serial-tracking.ts`. */
+  serials?: string[];
+}
+
+/** «A1, A2 / A3» → ['A1','A2','A3'] — χωρίς κενά και διπλότυπα, με τη σειρά που γράφτηκαν. */
+export function parseSerialsInput(text: string): string[] {
+  return [...new Set(String(text ?? '').split(/[\s,;\/]+/u).map((x) => x.trim()).filter(Boolean))];
 }
 
 export interface LineEditOps {
@@ -54,6 +61,7 @@ function check(v: LineValues, label: string): string[] {
   if (v.vatRate != null && (v.vatRate < 0 || v.vatRate > 100)) out.push(`${label}: ο ΦΠΑ είναι ποσοστό 0–100.`);
   if (v.discount != null && (v.discount < 0 || v.discount > 100)) out.push(`${label}: η έκπτωση είναι ποσοστό 0–100.`);
   if (v.name && v.name.length > 500) out.push(`${label}: η περιγραφή είναι έως 500 χαρακτήρες.`);
+  if ((v.serials ?? []).some((s) => s.length > 60)) out.push(`${label}: ένας σειριακός αριθμός είναι έως 60 χαρακτήρες.`);
   return out;
 }
 
@@ -82,6 +90,7 @@ export function planLineEdit(current: LineValues[], ops: LineEditOps): LineEditP
       discount: u.discount !== undefined ? u.discount : cur.discount,
       net: u.net !== undefined ? u.net : cur.net,
       vatRate: u.vatRate !== undefined ? u.vatRate : cur.vatRate,
+      ...(u.serials !== undefined ? { serials: [...new Set(u.serials.map((x) => x.trim()).filter(Boolean))] } : cur.serials !== undefined ? { serials: cur.serials } : {}),
     } : cur;
     if (u) errors.push(...check(next, `Γραμμή ${i + 1}`));
     const to = lines.length;
@@ -94,6 +103,7 @@ export function planLineEdit(current: LineValues[], ops: LineEditOps): LineEditP
       name: txt(a.name) ?? '', code: txt(a.code), unit: txt(a.unit),
       quantity: a.quantity, unitPrice: a.unitPrice, discount: a.discount,
       net: a.net ?? computeNet(a.quantity, a.unitPrice, a.discount), vatRate: a.vatRate,
+      ...(a.serials?.length ? { serials: [...new Set(a.serials.map((x) => x.trim()).filter(Boolean))] } : {}),
     };
     errors.push(...check(v, `Νέα γραμμή ${k + 1}`));
     lines.push({ values: v, from: null });

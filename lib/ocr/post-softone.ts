@@ -13,7 +13,7 @@ import { buildReviewFlags } from '@/lib/templates/run-logic';
 import type { DocumentJson } from './canonical';
 import { loadDocumentJson } from './document';
 import {
-  accountCheckInputs, buildPurdocPayload, documentReference, postingBlockers, postingWarnings,
+  accountCheckInputs, buildPurdocPayload, documentReference, postingBlockers, postingWarnings, serialVerdicts,
   type BlockerCode, type DocReference, type PostingPayload, type PurdocContext, type PurdocLineCtx, type WarningCode,
 } from './purdoc-payload';
 import { accountDetails, checkAccounts, type AccountCheck } from './account-check';
@@ -28,6 +28,8 @@ import { approvalStatusFor } from './approvals-server';
 import { approvalBlockerMessage } from './approvals';
 import { clip } from './posting-comment';
 import { softoneErrorLine } from './softone-error-text';
+import { serialIssueText } from './serial-tracking';
+import { serialTrackingFor } from '@/lib/softone-sync/serial-tracking';
 import { UTILITY_KIND_TITLE, analyzeUtility, utilityInputFromDocument } from './utility-bills';
 
 /** Αριθμός ή `null` — ο ΦΠΑ μιας γραμμής όπως τον κρατά το κανονικό έγγραφο. */
@@ -86,6 +88,8 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   series_unknown: 'Το είδος παραστατικού που έχει οριστεί δεν υπάρχει (ή είναι ανενεργό) στη SoftOne. Διάλεξε άλλο από τη λίστα στην κάτω μπάρα.',
   series_module_unsupported: 'Αυτό το είδος παραστατικού δεν καταχωρείται από την εφαρμογή. Διάλεξε παραστατικό αγορών, προμηθευτών, χρεωστών ή πιστωτών.',
   approval_required: 'Χρειάζεται έγκριση πριν την καταχώριση.',
+  serials_count_mismatch: 'Σε είδος με σειριακούς αριθμούς, οι σειριακοί δεν είναι όσοι και τα τεμάχια. Διόρθωσέ τους στην «Επεξεργασία γραμμών» (στήλη S/N) — αλλιώς στην πώληση το απόθεμα και οι σειριακοί δεν θα συμφωνούν.',
+  serials_bad_format: 'Κάποιος σειριακός αριθμός δεν έχει τη μορφή που ζητά η SoftOne για το είδος. Διόρθωσέ τον στην «Επεξεργασία γραμμών» (στήλη S/N).',
   withholding_unhandled: 'Το παραστατικό έχει παρακράτηση φόρου, που η SoftOne δεν περνά αυτόματα σε αυτή την εγκατάσταση. Επιβεβαίωσε ότι θα την καταχωρίσει ο λογιστής.',
   credit_not_linked: 'Είναι πιστωτικό: σύνδεσέ το με το αρχικό παραστατικό που πιστώνει — ή δήλωσε ρητά «χωρίς αρχικό» (π.χ. έκπτωση τζίρου).',
   period_closed: 'Η ημερομηνία του παραστατικού πέφτει σε κλειστή περίοδο της SoftOne. Αν διαβάστηκε λάθος, διόρθωσέ τη· αλλιώς ζήτησε από τον λογιστή να ανοίξει την περίοδο.',
@@ -113,6 +117,8 @@ export const POST_WARNING_TEXT: Record<WarningCode, string> = {
   account_not_covered: 'Ο έλεγχος λογαριασμού γενικής δεν καλύπτει ακόμη γραμμές ειδών, υπηρεσιών και εξόδων — ο λογαριασμός τους συντίθεται στο SoftOne',
   account_vat_mismatch: 'Υπάρχει γραμμή που πάει σε λογαριασμό για άλλον συντελεστή ΦΠΑ από αυτόν της γραμμής — έλεγξε τη χρεοπίστωση',
   withholding_check: 'Έλεγξε την παρακράτηση φόρου του παραστατικού.',
+  serials_missing: 'Είδος που η SoftOne παρακολουθεί με σειριακούς αριθμούς δεν έχει σειριακούς στο παραστατικό — πρόσθεσέ τους στην «Επεξεργασία γραμμών», αλλιώς θα χρειαστεί να μπουν στη SoftOne πριν την πώληση',
+  serials_untracked: 'Υπάρχουν σειριακοί αριθμοί σε είδος που η SoftOne δεν παρακολουθεί με σειριακούς — γράφονται μόνο στο σχόλιο της γραμμής. Για να φαίνονται στις πωλήσεις, ενεργοποίησε «SN» στην καρτέλα του είδους στη SoftOne',
   shared_code_many_products: 'Γραμμές με ΔΙΑΦΟΡΕΤΙΚΕΣ περιγραφές μοιράζονται τον ίδιο κωδικό και ταίριαξαν όλες στο ίδιο είδος — συχνά ο κωδικός είναι δασμολογικός (CN), όχι κωδικός προϊόντος· έλεγξε τις γραμμές πριν την καταχώριση',
 };
 
@@ -208,6 +214,8 @@ type Gathered = {
   periodMessage?: string | null;
   /** Πάγιο σε σειρά που δεν το δέχεται: ποιες ενεργές σειρές αγορών το δέχονται. */
   assetMessage?: string | null;
+  /** Σειριακοί: ΠΟΙΑ γραμμή, ΠΟΙΟ είδος, ΠΟΙΟΣ σειριακός — ανά κωδικό εμποδίου/παρατήρησης. */
+  serialTexts?: Partial<Record<SerialCode, string>>;
   /** Το συγκεκριμένο μήνυμα του ελέγχου παρακράτησης (ποσοστό / πληρωτέο / πιθανή έλλειψη). */
   withholdingWarning?: string | null;
   /** Τι λείπει στις εγκρίσεις (ή ποιος απέρριψε, γιατί). */
@@ -266,7 +274,34 @@ function utilityTitleOf(document: DocumentJson): string | null {
 }
 
 /** Εμπόδια με μήνυμα που ξέρει τα συγκεκριμένα του παραστατικού (περίοδος, πάγιο, εγκρίσεις). */
-function specificMessage(code: BlockerCode, m: { periodMessage?: string | null; assetMessage?: string | null; approvalMessage?: string | null }): string | null {
+type SerialCode = 'serials_count_mismatch' | 'serials_bad_format' | 'serials_missing' | 'serials_untracked';
+
+/** Τα ανά γραμμή κείμενα σειριακών, ομαδοποιημένα στον κωδικό εμποδίου/παρατήρησης που τα αφορά. */
+function serialTextsOf(document: DocumentJson, ctx: PurdocContext, labels: Map<number, string>): Partial<Record<SerialCode, string>> {
+  const acc: Record<SerialCode, string[]> = { serials_count_mismatch: [], serials_bad_format: [], serials_missing: [], serials_untracked: [] };
+  for (const v of serialVerdicts(document, ctx)) {
+    const label = labels.get(v.rowIndex) ?? null;
+    const one = (flag: boolean, code: SerialCode, part: Partial<typeof v>) => {
+      if (flag) acc[code].push(...serialIssueText({ ...v, countMismatch: false, badFormat: [], missing: false, untracked: false, unknown: false, ...part }, label));
+    };
+    one(v.countMismatch, 'serials_count_mismatch', { countMismatch: true });
+    one(v.badFormat.length > 0, 'serials_bad_format', { badFormat: v.badFormat });
+    one(v.missing, 'serials_missing', { missing: true });
+    one(v.untracked || v.unknown, 'serials_untracked', { untracked: v.untracked, unknown: v.unknown });
+  }
+  const out: Partial<Record<SerialCode, string>> = {};
+  for (const [k, list] of Object.entries(acc) as [SerialCode, string[]][]) {
+    if (!list.length) continue;
+    const tail = k === 'serials_untracked' ? ' Για να φαίνονται στις πωλήσεις, ενεργοποίησε «SN» στην καρτέλα του είδους στη SoftOne — ο έλεγχος το βλέπει αμέσως.'
+      : k === 'serials_missing' ? ' Πρόσθεσέ τους στην «Επεξεργασία γραμμών» (στήλη S/N).'
+        : ' Διόρθωσέ τους στην «Επεξεργασία γραμμών» (στήλη S/N).';
+    out[k] = `${list.join(' ')}${tail}`;
+  }
+  return out;
+}
+
+function specificMessage(code: BlockerCode, m: { periodMessage?: string | null; assetMessage?: string | null; approvalMessage?: string | null; serialTexts?: Partial<Record<SerialCode, string>> }): string | null {
+  if ((code === 'serials_count_mismatch' || code === 'serials_bad_format') && m.serialTexts?.[code]) return m.serialTexts[code]!;
   if (code === 'period_closed') return m.periodMessage ?? null;
   if (code === 'lines_asset_unsupported') return m.assetMessage ?? null;
   if (code === 'approval_required') return m.approvalMessage ?? null;
@@ -335,7 +370,7 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
   const assetById = new Map(assetRows.map((r) => [r.mtrl, r]));
   const [itemRows, linRows, expenseRows] = await Promise.all([
     mtrls.length
-      ? prisma.softoneItem.findMany({ where: { mtrl: { in: mtrls } }, select: { mtrl: true, myDataCode: true, unit1: true, unitBuy: true, buyRatio: true } })
+      ? prisma.softoneItem.findMany({ where: { mtrl: { in: mtrls } }, select: { mtrl: true, code: true, name: true, myDataCode: true, unit1: true, unitBuy: true, buyRatio: true, snUse: true, snMask: true } })
       : Promise.resolve([]),
     lins.length
       ? prisma.softoneLineItem.findMany({
@@ -354,6 +389,14 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
       : Promise.resolve([]),
   ]);
   const itemById = new Map(itemRows.map((r) => [r.mtrl, r]));
+  // ΣΕΙΡΙΑΚΟΙ: για όσα είδη έχουν σειριακούς στο χαρτί, η παρακολούθηση διαβάζεται ΖΩΝΤΑΝΑ (ο χρήστης
+  // μπορεί μόλις να την άνοιξε στην καρτέλα του είδους)· για τα υπόλοιπα αρκεί ο καθρέφτης.
+  const serialMtrls = items.filter((i) => i.softoneMtrl != null && (document.lines[i.rowIndex]?.serials ?? []).length > 0).map((i) => i.softoneMtrl as number);
+  const liveSn = serialMtrls.length && doc.postStatus !== 'POSTED' ? await serialTrackingFor(serialMtrls) : new Map<number, { snUse: number; snMask: string | null }>();
+  const itemLabels = new Map<number, string>(items.flatMap((i) => {
+    const it = i.softoneMtrl != null ? itemById.get(i.softoneMtrl) : undefined;
+    return it ? [[i.rowIndex, `${it.code} — ${it.name}`] as [number, string]] : [];
+  }));
   // Οι μονάδες του μητρώου, για να καταλάβουμε σε ΠΟΙΑ μονάδα τυπώνει την ποσότητα το τιμολόγιο.
   const unitRows = itemRows.some((r) => hasBuyUnit(r))
     ? await prisma.softoneLookup.findMany({ where: { kind: 'MTRUNIT' }, select: { code: true, name: true } })
@@ -428,6 +471,10 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
       ...(item ? (({ buyRatio, qtyInBase }) => ({ buyRatio, qtyInBase }))(decideLineUnits(item, document.lines[i.rowIndex], unitRows)) : {}),
       // Το πάγιο χαρακτηρίζεται από τη λογιστική του κατηγορία στο SoftOne — όχι παρατήρηση εδώ.
       noClassification: Boolean(matched) && !hasClass && i.softoneAsset == null,
+      ...(i.softoneMtrl != null ? (() => {
+        const live = liveSn.get(i.softoneMtrl);
+        return { snUse: live?.snUse ?? item?.snUse ?? null, snMask: live ? live.snMask : (item?.snMask ?? null) };
+      })() : {}),
       ...(conv?.links.get(i.rowIndex)?.length ? { sourceLinks: conv.links.get(i.rowIndex) } : {}),
     };
   });
@@ -528,7 +575,7 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
 
   return {
     doc, document, ctx, blockers, periodMessage, assetMessage, withholdingWarning, approvalMessage,
-    warnings,
+    warnings, serialTexts: serialTextsOf(document, ctx, itemLabels),
     payload: buildPurdocPayload(document, ctx),
     accounts,
   };
@@ -566,13 +613,18 @@ export type PostingPreview = {
  * Ό,τι επιστρέφει εδώ είναι ακριβώς ό,τι θα έστελνε το `postDocumentToSoftone`.
  */
 export async function postingPreview(id: string): Promise<PostingPreview> {
-  const { doc, document, ctx, blockers, warnings, payload, accounts, periodMessage, assetMessage, withholdingWarning, approvalMessage } = await gather(id);
+  const { doc, document, ctx, blockers, warnings, payload, accounts, periodMessage, assetMessage, withholdingWarning, approvalMessage, serialTexts } = await gather(id);
   const enabled = (await getSetting<boolean>(POSTING_ENABLED_KEY)) === true;
   const ref = documentReference(document.type);
   return {
     enabled,
-    blockers: blockers.map((code) => ({ code, message: specificMessage(code, { periodMessage, assetMessage, approvalMessage }) ?? blockerMessage(code, accounts, document) })),
-    warnings: warnings.map((code) => ({ code, message: code === 'withholding_check' && withholdingWarning ? withholdingWarning : warningMessage(code, accounts) })),
+    blockers: blockers.map((code) => ({ code, message: specificMessage(code, { periodMessage, assetMessage, approvalMessage, serialTexts }) ?? blockerMessage(code, accounts, document) })),
+    warnings: warnings.map((code) => ({
+      code,
+      message: code === 'withholding_check' && withholdingWarning ? withholdingWarning
+        : (code === 'serials_missing' || code === 'serials_untracked') && serialTexts?.[code] ? serialTexts[code]!
+          : warningMessage(code, accounts),
+    })),
     target: { ...ctx.target, label: describeTargetShort(ctx.target) },
     payload,
     accounts,
@@ -747,7 +799,7 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
 }
 
 async function postDocument(id: string, opts: PostOptions, mark: (step: string) => void): Promise<{ ref: string; warning?: string }> {
-  const { doc, document, ctx, blockers, payload, accounts, periodMessage, assetMessage, approvalMessage } = await gather(id, opts.conversion);
+  const { doc, document, ctx, blockers, payload, accounts, periodMessage, assetMessage, approvalMessage, serialTexts } = await gather(id, opts.conversion);
   mark('gather');
   // ΙΔΕΜΠΟΤΗΤΑ, πρώτο απ' όλα: ένα δεύτερο κλικ (ή μια δεύτερη εκτέλεση προτύπου) δεν δημιουργεί
   // δεύτερο παραστατικό στο SoftOne. Πριν από κάθε έλεγχο εμποδίων — ένα ήδη καταχωρισμένο
@@ -756,7 +808,7 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
     throw new PostError('already_posted', alreadyPostedText(doc.postedRef));
   }
   if (blockers.length) {
-    throw new PostError(blockers[0], blockers.map((c) => specificMessage(c, { periodMessage, assetMessage, approvalMessage }) ?? blockerMessage(c, accounts, document)).join(' · '));
+    throw new PostError(blockers[0], blockers.map((c) => specificMessage(c, { periodMessage, assetMessage, approvalMessage, serialTexts }) ?? blockerMessage(c, accounts, document)).join(' · '));
   }
   const [enabled, lastCheck] = await Promise.all([
     getSetting<boolean>(POSTING_ENABLED_KEY),

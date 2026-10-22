@@ -896,11 +896,14 @@ export interface ItemRow {
   buyRatio: number | null;
   unitSell: string | null;
   sellRatio: number | null;
+  /** MTRSNUSE «SN»: > 0 ⇒ το είδος παρακολουθείται με σειριακούς · SNCODEMSK η μορφή τους. */
+  snUse: number | null;
+  snMask: string | null;
 }
 
 const MTRL_FIELDS = [
   'MTRL', 'CODE', 'CODE1', 'CODE2', 'NAME', 'NAME1', 'PRICER', 'SODTYPE', 'ISACTIVE', 'MYDATACODE',
-  'MTRUNIT1', 'MTRUNIT3', 'MU31', 'MTRUNIT4', 'MU41',
+  'MTRUNIT1', 'MTRUNIT3', 'MU31', 'MTRUNIT4', 'MU41', 'MTRSNUSE', 'SNCODEMSK',
 ];
 
 /** Σχέση μονάδας: θετικός αριθμός, αλλιώς `null` (κενό/0 = «δεν ορίστηκε»). */
@@ -927,6 +930,8 @@ function mapItem(o: Record<string, string>): ItemRow {
     buyRatio: ratioOrNull(o.MU31),
     unitSell: idOrNull(o.MTRUNIT4),
     sellRatio: ratioOrNull(o.MU41),
+    snUse: o.MTRSNUSE === '' || o.MTRSNUSE == null || !Number.isFinite(Number(o.MTRSNUSE)) ? null : Number(o.MTRSNUSE),
+    snMask: (o.SNCODEMSK ?? '').trim() || null,
   };
 }
 

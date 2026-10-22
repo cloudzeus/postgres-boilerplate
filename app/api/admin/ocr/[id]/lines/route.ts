@@ -11,6 +11,7 @@ const str = z.string().max(500).nullable();
 const Values = z.object({
   name: z.string().max(500), code: str, unit: z.string().max(40).nullable(),
   quantity: num, unitPrice: num, discount: num, net: num, vatRate: num,
+  serials: z.array(z.string().max(60)).max(500).optional(),
 });
 const Body = z.object({
   update: z.array(Values.partial().extend({ rowIndex: z.number().int().min(0) })).max(500).optional(),

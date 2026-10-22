@@ -527,6 +527,10 @@ model SoftoneItem {
   buyRatio   Float? // MU31 «Σχέση με κύρια» (βασικές ανά 1 μονάδα αγορών)
   unitSell   String? // MTRUNIT4 «Μ.Μ.Πώλησης»
   sellRatio  Float? // MU41
+  // Σειριακοί αριθμοί: MTRSNUSE > 0 ⇒ η SoftOne κρατά S/N για το είδος (πίνακας SNLINES του PURDOC).
+  // `null` = δεν έχει διαβαστεί ακόμη (συγχρονισμός πριν προστεθεί το πεδίο).
+  snUse      Int? // MTRSNUSE «SN»
+  snMask     String? // SNCODEMSK «Μορφή κωδ.SN»
 
   @@index([name])
   @@index([code])

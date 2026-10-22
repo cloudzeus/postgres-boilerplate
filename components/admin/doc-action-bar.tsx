@@ -246,7 +246,7 @@ export function DocActionBar({
                       {warnings.length === 1 ? '1 παρατήρηση' : `${warnings.length} παρατηρήσεις`}
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="start" className="w-[32rem] max-w-[92vw] p-0"><WarningsList warnings={warnings} /></PopoverContent>
+                  <PopoverContent align="start" className="w-[32rem] max-w-[92vw] p-0"><WarningsList warnings={warnings} onFix={runFix} /></PopoverContent>
                 </Popover>
               )}
             </span>
@@ -280,7 +280,7 @@ export function DocActionBar({
                     );
                   })}
                 </ol>
-                {warnings.length > 0 && <WarningsList warnings={warnings} />}
+                {warnings.length > 0 && <WarningsList warnings={warnings} onFix={runFix} />}
               </PopoverContent>
             </Popover>
           )}
@@ -349,7 +349,7 @@ const BTN_GHOST =
   'inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-[length:var(--fs-12)] font-semibold text-foreground transition hover:bg-muted';
 
 /** Παρατηρήσεις που ΔΕΝ εμποδίζουν — αλλά ο χρήστης πρέπει να τις δει πριν καταχωρίσει. */
-function WarningsList({ warnings }: { warnings: { code: string; message: string }[] }) {
+function WarningsList({ warnings, onFix }: { warnings: { code: string; message: string }[]; onFix?: (t: NonNullable<ReturnType<typeof blockerFix>>['target']) => void }) {
   return (
     <div className="border-t border-border">
       <p className="px-3 pt-2 text-[length:var(--fs-11)] font-semibold uppercase tracking-wide text-muted-foreground">Παρατηρήσεις — δεν εμποδίζουν</p>
@@ -357,7 +357,16 @@ function WarningsList({ warnings }: { warnings: { code: string; message: string 
         {warnings.map((w) => (
           <li key={w.code} className="flex items-start gap-2 px-3 py-2">
             <FiAlertTriangle className="mt-0.5 size-3.5 shrink-0" style={{ color: '#B45309' }} aria-hidden />
-            <span className="leading-snug">{w.message}</span>
+            <span className="min-w-0 flex-1 leading-snug">{w.message}</span>
+            {(() => {
+              const fix = onFix ? blockerFix(w.code) : null;
+              return fix && fix.target.kind !== 'admin' ? (
+                <button type="button" onClick={() => onFix!(fix.target)}
+                  className="inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-sisyphus-500/50 px-2.5 text-[length:var(--fs-12)] font-semibold text-sisyphus-700 hover:bg-sisyphus-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-sisyphus-200">
+                  {fix.label} <FiArrowRight aria-hidden className="size-3.5" />
+                </button>
+              ) : null;
+            })()}
           </li>
         ))}
       </ul>

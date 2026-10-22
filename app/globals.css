@@ -310,6 +310,24 @@ body {
   background: #f8fafc;
 }
 
+/* Βίντεο-επεξήγηση */
+.wiki-content .wiki-video {
+  margin: 1.5rem 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: #f8fafc;
+  box-shadow: 0 4px 12px rgba(15,23,42,0.06);
+}
+.wiki-content .wiki-video video { width: 100%; height: auto; aspect-ratio: 16 / 9; display: block; background: #f8fafc; }
+.wiki-content .wiki-video figcaption {
+  padding: 0.625rem 0.875rem;
+  font-size: var(--fs-13, 0.8125rem);
+  color: #475569;
+  border-top: 1px solid #e2e8f0;
+}
+.wiki-content .wiki-video figcaption strong { color: #0f172a; }
+
 /* Role badge */
 .wiki-content .wiki-role-badge {
   display: inline-flex;

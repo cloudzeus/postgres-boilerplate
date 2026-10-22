@@ -55,6 +55,7 @@ export async function pullChangedItems(): Promise<ItemPullResult> {
         code: r.code, code1: r.code1, code2: r.code2, name: r.name || r.code, name2: r.name2,
         price: r.price, isService: r.isService, isActive: r.isActive, myDataCode: r.myDataCode,
         unit1: r.unit1, unitBuy: r.unitBuy, buyRatio: r.buyRatio, unitSell: r.unitSell, sellRatio: r.sellRatio,
+        snUse: r.snUse, snMask: r.snMask,
       };
       await prisma.softoneItem.upsert({ where: { mtrl: r.mtrl }, update: data, create: { mtrl: r.mtrl, ...data } });
     }

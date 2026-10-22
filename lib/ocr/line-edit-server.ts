@@ -30,7 +30,7 @@ export async function editDocumentLines(
   const doc = await loadDocumentJson(docId);
   const current: LineValues[] = doc.lines.map((l) => ({
     name: l.name ?? '', code: l.code, unit: l.unit, quantity: l.quantity, unitPrice: l.unitPrice,
-    discount: l.discount, net: l.net, vatRate: l.vatRate,
+    discount: l.discount, net: l.net, vatRate: l.vatRate, serials: l.serials ?? [],
   }));
   const plan = planLineEdit(current, ops);
   if (plan.errors.length) throw new LineEditError(plan.errors.join(' '));
@@ -47,6 +47,7 @@ export async function editDocumentLines(
       ...base,
       name: v.name, code: v.code, unit: v.unit, quantity: v.quantity, unitPrice: v.unitPrice, discount: v.discount,
       net: v.net, vatRate: v.vatRate, vatAmount,
+      serials: v.serials ?? (base as { serials?: string[] }).serials ?? [],
       total: v.net != null && vatAmount != null ? Math.round((v.net + vatAmount) * 100) / 100 : null,
     };
   });

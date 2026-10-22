@@ -10,17 +10,17 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
-  FiAlertTriangle, FiCheckCircle, FiChevronLeft, FiChevronRight, FiFileText, FiList, FiLoader, FiPlus, FiRotateCcw, FiTrash2,
+  FiAlertTriangle, FiCheckCircle, FiChevronLeft, FiChevronRight, FiFileText, FiHash, FiList, FiLoader, FiPlus, FiRotateCcw, FiTrash2,
 } from 'react-icons/fi';
 import { Button } from '@/components/ui/button';
 import { confirmAction } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { emitDocLinesChanged } from '@/components/admin/doc-lines-events';
-import { computeNet, type LineEditOps } from '@/lib/ocr/line-edit';
+import { computeNet, parseSerialsInput, type LineEditOps } from '@/lib/ocr/line-edit';
 import { n } from '@/lib/ocr/invoice-math';
 import { cn } from '@/lib/utils';
 
-interface DocLine { name: string | null; code: string | null; unit: string | null; quantity: number | null; unitPrice: number | null; discount: number | null; net: number | null; vatRate: number | null }
+interface DocLine { name: string | null; code: string | null; unit: string | null; quantity: number | null; unitPrice: number | null; discount: number | null; net: number | null; vatRate: number | null; serials?: string[] }
 interface Totals { net: number | null; vatAmount: number | null; fees: number | null; total: number | null }
 type Row = {
   key: string;
@@ -29,6 +29,10 @@ type Row = {
   /** Η καθαρή αξία υπολογίζεται από ποσότητα × τιμή × έκπτωση μέχρι να τη γράψει ο χρήστης. */
   autoNet: boolean;
   name: string; code: string; quantity: string; unitPrice: string; discount: string; net: string; vatRate: string;
+  /** Σειριακοί (S/N), όπως τους γράφει ο χρήστης: χωρισμένοι με κόμμα/κενό. */
+  serials: string;
+  /** Το πεδίο S/N φαίνεται όταν η γραμμή έχει ήδη σειριακούς ή όταν το ζητήσει ο χρήστης. */
+  showSn: boolean;
 };
 
 export type LinesEditorPrefill = { add?: { net: number; vatRate: number | null; name?: string }; removeRow?: number };
@@ -47,6 +51,7 @@ function rowFrom(l: DocLine, i: number): Row {
     autoNet: computed != null && l.net != null && Math.abs(computed - l.net) < 0.005,
     name: l.name ?? '', code: l.code ?? '', quantity: fmt(l.quantity), unitPrice: fmt(l.unitPrice),
     discount: fmt(l.discount), net: fmt(l.net), vatRate: l.vatRate == null ? '' : String(l.vatRate),
+    serials: (l.serials ?? []).join(', '), showSn: (l.serials ?? []).length > 0,
   };
 }
 
@@ -55,6 +60,7 @@ function blankRow(prefill?: { net: number; vatRate: number | null; name?: string
     key: newKey(), from: null, removed: false, autoNet: true,
     name: prefill?.name ?? '', code: '', quantity: prefill ? '1' : '', unitPrice: prefill ? fmt(prefill.net) : '',
     discount: '', net: prefill ? fmt(prefill.net) : '', vatRate: prefill?.vatRate == null ? '' : String(prefill.vatRate),
+    serials: '', showSn: false,
   };
 }
 
@@ -134,6 +140,7 @@ export function LinesEditorDialog({ docId, open, onOpenChange, prefill, lineMatc
       const values = {
         name: r.name.trim(), code: r.code.trim() || null, unit: null as string | null,
         quantity: n(r.quantity), unitPrice: n(r.unitPrice), discount: n(r.discount), net: n(r.net), vatRate: n(r.vatRate),
+        serials: parseSerialsInput(r.serials),
       };
       if (r.from == null) { if (!r.removed) o.add.push(values); continue; }
       if (r.removed) { o.remove.push(r.from); continue; }
@@ -142,6 +149,7 @@ export function LinesEditorDialog({ docId, open, onOpenChange, prefill, lineMatc
       if ((old.name ?? '') !== values.name) patch.name = values.name;
       if ((old.code ?? null) !== values.code) patch.code = values.code;
       for (const k of ['quantity', 'unitPrice', 'discount', 'net', 'vatRate'] as const) if ((old[k] ?? null) !== values[k]) patch[k] = values[k];
+      if ((old.serials ?? []).join('|') !== values.serials.join('|')) patch.serials = values.serials;
       if (Object.keys(patch).length) o.update.push({ rowIndex: r.from, ...patch });
     }
     return o;
@@ -249,7 +257,31 @@ export function LinesEditorDialog({ docId, open, onOpenChange, prefill, lineMatc
                                 {r.from == null && !r.removed && <span className="font-semibold text-emerald-700 dark:text-emerald-300">Νέα γραμμή</span>}
                                 {match && <span>SoftOne: {match}</span>}
                                 {r.removed && <span className="font-semibold text-destructive">Θα αφαιρεθεί{match ? ' — μαζί με την αντιστοίχισή της' : ''}</span>}
+                                {!r.removed && !r.showSn && (
+                                  <button type="button" onClick={() => set(r.key, { showSn: true })} className="inline-flex cursor-pointer items-center gap-0.5 rounded font-medium text-sisyphus-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-sisyphus-300">
+                                    <FiHash aria-hidden className="size-3" /> Σειριακοί (S/N)
+                                  </button>
+                                )}
                               </p>
+                              {r.showSn && !r.removed && (() => {
+                                const sn = parseSerialsInput(r.serials);
+                                const q = n(r.quantity);
+                                const off = sn.length > 0 && q != null && Math.abs(q - sn.length) > 1e-6;
+                                return (
+                                  <div className="mt-1">
+                                    <label className="flex items-center gap-1.5">
+                                      <span className="shrink-0 text-[length:var(--fs-11)] font-semibold text-muted-foreground"><abbr title="Σειριακοί αριθμοί" className="no-underline">S/N</abbr></span>
+                                      <input aria-label={`${label}: σειριακοί αριθμοί`} value={r.serials} onChange={(e) => set(r.key, { serials: e.target.value })}
+                                        placeholder="π.χ. DMV24000146, DMV24000147" className={cn(input, 'h-7 font-mono text-[length:var(--fs-12)]', off && 'border-amber-500')} />
+                                    </label>
+                                    <p className={cn('mt-0.5 text-[length:var(--fs-11)]', off ? 'font-medium text-amber-800 dark:text-amber-200' : 'text-muted-foreground')}>
+                                      {sn.length === 0 ? 'Χώρισέ τους με κόμμα ή κενό — ένας ανά τεμάχιο.'
+                                        : off ? `${sn.length} σειριακοί για ποσότητα ${fmt(q)} — σε είδος με σειριακούς πρέπει να είναι όσοι και τα τεμάχια.`
+                                          : `${sn.length} ${sn.length === 1 ? 'σειριακός' : 'σειριακοί'}`}
+                                    </p>
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td className="px-1 align-top"><input aria-label={`${label}: κωδικός`} value={r.code} disabled={r.removed} onChange={(e) => set(r.key, { code: e.target.value })} className={cn(input, 'font-mono')} /></td>
                             <td className="px-1 align-top"><input aria-label={`${label}: ποσότητα`} inputMode="decimal" value={r.quantity} disabled={r.removed} onChange={(e) => set(r.key, { quantity: e.target.value })} className={numCls} /></td>
