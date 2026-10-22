@@ -963,6 +963,7 @@ model OcrDocument {
   company           Company?         @relation(fields: [companyId], references: [id], onDelete: SetNull)
   taxTemplateId     String?
   taxTemplate       TaxFormTemplate? @relation(fields: [taxTemplateId], references: [id], onDelete: SetNull)
+  approvals        OcrApproval[]
   templateRuns      TemplateRun[]
   reviewFlags       Json? // { review: string[], blocked: string[], templateSlug, templateName, runStatus, runId } — latest run, for the list
   fiscalYear        Int?
@@ -2405,4 +2406,23 @@ model VatCheck {
   createdAt          DateTime @default(now())
 
   @@index([vat, createdAt])
+}
+
+/// Έγκριση (ή απόρριψη) καταχώρισης παραστατικού, ανά επίπεδο (βλ. lib/ocr/approvals.ts). Το
+/// `fingerprint` δένει την έγκριση με ΑΥΤΑ τα ποσά/εκδότη/γραμμές: αν αλλάξουν, η έγκριση δεν ισχύει.
+model OcrApproval {
+  id          String      @id @default(cuid())
+  documentId  String
+  document    OcrDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  level       Int
+  /// APPROVED | REJECTED
+  decision    String
+  userId      String?
+  userEmail   String?
+  roleKey     String?
+  comment     String?
+  fingerprint String
+  createdAt   DateTime    @default(now())
+
+  @@index([documentId])
 }

@@ -115,7 +115,8 @@ export type DocToolRequest =
   | { tool: 'history' }
   | { tool: 'posted-amounts' }
   | { tool: 'credit-link' }
-  | { tool: 'withholding' };
+  | { tool: 'withholding' }
+  | { tool: 'approval' };
 
 const TOOL = 'ocr:doc-tool';
 

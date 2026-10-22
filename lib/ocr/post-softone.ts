@@ -24,6 +24,8 @@ import { postingComment } from './posting-comment';
 import { periodVerdict } from '@/lib/softone-sync/periods';
 import { isCreditNote } from './credit-link';
 import { analyzeWithholding, isServiceInvoice, withholdingNote } from './withholding';
+import { approvalStatusFor } from './approvals-server';
+import { approvalBlockerMessage } from './approvals';
 import { clip } from './posting-comment';
 import { softoneErrorLine } from './softone-error-text';
 import { UTILITY_KIND_TITLE, analyzeUtility, utilityInputFromDocument } from './utility-bills';
@@ -83,6 +85,7 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   lines_no_mtrtype: 'Μια δαπάνη σε λογαριασμό δεν έχει πλήρη στοιχεία στη SoftOne. Ζήτησε από τον διαχειριστή νέο συγχρονισμό στα Μητρώα αναφοράς.',
   series_unknown: 'Το είδος παραστατικού που έχει οριστεί δεν υπάρχει (ή είναι ανενεργό) στη SoftOne. Διάλεξε άλλο από τη λίστα στην κάτω μπάρα.',
   series_module_unsupported: 'Αυτό το είδος παραστατικού δεν καταχωρείται από την εφαρμογή. Διάλεξε παραστατικό αγορών, προμηθευτών, χρεωστών ή πιστωτών.',
+  approval_required: 'Χρειάζεται έγκριση πριν την καταχώριση.',
   withholding_unhandled: 'Το παραστατικό έχει παρακράτηση φόρου, που η SoftOne δεν περνά αυτόματα σε αυτή την εγκατάσταση. Επιβεβαίωσε ότι θα την καταχωρίσει ο λογιστής.',
   credit_not_linked: 'Είναι πιστωτικό: σύνδεσέ το με το αρχικό παραστατικό που πιστώνει — ή δήλωσε ρητά «χωρίς αρχικό» (π.χ. έκπτωση τζίρου).',
   period_closed: 'Η ημερομηνία του παραστατικού πέφτει σε κλειστή περίοδο της SoftOne. Αν διαβάστηκε λάθος, διόρθωσέ τη· αλλιώς ζήτησε από τον λογιστή να ανοίξει την περίοδο.',
@@ -207,6 +210,8 @@ type Gathered = {
   assetMessage?: string | null;
   /** Το συγκεκριμένο μήνυμα του ελέγχου παρακράτησης (ποσοστό / πληρωτέο / πιθανή έλλειψη). */
   withholdingWarning?: string | null;
+  /** Τι λείπει στις εγκρίσεις (ή ποιος απέρριψε, γιατί). */
+  approvalMessage?: string | null;
 };
 
 /**
@@ -258,6 +263,14 @@ function utilityTitleOf(document: DocumentJson): string | null {
   const input = utilityInputFromDocument(document);
   const u = input ? analyzeUtility(input) : null;
   return u ? UTILITY_KIND_TITLE[u.kind] : null;
+}
+
+/** Εμπόδια με μήνυμα που ξέρει τα συγκεκριμένα του παραστατικού (περίοδος, πάγιο, εγκρίσεις). */
+function specificMessage(code: BlockerCode, m: { periodMessage?: string | null; assetMessage?: string | null; approvalMessage?: string | null }): string | null {
+  if (code === 'period_closed') return m.periodMessage ?? null;
+  if (code === 'lines_asset_unsupported') return m.assetMessage ?? null;
+  if (code === 'approval_required') return m.approvalMessage ?? null;
+  return null;
 }
 
 async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
@@ -504,9 +517,18 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
     if (v && v.code !== 'ok' && v.code !== 'no_date') { blockers.push('period_closed'); periodMessage = v.message; }
   }
 
+  const warnings = [...postingWarnings(ctx, accounts, document), ...(withholdingWarning ? ['withholding_check' as const] : [])];
+
+  // ΕΓΚΡΙΣΕΙΣ: όριο ποσού / παρατηρήσεις — ο άνθρωπος εγκρίνει πριν φύγει (και ο εκτελεστής προτύπων σταματά).
+  let approvalMessage: string | null = null;
+  if (doc.postStatus !== 'POSTED') {
+    const a = await approvalStatusFor(id, document, doc.softoneTrdr, seriesOk ? seriesCode : null, warnings.length > 0).catch(() => null);
+    if (a && !a.status.satisfied) { blockers.push('approval_required'); approvalMessage = approvalBlockerMessage(a.status); }
+  }
+
   return {
-    doc, document, ctx, blockers, periodMessage, assetMessage, withholdingWarning,
-    warnings: [...postingWarnings(ctx, accounts, document), ...(withholdingWarning ? ['withholding_check' as const] : [])],
+    doc, document, ctx, blockers, periodMessage, assetMessage, withholdingWarning, approvalMessage,
+    warnings,
     payload: buildPurdocPayload(document, ctx),
     accounts,
   };
@@ -544,12 +566,12 @@ export type PostingPreview = {
  * Ό,τι επιστρέφει εδώ είναι ακριβώς ό,τι θα έστελνε το `postDocumentToSoftone`.
  */
 export async function postingPreview(id: string): Promise<PostingPreview> {
-  const { doc, document, ctx, blockers, warnings, payload, accounts, periodMessage, assetMessage, withholdingWarning } = await gather(id);
+  const { doc, document, ctx, blockers, warnings, payload, accounts, periodMessage, assetMessage, withholdingWarning, approvalMessage } = await gather(id);
   const enabled = (await getSetting<boolean>(POSTING_ENABLED_KEY)) === true;
   const ref = documentReference(document.type);
   return {
     enabled,
-    blockers: blockers.map((code) => ({ code, message: code === 'period_closed' && periodMessage ? periodMessage : code === 'lines_asset_unsupported' && assetMessage ? assetMessage : blockerMessage(code, accounts, document) })),
+    blockers: blockers.map((code) => ({ code, message: specificMessage(code, { periodMessage, assetMessage, approvalMessage }) ?? blockerMessage(code, accounts, document) })),
     warnings: warnings.map((code) => ({ code, message: code === 'withholding_check' && withholdingWarning ? withholdingWarning : warningMessage(code, accounts) })),
     target: { ...ctx.target, label: describeTargetShort(ctx.target) },
     payload,
@@ -725,7 +747,7 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
 }
 
 async function postDocument(id: string, opts: PostOptions, mark: (step: string) => void): Promise<{ ref: string; warning?: string }> {
-  const { doc, document, ctx, blockers, payload, accounts, periodMessage, assetMessage } = await gather(id, opts.conversion);
+  const { doc, document, ctx, blockers, payload, accounts, periodMessage, assetMessage, approvalMessage } = await gather(id, opts.conversion);
   mark('gather');
   // ΙΔΕΜΠΟΤΗΤΑ, πρώτο απ' όλα: ένα δεύτερο κλικ (ή μια δεύτερη εκτέλεση προτύπου) δεν δημιουργεί
   // δεύτερο παραστατικό στο SoftOne. Πριν από κάθε έλεγχο εμποδίων — ένα ήδη καταχωρισμένο
@@ -734,7 +756,7 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
     throw new PostError('already_posted', alreadyPostedText(doc.postedRef));
   }
   if (blockers.length) {
-    throw new PostError(blockers[0], blockers.map((c) => (c === 'period_closed' && periodMessage ? periodMessage : c === 'lines_asset_unsupported' && assetMessage ? assetMessage : blockerMessage(c, accounts, document))).join(' · '));
+    throw new PostError(blockers[0], blockers.map((c) => specificMessage(c, { periodMessage, assetMessage, approvalMessage }) ?? blockerMessage(c, accounts, document)).join(' · '));
   }
   const [enabled, lastCheck] = await Promise.all([
     getSetting<boolean>(POSTING_ENABLED_KEY),

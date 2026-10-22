@@ -8,7 +8,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
-  FiAlertTriangle, FiArrowRight, FiCheckCircle, FiChevronDown, FiClock, FiDollarSign, FiFileText, FiLink, FiList, FiLoader, FiRefreshCw, FiTool, FiXCircle,
+  FiAlertTriangle, FiArrowRight, FiCheckCircle, FiChevronDown, FiClock, FiDollarSign, FiFileText, FiLink, FiList, FiLoader, FiRefreshCw, FiShield, FiTool, FiXCircle,
 } from 'react-icons/fi';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,6 +20,7 @@ import { LinesEditorDialog, type LinesEditorPrefill } from '@/components/admin/l
 import { PostedAmountsDialog } from '@/components/admin/posted-amounts-dialog';
 import { CreditLinkDialog } from '@/components/admin/credit-link-dialog';
 import { WithholdingDialog } from '@/components/admin/withholding-dialog';
+import { ApprovalDialog } from '@/components/admin/approval-dialog';
 import { emitDocLinesChanged, emitDocTool, focusSection, useDocTool, DOC_SECTION, type DocToolRequest } from '@/components/admin/doc-lines-events';
 import { blockerFix } from '@/lib/ocr/blocker-fix';
 import { elapsedSuffix, useElapsedSeconds } from '@/lib/use-elapsed';
@@ -62,6 +63,7 @@ export function DocActionsMenu({ docId, canManage, canRescan, posted, isCredit }
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-[length:var(--fs-11)] font-semibold uppercase tracking-wide text-muted-foreground">Πληροφορίες</DropdownMenuLabel>
         <MenuItem icon={<FiClock />} title="Ιστορικό αλλαγών" hint="Ποιος άλλαξε τι, και πότε" onSelect={() => open({ tool: 'history' })} />
+        {!posted && <MenuItem icon={<FiShield />} title="Εγκρίσεις" hint="Ποιες εγκρίσεις χρειάζονται, ποιες δόθηκαν" onSelect={() => open({ tool: 'approval' })} />}
         {posted && (
           <MenuItem icon={<FiDollarSign />} title="Ποσά στη SoftOne" hint="Σύγκριση με το χαρτί και διόρθωση, αν η SoftOne κράτησε άλλο ποσό" onSelect={() => open({ tool: 'posted-amounts' })} />
         )}
@@ -88,6 +90,7 @@ export function DocToolsHost({ docId, canManage, canRescan, posted, canPost, lin
   const [amounts, setAmounts] = React.useState(false);
   const [creditLink, setCreditLink] = React.useState(false);
   const [withholding, setWithholding] = React.useState(false);
+  const [approval, setApproval] = React.useState(false);
   const [rescan, setRescan] = React.useState(false);
   const [history, setHistory] = React.useState(false);
 
@@ -113,6 +116,7 @@ export function DocToolsHost({ docId, canManage, canRescan, posted, canPost, lin
     } else if (req.tool === 'history') setHistory(true);
     else if (req.tool === 'posted-amounts') setAmounts(true);
     else if (req.tool === 'withholding') setWithholding(true);
+    else if (req.tool === 'approval') setApproval(true);
     else if (req.tool === 'credit-link') {
       if (posted) { toast.error(`${POSTED_REASON}.`); return; }
       setCreditLink(true);
@@ -126,6 +130,7 @@ export function DocToolsHost({ docId, canManage, canRescan, posted, canPost, lin
       {history && <HistoryDialog docId={docId} onClose={() => setHistory(false)} />}
       {amounts && <PostedAmountsDialog docId={docId} canFix={!!canPost} onClose={() => setAmounts(false)} />}
       {creditLink && <CreditLinkDialog docId={docId} canEdit={canManage} onClose={() => setCreditLink(false)} />}
+      {approval && <ApprovalDialog docId={docId} onClose={() => setApproval(false)} />}
       {withholding && <WithholdingDialog docId={docId} canEdit={canManage && !posted} onClose={() => setWithholding(false)} />}
     </>
   );
@@ -307,6 +312,8 @@ const ACTION_TEXT: Record<string, string> = {
   'ocr.post.amounts_fix': 'Διόρθωση ποσών στη SoftOne',
   'ocr.credit.link': 'Σύνδεση πιστωτικού με αρχικό',
   'ocr.withholding.ack': 'Παρακράτηση φόρου — απόφαση',
+  'ocr.approval.approve': 'Έγκριση καταχώρισης',
+  'ocr.approval.reject': 'Απόρριψη καταχώρισης',
 };
 
 function HistoryDialog({ docId, onClose }: { docId: string; onClose: () => void }) {
