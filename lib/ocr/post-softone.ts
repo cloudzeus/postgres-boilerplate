@@ -199,6 +199,8 @@ type Gathered = {
   accounts: AccountCheck;
   /** Το συγκεκριμένο μήνυμα της περιόδου (χρήση/μήνας ονομαστικά) όταν υπάρχει `period_closed`. */
   periodMessage?: string | null;
+  /** Πάγιο σε σειρά που δεν το δέχεται: ποιες ενεργές σειρές αγορών το δέχονται. */
+  assetMessage?: string | null;
 };
 
 /**
@@ -463,6 +465,19 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
     blockers.push('credit_not_linked');
   }
 
+  // ΠΑΓΙΑ σε σειρά που δεν τα δέχεται: ονομάζουμε τις ενεργές σειρές αγορών που τα δέχονται, αντί για
+  // ένα γενικό «διάλεξε σειρά αγορών» — ο χρήστης δεν ξέρει ποια από τις δεκάδες είναι.
+  let assetMessage: string | null = null;
+  if (blockers.includes('lines_asset_unsupported')) {
+    const buy = await prisma.purchaseDocType.findMany({
+      where: { enabled: true, isActive: true, name: { contains: 'Τιμολόγιο' }, NOT: { name: { contains: 'Πιστωτικ' } } },
+      select: { abbrev: true, name: true }, orderBy: { code: 'asc' }, take: 3,
+    }).catch(() => []);
+    if (buy.length) {
+      assetMessage = `Κάποια γραμμή είναι πάγιο, αλλά το είδος παραστατικού που διάλεξες δεν δέχεται πάγια (μόνο τα τιμολόγια αγορών τα δέχονται). Διάλεξε π.χ. ${buy.map((b) => `«${b.abbrev ? `${b.abbrev} · ` : ''}${b.name}»`).join(' ή ')} στην κάτω μπάρα — ή όρισε τη γραμμή ως κατηγορία εξόδου.`;
+    }
+  }
+
   let periodMessage: string | null = null;
   if (doc.postStatus !== 'POSTED' && document.date) {
     const v = await periodVerdict(document.date);
@@ -470,7 +485,7 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
   }
 
   return {
-    doc, document, ctx, blockers, periodMessage,
+    doc, document, ctx, blockers, periodMessage, assetMessage,
     warnings: postingWarnings(ctx, accounts, document),
     payload: buildPurdocPayload(document, ctx),
     accounts,
@@ -509,12 +524,12 @@ export type PostingPreview = {
  * Ό,τι επιστρέφει εδώ είναι ακριβώς ό,τι θα έστελνε το `postDocumentToSoftone`.
  */
 export async function postingPreview(id: string): Promise<PostingPreview> {
-  const { doc, document, ctx, blockers, warnings, payload, accounts, periodMessage } = await gather(id);
+  const { doc, document, ctx, blockers, warnings, payload, accounts, periodMessage, assetMessage } = await gather(id);
   const enabled = (await getSetting<boolean>(POSTING_ENABLED_KEY)) === true;
   const ref = documentReference(document.type);
   return {
     enabled,
-    blockers: blockers.map((code) => ({ code, message: code === 'period_closed' && periodMessage ? periodMessage : blockerMessage(code, accounts, document) })),
+    blockers: blockers.map((code) => ({ code, message: code === 'period_closed' && periodMessage ? periodMessage : code === 'lines_asset_unsupported' && assetMessage ? assetMessage : blockerMessage(code, accounts, document) })),
     warnings: warnings.map((code) => ({ code, message: warningMessage(code, accounts) })),
     target: { ...ctx.target, label: describeTargetShort(ctx.target) },
     payload,
@@ -690,7 +705,7 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
 }
 
 async function postDocument(id: string, opts: PostOptions, mark: (step: string) => void): Promise<{ ref: string; warning?: string }> {
-  const { doc, document, ctx, blockers, payload, accounts, periodMessage } = await gather(id, opts.conversion);
+  const { doc, document, ctx, blockers, payload, accounts, periodMessage, assetMessage } = await gather(id, opts.conversion);
   mark('gather');
   // ΙΔΕΜΠΟΤΗΤΑ, πρώτο απ' όλα: ένα δεύτερο κλικ (ή μια δεύτερη εκτέλεση προτύπου) δεν δημιουργεί
   // δεύτερο παραστατικό στο SoftOne. Πριν από κάθε έλεγχο εμποδίων — ένα ήδη καταχωρισμένο
@@ -699,7 +714,7 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
     throw new PostError('already_posted', alreadyPostedText(doc.postedRef));
   }
   if (blockers.length) {
-    throw new PostError(blockers[0], blockers.map((c) => (c === 'period_closed' && periodMessage ? periodMessage : blockerMessage(c, accounts, document))).join(' · '));
+    throw new PostError(blockers[0], blockers.map((c) => (c === 'period_closed' && periodMessage ? periodMessage : c === 'lines_asset_unsupported' && assetMessage ? assetMessage : blockerMessage(c, accounts, document))).join(' · '));
   }
   const [enabled, lastCheck] = await Promise.all([
     getSetting<boolean>(POSTING_ENABLED_KEY),
