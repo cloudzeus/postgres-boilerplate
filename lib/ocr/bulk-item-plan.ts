@@ -83,7 +83,7 @@ export function withTarget(r: ItemPlanRow, t: ItemTarget): ItemPlanRow {
 }
 
 export const KIND_LABEL: Record<MatchKind, string> = {
-  product: 'Είδος', service: 'Υπηρεσία', expense: 'Έξοδο', lineitem: 'Χρεοπίστωση',
+  product: 'Είδος', service: 'Υπηρεσία', expense: 'Κατηγορία εξόδου', lineitem: 'Κατηγορία εξόδου',
 };
 
 /**

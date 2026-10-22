@@ -26,9 +26,9 @@ export interface ClassOption { code: string; label: string }
 export const CATEGORY_META: Record<MatchKind, { label: string; bg: string; fg: string }> = {
   product: { label: 'Προϊόν', bg: '#EAF4FC', fg: '#0078D4' },
   service: { label: 'Υπηρεσία', bg: '#E8F7F0', fg: '#047857' },
-  expense: { label: 'Έξοδο', bg: '#FDF3E3', fg: '#B45309' },
+  expense: { label: 'Κατηγορία εξόδου', bg: '#FDF3E3', fg: '#B45309' },
   // Χρεοπίστωση (LINEITEM): ό,τι δέχεται η γραμμή «Ειδικών συναλλαγών» (LINLINES).
-  lineitem: { label: 'Χρεοπίστωση', bg: '#F3EEFF', fg: '#6D28D9' },
+  lineitem: { label: 'Κατηγορία εξόδου', bg: '#F3EEFF', fg: '#6D28D9' },
 };
 
 /**

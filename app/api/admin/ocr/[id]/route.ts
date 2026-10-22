@@ -6,6 +6,14 @@ import { bunnyDelete } from '@/lib/bunny';
 import { DocumentSchema, normalizeDocument, type DocumentJson } from '@/lib/ocr/canonical';
 import { docTypeOf, loadDocumentJson, mergeLegacyPatch, saveDocumentJson } from '@/lib/ocr/document';
 import { matchDocItems } from '@/lib/ocr/softone-match';
+import { logAudit } from '@/lib/audit';
+
+/** Τα κλειδιά της φόρμας με το όνομα που βλέπει ο χρήστης (για το ιστορικό αλλαγών). */
+const FIELD_LABEL: Record<string, string> = {
+  documentTypeLabel: 'τύπος', invoiceNumber: 'αριθμός', date: 'ημερομηνία', companyName: 'εκδότης', vatNumber: 'ΑΦΜ εκδότη',
+  subtotal: 'καθαρή αξία', vatAmount: 'ΦΠΑ', otherCharges: 'επιβαρύνσεις', totalAmount: 'σύνολο', softoneSeries: 'σειρά',
+  category: 'κατηγορία', reconOverride: 'κατάσταση ελέγχου', docType: 'είδος εγγράφου', notes: 'σημειώσεις',
+};
 
 // ΠΡΟΣΟΧΗ: το zod ΠΕΤΑΕΙ ό,τι δεν είναι στο σχήμα. Η μονάδα μέτρησης και τα ανά γραμμή ειδικά
 // πεδία πρέπει να δηλωθούν ρητά — αλλιώς ο επεξεργαστής γραμμών τα στέλνει και το route τα σβήνει
@@ -150,6 +158,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // η αυτόματη αντιστοίχιση ώστε τα `itemsTotal`/`itemsMatched` να μη μιλούν για γραμμές που
     // μόλις διαγράφηκαν. Λογιστική δουλειά — ποτέ μοιραία.
     if (replaceItems) await matchDocItems(id).catch(() => null);
+  }
+  // Ιστορικό: ΤΙ άλλαξε (κλειδιά, όχι τιμές — μπορεί να είναι προσωπικά δεδομένα).
+  const changedKeys = [
+    ...Object.keys(extractedData ?? {}).filter((k) => k !== 'items'),
+    ...(items !== undefined ? ['γραμμές'] : []),
+    ...(documentPatch != null ? ['έγγραφο'] : []),
+    ...Object.keys(scalar).filter((k) => (scalar as Record<string, unknown>)[k] !== undefined),
+  ];
+  if (changedKeys.length) {
+    const label = (k: string) => FIELD_LABEL[k] ?? k;
+    await logAudit({
+      userId: user.id, userEmail: user.email, action: 'ocr.document.edit', resource: 'ocr_document', resourceId: id,
+      metadata: { summary: `Άλλαξαν: ${changedKeys.map(label).join(', ')}`, keys: changedKeys },
+    }).catch(() => null);
   }
   const fresh = await prisma.ocrDocument.findUnique({ where: { id }, include: { items: { orderBy: { rowIndex: 'asc' } } } });
   return NextResponse.json(fresh ?? doc);

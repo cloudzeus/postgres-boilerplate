@@ -110,7 +110,7 @@ export function seriesConfidenceTone(confidence: number | null): { color: string
 }
 
 const CATEGORY_LABEL: Record<string, string> = {
-  EXPENSE: 'Έξοδο',
+  EXPENSE: 'Δαπάνη',
   INVOICE_IN: 'Τιμολόγιο αγοράς',
   INVOICE_OUT: 'Τιμολόγιο πώλησης',
   RECEIPT: 'Απόδειξη',
@@ -333,7 +333,7 @@ export function OcrTable({
         body: JSON.stringify({ docType }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      if (!res.ok) throw new Error(json?.message ?? json?.error ?? `HTTP ${res.status}`);
       p.ok(`Το επανασκανάρισμα ολοκληρώθηκε (${json.model})`);
       router.refresh();
     } catch (err: any) {

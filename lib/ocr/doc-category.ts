@@ -2,7 +2,7 @@
 // Ένα σημείο για τη λίστα και για τη σελίδα του παραστατικού — η κατηγορία είναι εμπόδιο της
 // καταχώρισης (`no_category`), άρα πρέπει να ορίζεται όπου κι αν φαίνεται το εμπόδιο.
 export const DOC_CATEGORY_OPTIONS = [
-  { value: 'EXPENSE', label: 'Έξοδο' },
+  { value: 'EXPENSE', label: 'Δαπάνη' },
   { value: 'INVOICE_IN', label: 'Τιμολόγιο αγοράς' },
   { value: 'INVOICE_OUT', label: 'Τιμολόγιο πώλησης' },
   { value: 'RECEIPT', label: 'Απόδειξη' },

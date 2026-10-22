@@ -450,3 +450,7 @@ select:is([class*=" h-"], [class^="h-"]) {
 [data-slot="dialog-content"] *::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--muted-foreground) 60%, transparent); }
 [data-slot="dialog-content"]::-webkit-scrollbar-corner,
 [data-slot="dialog-content"] *::-webkit-scrollbar-corner { background: transparent; }
+
+/* «Λύσε» → το τμήμα της σελίδας που διορθώνει το πρόβλημα, επισημαίνεται για λίγο (focusSection). */
+.doc-flash { outline: 3px solid rgb(14 116 191 / 0.55); outline-offset: 4px; border-radius: 0.75rem; transition: outline-color 1.2s ease-out; }
+@media (prefers-reduced-motion: reduce) { .doc-flash { transition: none; } }

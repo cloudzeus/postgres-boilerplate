@@ -8,6 +8,7 @@
 // δαπανών πάει σε `LINSUPDOC`/`LINLINES`, μια αγορά εμπορευμάτων σε `PURDOC`/`ITELINES`, ένα
 // παραστατικό χρεώστη σε `LINDEBDOC`/`LINLINES`.
 import { normalizeDocRef } from '@/lib/doc-reference';
+import { clip } from './posting-comment';
 import { normalizeVatId } from './validate';
 import type { DocumentJson } from './canonical';
 import { analyzeLine } from './invoice-math';
@@ -543,7 +544,9 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
   if (ref.taxSeries) header.TAXSERIES = ref.taxSeries;
   if (ref.taxSeriesNum) header.TAXSERIESNUM = ref.taxSeriesNum;
   const comments = text(ctx.comments);
-  if (comments) header.COMMENTS = comments;
+  // Το πεδίο χωρά 255 χαρακτήρες: μεγαλύτερο κείμενο η SoftOne το απορρίπτει ΜΟΝΟ στην αποθήκευση
+  // («Range Error»), όχι στο `calculate`.
+  if (comments) header.COMMENTS = clip(comments);
   const mark = text(document.digital.mark);
   if (mark) header.SomyDataMARK = mark;
   const uid = text(document.digital.uid);
@@ -581,7 +584,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
         ...analyticsOf(match),
       };
       if (vat != null) row.VAT = vat;
-      if (name) row.COMMENTS = name;
+      if (name) row.COMMENTS = clip(name);
       assetLines.push(row);
       return;
     }
@@ -607,7 +610,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
           // Το σχόλιο κουβαλά και το ποσοστό: στο ERP η γραμμή θα φαίνεται μόνη της, και χωρίς
           // αυτό κανείς δεν καταλαβαίνει γιατί το ποσό δεν είναι το τυπωμένο του παραστατικού.
           const share = `${String(a.percent).replace('.', ',')}%`;
-          row.COMMENTS = name ? `${name} · ${share}` : share;
+          row.COMMENTS = clip(name ? `${name} · ${share}` : share);
           linLines.push(row);
         }
         return;
@@ -623,7 +626,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
         ...analyticsOf(match),
       };
       if (vat != null) row.VAT = vat;
-      if (name) row.COMMENTS = name;
+      if (name) row.COMMENTS = clip(name);
       linLines.push(row);
       return;
     }
@@ -652,7 +655,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
         ...analyticsOf(match),
       };
       if (vat != null) row.VAT = vat;
-      if (name) row.COMMENTS = name;
+      if (name) row.COMMENTS = clip(name);
       // Ο χαρακτηρισμός myDATA υπάρχει ΜΟΝΟ σε αυτούς τους τρεις πίνακες γραμμών.
       if (cls) row.MYDATACODE = cls;
       return row;

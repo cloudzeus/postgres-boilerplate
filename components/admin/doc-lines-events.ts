@@ -102,3 +102,60 @@ export function useStartSplit(lineId: string, onStart: () => void): void {
     return () => window.removeEventListener(START_SPLIT, handler);
   }, [lineId]);
 }
+
+/**
+ * «Άνοιξε ΑΥΤΟ το εργαλείο του παραστατικού» — από οπουδήποτε στη σελίδα (μενού «Ενέργειες», πάνελ
+ * ποσών, λίστα εμποδίων) προς τον ΕΝΑΝ host που κρατά τα παράθυρα (`DocToolsHost`). Έτσι κάθε
+ * ανωμαλία έχει δρόμο: η πρόταση «λείπει γραμμή 43,00 €» ανοίγει τον επεξεργαστή γραμμών με τη
+ * γραμμή ήδη συμπληρωμένη, αντί να λέει «διόρθωσέ το κάπου».
+ */
+export type DocToolRequest =
+  | { tool: 'lines'; add?: { net: number; vatRate: number | null; name?: string }; removeRow?: number }
+  | { tool: 'rescan' }
+  | { tool: 'history' };
+
+const TOOL = 'ocr:doc-tool';
+
+/** Στέλνει το αίτημα· `false` όταν δεν υπάρχει host να το ακούσει (π.χ. στην καρτέλα της λίστας). */
+export function emitDocTool(docId: string, req: DocToolRequest): boolean {
+  if (typeof window === 'undefined' || !docId) return false;
+  const detail = { docId, req, handled: false };
+  window.dispatchEvent(new CustomEvent(TOOL, { detail }));
+  return detail.handled;
+}
+
+export function useDocTool(docId: string, onRequest: (req: DocToolRequest) => void): void {
+  const ref = React.useRef(onRequest);
+  ref.current = onRequest;
+  React.useEffect(() => {
+    if (!docId) return;
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<{ docId?: string; req: DocToolRequest; handled?: boolean }>).detail;
+      if (d?.docId === docId) { d.handled = true; ref.current(d.req); }
+    };
+    window.addEventListener(TOOL, handler);
+    return () => window.removeEventListener(TOOL, handler);
+  }, [docId]);
+}
+
+/** Τα τμήματα της σελίδας στα οποία οδηγεί ένα «Λύσε» (id στοιχείου). */
+export const DOC_SECTION = {
+  fields: 'doc-fields', lines: 'doc-lines', amounts: 'doc-amounts', checks: 'doc-checks',
+  series: 'doc-series', category: 'doc-category', template: 'doc-template',
+} as const;
+
+/**
+ * Πήγαινε στο τμήμα και επισήμανέ το για λίγο. Αν είναι πεδίο φόρμας, παίρνει και το focus.
+ * `false` όταν το τμήμα δεν υπάρχει σε αυτή τη σελίδα.
+ */
+export function focusSection(id: string): boolean {
+  if (typeof document === 'undefined') return false;
+  const el = document.getElementById(id);
+  if (!el) return false;
+  el.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+  el.classList.add('doc-flash');
+  setTimeout(() => el.classList.remove('doc-flash'), 1600);
+  const focusable = el.matches('input,select,textarea,button') ? el : el.querySelector<HTMLElement>('input,select,textarea');
+  focusable?.focus({ preventScroll: true });
+  return true;
+}

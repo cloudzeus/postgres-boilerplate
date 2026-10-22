@@ -53,6 +53,8 @@ export type SoftoneCarry = {
   softoneMtrl: number | null; softoneExpn: number | null; softoneLinMtrl: number | null; softoneAsset?: number | null;
   softoneCode: string | null;
   softoneName: string | null; softoneIsService: boolean | null; softoneMatchedBy: string | null;
+  /** Αναλυτικά της γραμμής (κέντρο κόστους / έργο / στάδιο) — δουλειά χεριού, επιβιώνει κι αυτή. */
+  softoneCostCntr?: number | null; softonePrjc?: number | null; softonePrjcStage?: number | null;
 };
 export type SoftoneColumns = SoftoneCarry & { rowIndex: number; code: string | null; name: string | null };
 
@@ -60,16 +62,19 @@ export const CARRY_SELECT = {
   rowIndex: true, code: true, name: true,
   softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneAsset: true, softoneCode: true, softoneName: true,
   softoneIsService: true, softoneMatchedBy: true,
+  softoneCostCntr: true, softonePrjc: true, softonePrjcStage: true,
 } as const;
 
 const NO_CARRY: SoftoneCarry = {
   softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneAsset: null, softoneCode: null, softoneName: null,
   softoneIsService: null, softoneMatchedBy: null,
+  softoneCostCntr: null, softonePrjc: null, softonePrjcStage: null,
 };
 const carryOf = (o: SoftoneColumns): SoftoneCarry => ({
   softoneMtrl: o.softoneMtrl, softoneExpn: o.softoneExpn, softoneLinMtrl: o.softoneLinMtrl, softoneAsset: o.softoneAsset ?? null,
   softoneCode: o.softoneCode,
   softoneName: o.softoneName, softoneIsService: o.softoneIsService, softoneMatchedBy: o.softoneMatchedBy,
+  softoneCostCntr: o.softoneCostCntr ?? null, softonePrjc: o.softonePrjc ?? null, softonePrjcStage: o.softonePrjcStage ?? null,
 });
 
 /**
@@ -135,6 +140,11 @@ export type SaveDocumentOptions = {
    * `document` / `extractedData` / `issuerAfm` δεν επιτρέπεται να τα πατήσει ο καλών.
    */
   also?: Prisma.OcrDocumentUpdateInput;
+  /**
+   * Πράξεις στις γραμμές `OcrInvoiceItem` που εκτελούνται στο ΙΔΙΟ transaction με το έγγραφο
+   * (χειροκίνητη επεξεργασία γραμμών: `lib/ocr/line-edit-server.ts`). Ασύμβατο με `replaceItems`.
+   */
+  itemOps?: Prisma.PrismaPromise<unknown>[];
 };
 
 /**
@@ -177,6 +187,10 @@ export async function saveDocumentJson(
     }
   }
 
+  if (opts.itemOps?.length) {
+    if (opts.replaceItems) throw new Error('saveDocumentJson: itemOps και replaceItems δεν συνδυάζονται');
+    ops.push(...opts.itemOps);
+  }
   await prisma.$transaction([prisma.ocrDocument.update({ where: { id: documentId }, data }), ...ops]);
 }
 

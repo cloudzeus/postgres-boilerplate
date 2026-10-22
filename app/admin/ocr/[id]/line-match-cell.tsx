@@ -45,8 +45,8 @@ export interface LineAnalyticsState {
 const KIND_META: Record<MatchKind, { label: string; bg: string; fg: string; icon: React.ReactNode }> = {
   product: { label: 'Είδος', bg: '#EAF4FC', fg: '#0078D4', icon: <FiPackage aria-hidden className="size-3" /> },
   service: { label: 'Υπηρεσία', bg: '#E8F7F0', fg: '#047857', icon: <FiTool aria-hidden className="size-3" /> },
-  expense: { label: 'Έξοδο', bg: '#FDF3E3', fg: '#B45309', icon: <FiDollarSign aria-hidden className="size-3" /> },
-  lineitem: { label: 'Χρεοπίστωση', bg: '#F3EEFF', fg: '#6D28D9', icon: <FiTag aria-hidden className="size-3" /> },
+  expense: { label: 'Κατηγορία εξόδου', bg: '#FDF3E3', fg: '#B45309', icon: <FiDollarSign aria-hidden className="size-3" /> },
+  lineitem: { label: 'Κατηγορία εξόδου', bg: '#F3EEFF', fg: '#6D28D9', icon: <FiTag aria-hidden className="size-3" /> },
 };
 
 const SEGMENTS: MatchKind[] = ['product', 'service', 'expense', 'lineitem'];

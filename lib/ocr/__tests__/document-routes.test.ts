@@ -16,7 +16,7 @@ const { db, rbac, bunny, ocr, sm, tpl, dt, thumb, writer, ex } = vi.hoisted(() =
   },
   rbac: { requirePermission: vi.fn() },
   bunny: { bunnyUploadPrivate: vi.fn(), bunnyDownload: vi.fn(), bunnyDelete: vi.fn() },
-  ocr: { extractDocument: vi.fn() },
+  ocr: { extractDocument: vi.fn(), UPGRADED_VISION_MODEL: 'gemini-2.5-pro' },
   sm: { buildSoftoneMatch: vi.fn(), matchDocItems: vi.fn(), buildDuplicateCheck: vi.fn(), applyUtilityCategory: vi.fn().mockResolvedValue(false) },
   tpl: { runMatchingTemplate: vi.fn() },
   dt: { classifyDocument: vi.fn() },
@@ -228,6 +228,28 @@ describe('POST /api/admin/ocr/[id]/reextract', () => {
     expect(writer.saveDocumentJson).toHaveBeenCalledWith('doc1', DOC, { replaceItems: true });
     expect(db.ocrInvoiceItem.deleteMany).not.toHaveBeenCalled();
     expectNoRawDerivedWrites();
+  });
+
+  it('ισχυρότερο μοντέλο ΜΟΝΟ για την κλήση — η γενική ρύθμιση δεν αγγίζεται', async () => {
+    await reextract(new Request('http://localhost/x', { method: 'POST' }), ctx());
+    expect(ocr.extractDocument).toHaveBeenCalledWith(expect.objectContaining({ visionModel: 'gemini-2.5-pro' }));
+    expect(db.appSetting.upsert).not.toHaveBeenCalled();
+  });
+
+  it('καταχωρισμένο παραστατικό ΔΕΝ ξαναδιαβάζεται (409)', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({ id: 'doc1', storageKey: 'x', mimeType: 'application/pdf', postStatus: 'POSTED', status: 'COMPLETED' });
+    const res = await reextract(new Request('http://localhost/x', { method: 'POST' }), ctx());
+    expect(res.status).toBe(409);
+    expect(ocr.extractDocument).not.toHaveBeenCalled();
+  });
+
+  it('ίδιος ΑΦΜ και ήδη συνδεδεμένος εκδότης ⇒ ο εκδότης μένει (καμία νέα αντιστοίχιση)', async () => {
+    db.ocrDocument.findUnique.mockResolvedValue({
+      id: 'doc1', storageKey: 'ocr/x.pdf', mimeType: 'application/pdf', docType: 'INVOICE', language: 'el',
+      issuerAfm: '999863881', softoneTrdr: 2795, softoneSeries: null, seriesSource: null, status: 'COMPLETED', postStatus: 'NONE',
+    });
+    await reextract(new Request('http://localhost/x', { method: 'POST' }), ctx());
+    expect(sm.buildSoftoneMatch).not.toHaveBeenCalled();
   });
 });
 

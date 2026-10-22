@@ -254,6 +254,7 @@ export function OcrResultView({ doc, match }: { doc: DocWithItems; match: LineMa
   const fieldList = fieldListAll.filter((k) => !OPTIONAL_IF_EMPTY.includes(k) || hasValue(k));
 
   const correction = (doc.docType === 'INVOICE' || doc.docType === 'RECEIPT') ? (
+    <div id="doc-fields" className="scroll-mt-4">
     <FieldCorrection
       docId={doc.id}
       mimeType={doc.mimeType}
@@ -261,6 +262,7 @@ export function OcrResultView({ doc, match }: { doc: DocWithItems; match: LineMa
       initialData={(doc.extractedData ?? {}) as any}
       fields={fieldList}
     />
+    </div>
   ) : null;
 
   if (doc.docType === 'INVOICE') {
@@ -270,7 +272,7 @@ export function OcrResultView({ doc, match }: { doc: DocWithItems; match: LineMa
             εμφανίζονταν ΔΥΟ φορές — μία εδώ και μία, επεξεργάσιμα, στη διόρθωση από πάνω. */}
         {correction}
 
-        <LinesTable doc={doc} data={data} match={match} />
+        <div id="doc-lines" className="scroll-mt-4"><LinesTable doc={doc} data={data} match={match} /></div>
 
         {/* Τα ποσά δεν κλείνουν: ελεγμένες λύσεις + επανέλεγχος από το χαρτί, με αποθήκευση εδώ. */}
         <AmountsFixPanel
@@ -311,7 +313,7 @@ export function OcrResultView({ doc, match }: { doc: DocWithItems; match: LineMa
         </div>
         </div>
 
-        {doc.items.length > 0 && <LinesTable doc={doc} data={data} match={match} />}
+        {doc.items.length > 0 && <div id="doc-lines" className="scroll-mt-4"><LinesTable doc={doc} data={data} match={match} /></div>}
 
         <BankAccounts accounts={data.bankAccounts} />
         <CustomFieldsBlock data={data} />

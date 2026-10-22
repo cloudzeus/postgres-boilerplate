@@ -4,12 +4,14 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { durationText, elapsedSuffix, useElapsedSeconds } from '@/lib/use-elapsed';
-import { FiSend, FiCheck, FiAlertTriangle, FiLoader, FiDatabase, FiTruck } from 'react-icons/fi';
+import { FiSend, FiCheck, FiAlertTriangle, FiLoader, FiDatabase, FiTruck, FiArrowRight, FiUserCheck } from 'react-icons/fi';
 import { DeliveryNoteDialog } from '@/components/admin/delivery-note-dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { DOC_CATEGORY_OPTIONS } from '@/lib/ocr/doc-category';
-import { useDocLinesChanged, emitDocLinesChanged } from '@/components/admin/doc-lines-events';
+import { useDocLinesChanged, emitDocLinesChanged, emitDocTool, focusSection, DOC_SECTION } from '@/components/admin/doc-lines-events';
+import { blockerFix } from '@/lib/ocr/blocker-fix';
+import { Term } from '@/components/admin/help/term';
 
 export interface ActionBarSeries {
   code: string; abbrev: string | null; name: string; family: string; sosource: number; enabled: boolean;
@@ -137,15 +139,27 @@ export function DocActionBar({
 
   const posted = preview?.postStatus === 'POSTED';
   const blockers = preview?.blockers ?? [];
+  const [blockersOpen, setBlockersOpen] = React.useState(false);
+  /** «Λύσε»: πήγαινε στο σημείο που διορθώνει το εμπόδιο, ή άνοιξε το εργαλείο. */
+  const runFix = (t: NonNullable<ReturnType<typeof blockerFix>>['target']) => {
+    setBlockersOpen(false);
+    setTimeout(() => {
+      if (t.kind === 'tool') { if (!emitDocTool(docId, { tool: t.tool })) toast.error('Άνοιξε τη σελίδα του παραστατικού για να το διορθώσεις.'); return; }
+      if (t.kind === 'section' && !focusSection(DOC_SECTION[t.section])) {
+        toast.message('Το σημείο αυτό δεν εμφανίζεται εδώ — άνοιξε τη σελίδα του παραστατικού.');
+      }
+    }, 120);
+  };
   const ready = !!preview && blockers.length === 0 && !posted;
   const families = [...new Set(series.map((s) => s.family))];
 
   return (
     <div className="sticky bottom-0 z-30 -mx-6 border-t border-border bg-card/95 px-6 py-2.5 shadow-[0_-2px_10px_rgba(0,0,0,0.06)] backdrop-blur">
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-        <label className="flex min-w-[14rem] flex-[2] flex-col gap-0.5">
-          <span className={LABEL}>Είδος παραστατικού στο SoftOne</span>
+        <div className="flex min-w-[14rem] flex-[2] flex-col gap-0.5">
+          <span className={cn(LABEL, 'flex items-center gap-1')}><label htmlFor={DOC_SECTION.series}>Είδος παραστατικού στο SoftOne</label> <Term k="seira"><span className="sr-only">Τι είναι;</span></Term></span>
           <select
+            id={DOC_SECTION.series}
             value={seriesKey} disabled={!canEdit || saving || posted}
             title={series.find((o) => `${o.sosource}:${o.code}` === seriesKey)?.name ?? 'Δεν έχει επιλεγεί σειρά'}
             onChange={(e) => {
@@ -167,10 +181,11 @@ export function DocActionBar({
               </optgroup>
             ))}
           </select>
-        </label>
-        <label className="flex min-w-[10rem] flex-1 flex-col gap-0.5">
-          <span className={LABEL}>Κατηγορία</span>
+        </div>
+        <div className="flex min-w-[10rem] flex-1 flex-col gap-0.5">
+          <span className={cn(LABEL, 'flex items-center gap-1')}><label htmlFor={DOC_SECTION.category}>Κατηγορία</label> <Term k="kategoria"><span className="sr-only">Τι είναι;</span></Term></span>
           <select
+            id={DOC_SECTION.category}
             value={category} disabled={!canEdit || saving || posted}
             title={DOC_CATEGORY_OPTIONS.find((o) => o.value === category)?.label ?? 'Δεν έχει επιλεγεί κατηγορία'}
             onChange={(e) => { setCategory(e.target.value); void patch({ category: e.target.value || null }); }}
@@ -179,7 +194,7 @@ export function DocActionBar({
             <option value="">— Επιλογή —</option>
             {DOC_CATEGORY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-        </label>
+        </div>
 
         {/* Η ΚΑΤΑΣΤΑΣΗ σε μία γραμμή: έτοιμο, ή πόσα εμπόδια μένουν — με τη λίστα ένα πάτημα μακριά. */}
         <div className="flex min-h-8 flex-1 items-center">
@@ -202,7 +217,7 @@ export function DocActionBar({
           ) : blockers.length === 0 ? (
             <span className={STATUS}><FiCheck className="size-3.5" style={{ color: '#047857' }} aria-hidden /> Έτοιμο για καταχώριση</span>
           ) : (
-            <Popover>
+            <Popover open={blockersOpen} onOpenChange={setBlockersOpen}>
               <PopoverTrigger asChild>
                 <button type="button" className={cn(STATUS, 'cursor-pointer rounded-md px-1.5 py-1 hover:bg-muted')}>
                   <FiAlertTriangle className="size-3.5" style={{ color: '#B45309' }} aria-hidden />
@@ -210,14 +225,26 @@ export function DocActionBar({
                   <span className="text-muted-foreground underline decoration-dotted underline-offset-2">ποια;</span>
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-[28rem] max-w-[90vw]">
-                <ol className="space-y-1.5 text-[length:var(--fs-12)] text-foreground">
-                  {blockers.map((b, i) => (
-                    <li key={b.code} className="flex gap-2">
-                      <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-muted text-[length:var(--fs-10)] font-bold">{i + 1}</span>
-                      <span>{b.message}</span>
-                    </li>
-                  ))}
+              <PopoverContent align="start" className="w-[32rem] max-w-[92vw] p-0">
+                <p className="border-b border-border px-3 py-2 text-[length:var(--fs-12)] font-semibold text-foreground">Τι μένει πριν την καταχώριση</p>
+                <ol className="max-h-[60dvh] divide-y divide-border overflow-auto text-[length:var(--fs-12)] text-foreground">
+                  {blockers.map((b, i) => {
+                    const fix = blockerFix(b.code);
+                    return (
+                      <li key={b.code} className="flex items-start gap-2 px-3 py-2">
+                        <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-amber-100 text-[length:var(--fs-10)] font-bold text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">{i + 1}</span>
+                        <span className="min-w-0 flex-1 leading-snug">{b.message}</span>
+                        {fix && fix.target.kind !== 'admin' ? (
+                          <button type="button" onClick={() => runFix(fix.target)}
+                            className="inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1 rounded-md bg-sisyphus-500 px-2.5 text-[length:var(--fs-12)] font-semibold text-white hover:bg-sisyphus-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                            {fix.label} <FiArrowRight aria-hidden className="size-3.5" />
+                          </button>
+                        ) : fix ? (
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted px-2 py-1 text-[length:var(--fs-11)] font-semibold text-muted-foreground"><FiUserCheck aria-hidden className="size-3.5" /> {fix.label}</span>
+                        ) : null}
+                      </li>
+                    );
+                  })}
                 </ol>
               </PopoverContent>
             </Popover>
@@ -239,6 +266,14 @@ export function DocActionBar({
                 </span>
               </span>
               <button type="button" onClick={() => { setConfirm(false); setDup(null); }} className={BTN_GHOST}>Πίσω</button>
+              {dup?.status === 'duplicate' && (
+                // Διπλό = δεν καταχωρείται (προστασία από διπλή εγγραφή). Αν όμως ΔΙΑΒΑΣΤΗΚΕ λάθος ο
+                // αριθμός ή η ημερομηνία, η διόρθωση είναι στα πεδία — όχι αδιέξοδο.
+                <button type="button" title="Αν διαβάστηκε λάθος αριθμός ή ημερομηνία, διόρθωσέ τα και ξαναδοκίμασε"
+                  onClick={() => { setConfirm(false); setDup(null); setTimeout(() => focusSection(DOC_SECTION.fields), 120); }} className={BTN_GHOST}>
+                  Διόρθωση αριθμού / ημερομηνίας
+                </button>
+              )}
               {dup?.status !== 'duplicate' && (
                 <button type="button" onClick={post} disabled={posting} className={BTN_POST}>
                   <FiSend className="size-3.5" /> {posting ? `Καταχώριση…${elapsedSuffix(postingFor)}` : 'Ναι, καταχώρισέ το'}

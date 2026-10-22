@@ -140,9 +140,9 @@ describe('η πιο συχνή ήδη αντιστοιχισμένη κατηγ�
 describe('η ελληνική εξήγηση', () => {
   it('λέει τον πίνακα και τι δέχεται', () => {
     expect(lineKindsReason(target('LINCREDOC', 'LINLINES'))).toContain('LINLINES');
-    expect(lineKindsReason(target('LINCREDOC', 'LINLINES'))).toContain('χρεοπίστωση');
+    expect(lineKindsReason(target('LINCREDOC', 'LINLINES'))).toContain('κατηγορία εξόδου');
     // Το «AUTO» είναι εσωτερικό όνομα — ο χρήστης διαβάζει τι σημαίνει, όχι τον κωδικό.
-    expect(lineKindsReason(target('PURDOC', 'AUTO'))).toContain('ή έξοδο');
+    expect(lineKindsReason(target('PURDOC', 'AUTO'))).toContain('ή κατηγορία εξόδου');
     expect(lineKindsReason(target('PURDOC', 'AUTO'))).not.toContain('AUTO');
     expect(lineKindsReason(target('PURDOC', 'AUTO'))).toContain('Κάθε γραμμή');
   });

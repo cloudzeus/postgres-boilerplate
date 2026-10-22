@@ -93,7 +93,7 @@ function fmtMoney(v: any) {
 }
 
 const CATEGORY_OPTIONS = [
-  { value: 'EXPENSE',     label: 'Έξοδο' },
+  { value: 'EXPENSE',     label: 'Δαπάνη' },
   { value: 'INVOICE_IN',  label: 'Τιμολόγιο αγοράς' },
   { value: 'INVOICE_OUT', label: 'Τιμολόγιο πώλησης' },
   { value: 'RECEIPT',     label: 'Απόδειξη' },

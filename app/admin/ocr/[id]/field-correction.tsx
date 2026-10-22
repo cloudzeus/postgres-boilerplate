@@ -3,6 +3,8 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { FiChevronLeft, FiChevronRight, FiCrosshair, FiSave } from 'react-icons/fi';
 import { toast } from 'sonner';
+import { useRouter } from 'next/navigation';
+import { DOC_SECTION, emitDocLinesChanged } from '@/components/admin/doc-lines-events';
 import { useMarquee, type NormBox } from './use-marquee';
 
 const FIELD_LABELS: Record<string, string> = {
@@ -59,6 +61,7 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
    * ΤΟ ΠΑΡΑΣΤΑΤΙΚΟ ΚΛΕΙΝΕΙ — ίδια συμπεριφορά με το ανοιγμένο πλαίσιο της λίστας, ΙΔΙΟ κλειδί
    * μνήμης: ο χρήστης το κλείνει μία φορά και μένει κλειστό όπου κι αν δουλεύει.
    */
+  const router = useRouter();
   const [showDoc, setShowDoc] = useState(true);
   useEffect(() => {
     try { setShowDoc(localStorage.getItem('admin.ocr.rowdetail.pdf') !== '0'); } catch { /* ιδιωτική περιήγηση */ }
@@ -74,11 +77,24 @@ export function FieldCorrection({ docId, mimeType, fileUrl, initialData, fields 
   async function saveCorrections() {
     setBusy(true);
     try {
+      // ΜΟΝΟ τα πεδία της κεφαλίδας. Πριν στέλνονταν και οι γραμμές (`items`), και ο server τις
+      // ξαναέχτιζε από την αρχή σε ΚΑΘΕ αποθήκευση — σβήνοντας κέντρα κόστους, έργα, επιμερισμούς και
+      // μονάδα αγοράς. Οι γραμμές διορθώνονται πλέον από την «Επεξεργασία γραμμών».
+      const { items: _lines, ...header } = data as Record<string, unknown>;
+      void _lines;
       const res = await fetch(`/api/admin/ocr/${docId}`, { method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ extractedData: data, items: Array.isArray(data.items) ? data.items : undefined }) });
-      if (res.ok) { setBase(JSON.stringify(data)); toast.success('Οι διορθώσεις αποθηκεύτηκαν.'); }
-      else toast.error('Σφάλμα αποθήκευσης.');
+        body: JSON.stringify({ extractedData: header }) });
+      if (res.ok) {
+        setBase(JSON.stringify(data));
+        toast.success('Οι διορθώσεις αποθηκεύτηκαν.');
+        // Έλεγχοι, εμπόδια και σύνολα της σελίδας ξαναϋπολογίζονται με τα νέα πεδία.
+        emitDocLinesChanged(docId);
+        router.refresh();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        toast.error(res.status === 403 ? 'Δεν έχεις δικαίωμα διόρθωσης πεδίων.' : d?.message ?? d?.error ?? 'Σφάλμα αποθήκευσης.');
+      }
     } finally { setBusy(false); }
   }
 

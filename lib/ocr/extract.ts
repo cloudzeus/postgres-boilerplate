@@ -86,6 +86,12 @@ export interface ExtractInput {
    * Μπαίνει αυτούσιο στο system prompt ως οδηγός θέσης πεδίων — ποτέ ως πηγή τιμών.
    */
   example?: unknown;
+  /**
+   * Μοντέλο vision ΓΙΑ ΑΥΤΗ ΜΟΝΟ την κλήση (π.χ. η επανασάρωση με το ισχυρότερο μοντέλο). Πριν, η
+   * επανασάρωση άλλαζε τη ΓΕΝΙΚΗ ρύθμιση `ai.visionModel` όσο έτρεχε — και κάθε άλλο ανέβασμα εκείνη
+   * τη στιγμή πήγαινε, χωρίς λόγο, στο ακριβό μοντέλο.
+   */
+  visionModel?: string;
 }
 
 export interface ExtractResult {
@@ -604,6 +610,7 @@ const score = (document: DocumentJson, docType: ExtractDocType): number =>
 
 async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
   const cfg = await resolveCfg();
+  if (input.visionModel) cfg.visionModel = providerModel(input.visionModel, cfg.visionUrl);
   if (!cfg.textKey) throw new Error('DeepSeek API key is not configured (settings: ai.deepseekApiKey).');
 
   const system = buildSystemPrompt(input.docType, input.language, input.example);

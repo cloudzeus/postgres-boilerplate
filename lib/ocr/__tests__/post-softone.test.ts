@@ -182,7 +182,7 @@ describe('postingPreview (dry-run)', () => {
 
     const preview = await postingPreview('d1');
     expect(preview.blockers.map((b) => b.code)).toContain('lines_need_lineitem');
-    expect(preview.blockers.find((b) => b.code === 'lines_need_lineitem')?.message).toMatch(/ΧΡΕΟΠΙΣΤΩΣΕΙΣ/);
+    expect(preview.blockers.find((b) => b.code === 'lines_need_lineitem')?.message).toMatch(/μόνο δαπάνες σε λογαριασμό/);
     // Καμία γραμμή δεν χώρεσε: το payload το λέει καθαρά αντί να «καθαρίσει» το πρόβλημα.
     expect(preview.payload.DATA.LINLINES).toBeUndefined();
   });
@@ -228,7 +228,7 @@ describe('postingPreview (dry-run)', () => {
 
     const preview = await postingPreview('d1');
     expect(preview.blockers.map((b) => b.code)).toContain('trader_kind_mismatch');
-    expect(preview.blockers.find((b) => b.code === 'trader_kind_mismatch')?.message).toMatch(/συναλλασσόμεν/i);
+    expect(preview.blockers.find((b) => b.code === 'trader_kind_mismatch')?.message).toMatch(/καρτέλα άλλου τύπου/i);
   });
 
   it('εμπόδια σε ελληνικά, με payload για να φαίνεται τι ΘΑ έφευγε', async () => {
@@ -336,7 +336,7 @@ describe('postingPreview (dry-run)', () => {
       const err = await postDocumentToSoftone('d1').catch((e) => e);
       expect(err).toBeInstanceOf(PostError);
       expect(err.code).toBe('account_missing');
-      expect(err.message).toMatch(/χωρίς λογαριασμό γενικής/);
+      expect(err.message).toMatch(/δεν έχει λογαριασμό λογιστικής/);
       expect(softone.softoneCall).not.toHaveBeenCalled();
       expect(db.ocrDocument.update).not.toHaveBeenCalled();
     });

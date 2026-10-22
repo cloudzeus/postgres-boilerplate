@@ -175,7 +175,14 @@ export type FixStep =
   /** Γενικό Σύνολο = καθαρή + ΦΠΑ (`net_vat`) ή + επιβαρύνσεις (`net_vat_fees`). */
   | { kind: 'total'; mode: 'net_vat' | 'net_vat_fees' }
   /** Επιβαρύνσεις = Γενικό Σύνολο − καθαρή − ΦΠΑ. */
-  | { kind: 'fees_from_diff' };
+  | { kind: 'fees_from_diff' }
+  /**
+   * ΛΕΙΠΕΙ ΓΡΑΜΜΗ: η κεφαλίδα κλείνει μόνη της (καθαρή + ΦΠΑ = σύνολο, όλα τυπωμένα), άρα είναι
+   * σωστή — και οι γραμμές αθροίζουν λιγότερο. Η διαφορά είναι γραμμή που δεν διαβάστηκε.
+   */
+  | { kind: 'missing_line'; amount: number; vatRate: number | null }
+  /** ΠΕΡΙΣΣΕΥΕΙ ΓΡΑΜΜΗ: μία γραμμή ισούται ακριβώς με το «παραπάνω» (π.χ. διαβάστηκε το υποσύνολο ως γραμμή). */
+  | { kind: 'extra_line'; index: number };
 
 const num0 = (v: unknown) => n(v) ?? 0;
 
@@ -218,6 +225,10 @@ export function applySteps(input: TotalsInput, steps: FixStep[]): TotalsInput {
     } else if (st.kind === 'fees_from_diff') {
       const d = round2(num0(cur.totalAmount) - num0(cur.subtotal) - num0(cur.vatAmount));
       cur.otherCharges = d > 0 ? d : cur.otherCharges;
+    } else if (st.kind === 'missing_line') {
+      cur.items = [...cur.items, { quantity: 1, price: st.amount, discount: 0, total: st.amount, vatRate: st.vatRate }];
+    } else if (st.kind === 'extra_line') {
+      cur.items = cur.items.filter((_, i) => i !== st.index);
     }
   }
   return cur;
@@ -232,9 +243,44 @@ export interface FixPlan { steps: FixStep[]; result: TotalsInput }
  * στο ΜΙΛΑΝΟΣ η πραγματική αιτία ήταν έκπτωση 40% στη γραμμή και ΦΠΑ πάνω στο τέλος ανακύκλωσης.)
  * Ταξινόμηση: λιγότερα βήματα πρώτα, και όσα αφήνουν το Γενικό Σύνολο όπως τυπώθηκε.
  */
+/**
+ * Η κεφαλίδα κλείνει ΜΟΝΗ της: καθαρή, ΦΠΑ και σύνολο είναι τυπωμένα και καθαρή + ΦΠΑ (+ επιβαρύνσεις)
+ * = σύνολο. Τρία ανεξάρτητα ποσά που συμφωνούν μεταξύ τους δεν είναι λάθος ανάγνωση — αν οι γραμμές
+ * διαφωνούν, λάθος είναι οι γραμμές.
+ */
+export function headerSelfConsistent(input: TotalsInput): boolean {
+  const net = n(input.subtotal), vat = n(input.vatAmount), total = n(input.totalAmount);
+  if (net == null || vat == null || total == null || total <= 0) return false;
+  const fees = num0(input.otherCharges);
+  return Math.abs(net + vat - total) <= tol(total) || (fees > 0 && Math.abs(net + vat + fees - total) <= tol(total));
+}
+
+/** Ο ενιαίος συντελεστής που βγαίνει από την κεφαλίδα (ΦΠΑ / καθαρή), αν είναι γνωστός — αλλιώς `null`. */
+function headerRate(input: TotalsInput): number | null {
+  const net = n(input.subtotal), vat = n(input.vatAmount);
+  if (net == null || vat == null || net <= 0) return null;
+  if (Math.abs(vat) <= 0.005) return 0;
+  const r = (vat / net) * 100;
+  return STANDARD_VAT.find((x) => Math.abs(x - r) <= 0.05) ?? null;
+}
+
+/** Βήματα που ξαναγράφουν ΤΥΠΩΜΕΝΟ ποσό της κεφαλίδας. */
+const touchesHeader = (s: FixStep) => s.kind === 'net_from_lines' || s.kind === 'vat' || s.kind === 'vat_rate' || s.kind === 'total' || s.kind === 'fees_from_diff';
+
 export function totalsPlans(input: TotalsInput, max = 3): FixPlan[] {
   if (totalsClose(input)) return [];
   const rec = reconcileInvoice(input);
+  const headerOk = headerSelfConsistent(input);
+  // Γραμμή που λείπει / περισσεύει: η πιο απλή εξήγηση όταν η κεφαλίδα κλείνει μόνη της.
+  const structural: FixStep[][] = [];
+  if (headerOk && rec.linesVsSubtotal && !rec.linesVsSubtotal.ok) {
+    const diff = round2(num0(input.subtotal) - rec.sumNet);
+    if (diff > 0) structural.push([{ kind: 'missing_line', amount: diff, vatRate: headerRate(input) }]);
+    else {
+      const idx = input.items.findIndex((l) => Math.abs(lineNet(l) + diff) <= tol(Math.abs(diff)));
+      if (idx >= 0) structural.push([{ kind: 'extra_line', index: idx }]);
+    }
+  }
   const sumGross = round2(input.items.reduce((t, l) => t + lineGross(l), 0));
   // Κάθε επιλογή γραμμών είναι ΑΚΟΛΟΥΘΙΑ βημάτων (π.χ. «έκπτωση από το σύνολο» + «καθαρή = γραμμές»).
   const lineSteps: FixStep[][] = [[]];
@@ -254,7 +300,10 @@ export function totalsPlans(input: TotalsInput, max = 3): FixPlan[] {
   const noVatOnLines = input.items.length > 0 && input.items.every((l) => { const r = n(l.vatRate); return r == null || r === 0; });
   const vatSteps: (FixStep | null)[] = [null, { kind: 'vat', mode: 'lines' }];
   if (num0(input.otherCharges) > 0) vatSteps.push({ kind: 'vat', mode: 'lines_fees' });
-  if (noVatOnLines) for (const r of STANDARD_VAT) vatSteps.push({ kind: 'vat_rate', rate: r });
+  // «Οι γραμμές έχουν ΦΠΑ 24%» ΜΟΝΟ αν ο ΦΠΑ δεν είναι τυπωμένος μηδέν σε κεφαλίδα που κλείνει: ένα
+  // ενδοκοινοτικό τιμολόγιο με «+0% VAT» και καθαρή = σύνολο ΔΕΝ έχει ΦΠΑ — δεν «χάθηκε» συντελεστής.
+  const printedZeroVat = headerOk && Math.abs(num0(input.vatAmount)) <= 0.005;
+  if (noVatOnLines && !printedZeroVat) for (const r of STANDARD_VAT) vatSteps.push({ kind: 'vat_rate', rate: r });
   // Επιβαρύνσεις από τη διαφορά ΜΟΝΟ όταν δεν διαβάστηκαν καθόλου — ποτέ πάνω σε τυπωμένη τιμή.
   const totalSteps: (FixStep | null)[] = [null, { kind: 'total', mode: 'net_vat' }];
   if (!num0(input.otherCharges)) totalSteps.push({ kind: 'fees_from_diff' });
@@ -262,8 +311,11 @@ export function totalsPlans(input: TotalsInput, max = 3): FixPlan[] {
 
   const out: (FixPlan & { score: number })[] = [];
   const seen = new Set<string>();
+  const candidates: FixStep[][] = [...structural];
   for (const a of lineSteps) for (const b of vatSteps) for (const c of totalSteps) {
-    const steps = [...a, b, c].filter((x): x is FixStep => x != null);
+    candidates.push([...a, b, c].filter((x): x is FixStep => x != null));
+  }
+  for (const steps of candidates) {
     if (!steps.length) continue;
     const result = applySteps(input, steps);
     if (!totalsClose(result)) continue;
@@ -271,8 +323,11 @@ export function totalsPlans(input: TotalsInput, max = 3): FixPlan[] {
     if (seen.has(key)) continue;
     seen.add(key);
     // Αλλαγή του ΤΥΠΩΜΕΝΟΥ Γενικού Συνόλου είναι η λιγότερο πιθανή εξήγηση· επινοημένες επιβαρύνσεις επίσης.
-    const touchesTotal = c?.kind === 'total' ? 2 : c?.kind === 'fees_from_diff' ? 1.5 : 0;
-    out.push({ steps, result, score: steps.length + touchesTotal });
+    const touchesTotal = steps.some((x) => x.kind === 'total') ? 2 : steps.some((x) => x.kind === 'fees_from_diff') ? 1.5 : 0;
+    // Κεφαλίδα που κλείνει μόνη της: όποια λύση ξαναγράφει τυπωμένο ποσό της πάει ΤΕΛΕΥΤΑΙΑ.
+    const rewritesTrustedHeader = headerOk && steps.some(touchesHeader) ? 5 : 0;
+    const structuralBonus = steps.length === 1 && (steps[0].kind === 'missing_line' || steps[0].kind === 'extra_line') ? -0.5 : 0;
+    out.push({ steps, result, score: steps.length + touchesTotal + rewritesTrustedHeader + structuralBonus });
   }
   return out.sort((x, y) => x.score - y.score).slice(0, max).map(({ steps, result }) => ({ steps, result }));
 }

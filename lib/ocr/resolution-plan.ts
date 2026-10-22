@@ -61,12 +61,27 @@ export function requiredTraderForTarget(target: PostingTarget | null | undefined
   };
 }
 
-/** Ελληνικά ονόματα των τεσσάρων μητρώων γραμμής — ίδια λέξη με το chip του πίνακα γραμμών. */
+/**
+ * Ελληνικά ονόματα των τεσσάρων μητρώων γραμμής — ίδια λέξη με το chip του πίνακα γραμμών.
+ *
+ * «Έξοδο» (τιμολόγια αγορών) και «Χρεοπίστωση» (ειδικές συναλλαγές) της SoftOne είναι για τον
+ * χρήστη ΤΟ ΙΔΙΟ πράγμα: κατηγορία εξόδου που λέει σε ποιον λογαριασμό πάει το ποσό. Κάθε είδος
+ * παραστατικού δέχεται μόνο το ένα από τα δύο, οπότε η κοινή λέξη δεν μπερδεύει ποτέ — ενώ οι δύο
+ * τεχνικοί όροι (και το «Έξοδο» που ήταν ΚΑΙ κατηγορία εγγράφου) έκαναν τη γλώσσα σαλάτα.
+ */
 export const LINE_KIND_LABEL: Record<MatchKind, string> = {
   product: 'Είδος',
   service: 'Υπηρεσία',
-  expense: 'Έξοδο',
-  lineitem: 'Χρεοπίστωση',
+  expense: 'Κατηγορία εξόδου',
+  lineitem: 'Κατηγορία εξόδου',
+};
+
+/** Ο όρος της ίδιας της SoftOne — για tooltip και για τον τεχνικό. */
+export const LINE_KIND_SOFTONE_TERM: Record<MatchKind, string> = {
+  product: 'Είδος (ITEM)',
+  service: 'Υπηρεσία (SRV)',
+  expense: '«Έξοδο» των τιμολογίων αγορών',
+  lineitem: '«Χρεοπίστωση» των ειδικών συναλλαγών',
 };
 
 /**
@@ -140,7 +155,7 @@ export function lineKindsReason(target: PostingTarget | null | undefined): strin
     return 'Άγνωστος προορισμός καταχώρισης — δεν ξέρουμε σε ποιο μητρώο πρέπει να δείχνει η γραμμή.';
   }
   const allowed = allowedLineKinds(target);
-  const names = allowed.map((k) => LINE_KIND_LABEL[k].toLowerCase());
+  const names = [...new Set(allowed.map((k) => LINE_KIND_LABEL[k].toLowerCase()))];
   const list = names.length <= 1 ? names[0] : `${names.slice(0, -1).join(', ')} ή ${names[names.length - 1]}`;
   // Το `AUTO` δεν είναι όνομα πίνακα που θα αναγνώριζε ο χρήστης — είναι «ανά γραμμή».
   return target.lines === 'AUTO'

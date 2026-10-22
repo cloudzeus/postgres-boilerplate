@@ -24,6 +24,7 @@ import { analyzeUtility, utilityInputFromDocument } from '@/lib/ocr/utility-bill
 import { UtilityBillCard } from '@/components/admin/utility-bill-card';
 import { suggestionsForDocument } from '@/lib/ocr/line-suggestions';
 import { decideLineUnits, hasBuyUnit } from '@/lib/ocr/line-units';
+import { DocActionsMenu, DocToolsHost } from '@/components/admin/doc-tools';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,10 +52,11 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
   });
   if (!doc) notFound();
 
-  const [canDelete, canManage, canPost] = await Promise.all([
+  const [canDelete, canManage, canPost, canRescan] = await Promise.all([
     hasPermission('ocr.delete'),
     hasPermission('ocr.categorize'),
     hasPermission('ocr.post'),
+    hasPermission('ocr.create'),
   ]);
 
   // Οι κατηγορίες δαπανών (LINCATEGORY) τροφοδοτούν ΜΟΝΟ το φίλτρο χρεοπιστώσεων του picker
@@ -190,6 +192,9 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
           <FiArrowLeft className="size-4" /> Πίσω στη λίστα
         </Link>
         <div className="flex items-center gap-2">
+          {doc.status === 'COMPLETED' && (
+            <DocActionsMenu docId={doc.id} canManage={canManage} canRescan={canRescan} posted={doc.postStatus === 'POSTED'} />
+          )}
           <a
             href={`/api/admin/ocr/${doc.id}/file`}
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-muted"
@@ -243,7 +248,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
         )}
       </header>
 
-      {completed && <SoftoneChecksStrip docId={doc.id} helpHref={checksHelpHref} />}
+      {completed && <div id="doc-checks" className="scroll-mt-4"><SoftoneChecksStrip docId={doc.id} helpHref={checksHelpHref} /></div>}
 
       {utility && (
         <UtilityBillCard
@@ -284,7 +289,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
       {/* ΤΟ ΠΡΟΤΥΠΟ ΕΙΝΑΙ ΕΡΓΑΛΕΙΟ, ΟΧΙ ΔΟΥΛΕΙΑ. Χωρίς εκτέλεση, η κάρτα «Δεν έχει τρέξει πρότυπο ·
           άγνωστο έντυπο» κρατούσε μια ολόκληρη ενότητα για να πει «τίποτα». Κλειστή μέχρι να χρειαστεί. */}
       {completed && runs.length === 0 && (
-        <details className="group rounded-xl border border-border bg-card">
+        <details id="doc-template" className="group rounded-xl border border-border bg-card">
           <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-3 text-[length:var(--fs-13)] font-semibold text-foreground">
             <FiChevronRight className="size-3.5 transition-transform duration-200 group-open:rotate-90" aria-hidden />
             Πρότυπο εξαγωγής
@@ -307,6 +312,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
         </details>
       )}
       {completed && runs.length > 0 && (
+        <div id="doc-template" className="scroll-mt-4">
         <RunResult
           docId={doc.id}
           fileName={doc.fileName}
@@ -319,9 +325,17 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
           unknownForm={(doc.reviewFlags as { unknownForm?: boolean } | null)?.unknownForm === true}
           helpHref={helpHref}
         />
+        </div>
       )}
 
       {completed && <DocumentJsonCard docId={doc.id} canPost={canPost} showPosting={false} />}
+
+      {completed && (
+        <DocToolsHost
+          docId={doc.id} canManage={canManage} canRescan={canRescan} posted={doc.postStatus === 'POSTED'}
+          lineMatches={Object.fromEntries(items.map((i) => [i.rowIndex, i.softoneName ? `${i.softoneCode ? `${i.softoneCode} · ` : ''}${i.softoneName}` : null]))}
+        />
+      )}
 
       {/* Η ΣΤΑΘΕΡΗ ΜΠΑΡΑ: σειρά, κατηγορία, εμπόδια, καταχώριση — ίδια λογική με τη λίστα. */}
       {completed && (

@@ -134,3 +134,54 @@ describe('επανέλεγχος ΜΙΛΑΝΟΣ: η νέα ανάγνωση + ε
     expect(best.result.items[0].discount).toBe(40);
   });
 });
+
+describe('totalsPlans — κεφαλίδα που κλείνει μόνη της', () => {
+  // Ενδοκοινοτικό τιμολόγιο υπηρεσιών (συνθετικά ποσά όπως ενός VPS): «+0% VAT», καθαρή = σύνολο.
+  // Διαβάστηκαν 3 από τις 4 γραμμές — η πρώτη (43,00) χάθηκε.
+  const contabo = {
+    items: [
+      { quantity: 1, price: 6.25, discount: 0, total: 6.25, vatRate: 0 },
+      { quantity: 1, price: 7, discount: 0, total: 7, vatRate: 0 },
+      { quantity: 1, price: 4.5, discount: 0, total: 4.5, vatRate: 0 },
+    ],
+    subtotal: 60.75, vatAmount: 0, otherCharges: null, totalAmount: 60.75,
+  };
+
+  it('πρώτη εξήγηση: λείπει γραμμή 43,00 με ΦΠΑ 0%', () => {
+    const plans = totalsPlans(contabo);
+    expect(plans[0].steps).toEqual([{ kind: 'missing_line', amount: 43, vatRate: 0 }]);
+    expect(totalsClose(plans[0].result)).toBe(true);
+  });
+
+  it('ΠΟΤΕ «οι γραμμές έχουν ΦΠΑ 24%» όταν τυπώθηκε ΦΠΑ 0 και καθαρή = σύνολο', () => {
+    const plans = totalsPlans(contabo, 10);
+    expect(plans.some((p) => p.steps.some((s) => s.kind === 'vat_rate'))).toBe(false);
+  });
+
+  it('λύσεις που ξαναγράφουν την τυπωμένη κεφαλίδα έρχονται ΜΕΤΑ τη γραμμή που λείπει', () => {
+    const plans = totalsPlans(contabo, 10);
+    const firstHeaderRewrite = plans.findIndex((p) => p.steps.some((s) => s.kind === 'net_from_lines'));
+    expect(firstHeaderRewrite === -1 || firstHeaderRewrite > 0).toBe(true);
+  });
+
+  it('γραμμή που περισσεύει (διαβάστηκε το υποσύνολο ως γραμμή) ⇒ αφαίρεσέ την', () => {
+    const plans = totalsPlans({
+      items: [
+        { quantity: 1, price: 10, discount: 0, total: 10, vatRate: 24 },
+        { quantity: 1, price: 20, discount: 0, total: 20, vatRate: 24 },
+        { quantity: 1, price: 30, discount: 0, total: 30, vatRate: 24 },
+      ],
+      subtotal: 30, vatAmount: 7.2, otherCharges: null, totalAmount: 37.2,
+    });
+    expect(plans[0].steps).toEqual([{ kind: 'extra_line', index: 2 }]);
+  });
+
+  it('η γραμμή που λείπει παίρνει τον συντελεστή της κεφαλίδας (24%)', () => {
+    const plans = totalsPlans({
+      items: [{ quantity: 1, price: 100, discount: 0, total: 100, vatRate: 24 }],
+      subtotal: 150, vatAmount: 36, otherCharges: null, totalAmount: 186,
+    });
+    expect(plans[0].steps).toEqual([{ kind: 'missing_line', amount: 50, vatRate: 24 }]);
+  });
+});
+

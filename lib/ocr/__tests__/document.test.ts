@@ -143,6 +143,7 @@ describe('carryForward', () => {
     expect(carryForward(changed, old)[0]).toEqual({
       softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null, softoneAsset: null, softoneCode: null, softoneName: null,
       softoneIsService: null, softoneMatchedBy: null,
+      softoneCostCntr: null, softonePrjc: null, softonePrjcStage: null,
     });
   });
 

@@ -1,16 +1,18 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
+import { logAudit } from '@/lib/audit';
 import { bunnyDownload } from '@/lib/bunny';
-import { extractDocument } from '@/lib/ocr/extract';
+import { extractDocument, UPGRADED_VISION_MODEL } from '@/lib/ocr/extract';
 import { buildSoftoneMatch, matchDocItems, buildDuplicateCheck } from '@/lib/ocr/softone-match';
-import { getSetting } from '@/lib/settings';
-import { saveDocumentJson } from '@/lib/ocr/document';
+import { loadDocumentJson, saveDocumentJson } from '@/lib/ocr/document';
 import { runMatchingTemplate } from '@/lib/templates/run';
 import { classifyDocument } from '@/lib/ocr/doc-type';
-import { docTypeFromKind } from '@/lib/ocr/canonical';
+import { docTypeFromKind, type DocumentJson } from '@/lib/ocr/canonical';
 import { isExtractDocType, type ExtractDocType } from '@/lib/ocr/templates';
 import { loadIssuerExample } from '@/lib/ocr/example-lookup';
+import { normalizeAfm } from '@/lib/ocr/validate';
+import { totalsClose } from '@/lib/ocr/invoice-math';
 import type { RunOutcome } from '@/lib/templates/schema';
 
 export const runtime = 'nodejs';
@@ -18,13 +20,31 @@ export const dynamic = 'force-dynamic';
 // Re-extraction plus a template run (one vision call per region) easily outruns the 60s default.
 export const maxDuration = 300;
 
+/** Σύνοψη μιας ανάγνωσης για τη σύγκριση «πριν → μετά» στο UI. */
+function summary(d: DocumentJson | null) {
+  if (!d) return null;
+  const sumLines = Math.round(d.lines.reduce((t, l) => t + (l.net ?? 0), 0) * 100) / 100;
+  return {
+    lines: d.lines.length, sumLines, net: d.totals.net, vat: d.totals.vatAmount, total: d.totals.total,
+    issuer: d.issuer.name, afm: d.issuer.vat, number: d.type.number, date: d.date,
+    closes: totalsClose({
+      items: d.lines.map((l) => ({ quantity: l.quantity, price: l.unitPrice, discount: l.discount, vatRate: l.vatRate, total: l.net })),
+      subtotal: d.totals.net, vatAmount: d.totals.vatAmount, otherCharges: d.totals.fees, totalAmount: d.totals.total,
+    }),
+  };
+}
+
 /**
- * Re-run extraction on an existing OcrDocument with a higher-tier vision model.
- * Useful for blurry / low-contrast scans where the default fast model misses
- * fields. Temporarily overrides ai.visionModel to gemini-2.5-pro for the call.
+ * ΕΠΑΝΑΣΑΡΩΣΗ: ξαναδιαβάζει το αρχείο από την αρχή με την τρέχουσα έκδοση της εφαρμογής (οδηγίες
+ * ανάγνωσης, κανόνες) και το ισχυρότερο μοντέλο — για όταν η πρώτη ανάγνωση έχασε κάτι.
+ *
+ * ΤΙ ΚΡΑΤΙΕΤΑΙ (δουλειά χεριού): η σειρά που διάλεξε ο χρήστης, ο συναλλασσόμενος αν ο ΑΦΜ δεν
+ * άλλαξε, η κατηγορία, και ανά γραμμή η αντιστοίχιση SoftOne και τα αναλυτικά (ίδιος κωδικός/
+ * περιγραφή). ΤΙ ΧΑΝΕΤΑΙ: οι χειροκίνητες διορθώσεις πεδίων/γραμμών και οι επιμερισμοί — το λέει
+ * το παράθυρο πριν από το κλικ. Καταχωρισμένο παραστατικό ΔΕΝ ξαναδιαβάζεται.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  await requirePermission('ocr.create');
+  const user = await requirePermission('ocr.create');
   const { id } = await params;
 
   // Ο τύπος της ΔΕΥΤΕΡΗΣ ανάγνωσης. Προεπιλογή «auto»: αν η πρώτη ανάγνωση είχε ταξινομήσει
@@ -39,51 +59,45 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const doc = await prisma.ocrDocument.findUnique({ where: { id } });
   if (!doc) return NextResponse.json({ error: 'not found' }, { status: 404 });
+  if (doc.postStatus === 'POSTED') {
+    return NextResponse.json({ error: 'posted', message: 'Το παραστατικό έχει καταχωριστεί στη SoftOne — δεν ξαναδιαβάζεται. Αν η καταχώριση ήταν λάθος, ακύρωσέ την πρώτα στη SoftOne.' }, { status: 409 });
+  }
+  if (doc.postStatus === 'PENDING' || doc.status === 'PROCESSING') {
+    return NextResponse.json({ error: 'busy', message: 'Το παραστατικό επεξεργάζεται αυτή τη στιγμή — δοκίμασε σε λίγο.' }, { status: 409 });
+  }
+  const before = await loadDocumentJson(id).catch(() => null);
 
   // Flag as PROCESSING immediately so the UI can render a progress bar while
   // we hit the LLM. Returns to COMPLETED / FAILED below in the same request.
-  await prisma.ocrDocument.update({
-    where: { id },
-    data: { status: 'PROCESSING', errorMessage: null },
-  });
+  await prisma.ocrDocument.update({ where: { id }, data: { status: 'PROCESSING', errorMessage: null } });
 
-  const buffer = await bunnyDownload(doc.storageKey);
-
-  // Temporarily upgrade the vision model via in-memory setting override.
-  const originalModel = await getSetting<string>('ai.visionModel');
-  const upgradedModel = 'gemini-2.5-pro';
-  await prisma.appSetting.upsert({
-    where: { key: 'ai.visionModel' },
-    update: { value: upgradedModel },
-    create: { key: 'ai.visionModel', value: upgradedModel },
-  });
-
-  // Hoisted out of the try so the template run can happen AFTER the `finally` restores the model:
-  // the global `ai.visionModel` override is shared by every request, so its window stays as narrow
-  // as the re-extraction itself.
   let vat: unknown = null;
-  let ok: { model: string; data: unknown } | null = null;
+  let ok: { model: string; data: unknown; before: ReturnType<typeof summary>; after: ReturnType<typeof summary> } | null = null;
   let failure: string | null = null;
 
   try {
+    const buffer = await bunnyDownload(doc.storageKey);
     const result = await extractDocument({
       buffer,
       mimeType: doc.mimeType,
       docType,
-      language: doc.language as any,
+      language: doc.language as never,
       pdfSource: doc.mimeType === 'application/pdf' ? 'scanned' : undefined,
       // ΕΔΩ, και μόνο εδώ, το παράδειγμα είναι δωρεάν: το έγγραφο κουβαλάει ήδη το ΑΦΜ του εκδότη
       // από την πρώτη ανάγνωση, οπότε βρίσκουμε το επιβεβαιωμένο «αδελφάκι» του χωρίς δεύτερη
       // κλήση στο μοντέλο. Σε νέο ανέβασμα ο εκδότης είναι άγνωστος μέχρι να διαβαστεί η σελίδα.
       example: await loadIssuerExample(doc.issuerAfm, { excludeId: id }),
+      // Ισχυρότερο μοντέλο ΜΟΝΟ για αυτή την κλήση (όχι αλλαγή της γενικής ρύθμισης).
+      visionModel: UPGRADED_VISION_MODEL,
     });
 
-    // Re-check the SoftOne supplier match (issuer ΑΦΜ → TRDR SODTYPE=12). Best-effort.
-    const softone = await buildSoftoneMatch(result.document.issuer.vat);
+    // ΣΥΝΑΛΛΑΣΣΟΜΕΝΟΣ: αν ο ΑΦΜ δεν άλλαξε και υπάρχει ήδη καρτέλα (ίσως διαλεγμένη με το χέρι),
+    // μένει. Νέα αντιστοίχιση μόνο όταν η νέα ανάγνωση βρήκε ΑΛΛΟΝ εκδότη.
+    const sameIssuer = doc.softoneTrdr != null && normalizeAfm(result.document.issuer.vat) === doc.issuerAfm;
+    const softone = sameIssuer ? {} : await buildSoftoneMatch(result.document.issuer.vat);
 
-    // Ο ΕΝΑΣ γραφέας: κανονικό έγγραφο + `extractedData` + `issuerAfm` + γραμμές. Οι γραμμές
-    // ξαναχτίζονται κρατώντας την αντιστοίχιση SoftOne της παλιάς γραμμής — μια δεύτερη ανάγνωση
-    // του ίδιου αρχείου δεν επιτρέπεται να διαγράψει δουλειά που έγινε με το χέρι.
+    // Ο ΕΝΑΣ γραφέας: κανονικό έγγραφο + παράγωγα + γραμμές. Οι γραμμές ξαναχτίζονται κρατώντας
+    // αντιστοίχιση SoftOne και αναλυτικά της παλιάς γραμμής με ίδιο κωδικό/περιγραφή.
     await saveDocumentJson(id, result.document, { replaceItems: true });
 
     await prisma.ocrDocument.update({
@@ -98,48 +112,42 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         durationMs: result.durationMs,
         completedAt: new Date(),
         errorMessage: null,
+        // Η ανάγνωση άλλαξε: η «επιβεβαίωση» αφορούσε την παλιά.
+        verifiedAt: null,
+        verifiedById: null,
         ...softone,
       },
     });
 
-    // Auto-match invoice lines to SoftOne items (products + services).
     await matchDocItems(id).catch(() => null);
-
-    // PURDOC duplicate check (best-effort).
-    if (softone.softoneTrdr) {
-      const dup = await buildDuplicateCheck(softone.softoneTrdr, result.document.type, result.document.date);
+    const trdr = (softone as { softoneTrdr?: number | null }).softoneTrdr ?? (sameIssuer ? doc.softoneTrdr : null);
+    if (trdr) {
+      const dup = await buildDuplicateCheck(trdr, result.document.type, result.document.date);
       await prisma.ocrDocument.update({ where: { id }, data: dup }).catch(() => null);
     }
-
-    // Σειρά παραστατικού από τις ενεργοποιημένες σειρές αγορών/πιστωτών (spec 2026-09-11 §1).
-    // Best-effort και ποτέ πάνω από χειροκίνητη επιλογή.
+    // Σειρά παραστατικού — ποτέ πάνω από χειροκίνητη επιλογή.
     await classifyDocument(id);
 
     vat = result.document.issuer.vat;
-    ok = { model: result.model, data: result.data };
-  } catch (err: any) {
+    ok = { model: result.model, data: result.data, before: summary(before), after: summary(result.document) };
+  } catch (err) {
+    // Η ΠΑΛΙΑ ανάγνωση είναι ακόμη στη θέση της (δεν γράφτηκε τίποτα): το έγγραφο επιστρέφει
+    // ΟΛΟΚΛΗΡΩΜΕΝΟ, όχι «Απέτυχε» — μια αποτυχημένη δεύτερη γνώμη δεν ακυρώνει την πρώτη.
+    failure = String((err as Error)?.message ?? err);
     await prisma.ocrDocument.update({
       where: { id },
-      data: { status: 'FAILED', errorMessage: String(err?.message ?? err).slice(0, 2000) },
+      data: before ? { status: 'COMPLETED', errorMessage: null } : { status: 'FAILED', errorMessage: failure.slice(0, 2000) },
     });
-    failure = String(err?.message ?? err);
-  } finally {
-    // Restore the previous model setting.
-    if (originalModel) {
-      await prisma.appSetting.update({
-        where: { key: 'ai.visionModel' },
-        data: { value: originalModel },
-      });
-    } else {
-      await prisma.appSetting.deleteMany({ where: { key: 'ai.visionModel' } });
-    }
   }
 
-  if (!ok) return NextResponse.json({ error: failure }, { status: 422 });
+  await logAudit({
+    userId: user.id, userEmail: user.email, action: 'ocr.reextract', resource: 'ocr_document', resourceId: id,
+    metadata: { docType, ok: !!ok, error: failure?.slice(0, 300) ?? null, before: ok?.before ?? summary(before), after: ok?.after ?? null },
+  }).catch(() => null);
+
+  if (!ok) return NextResponse.json({ error: 'reextract_failed', message: `Η επανασάρωση απέτυχε — η προηγούμενη ανάγνωση έμεινε ως είχε. (${failure?.slice(0, 200)})` }, { status: 422 });
 
   // Extraction template linked to this issuer (spec §15.1). Best-effort; failures become a FAILED run.
-  // Deliberately outside the try/finally above: the template run does its own vision calls and would
-  // otherwise keep the global model override in place for everyone else while it works.
   const templateRun: RunOutcome | null = await runMatchingTemplate(id, vat, 'reextract');
   return NextResponse.json({ ok: true, ...ok, templateRun });
 }

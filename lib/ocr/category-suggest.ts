@@ -13,7 +13,7 @@ export type OcrCategoryValue = 'EXPENSE' | 'INVOICE_IN' | 'INVOICE_OUT' | 'RECEI
 export type Confidence = 'high' | 'mid' | 'low';
 
 export const CATEGORY_LABEL: Record<OcrCategoryValue, string> = {
-  EXPENSE: 'Έξοδο',
+  EXPENSE: 'Δαπάνη',
   INVOICE_IN: 'Τιμολόγιο αγοράς',
   INVOICE_OUT: 'Τιμολόγιο πώλησης',
   RECEIPT: 'Απόδειξη',

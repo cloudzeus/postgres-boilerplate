@@ -1,6 +1,7 @@
 'use client';
 
 import { AfmRecover } from '@/components/admin/afm-recover';
+import { LINE_KIND_LABEL } from '@/lib/ocr/resolution-plan';
 import { isValidAfm, vatCountry } from '@/lib/ocr/validate';
 import { countryLabel } from '@/lib/countries';
 import { ViesCheck } from '@/components/admin/vies-check';
@@ -132,10 +133,13 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
     const n = itemsUnmatched;
     const γρ = n === 1 ? '1 γραμμή' : `${n} γραμμές`;
     const kinds = data.items.allowedKinds;
-    if (kinds.length === 1 && kinds[0] === 'lineitem') return `${γρ} χωρίς λογαριασμό δαπάνης`;
-    if (kinds.length === 1 && kinds[0] === 'expense') return `${γρ} χωρίς έξοδο`;
-    if (kinds.length > 0 && !kinds.includes('lineitem')) return `${γρ} χωρίς είδος ή υπηρεσία`;
-    return `${γρ} χωρίς αντιστοίχιση`;
+    // ΟΛΑ όσα δέχεται το είδος παραστατικού, με τις λέξεις του γλωσσαρίου. Πριν, ένα τιμολόγιο αγοράς
+    // (είδος / υπηρεσία / κατηγορία εξόδου) έλεγε «χωρίς είδος ή υπηρεσία» — και ο χρήστης νόμιζε ότι
+    // μια συνδρομή VPS πρέπει να γίνει «είδος», ενώ πάει απλώς σε κατηγορία εξόδου.
+    const words = [...new Set(kinds.map((k) => LINE_KIND_LABEL[k as keyof typeof LINE_KIND_LABEL]?.toLowerCase()).filter(Boolean))];
+    if (!words.length) return `${γρ} χωρίς «τι αφορά»`;
+    const list = words.length > 1 ? `${words.slice(0, -1).join(', ')} ή ${words[words.length - 1]}` : words[0];
+    return `${γρ} χωρίς ${list}`;
   })();
   const vatMissing = data.vat.missing.length;
   const vatTone: Tone = data.items.total === 0 ? 'idle' : vatMissing === 0 ? 'ok' : 'warn';
@@ -389,7 +393,7 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
 
         {!needsAction && (
           <div className="flex items-center gap-1.5 border-t border-border bg-emerald-50/40 px-3 py-1.5 text-[length:var(--fs-11)] font-medium" style={{ color: '#047857' }}>
-            <FiCheck className="size-3.5" /> Όλοι οι έλεγχοι ΟΚ — έτοιμο για καταχώριση.
+            <FiCheck className="size-3.5" /> Εκδότης, γραμμές και ΦΠΑ είναι εντάξει με τη SoftOne. Ό,τι άλλο μένει φαίνεται στην κάτω μπάρα.
           </div>
         )}
       </div>
