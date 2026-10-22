@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { ISSUER_SODTYPES } from '@/lib/softone';
 import { requiredTraderKind } from '@/lib/ocr/required-trader-kind';
-import { TRADER_KIND_TEXT } from '@/lib/ocr/posting-target';
+import { POST_OBJECT_SHORT, TRADER_KIND_TEXT } from '@/lib/ocr/posting-target';
 
 // Manually links a scanned document to the SoftOne trader that issued it (TRDR):
 // προμηθευτής (12), πιστωτής (16) ή χρεώστης (15) — το είδος το λέει η ΣΕΙΡΑ του παραστατικού.
@@ -49,8 +49,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       required: { kind: required.kind, sodtype: required.sodtype, label: want.nom },
       got: { sodtype: sup.sodtype, kind: sup.kind ?? null, name: sup.name },
       message:
-        `Η σειρά του παραστατικού καταχωρείται σε ${required.object} και δέχεται καρτέλα `
-        + `${want.nom} (SODTYPE ${required.sodtype}). Η «${sup.name}» είναι ${sup.kind ?? `τύπου ${sup.sodtype}`}. `
+        `Η σειρά του παραστατικού καταχωρείται σε «${POST_OBJECT_SHORT[required.object]}» και δέχεται καρτέλα `
+        + `${want.nom}. Η «${sup.name}» είναι ${sup.kind ?? `τύπου ${sup.sodtype}`}. `
         + `Διάλεξε ή δημιούργησε ${want.acc} για το ίδιο ΑΦΜ.`,
     }, { status: 422 });
   }
