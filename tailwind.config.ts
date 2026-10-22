@@ -3,6 +3,11 @@ import dsPreset from './lib/design-system/tailwind.config';
 
 const config: Config = {
   presets: [dsPreset],
+  // Η εφαρμογή ΔΕΝ έχει σκούρο θέμα (τα tokens του globals.css είναι μόνο ανοιχτά). Με το προεπιλεγμένο
+  // 'media' τα `dark:` ενεργοποιούνταν όταν το λειτουργικό ήταν σε σκούρα εμφάνιση και έβαζαν
+  // emerald-300 / sky-300 κ.λπ. πάνω σε λευκό φόντο — σχεδόν αόρατα. Δεμένα σε κλάση `.dark`, που
+  // δεν μπαίνει πουθενά, μένουν ανενεργά μέχρι να γίνει πραγματικό σκούρο θέμα.
+  darkMode: 'class',
   content: [
     './app/**/*.{js,ts,jsx,tsx}',
     './components/**/*.{js,ts,jsx,tsx}',

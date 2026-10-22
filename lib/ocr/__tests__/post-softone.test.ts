@@ -160,7 +160,7 @@ describe('postingPreview (dry-run)', () => {
     expect(preview.blockers).toEqual([]);
     expect(preview.target).toMatchObject({ object: 'LINDEBDOC', lines: 'LINLINES', source: 'default' });
     // Η κάρτα ονομάζει τον στόχο στα ελληνικά, με το σωστό όνομα object και πίνακα.
-    expect(preview.target.label).toBe('Ειδικές συναλλαγές χρεωστών · γραμμές LINLINES');
+    expect(preview.target.label).toBe('Ειδικές συναλλαγές χρεωστών');
     expect(preview.payload.OBJECT).toBe('LINDEBDOC');
     expect(preview.payload.DATA.LINDEBDOC?.[0]).toMatchObject({ SERIES: 6645, TRDR: 12345, FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17' });
     expect(preview.payload.DATA.LINDEBDOC?.[0]).not.toHaveProperty('SODTYPE');

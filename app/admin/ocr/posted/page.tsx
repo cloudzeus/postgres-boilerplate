@@ -4,7 +4,7 @@ import { StatCard } from '@/components/admin/stat-card';
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/rbac';
 import { PageHeader } from '@/components/admin/page-header';
-import { OBJECTS_FOR_SOSOURCE, LINES_FOR_OBJECT, type PostLineTable } from '@/lib/ocr/posting-target';
+import { OBJECTS_FOR_SOSOURCE, LINES_FOR_OBJECT, POST_OBJECT_SHORT, type PostLineTable } from '@/lib/ocr/posting-target';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,7 +49,7 @@ export default async function OcrPostedPage() {
 
   type Row = {
     id: string; fileName: string; postedAt: Date | null; postedRef: string | null;
-    supplier: string; afm: string; series: string; object: string; linesLabel: string;
+    supplier: string; afm: string; series: string; object: string; objectLabel: string; linesLabel: string;
     number: string; docDate: string; total: number | null; lines: number;
   };
 
@@ -62,7 +62,9 @@ export default async function OcrPostedPage() {
       afm: d.issuerAfm ?? doc?.issuer?.vat ?? '—',
       series: [d.seriesSource, d.softoneSeries].filter(Boolean).join(':') || '—',
       object: object ?? '—',
-      linesLabel: object ? SHORT_LINES[LINES_FOR_OBJECT[object][0]] : '—',
+      objectLabel: object ? POST_OBJECT_SHORT[object] : '—',
+      // Ο πίνακας γραμμών λέγεται μόνο όταν το object έχει επιλογή (αγορές)· αλλιώς επαναλαμβάνει το όνομα.
+      linesLabel: object && LINES_FOR_OBJECT[object].length > 1 ? SHORT_LINES[LINES_FOR_OBJECT[object][0]] : '',
       number: doc?.type?.number ?? '—',
       docDate: doc?.date ?? '—',
       total: doc?.totals?.total == null ? null : Number(doc.totals.total),
@@ -160,9 +162,11 @@ export default async function OcrPostedPage() {
                             <div className="text-[length:var(--fs-11)] text-muted-foreground">{r.docDate}</div>
                           </td>
                           <td className="px-3 py-2">
-                            <div className="font-mono text-[length:var(--fs-11)] text-foreground">{r.object}</div>
+                            {/* Το ελληνικό όνομα, όχι ο κωδικός του object (LINCREDOC): ο λογιστής
+                                δεν ξέρει τι είναι. Ο κωδικός μένει στο tooltip για την υποστήριξη. */}
+                            <div className="font-medium text-foreground" title={r.object}>{r.objectLabel}</div>
                             <div className="text-[length:var(--fs-11)] text-muted-foreground">
-                              σειρά {r.series} · {r.linesLabel}
+                              σειρά {r.series}{r.linesLabel ? ` · ${r.linesLabel}` : ''}
                             </div>
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{r.lines}</td>

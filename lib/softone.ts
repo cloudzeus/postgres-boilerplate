@@ -2414,7 +2414,7 @@ export async function softoneCreateLineItem(
   }
   if (Number(row.SODTYPE) !== LINEITEM_SODTYPE) {
     throw new SoftoneOrphanError(
-      `Η εγγραφή ${mtrl} γράφτηκε με SODTYPE ${row.SODTYPE ?? '—'} αντί για ${LINEITEM_SODTYPE}: δεν είναι χρεοπίστωση και δεν μπορεί να μπει σε γραμμή LINLINES.`,
+      `Η εγγραφή ${mtrl} γράφτηκε με SODTYPE ${row.SODTYPE ?? '—'} αντί για ${LINEITEM_SODTYPE}: δεν είναι χρεοπίστωση και δεν μπορεί να μπει σε γραμμή ειδικών συναλλαγών.`,
       mtrl,
     );
   }

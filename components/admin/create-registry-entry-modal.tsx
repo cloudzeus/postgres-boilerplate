@@ -68,7 +68,7 @@ const KIND_WHERE: Record<MatchKind, string> = {
   product: 'Νέα καρτέλα είδους στο SoftOne (object ITEM → MTRL, SODTYPE 51).',
   service: 'Νέα καρτέλα υπηρεσίας στο SoftOne (object ITEM → MTRL, SODTYPE 52).',
   expense: 'Νέο έξοδο στο SoftOne (object EXPENSES → EXPN).',
-  lineitem: 'Νέα χρεοπίστωση στο SoftOne (object LINEITEM → MTRL, SODTYPE 53) — αυτό δέχεται η γραμμή LINLINES.',
+  lineitem: 'Νέα χρεοπίστωση στο SoftOne — μόνο αυτό δέχεται μια γραμμή ειδικών συναλλαγών.',
 };
 
 const SODTYPE_NAME: Record<number, string> = {

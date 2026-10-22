@@ -54,12 +54,16 @@ export const POST_OBJECT_SHORT: Record<PostObject, string> = {
 export const POST_LINE_TABLES = ['AUTO', 'ITELINES', 'SRVLINES', 'EXPANAL', 'LINLINES', 'SXDOCLINES'] as const;
 export type PostLineTable = (typeof POST_LINE_TABLES)[number];
 
+/**
+ * Ελληνικό όνομα του object για τον χρήστη — ΧΩΡΙΣ τον κωδικό SoftOne. Το «(PURDOC)» δίπλα στο
+ * όνομα δεν λέει τίποτα στον λογιστή· ο κωδικός μένει μόνο σε tooltips και στην προβολή payload.
+ */
 export const POST_OBJECT_LABEL: Record<PostObject, string> = {
-  PURDOC: 'Παραστατικά αγορών (PURDOC)',
-  LINSUPDOC: 'Ειδικές συναλλαγές προμηθευτών (LINSUPDOC)',
-  LINCREDOC: 'Ειδικές συναλλαγές πιστωτών (LINCREDOC)',
-  LINDEBDOC: 'Ειδικές συναλλαγές χρεωστών (LINDEBDOC)',
-  SXDOCSEX: 'Παραστατικά εξόδων (SXDOCSEX)',
+  PURDOC: 'Παραστατικά αγορών',
+  LINSUPDOC: 'Ειδικές συναλλαγές προμηθευτών',
+  LINCREDOC: 'Ειδικές συναλλαγές πιστωτών',
+  LINDEBDOC: 'Ειδικές συναλλαγές χρεωστών',
+  SXDOCSEX: 'Παραστατικά εξόδων',
 };
 
 export const POST_LINES_LABEL: Record<PostLineTable, string> = {
@@ -271,15 +275,20 @@ export function resolvePostingTarget(input: SeriesTargetInput): PostingTarget {
   };
 }
 
-/** «Παραστατικά αγορών (PURDOC) · Είδη» — μία γραμμή για κάρτες και toasts. */
+/** «Παραστατικά αγορών · Είδη» — μία γραμμή για κάρτες και toasts. */
 export const describeTarget = (t: PostingTarget): string =>
   `${POST_OBJECT_LABEL[t.object]} · ${POST_LINES_LABEL[t.lines]}`;
 
-/** «Ειδικές συναλλαγές προμηθευτών · γραμμές LINLINES» — η μορφή που ζητήθηκε για την κάρτα. */
-export const describeTargetShort = (t: PostingTarget): string =>
-  t.supported
-    ? `${POST_OBJECT_SHORT[t.object]} · ${t.lines === 'AUTO' ? 'γραμμές ανά είδος αντιστοίχισης' : `γραμμές ${t.lines}`}`
-    : 'Χωρίς υποστηριζόμενο προορισμό';
+/**
+ * «Ειδικές συναλλαγές προμηθευτών» / «Παραστατικό αγορών · Είδη» — η μορφή της κάρτας.
+ * Ο πίνακας γραμμών λέγεται ΜΟΝΟ όταν το object έχει επιλογή: στις ειδικές συναλλαγές και στα
+ * παραστατικά εξόδων υπάρχει ένας, και το «· γραμμές LINLINES» ήταν κωδικός χωρίς νόημα για τον χρήστη.
+ */
+export const describeTargetShort = (t: PostingTarget): string => {
+  if (!t.supported) return 'Χωρίς υποστηριζόμενο προορισμό';
+  if (LINES_FOR_OBJECT[t.object].length < 2) return POST_OBJECT_SHORT[t.object];
+  return `${POST_OBJECT_SHORT[t.object]} · ${t.lines === 'AUTO' ? 'γραμμές ανά είδος αντιστοίχισης' : POST_LINES_LABEL[t.lines]}`;
+};
 
 /* ------------------------------------------------------------------ */
 /* Πλευρά συναλλασσομένου μιας ενότητας                                */

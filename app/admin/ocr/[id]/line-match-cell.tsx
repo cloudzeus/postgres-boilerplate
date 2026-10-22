@@ -25,7 +25,7 @@ import { depreciationAdvice } from '@/lib/ocr/depreciation';
 import { CreateRegistryEntryModal } from '@/components/admin/create-registry-entry-modal';
 import { AssetSearch, CreateAssetDialog, type AssetPick } from '@/components/admin/asset-picker';
 import { lineKindFits, lineKindsReason } from '@/lib/ocr/resolution-plan';
-import { assetFits, type PostingTarget } from '@/lib/ocr/posting-target';
+import { assetFits, POST_LINES_LABEL, type PostingTarget } from '@/lib/ocr/posting-target';
 import { matchKindOf, type LineCategoryOption, type LineMatch } from './line-match-kind';
 import type { MatchKind } from '@/lib/ocr/line-match';
 import { cn } from '@/lib/utils';
@@ -635,7 +635,7 @@ export function LineMatchCell({
                             type="button"
                             aria-pressed={kind === k}
                             disabled={!fits}
-                            title={fits ? undefined : `Ο προορισμός «${target?.lines}» δεν δέχεται ${KIND_META[k].label.toLowerCase()}.`}
+                            title={fits ? undefined : `Ο προορισμός «${target ? POST_LINES_LABEL[target.lines] : '—'}» δεν δέχεται ${KIND_META[k].label.toLowerCase()}.`}
                             onClick={() => { setKind(k); if (k !== 'lineitem') setLineCategory(null); }}
                             className={cn(
                               'flex h-7 flex-1 items-center justify-center gap-1 rounded px-1 text-[length:var(--fs-11)] font-semibold outline-none',

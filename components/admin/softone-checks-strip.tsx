@@ -21,7 +21,7 @@ import { VatMapFix } from '@/components/admin/vat-map-fix';
 import { emitDocLinesChanged, emitFocusLine, focusLineHref, useDocLinesChanged } from '@/components/admin/doc-lines-events';
 import { useRouter } from 'next/navigation';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import type { TraderKindName } from '@/lib/ocr/posting-target';
+import { POST_OBJECT_SHORT, type PostObject, type TraderKindName } from '@/lib/ocr/posting-target';
 import type { MatchKind } from '@/lib/ocr/line-match';
 
 type RequiredTrader = {
@@ -210,8 +210,8 @@ export function SoftoneChecksStrip({ docId, helpHref = null }: { docId: string; 
                   <PopoverContent align="end" className="w-[24rem] space-y-2">
                     {req ? (
                       <p className="text-caption text-muted-foreground">
-                        Η σειρά καταχωρείται σε <strong>{req.object}</strong>, που δέχεται καρτέλα{' '}
-                        <strong>{req.label}</strong> (SODTYPE {req.sodtype}). Στο SoftOne η ίδια εταιρεία
+                        Η σειρά καταχωρείται σε <strong>{POST_OBJECT_SHORT[req.object as PostObject] ?? req.object}</strong>, που δέχεται καρτέλα{' '}
+                        <strong>{req.label}</strong>. Στο SoftOne η ίδια εταιρεία
                         έχει ξεχωριστή καρτέλα ανά τύπο — άλλος τύπος εδώ μπλοκάρει την καταχώριση.
                       </p>
                     ) : (

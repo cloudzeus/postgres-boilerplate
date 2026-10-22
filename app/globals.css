@@ -25,7 +25,9 @@
     --color-border-soft:      #E2E8F0;
     --color-text-primary:     #0F172A;
     --color-text-secondary:   #475569;
-    --color-text-muted:       #64748B;
+    /* #64748B έπεφτε στο 4.3:1 πάνω στις γκρι κεφαλίδες (bg-muted) και κούραζε στα 11–12px.
+       Το #4E5C70 δίνει 6.8:1 σε λευκό / 6.2:1 σε bg-muted — ευανάγνωστο, αλλά ακόμη δευτερεύον. */
+    --color-text-muted:       #4E5C70;
 
     --color-success: #16A34A;
     --color-warning: #F59E0B;
