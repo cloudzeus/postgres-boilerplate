@@ -135,6 +135,8 @@ export const TEMPLATE_SCHEMAS: Record<DocType, TemplateSchema> = {
     "deliveryNote": "string or null (ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ)",
     "contract": "string or null (ΣΥΜΒΑΣΗ)",
     "shipment": "string or null (ΑΠΟΣΤΟΛΗ / ΣΚΟΠΟΣ ΔΙΑΚΙΝΗΣΗΣ)",
+    "related": "string or null (ΣΥΣΧΕΤΙΖΟΜΕΝΟ / ΑΡΧΙΚΟ ΠΑΡΑΣΤΑΤΙΚΟ — for a credit note (πιστωτικό): the number of the invoice it credits, as printed, e.g. «Αφορά ΤΠΥ 17»)",
+    "relatedMark": "string or null (ΜΑΡΚ of that related/original document, if printed)",
     "plates": ["string"],       // ΑΡ. ΚΥΚΛΟΦΟΡΙΑΣ of the vehicles printed on the document; [] if none
     "period": null,             // { "from": "YYYY-MM-DD", "to": "YYYY-MM-DD" } for utility/service billing periods
     "quantities": [             // metered quantities printed outside the line table (π.χ. κατανάλωση kWh, m³)

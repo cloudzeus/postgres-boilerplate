@@ -25,6 +25,7 @@ import { UtilityBillCard } from '@/components/admin/utility-bill-card';
 import { suggestionsForDocument } from '@/lib/ocr/line-suggestions';
 import { decideLineUnits, hasBuyUnit } from '@/lib/ocr/line-units';
 import { DocActionsMenu, DocToolsHost } from '@/components/admin/doc-tools';
+import { isCreditNote } from '@/lib/ocr/credit-link';
 
 export const dynamic = 'force-dynamic';
 
@@ -184,6 +185,9 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
   const lineSuggestions = completed && canManage
     ? await suggestionsForDocument({ document: doc.document, issuerAfm: doc.issuerAfm, items, target: postingTarget }).catch(() => ({}))
     : {};
+  // Πιστωτικό: εμφανίζεται η «Σύνδεση με αρχικό» (σειρά της SoftOne πρώτα, μετά τα στοιχεία του χαρτιού).
+  const docType_ = ((doc.document ?? null) as { type?: { myDataType?: string | null; label?: string | null } } | null)?.type;
+  const isCredit = isCreditNote({ seriesName: series?.name ?? null, category: doc.category, myDataType: docType_?.myDataType ?? null, typeLabel: docType_?.label ?? null });
   const docPeriod = ((doc.document ?? null) as { references?: { period?: { from: string | null; to: string | null } | null } } | null)
     ?.references?.period ?? null;
 
@@ -195,7 +199,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
         </Link>
         <div className="flex items-center gap-2">
           {doc.status === 'COMPLETED' && (
-            <DocActionsMenu docId={doc.id} canManage={canManage} canRescan={canRescan} posted={doc.postStatus === 'POSTED'} />
+            <DocActionsMenu docId={doc.id} canManage={canManage} canRescan={canRescan} posted={doc.postStatus === 'POSTED'} isCredit={isCredit} />
           )}
           <a
             href={`/api/admin/ocr/${doc.id}/file`}

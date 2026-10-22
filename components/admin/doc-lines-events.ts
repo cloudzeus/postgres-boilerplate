@@ -113,7 +113,8 @@ export type DocToolRequest =
   | { tool: 'lines'; add?: { net: number; vatRate: number | null; name?: string }; removeRow?: number }
   | { tool: 'rescan' }
   | { tool: 'history' }
-  | { tool: 'posted-amounts' };
+  | { tool: 'posted-amounts' }
+  | { tool: 'credit-link' };
 
 const TOOL = 'ocr:doc-tool';
 

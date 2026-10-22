@@ -6,13 +6,13 @@
 
 export type FixTarget =
   | { kind: 'section'; section: 'fields' | 'lines' | 'amounts' | 'checks' | 'series' | 'category' | 'template' }
-  | { kind: 'tool'; tool: 'lines' | 'rescan' }
+  | { kind: 'tool'; tool: 'lines' | 'rescan' | 'credit-link' }
   | { kind: 'admin' };
 
 export interface BlockerFix { label: string; target: FixTarget }
 
 const go = (section: Extract<FixTarget, { kind: 'section' }>['section'], label: string): BlockerFix => ({ label, target: { kind: 'section', section } });
-const tool = (t: 'lines' | 'rescan', label: string): BlockerFix => ({ label, target: { kind: 'tool', tool: t } });
+const tool = (t: 'lines' | 'rescan' | 'credit-link', label: string): BlockerFix => ({ label, target: { kind: 'tool', tool: t } });
 const admin: BlockerFix = { label: 'Χρειάζεται διαχειριστή', target: { kind: 'admin' } };
 
 const FIX: Record<string, BlockerFix> = {
@@ -47,6 +47,7 @@ const FIX: Record<string, BlockerFix> = {
   lines_no_mtrtype: admin,
   rule_blocked: go('template', 'Δες τον κανόνα'),
   period_closed: go('fields', 'Έλεγξε την ημερομηνία'),
+  credit_not_linked: tool('credit-link', 'Σύνδεση με αρχικό'),
 };
 
 export function blockerFix(code: string): BlockerFix | null {

@@ -209,6 +209,13 @@ export const DocumentSchema = z.object({
   })),
   references: nobj(z.object({
     orderNo: nstr, deliveryNote: nstr, contract: nstr, shipment: nstr,
+    /** Πιστωτικό: ο αριθμός / ο ΜΑΡΚ του ΑΡΧΙΚΟΥ παραστατικού, όπως τυπώθηκαν. */
+    related: nstr.optional(), relatedMark: nstr.optional(),
+    /**
+     * Πιστωτικό: η ΣΥΝΔΕΣΗ που επιβεβαίωσε ο χρήστης — FINDOC του αρχικού στη SoftOne (→ `FINDOCS`) και
+     * πώς φαίνεται· ή ρητά «χωρίς αρχικό» (π.χ. έκπτωση τζίρου).
+     */
+    linkedFindoc: nnum.optional(), linkedLabel: nstr.optional(), noLink: nbool.optional(),
     plates: strArray,
     period: z.preprocess((v) => (isObj(v) ? v : null), z.object({ from: nstr, to: nstr }).nullable()).default(null),
     quantities: objArray(z.object({ label: nstr, value: nnum, unit: nstr })),

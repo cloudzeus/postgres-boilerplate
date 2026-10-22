@@ -22,6 +22,7 @@ import { describeTargetShort, resolvePostingTarget, type PostingTarget } from '.
 import { VAT_RATE_MAP_SETTING, buildVatRateMap, parseVatRateOverrides } from './vat-map';
 import { postingComment } from './posting-comment';
 import { periodVerdict } from '@/lib/softone-sync/periods';
+import { isCreditNote } from './credit-link';
 import { softoneErrorLine } from './softone-error-text';
 import { UTILITY_KIND_TITLE, analyzeUtility, utilityInputFromDocument } from './utility-bills';
 
@@ -80,6 +81,7 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   lines_no_mtrtype: 'Μια δαπάνη σε λογαριασμό δεν έχει πλήρη στοιχεία στη SoftOne. Ζήτησε από τον διαχειριστή νέο συγχρονισμό στα Μητρώα αναφοράς.',
   series_unknown: 'Το είδος παραστατικού που έχει οριστεί δεν υπάρχει (ή είναι ανενεργό) στη SoftOne. Διάλεξε άλλο από τη λίστα στην κάτω μπάρα.',
   series_module_unsupported: 'Αυτό το είδος παραστατικού δεν καταχωρείται από την εφαρμογή. Διάλεξε παραστατικό αγορών, προμηθευτών, χρεωστών ή πιστωτών.',
+  credit_not_linked: 'Είναι πιστωτικό: σύνδεσέ το με το αρχικό παραστατικό που πιστώνει — ή δήλωσε ρητά «χωρίς αρχικό» (π.χ. έκπτωση τζίρου).',
   period_closed: 'Η ημερομηνία του παραστατικού πέφτει σε κλειστή περίοδο της SoftOne. Αν διαβάστηκε λάθος, διόρθωσέ τη· αλλιώς ζήτησε από τον λογιστή να ανοίξει την περίοδο.',
   registry_not_in_installation: 'Κάποια γραμμή δείχνει σε κωδικό που δεν υπάρχει στη SoftOne που είμαστε συνδεδεμένοι (παλιά σύνδεση). Άνοιξε τη γραμμή και διάλεξε ξανά τι αφορά.',
   trader_kind_mismatch: 'Ο εκδότης είναι συνδεδεμένος με καρτέλα άλλου τύπου (π.χ. πιστωτή αντί για προμηθευτή) από αυτόν που δέχεται το είδος παραστατικού. Διόρθωσέ το από τη λωρίδα ελέγχων, ή άλλαξε είδος παραστατικού.',
@@ -206,7 +208,7 @@ type Gathered = {
  */
 async function loadTarget(
   code: string | null, sosource: number | null,
-): Promise<{ target: PostingTarget; known: boolean; enabled: boolean }> {
+): Promise<{ target: PostingTarget; known: boolean; enabled: boolean; name?: string | null }> {
   if (!code) return { target: resolvePostingTarget({ sosource }), known: false, enabled: false };
   const row = sosource === 1251
     ? await prisma.purchaseDocType.findUnique({
@@ -223,6 +225,7 @@ async function loadTarget(
     target: resolvePostingTarget({ sosource, ...(row ?? {}) }),
     known: Boolean(row),
     enabled: Boolean(row?.enabled),
+    name: row?.name ?? null,
   };
 }
 
@@ -416,6 +419,7 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
     vatIdByRate,
     // ΤΙ ΑΦΟΡΑ — όχι το ελεύθερο κείμενο του χαρτιού (βλ. lib/ocr/posting-comment.ts).
     comments: postingComment(document, { utilityTitle: utilityTitleOf(document) }),
+    relatedFindoc: document.references?.linkedFindoc ?? null,
     assetWhouse,
   };
 
@@ -453,6 +457,12 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
 
   // ΠΕΡΙΟΔΟΣ: κλειστή / κλειδωμένη χρήση ή περίοδος της SoftOne — ΠΡΙΝ φτάσουμε στην άρνηση της ίδιας.
   // Σε ήδη καταχωρισμένο δεν έχει νόημα (και δεν πληρώνουμε την ανάγνωση).
+  // ΠΙΣΤΩΤΙΚΟ: πρέπει να ξέρουμε τι πιστώνει — ή ο χρήστης να πει ρητά «χωρίς αρχικό».
+  const credit = isCreditNote({ seriesName: seriesTarget.name, category: doc.category, myDataType: document.type.myDataType, typeLabel: document.type.label });
+  if (credit && doc.postStatus !== 'POSTED' && document.references?.linkedFindoc == null && document.references?.noLink !== true) {
+    blockers.push('credit_not_linked');
+  }
+
   let periodMessage: string | null = null;
   if (doc.postStatus !== 'POSTED' && document.date) {
     const v = await periodVerdict(document.date);

@@ -8,7 +8,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
-  FiAlertTriangle, FiArrowRight, FiCheckCircle, FiChevronDown, FiClock, FiDollarSign, FiFileText, FiList, FiLoader, FiRefreshCw, FiTool, FiXCircle,
+  FiAlertTriangle, FiArrowRight, FiCheckCircle, FiChevronDown, FiClock, FiDollarSign, FiFileText, FiLink, FiList, FiLoader, FiRefreshCw, FiTool, FiXCircle,
 } from 'react-icons/fi';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,6 +18,7 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, Dia
 import { Field, FormSection, FormSelect, RowHint } from '@/components/admin/form-kit';
 import { LinesEditorDialog, type LinesEditorPrefill } from '@/components/admin/lines-editor-dialog';
 import { PostedAmountsDialog } from '@/components/admin/posted-amounts-dialog';
+import { CreditLinkDialog } from '@/components/admin/credit-link-dialog';
 import { emitDocLinesChanged, emitDocTool, focusSection, useDocTool, DOC_SECTION, type DocToolRequest } from '@/components/admin/doc-lines-events';
 import { blockerFix } from '@/lib/ocr/blocker-fix';
 import { elapsedSuffix, useElapsedSeconds } from '@/lib/use-elapsed';
@@ -33,12 +34,14 @@ export interface DocToolsProps {
   posted: boolean;
   /** Μπορεί να καταχωρίζει (ocr.post) — χρειάζεται για τη διόρθωση ποσών στη SoftOne. */
   canPost?: boolean;
+  /** Είναι πιστωτικό — εμφανίζεται η «Σύνδεση με αρχικό». */
+  isCredit?: boolean;
 }
 
 const POSTED_REASON = 'Καταχωρήθηκε στη SoftOne — δεν αλλάζει πια από εδώ';
 
 /** Το κουμπί «Ενέργειες» της κορυφής: τα εργαλεία διόρθωσης, χωρισμένα από τη «Διαγραφή». */
-export function DocActionsMenu({ docId, canManage, canRescan, posted }: DocToolsProps) {
+export function DocActionsMenu({ docId, canManage, canRescan, posted, isCredit }: DocToolsProps) {
   const open = (req: DocToolRequest) => { if (!emitDocTool(docId, req)) toast.error('Το εργαλείο δεν είναι διαθέσιμο σε αυτή τη σελίδα.'); };
   return (
     <DropdownMenu>
@@ -51,6 +54,10 @@ export function DocActionsMenu({ docId, canManage, canRescan, posted }: DocTools
           disabled={!canManage || posted} onSelect={() => open({ tool: 'lines' })} />
         <MenuItem icon={<FiRefreshCw />} title="Επανασάρωση" hint={posted ? POSTED_REASON : 'Νέα ανάγνωση από την αρχή, με την τρέχουσα έκδοση της εφαρμογής'}
           disabled={!canRescan || posted} onSelect={() => open({ tool: 'rescan' })} />
+        {isCredit && (
+          <MenuItem icon={<FiLink />} title="Σύνδεση με αρχικό" hint={posted ? POSTED_REASON : 'Ποιο τιμολόγιο πιστώνει αυτό το πιστωτικό'}
+            disabled={!canManage || posted} onSelect={() => open({ tool: 'credit-link' })} />
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-[length:var(--fs-11)] font-semibold uppercase tracking-wide text-muted-foreground">Πληροφορίες</DropdownMenuLabel>
         <MenuItem icon={<FiClock />} title="Ιστορικό αλλαγών" hint="Ποιος άλλαξε τι, και πότε" onSelect={() => open({ tool: 'history' })} />
@@ -78,6 +85,7 @@ function MenuItem({ icon, title, hint, disabled, onSelect }: { icon: React.React
 export function DocToolsHost({ docId, canManage, canRescan, posted, canPost, lineMatches }: DocToolsProps & { lineMatches?: Record<number, string | null> }) {
   const [lines, setLines] = React.useState<LinesEditorPrefill | null>(null);
   const [amounts, setAmounts] = React.useState(false);
+  const [creditLink, setCreditLink] = React.useState(false);
   const [rescan, setRescan] = React.useState(false);
   const [history, setHistory] = React.useState(false);
 
@@ -102,6 +110,10 @@ export function DocToolsHost({ docId, canManage, canRescan, posted, canPost, lin
       setRescan(true);
     } else if (req.tool === 'history') setHistory(true);
     else if (req.tool === 'posted-amounts') setAmounts(true);
+    else if (req.tool === 'credit-link') {
+      if (posted) { toast.error(`${POSTED_REASON}.`); return; }
+      setCreditLink(true);
+    }
   });
 
   return (
@@ -110,6 +122,7 @@ export function DocToolsHost({ docId, canManage, canRescan, posted, canPost, lin
       {rescan && <RescanDialog docId={docId} onClose={() => setRescan(false)} />}
       {history && <HistoryDialog docId={docId} onClose={() => setHistory(false)} />}
       {amounts && <PostedAmountsDialog docId={docId} canFix={!!canPost} onClose={() => setAmounts(false)} />}
+      {creditLink && <CreditLinkDialog docId={docId} canEdit={canManage} onClose={() => setCreditLink(false)} />}
     </>
   );
 }
@@ -288,6 +301,7 @@ const ACTION_TEXT: Record<string, string> = {
   'ocr.document.split_regions': 'Διαχωρισμός παραστατικών',
   'ocr.post': 'Καταχώριση στη SoftOne',
   'ocr.post.amounts_fix': 'Διόρθωση ποσών στη SoftOne',
+  'ocr.credit.link': 'Σύνδεση πιστωτικού με αρχικό',
 };
 
 function HistoryDialog({ docId, onClose }: { docId: string; onClose: () => void }) {

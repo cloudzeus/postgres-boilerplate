@@ -106,6 +106,7 @@ export function mergeDocuments(pages: DocumentJson[]): DocumentJson {
       ...fillGaps(pages.map((p) => ({
         orderNo: p.references.orderNo, deliveryNote: p.references.deliveryNote,
         contract: p.references.contract, shipment: p.references.shipment,
+        related: p.references.related ?? null, relatedMark: p.references.relatedMark ?? null,
       }))),
       plates: lastNonEmpty(pages.map((p) => p.references.plates)),
       period,
@@ -154,10 +155,12 @@ export function mergeHybridDocuments(digital: DocumentJson, vision: DocumentJson
         {
           orderNo: digital.references.orderNo, deliveryNote: digital.references.deliveryNote,
           contract: digital.references.contract, shipment: digital.references.shipment,
+          related: digital.references.related ?? null, relatedMark: digital.references.relatedMark ?? null,
         },
         {
           orderNo: vision.references.orderNo, deliveryNote: vision.references.deliveryNote,
           contract: vision.references.contract, shipment: vision.references.shipment,
+          related: vision.references.related ?? null, relatedMark: vision.references.relatedMark ?? null,
         },
       ]),
       plates: digital.references.plates.length ? digital.references.plates : vision.references.plates,

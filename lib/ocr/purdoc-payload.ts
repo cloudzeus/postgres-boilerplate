@@ -117,6 +117,8 @@ export type PurdocContext = {
   /** Συντελεστής ΦΠΑ (π.χ. 24) → κωδικός ΦΠΑ SoftOne (`VatCategory.code`). */
   vatIdByRate: Record<number, number>;
   comments?: string | null;
+  /** Πιστωτικό: FINDOC του αρχικού παραστατικού → «Παραστατικό προέλευσης» (`FINDOCS`) της κεφαλίδας. */
+  relatedFindoc?: number | null;
   /**
    * Η αποθήκη παγίων (`WHOUSE`) — υποχρεωτική στη γραμμή ASSLINES, χωρίς default. Βγαίνει από τις
    * υπάρχουσες εγγραφές απόκτησης της εγκατάστασης (συγχρονισμός «Πάγια»).
@@ -146,6 +148,8 @@ export type PurdocHeader = {
   TAXSERIESNUM?: string;
   COMPANY?: number;
   COMMENTS?: string;
+  /** «Παραστατικό προέλευσης» — σε πιστωτικό, το FINDOC του αρχικού. */
+  FINDOCS?: number;
   /**
    * Ο ΜΑΡΚ και το UID του παραστατικού στο myDATA.
    *
@@ -295,7 +299,9 @@ export type BlockerCode =
   // Η γραμμή δείχνει σε χρεοπίστωση/έξοδο που ΔΕΝ υπάρχει στην τωρινή εγκατάσταση (βλ. `post-softone.ts`).
   | 'registry_not_in_installation'
   /** Η ημερομηνία πέφτει σε κλειστή/κλειδωμένη χρήση ή περίοδο της SoftOne (ή σε καμία χρήση). */
-  | 'period_closed';
+  | 'period_closed'
+  /** Πιστωτικό χωρίς σύνδεση με το αρχικό παραστατικό (ούτε ρητό «χωρίς αρχικό»). */
+  | 'credit_not_linked';
 
 /** Μη-αποτρεπτικές παρατηρήσεις: φαίνονται στην προεπισκόπηση, δεν κλειδώνουν το κουμπί. */
 export type WarningCode =
@@ -563,6 +569,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
   if (comments) header.COMMENTS = clip(comments);
   const mark = text(document.digital.mark);
   if (mark) header.SomyDataMARK = mark;
+  if (ctx.relatedFindoc != null && Number.isFinite(ctx.relatedFindoc)) header.FINDOCS = ctx.relatedFindoc;
   const uid = text(document.digital.uid);
   if (uid) header.SomyDataUID = uid;
 

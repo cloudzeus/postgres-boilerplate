@@ -11,7 +11,7 @@ screenshots:
     route: /admin/ocr
     caption: "Σελίδα παραστατικού με το μενού «Ενέργειες»"
 related: [lines-editor, correction, glossary, ocr-overview]
-helpAnchors: [document-actions, doc-tools, rescan, lines-edit, posting-blockers, posted-amounts]
+helpAnchors: [document-actions, doc-tools, rescan, lines-edit, posting-blockers, posted-amounts, credit-link]
 ---
 
 ## Επισκόπηση
@@ -81,6 +81,22 @@ helpAnchors: [document-actions, doc-tools, rescan, lines-edit, posting-blockers,
 <Callout type="info">
 Αν η SoftOne αρνηθεί την καταχώριση, το μήνυμά της μεταφράζεται: π.χ. το «Range Error» γίνεται «Η SoftOne απέρριψε μια
 τιμή που δεν χωρά στο πεδίο της — πολύ μεγάλο κείμενο: σχόλιο 380/255 χαρακτήρες». Το αρχικό μήνυμα μένει στο τέλος, για τον τεχνικό.
+</Callout>
+
+## Πιστωτικά: σύνδεση με το αρχικό
+
+Ένα πιστωτικό πρέπει να λέει **ποιο τιμολόγιο πιστώνει**. Η εφαρμογή διαβάζει από το χαρτί τον αριθμό (και τον ΜΑΡΚ) του
+αρχικού και, αν ταιριάζει με καταχωρισμένο παραστατικό του ίδιου εκδότη, το **προτείνει**.
+
+<Steps>
+  <li><strong>Ενέργειες → Σύνδεση με αρχικό</strong> (ή «Λύσε» στο εμπόδιο «Είναι πιστωτικό…»).</li>
+  <li>Διάλεξε το αρχικό από τη λίστα — παραστατικά του ίδιου εκδότη από την εφαρμογή και από τη SoftOne, με αναζήτηση.</li>
+  <li><strong>Σύνδεση</strong>. Στη SoftOne το πιστωτικό καταχωρείται με «Παραστατικό προέλευσης» το αρχικό.</li>
+</Steps>
+
+<Callout type="info">
+Αν το πιστωτικό δεν αφορά συγκεκριμένο τιμολόγιο (π.χ. έκπτωση τζίρου), πάτα <strong>Χωρίς αρχικό</strong> — δηλώνεται ρητά και
+η καταχώριση προχωρά. Χωρίς σύνδεση ή δήλωση, το πιστωτικό δεν καταχωρείται.
 </Callout>
 
 ## Έλεγχος περιόδου
