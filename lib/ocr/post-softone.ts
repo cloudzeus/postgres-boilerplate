@@ -793,7 +793,7 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
     const savedVat = Number(String(row.VATAMNT ?? '').replace(',', '.'));
     const printedVat = document.totals?.vatAmount;
     if (row.VATAMNT != null && Number.isFinite(savedVat) && printedVat != null
-      && Math.abs(savedVat - printedVat) > Math.max(0.1, Math.abs(printedVat) * 0.005)) {
+      && Math.abs(savedVat - printedVat) > Math.max(0.1, 0.02 * document.lines.length)) {
       warnings.push(`ΦΠΑ: η SoftOne υπολόγισε ${eurText(savedVat)} ενώ το παραστατικό γράφει ${eurText(printedVat)} (${ref}). Έλεγξε τους συντελεστές ΦΠΑ των γραμμών στη SoftOne.`);
     }
     const amountWarning = warnings.length ? warnings.join(' ') : undefined;

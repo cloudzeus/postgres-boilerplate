@@ -332,7 +332,7 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
 
       {completed && (
         <DocToolsHost
-          docId={doc.id} canManage={canManage} canRescan={canRescan} posted={doc.postStatus === 'POSTED'}
+          docId={doc.id} canManage={canManage} canRescan={canRescan} posted={doc.postStatus === 'POSTED'} canPost={canPost}
           lineMatches={Object.fromEntries(items.map((i) => [i.rowIndex, i.softoneName ? `${i.softoneCode ? `${i.softoneCode} · ` : ''}${i.softoneName}` : null]))}
         />
       )}

@@ -8,7 +8,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
-  FiAlertTriangle, FiArrowRight, FiCheckCircle, FiChevronDown, FiClock, FiFileText, FiList, FiLoader, FiRefreshCw, FiTool, FiXCircle,
+  FiAlertTriangle, FiArrowRight, FiCheckCircle, FiChevronDown, FiClock, FiDollarSign, FiFileText, FiList, FiLoader, FiRefreshCw, FiTool, FiXCircle,
 } from 'react-icons/fi';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,6 +17,7 @@ import {
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field, FormSection, FormSelect, RowHint } from '@/components/admin/form-kit';
 import { LinesEditorDialog, type LinesEditorPrefill } from '@/components/admin/lines-editor-dialog';
+import { PostedAmountsDialog } from '@/components/admin/posted-amounts-dialog';
 import { emitDocLinesChanged, emitDocTool, useDocTool, type DocToolRequest } from '@/components/admin/doc-lines-events';
 import { elapsedSuffix, useElapsedSeconds } from '@/lib/use-elapsed';
 import { AUTO_DOC_TYPE_HINT, UPLOAD_DOC_TYPES, UPLOAD_DOC_TYPE_LABELS, type ExtractDocType } from '@/lib/ocr/templates';
@@ -29,6 +30,8 @@ export interface DocToolsProps {
   /** Μπορεί να ξαναδιαβάσει το αρχείο (ocr.create). */
   canRescan: boolean;
   posted: boolean;
+  /** Μπορεί να καταχωρίζει (ocr.post) — χρειάζεται για τη διόρθωση ποσών στη SoftOne. */
+  canPost?: boolean;
 }
 
 const POSTED_REASON = 'Καταχωρήθηκε στη SoftOne — δεν αλλάζει πια από εδώ';
@@ -50,6 +53,9 @@ export function DocActionsMenu({ docId, canManage, canRescan, posted }: DocTools
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-[length:var(--fs-11)] font-semibold uppercase tracking-wide text-muted-foreground">Πληροφορίες</DropdownMenuLabel>
         <MenuItem icon={<FiClock />} title="Ιστορικό αλλαγών" hint="Ποιος άλλαξε τι, και πότε" onSelect={() => open({ tool: 'history' })} />
+        {posted && (
+          <MenuItem icon={<FiDollarSign />} title="Ποσά στη SoftOne" hint="Σύγκριση με το χαρτί και διόρθωση, αν η SoftOne κράτησε άλλο ποσό" onSelect={() => open({ tool: 'posted-amounts' })} />
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -68,8 +74,9 @@ function MenuItem({ icon, title, hint, disabled, onSelect }: { icon: React.React
 }
 
 /** Τα παράθυρα. Μία φορά ανά σελίδα παραστατικού. */
-export function DocToolsHost({ docId, canManage, canRescan, posted, lineMatches }: DocToolsProps & { lineMatches?: Record<number, string | null> }) {
+export function DocToolsHost({ docId, canManage, canRescan, posted, canPost, lineMatches }: DocToolsProps & { lineMatches?: Record<number, string | null> }) {
   const [lines, setLines] = React.useState<LinesEditorPrefill | null>(null);
+  const [amounts, setAmounts] = React.useState(false);
   const [rescan, setRescan] = React.useState(false);
   const [history, setHistory] = React.useState(false);
 
@@ -81,6 +88,7 @@ export function DocToolsHost({ docId, canManage, canRescan, posted, lineMatches 
       if (posted || !canRescan) { toast.error(posted ? `${POSTED_REASON}.` : 'Δεν έχεις δικαίωμα επανασάρωσης.'); return; }
       setRescan(true);
     } else if (req.tool === 'history') setHistory(true);
+    else if (req.tool === 'posted-amounts') setAmounts(true);
   });
 
   return (
@@ -88,6 +96,7 @@ export function DocToolsHost({ docId, canManage, canRescan, posted, lineMatches 
       {lines && <LinesEditorDialog docId={docId} open prefill={lines} lineMatches={lineMatches} onOpenChange={(o) => { if (!o) setLines(null); }} />}
       {rescan && <RescanDialog docId={docId} onClose={() => setRescan(false)} />}
       {history && <HistoryDialog docId={docId} onClose={() => setHistory(false)} />}
+      {amounts && <PostedAmountsDialog docId={docId} canFix={!!canPost} onClose={() => setAmounts(false)} />}
     </>
   );
 }
@@ -265,6 +274,7 @@ const ACTION_TEXT: Record<string, string> = {
   'ocr.delivery_note_convert': 'Μετασχηματισμός από δελτίο αποστολής',
   'ocr.document.split_regions': 'Διαχωρισμός παραστατικών',
   'ocr.post': 'Καταχώριση στη SoftOne',
+  'ocr.post.amounts_fix': 'Διόρθωση ποσών στη SoftOne',
 };
 
 function HistoryDialog({ docId, onClose }: { docId: string; onClose: () => void }) {

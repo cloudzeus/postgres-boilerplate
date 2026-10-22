@@ -138,6 +138,20 @@ export function DocActionBar({
   }
 
   const posted = preview?.postStatus === 'POSTED';
+  /**
+   * Καταχωρισμένο: συμφωνούν τα ποσά στη SoftOne με το χαρτί; Ένα αθόρυβο `success:true` της SoftOne
+   * έγραψε κάποτε ειδικές συναλλαγές με ΜΗΔΕΝ — εδώ φαίνεται αμέσως, με τη διόρθωση ένα κλικ μακριά.
+   */
+  const [amountsState, setAmountsState] = React.useState<'ok' | 'mismatch' | 'unknown' | null>(null);
+  React.useEffect(() => {
+    if (!posted) { setAmountsState(null); return; }
+    let alive = true;
+    fetch(`/api/admin/ocr/${docId}/posted-amounts`, { cache: 'no-store' })
+      .then(async (r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive) setAmountsState(d?.status === 'ok' ? 'ok' : d?.status === 'mismatch' ? 'mismatch' : 'unknown'); })
+      .catch(() => { if (alive) setAmountsState('unknown'); });
+    return () => { alive = false; };
+  }, [posted, docId]);
   const blockers = preview?.blockers ?? [];
   const [blockersOpen, setBlockersOpen] = React.useState(false);
   /** «Λύσε»: πήγαινε στο σημείο που διορθώνει το εμπόδιο, ή άνοιξε το εργαλείο. */
@@ -203,6 +217,13 @@ export function DocActionBar({
           ) : posted ? (
             <span className={cn(STATUS, 'flex-wrap gap-2')}>
               <FiCheck className="size-3.5" style={{ color: '#047857' }} aria-hidden /> Καταχωρήθηκε · FINDOC {preview.postedRef}
+              {amountsState === 'ok' && <span className="text-[length:var(--fs-11)] font-normal text-muted-foreground">· ποσά επαληθευμένα στη SoftOne</span>}
+              {amountsState === 'mismatch' && (
+                <button type="button" onClick={() => { if (!emitDocTool(docId, { tool: 'posted-amounts' })) toast.error('Άνοιξε τη σελίδα του παραστατικού.'); }}
+                  className="inline-flex min-h-8 items-center gap-1 rounded-md border border-amber-400 bg-amber-50 px-2.5 text-[length:var(--fs-12)] font-semibold text-amber-900 hover:bg-amber-100">
+                  <FiAlertTriangle className="size-3.5" aria-hidden /> Τα ποσά στη SoftOne διαφέρουν — Διόρθωση
+                </button>
+              )}
               {canPost && (
                 <button
                   type="button" onClick={syncMark} disabled={markBusy}

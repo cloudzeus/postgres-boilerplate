@@ -112,7 +112,8 @@ export function useStartSplit(lineId: string, onStart: () => void): void {
 export type DocToolRequest =
   | { tool: 'lines'; add?: { net: number; vatRate: number | null; name?: string }; removeRow?: number }
   | { tool: 'rescan' }
-  | { tool: 'history' };
+  | { tool: 'history' }
+  | { tool: 'posted-amounts' };
 
 const TOOL = 'ocr:doc-tool';
 
