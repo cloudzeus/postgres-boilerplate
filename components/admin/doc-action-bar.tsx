@@ -153,6 +153,7 @@ export function DocActionBar({
     return () => { alive = false; };
   }, [posted, docId]);
   const blockers = preview?.blockers ?? [];
+  const warnings = preview?.warnings ?? [];
   const [blockersOpen, setBlockersOpen] = React.useState(false);
   /** «Λύσε»: πήγαινε στο σημείο που διορθώνει το εμπόδιο, ή άνοιξε το εργαλείο. */
   const runFix = (t: NonNullable<ReturnType<typeof blockerFix>>['target']) => {
@@ -236,7 +237,19 @@ export function DocActionBar({
               )}
             </span>
           ) : blockers.length === 0 ? (
-            <span className={STATUS}><FiCheck className="size-3.5" style={{ color: '#047857' }} aria-hidden /> Έτοιμο για καταχώριση</span>
+            <span className={cn(STATUS, 'flex-wrap gap-2')}>
+              <FiCheck className="size-3.5" style={{ color: '#047857' }} aria-hidden /> Έτοιμο για καταχώριση
+              {warnings.length > 0 && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button type="button" className="cursor-pointer rounded-md px-1.5 py-0.5 text-[length:var(--fs-12)] font-semibold text-amber-800 underline decoration-dotted underline-offset-2 hover:bg-amber-50">
+                      {warnings.length === 1 ? '1 παρατήρηση' : `${warnings.length} παρατηρήσεις`}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-[32rem] max-w-[92vw] p-0"><WarningsList warnings={warnings} /></PopoverContent>
+                </Popover>
+              )}
+            </span>
           ) : (
             <Popover open={blockersOpen} onOpenChange={setBlockersOpen}>
               <PopoverTrigger asChild>
@@ -267,6 +280,7 @@ export function DocActionBar({
                     );
                   })}
                 </ol>
+                {warnings.length > 0 && <WarningsList warnings={warnings} />}
               </PopoverContent>
             </Popover>
           )}
@@ -333,3 +347,20 @@ const BTN_POST =
   'disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none';
 const BTN_GHOST =
   'inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-[length:var(--fs-12)] font-semibold text-foreground transition hover:bg-muted';
+
+/** Παρατηρήσεις που ΔΕΝ εμποδίζουν — αλλά ο χρήστης πρέπει να τις δει πριν καταχωρίσει. */
+function WarningsList({ warnings }: { warnings: { code: string; message: string }[] }) {
+  return (
+    <div className="border-t border-border">
+      <p className="px-3 pt-2 text-[length:var(--fs-11)] font-semibold uppercase tracking-wide text-muted-foreground">Παρατηρήσεις — δεν εμποδίζουν</p>
+      <ul className="max-h-[40dvh] divide-y divide-border overflow-auto text-[length:var(--fs-12)]">
+        {warnings.map((w) => (
+          <li key={w.code} className="flex items-start gap-2 px-3 py-2">
+            <FiAlertTriangle className="mt-0.5 size-3.5 shrink-0" style={{ color: '#B45309' }} aria-hidden />
+            <span className="leading-snug">{w.message}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}

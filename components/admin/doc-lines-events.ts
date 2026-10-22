@@ -114,7 +114,8 @@ export type DocToolRequest =
   | { tool: 'rescan' }
   | { tool: 'history' }
   | { tool: 'posted-amounts' }
-  | { tool: 'credit-link' };
+  | { tool: 'credit-link' }
+  | { tool: 'withholding' };
 
 const TOOL = 'ocr:doc-tool';
 

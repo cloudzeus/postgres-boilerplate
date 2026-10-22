@@ -23,6 +23,8 @@ import { VAT_RATE_MAP_SETTING, buildVatRateMap, parseVatRateOverrides } from './
 import { postingComment } from './posting-comment';
 import { periodVerdict } from '@/lib/softone-sync/periods';
 import { isCreditNote } from './credit-link';
+import { analyzeWithholding, isServiceInvoice, withholdingNote } from './withholding';
+import { clip } from './posting-comment';
 import { softoneErrorLine } from './softone-error-text';
 import { UTILITY_KIND_TITLE, analyzeUtility, utilityInputFromDocument } from './utility-bills';
 
@@ -81,6 +83,7 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   lines_no_mtrtype: 'Μια δαπάνη σε λογαριασμό δεν έχει πλήρη στοιχεία στη SoftOne. Ζήτησε από τον διαχειριστή νέο συγχρονισμό στα Μητρώα αναφοράς.',
   series_unknown: 'Το είδος παραστατικού που έχει οριστεί δεν υπάρχει (ή είναι ανενεργό) στη SoftOne. Διάλεξε άλλο από τη λίστα στην κάτω μπάρα.',
   series_module_unsupported: 'Αυτό το είδος παραστατικού δεν καταχωρείται από την εφαρμογή. Διάλεξε παραστατικό αγορών, προμηθευτών, χρεωστών ή πιστωτών.',
+  withholding_unhandled: 'Το παραστατικό έχει παρακράτηση φόρου, που η SoftOne δεν περνά αυτόματα σε αυτή την εγκατάσταση. Επιβεβαίωσε ότι θα την καταχωρίσει ο λογιστής.',
   credit_not_linked: 'Είναι πιστωτικό: σύνδεσέ το με το αρχικό παραστατικό που πιστώνει — ή δήλωσε ρητά «χωρίς αρχικό» (π.χ. έκπτωση τζίρου).',
   period_closed: 'Η ημερομηνία του παραστατικού πέφτει σε κλειστή περίοδο της SoftOne. Αν διαβάστηκε λάθος, διόρθωσέ τη· αλλιώς ζήτησε από τον λογιστή να ανοίξει την περίοδο.',
   registry_not_in_installation: 'Κάποια γραμμή δείχνει σε κωδικό που δεν υπάρχει στη SoftOne που είμαστε συνδεδεμένοι (παλιά σύνδεση). Άνοιξε τη γραμμή και διάλεξε ξανά τι αφορά.',
@@ -106,6 +109,7 @@ export const POST_WARNING_TEXT: Record<WarningCode, string> = {
   account_unknown: 'Ο έλεγχος λογαριασμού γενικής δεν μπόρεσε να κρίνει — ούτε εγκρίνει ούτε εμποδίζει',
   account_not_covered: 'Ο έλεγχος λογαριασμού γενικής δεν καλύπτει ακόμη γραμμές ειδών, υπηρεσιών και εξόδων — ο λογαριασμός τους συντίθεται στο SoftOne',
   account_vat_mismatch: 'Υπάρχει γραμμή που πάει σε λογαριασμό για άλλον συντελεστή ΦΠΑ από αυτόν της γραμμής — έλεγξε τη χρεοπίστωση',
+  withholding_check: 'Έλεγξε την παρακράτηση φόρου του παραστατικού.',
   shared_code_many_products: 'Γραμμές με ΔΙΑΦΟΡΕΤΙΚΕΣ περιγραφές μοιράζονται τον ίδιο κωδικό και ταίριαξαν όλες στο ίδιο είδος — συχνά ο κωδικός είναι δασμολογικός (CN), όχι κωδικός προϊόντος· έλεγξε τις γραμμές πριν την καταχώριση',
 };
 
@@ -201,6 +205,8 @@ type Gathered = {
   periodMessage?: string | null;
   /** Πάγιο σε σειρά που δεν το δέχεται: ποιες ενεργές σειρές αγορών το δέχονται. */
   assetMessage?: string | null;
+  /** Το συγκεκριμένο μήνυμα του ελέγχου παρακράτησης (ποσοστό / πληρωτέο / πιθανή έλλειψη). */
+  withholdingWarning?: string | null;
 };
 
 /**
@@ -420,7 +426,13 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
     lines: lineCtx,
     vatIdByRate,
     // ΤΙ ΑΦΟΡΑ — όχι το ελεύθερο κείμενο του χαρτιού (βλ. lib/ocr/posting-comment.ts).
-    comments: postingComment(document, { utilityTitle: utilityTitleOf(document) }),
+    comments: (() => {
+      // Παρακράτηση που θα περάσει ο λογιστής: το λέει και το σχόλιο της εγγραφής στη SoftOne.
+      const base = postingComment(document, { utilityTitle: utilityTitleOf(document) });
+      const ack = (document.custom as Record<string, unknown> | undefined)?.withholdingAck === true;
+      const note = ack ? withholdingNote(analyzeWithholding(document)) : null;
+      return note ? clip([base, note].filter(Boolean).join(' · ')) : base;
+    })(),
     relatedFindoc: document.references?.linkedFindoc ?? null,
     assetWhouse,
   };
@@ -459,6 +471,14 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
 
   // ΠΕΡΙΟΔΟΣ: κλειστή / κλειδωμένη χρήση ή περίοδος της SoftOne — ΠΡΙΝ φτάσουμε στην άρνηση της ίδιας.
   // Σε ήδη καταχωρισμένο δεν έχει νόημα (και δεν πληρώνουμε την ανάγνωση).
+  // ΠΑΡΑΚΡΑΤΗΣΗ: η SoftOne δεν την υπολογίζει μόνη της (ούτε η σειρά ΔΠΡΚ) — ρητή απόφαση πριν την καταχώριση.
+  const wh = analyzeWithholding(document, { isServiceInvoice: isServiceInvoice(document, seriesTarget.name) });
+  const whAck = (document.custom as Record<string, unknown> | undefined)?.withholdingAck === true;
+  if (wh.amount != null && !whAck && doc.postStatus !== 'POSTED') blockers.push('withholding_unhandled');
+  const withholdingWarning = wh.issues.length
+    ? wh.issues.join(' ')
+    : wh.maybeMissing ? 'Τιμολόγιο παροχής υπηρεσιών άνω των 300 € χωρίς παρακράτηση φόρου — αν ο εκδότης είναι ελεύθερος επαγγελματίας, συνήθως παρακρατείται 20%. Έλεγξε το χαρτί.' : null;
+
   // ΠΙΣΤΩΤΙΚΟ: πρέπει να ξέρουμε τι πιστώνει — ή ο χρήστης να πει ρητά «χωρίς αρχικό».
   const credit = isCreditNote({ seriesName: seriesTarget.name, category: doc.category, myDataType: document.type.myDataType, typeLabel: document.type.label });
   if (credit && doc.postStatus !== 'POSTED' && document.references?.linkedFindoc == null && document.references?.noLink !== true) {
@@ -485,8 +505,8 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
   }
 
   return {
-    doc, document, ctx, blockers, periodMessage, assetMessage,
-    warnings: postingWarnings(ctx, accounts, document),
+    doc, document, ctx, blockers, periodMessage, assetMessage, withholdingWarning,
+    warnings: [...postingWarnings(ctx, accounts, document), ...(withholdingWarning ? ['withholding_check' as const] : [])],
     payload: buildPurdocPayload(document, ctx),
     accounts,
   };
@@ -524,13 +544,13 @@ export type PostingPreview = {
  * Ό,τι επιστρέφει εδώ είναι ακριβώς ό,τι θα έστελνε το `postDocumentToSoftone`.
  */
 export async function postingPreview(id: string): Promise<PostingPreview> {
-  const { doc, document, ctx, blockers, warnings, payload, accounts, periodMessage, assetMessage } = await gather(id);
+  const { doc, document, ctx, blockers, warnings, payload, accounts, periodMessage, assetMessage, withholdingWarning } = await gather(id);
   const enabled = (await getSetting<boolean>(POSTING_ENABLED_KEY)) === true;
   const ref = documentReference(document.type);
   return {
     enabled,
     blockers: blockers.map((code) => ({ code, message: code === 'period_closed' && periodMessage ? periodMessage : code === 'lines_asset_unsupported' && assetMessage ? assetMessage : blockerMessage(code, accounts, document) })),
-    warnings: warnings.map((code) => ({ code, message: warningMessage(code, accounts) })),
+    warnings: warnings.map((code) => ({ code, message: code === 'withholding_check' && withholdingWarning ? withholdingWarning : warningMessage(code, accounts) })),
     target: { ...ctx.target, label: describeTargetShort(ctx.target) },
     payload,
     accounts,

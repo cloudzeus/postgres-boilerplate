@@ -301,13 +301,17 @@ export type BlockerCode =
   /** Η ημερομηνία πέφτει σε κλειστή/κλειδωμένη χρήση ή περίοδο της SoftOne (ή σε καμία χρήση). */
   | 'period_closed'
   /** Πιστωτικό χωρίς σύνδεση με το αρχικό παραστατικό (ούτε ρητό «χωρίς αρχικό»). */
-  | 'credit_not_linked';
+  | 'credit_not_linked'
+  /** Παρακράτηση φόρου που η SoftOne δεν θα περάσει μόνη της — θέλει ρητή απόφαση πριν την καταχώριση. */
+  | 'withholding_unhandled';
 
 /** Μη-αποτρεπτικές παρατηρήσεις: φαίνονται στην προεπισκόπηση, δεν κλειδώνουν το κουμπί. */
 export type WarningCode =
   | 'no_mydata_classification' | 'mydata_from_master'
   | 'account_unknown' | 'account_not_covered' | 'account_vat_mismatch'
-  | 'shared_code_many_products';
+  | 'shared_code_many_products'
+  /** Παρακράτηση με άγνωστο ποσοστό / πληρωτέο που δεν βγαίνει, ή παροχή υπηρεσιών > 300 € χωρίς παρακράτηση. */
+  | 'withholding_check';
 
 const num = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 

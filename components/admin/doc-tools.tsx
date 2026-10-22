@@ -19,6 +19,7 @@ import { Field, FormSection, FormSelect, RowHint } from '@/components/admin/form
 import { LinesEditorDialog, type LinesEditorPrefill } from '@/components/admin/lines-editor-dialog';
 import { PostedAmountsDialog } from '@/components/admin/posted-amounts-dialog';
 import { CreditLinkDialog } from '@/components/admin/credit-link-dialog';
+import { WithholdingDialog } from '@/components/admin/withholding-dialog';
 import { emitDocLinesChanged, emitDocTool, focusSection, useDocTool, DOC_SECTION, type DocToolRequest } from '@/components/admin/doc-lines-events';
 import { blockerFix } from '@/lib/ocr/blocker-fix';
 import { elapsedSuffix, useElapsedSeconds } from '@/lib/use-elapsed';
@@ -86,6 +87,7 @@ export function DocToolsHost({ docId, canManage, canRescan, posted, canPost, lin
   const [lines, setLines] = React.useState<LinesEditorPrefill | null>(null);
   const [amounts, setAmounts] = React.useState(false);
   const [creditLink, setCreditLink] = React.useState(false);
+  const [withholding, setWithholding] = React.useState(false);
   const [rescan, setRescan] = React.useState(false);
   const [history, setHistory] = React.useState(false);
 
@@ -110,6 +112,7 @@ export function DocToolsHost({ docId, canManage, canRescan, posted, canPost, lin
       setRescan(true);
     } else if (req.tool === 'history') setHistory(true);
     else if (req.tool === 'posted-amounts') setAmounts(true);
+    else if (req.tool === 'withholding') setWithholding(true);
     else if (req.tool === 'credit-link') {
       if (posted) { toast.error(`${POSTED_REASON}.`); return; }
       setCreditLink(true);
@@ -123,6 +126,7 @@ export function DocToolsHost({ docId, canManage, canRescan, posted, canPost, lin
       {history && <HistoryDialog docId={docId} onClose={() => setHistory(false)} />}
       {amounts && <PostedAmountsDialog docId={docId} canFix={!!canPost} onClose={() => setAmounts(false)} />}
       {creditLink && <CreditLinkDialog docId={docId} canEdit={canManage} onClose={() => setCreditLink(false)} />}
+      {withholding && <WithholdingDialog docId={docId} canEdit={canManage && !posted} onClose={() => setWithholding(false)} />}
     </>
   );
 }
@@ -302,6 +306,7 @@ const ACTION_TEXT: Record<string, string> = {
   'ocr.post': 'Καταχώριση στη SoftOne',
   'ocr.post.amounts_fix': 'Διόρθωση ποσών στη SoftOne',
   'ocr.credit.link': 'Σύνδεση πιστωτικού με αρχικό',
+  'ocr.withholding.ack': 'Παρακράτηση φόρου — απόφαση',
 };
 
 function HistoryDialog({ docId, onClose }: { docId: string; onClose: () => void }) {
