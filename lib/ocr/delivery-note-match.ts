@@ -134,7 +134,13 @@ export function parseConversionMap(text: unknown): Map<number, number> {
   return out;
 }
 
-export const DEFAULT_CONVERSION_MAP = '2041=2061, 2043=3261';
+/**
+ * Πηγή → τιμολόγιο. Τα δελτία αποστολής (2041/2043) ΚΑΙ η παραγγελία σε προμηθευτή (2021): το τιμολόγιο
+ * κρατά τη σύνδεση με τη γραμμή της παραγγελίας όπως με τη γραμμή του δελτίου — μετρημένο στη Demo
+ * (22/10/2026, `calculate` 2061 + FINDOCS/MTRLINESS σε 6 ανοιχτές παραγγελίες ΠΑΡΧ). Έτσι κλείνει η
+ * ροή «παραγγελία → (παραλαβή = δελτίο) → τιμολόγιο»: από όποιο από τα δύο ήρθε πρώτο.
+ */
+export const DEFAULT_CONVERSION_MAP = '2041=2061, 2043=3261, 2021=2061';
 
 export const VERDICT_TEXT: Record<LineVerdict['status'], string> = {
   covered: 'Καλύπτεται από το δελτίο',

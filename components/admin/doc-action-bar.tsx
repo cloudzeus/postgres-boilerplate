@@ -319,8 +319,8 @@ export function DocActionBar({
             <>
             {canPost && !posted && (
               <button type="button" onClick={() => setNoteOpen(true)} className={BTN_GHOST}
-                title="Το τιμολόγιο ήρθε μετά το δελτίο αποστολής: σύγκριση με τα ανοιχτά δελτία του προμηθευτή και μετασχηματισμός σε τιμολόγιο">
-                <FiTruck className="size-3.5" /> Από δελτίο αποστολής
+                title="Το τιμολόγιο ήρθε μετά από δελτίο αποστολής ή παραγγελία: σύγκριση με τα ανοιχτά του προμηθευτή και μετασχηματισμός σε τιμολόγιο">
+                <FiTruck className="size-3.5" /> Από δελτίο / παραγγελία
               </button>
             )}
             <button type="button" disabled={!canPost || !ready || posting || dupBusy} onClick={askConfirm} className={BTN_POST}

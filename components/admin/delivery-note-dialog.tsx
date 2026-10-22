@@ -108,10 +108,10 @@ export function DeliveryNoteDialog({ docId, open, onOpenChange, onDone }: { docI
       <DialogContent className="flex max-h-[92dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="border-b border-border px-5 pt-4 pb-3 pr-12">
           <DialogTitle className="flex items-center gap-2 text-[length:var(--fs-15)]">
-            <FiTruck aria-hidden className="size-4 text-sisyphus-600" /> Από δελτίο αποστολής
+            <FiTruck aria-hidden className="size-4 text-sisyphus-600" /> Από δελτίο αποστολής ή παραγγελία
           </DialogTitle>
           <DialogDescription className="text-[length:var(--fs-12)]">
-            Σύγκριση του τιμολογίου με τα ανοιχτά δελτία του προμηθευτή και μετασχηματισμός σε τιμολόγιο αγοράς.
+            Σύγκριση του τιμολογίου με τα ανοιχτά δελτία αποστολής και τις ανοιχτές παραγγελίες του προμηθευτή, και μετασχηματισμός σε τιμολόγιο αγοράς.
             {data?.referencedNote && <> Το τιμολόγιο αναφέρει δελτίο <strong className="text-foreground">«{data.referencedNote}»</strong>.</>}
           </DialogDescription>
         </DialogHeader>

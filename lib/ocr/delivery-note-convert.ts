@@ -141,7 +141,8 @@ export async function deliveryNoteOverview(id: string) {
   const trdr = await trdrOf(id);
   const map = await loadConversionMap();
   const [notes, { g, lines }] = await Promise.all([fetchOpenDeliveryNotes(trdr, [...map.keys()]), invoiceLines(id)]);
-  const refs = docRefs(g.document.references?.deliveryNote);
+  // Ο αριθμός δελτίου ΚΑΙ ο αριθμός παραγγελίας που τυπώνει το τιμολόγιο — η πρόταση ταιριάζει σε όποιον.
+  const refs = [...docRefs(g.document.references?.deliveryNote), ...docRefs(g.document.references?.orderNo)];
   const invMtrls = lines.map((l) => l.mtrl).filter((v): v is number => v != null);
   const date = g.document.date ?? null;
   // Δελτίο ΜΕΤΑ το τιμολόγιο δεν μπορεί να είναι η πηγή του.
