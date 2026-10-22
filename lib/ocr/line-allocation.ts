@@ -27,6 +27,10 @@ export interface AllocationInput {
   accountCode?: string | null;
   /** Ποσοστό 0–100. */
   percent: number;
+  /** Αναλυτικά του κομματιού — κενά = της γραμμής. Επιτρέπουν τον ίδιο λογαριασμό με άλλο κέντρο κόστους. */
+  costCntr?: number | null;
+  prjc?: number | null;
+  prjcStage?: number | null;
 }
 
 /** Ένας επιμερισμός έτοιμος για αποθήκευση/αποστολή. */
@@ -87,18 +91,20 @@ export function validateAllocations(
     }
   });
 
-  // Ο ίδιος λογαριασμός δύο φορές δεν είναι επιμερισμός — είναι μία γραμμή γραμμένη δύο φορές,
-  // και στο ERP θα κατέληγε σε δύο πανομοιότυπες γραμμές που κανείς δεν μπορεί να ξεχωρίσει.
-  const seen = new Set<number>();
+  // Ο ίδιος λογαριασμός ΜΕ ΤΑ ΙΔΙΑ αναλυτικά δύο φορές δεν είναι επιμερισμός — είναι μία γραμμή
+  // γραμμένη δύο φορές. Ο ίδιος λογαριασμός με ΑΛΛΟ κέντρο κόστους / έργο όμως είναι ακριβώς το
+  // «μοίρασμα σε κέντρα κόστους» (ρεύμα 60% Παραγωγή / 40% Διοίκηση) — και επιτρέπεται.
+  const seen = new Set<string>();
   for (const a of allocations) {
     if (!Number.isFinite(a.registryMtrl) || a.registryMtrl <= 0) continue; // το λέει ήδη το `no_account`
-    if (seen.has(a.registryMtrl)) {
+    const key = [a.registryMtrl, a.costCntr ?? '', a.prjc ?? '', a.prjcStage ?? ''].join('|');
+    if (seen.has(key)) {
       problems.push({
         code: 'duplicate_account', registryMtrl: a.registryMtrl,
-        message: 'Ο ίδιος λογαριασμός εμφανίζεται πάνω από μία φορά — ένωσέ τους σε έναν επιμερισμό.',
+        message: 'Ο ίδιος λογαριασμός εμφανίζεται δύο φορές με το ίδιο κέντρο κόστους/έργο — ένωσέ τους, ή δώσε σε καθένα άλλο κέντρο κόστους.',
       });
     }
-    seen.add(a.registryMtrl);
+    seen.add(key);
   }
 
   const sum = allocations.reduce((t, a) => t + (Number.isFinite(a.percent) ? a.percent : 0), 0);

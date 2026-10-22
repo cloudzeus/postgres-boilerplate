@@ -110,6 +110,16 @@ describe('validateAllocations', () => {
     expect(p.map((x) => x.code)).toContain('duplicate_account');
   });
 
+  it('ο ίδιος λογαριασμός με ΑΛΛΟ κέντρο κόστους = μοίρασμα σε κέντρα κόστους (επιτρέπεται)', () => {
+    const p = validateAllocations([{ ...alloc(5, 60), costCntr: 10 }, { ...alloc(5, 40), costCntr: 20 }], 100);
+    expect(p.map((x) => x.code)).not.toContain('duplicate_account');
+  });
+
+  it('ο ίδιος λογαριασμός με το ΙΔΙΟ κέντρο κόστους δύο φορές = διπλό', () => {
+    const p = validateAllocations([{ ...alloc(5, 50), costCntr: 10 }, { ...alloc(5, 50), costCntr: 10 }], 100);
+    expect(p.map((x) => x.code)).toContain('duplicate_account');
+  });
+
   it('γραμμή χωρίς σύνολο', () => {
     for (const t of [null, undefined, NaN]) {
       expect(validateAllocations([alloc(1, 100)], t).map((x) => x.code)).toContain('no_total');

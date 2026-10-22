@@ -266,7 +266,14 @@ export function OcrTable({
     const end = () => { setBusyId(null); setBusyLabel(null); };
     return {
       ok: (msg: string, description?: string) => { toast.success(msg, { id, description: description ?? row.fileName }); end(); },
-      fail: (msg: string) => { toast.error(msg, { id, description: row.fileName }); end(); },
+      fail: (msg: string, fixCode?: string | null) => {
+        // ΠΟΤΕ ΑΔΙΕΞΟΔΟ: εμπόδιο καταχώρισης ⇒ κουμπί που ανοίγει το παραστατικό ΣΤΟ σημείο της λύσης.
+        toast.error(msg, {
+          id, description: row.fileName, duration: fixCode ? 12000 : undefined,
+          ...(fixCode ? { action: { label: 'Λύσε', onClick: () => router.push(`/admin/ocr/${row.id}?fix=${encodeURIComponent(fixCode)}`) } } : {}),
+        });
+        end();
+      },
       cancel: () => { toast.dismiss(id); end(); },
     };
   }
@@ -288,7 +295,10 @@ export function OcrTable({
     try {
       const res = await fetch(`/api/admin/ocr/${row.id}/post-softone`, { method: 'POST' });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.message ?? json?.error ?? `HTTP ${res.status}`);
+      if (!res.ok) {
+        p.fail(`Αποτυχία καταχώρισης: ${json?.message ?? json?.error ?? `HTTP ${res.status}`}`, typeof json?.error === 'string' ? json.error : null);
+        return;
+      }
       p.ok(`Καταχωρίστηκε στο SoftOne (ref: ${json.ref})`);
       router.refresh();
     } catch (err: any) {

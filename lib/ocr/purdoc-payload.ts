@@ -97,6 +97,10 @@ export type PurdocLineCtx = {
     percent: number;
     /** «κωδικός — περιγραφή», για τα μηνύματα των ελέγχων. */
     label?: string | null;
+    /** Αναλυτικά του κομματιού (υπερισχύουν της γραμμής). */
+    costCntr?: number | null;
+    prjc?: number | null;
+    prjcStage?: number | null;
   }[];
 };
 
@@ -613,7 +617,12 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
             LINEVAL: a.amount,
             DISC1PRC: 0,
             NETLINEVAL: a.amount,
+            // Τα αναλυτικά του ΚΟΜΜΑΤΙΟΥ υπερισχύουν της γραμμής: έτσι γίνεται το μοίρασμα σε
+            // κέντρα κόστους με τον ίδιο λογαριασμό.
             ...analyticsOf(match),
+            ...(a.costCntr != null ? { COSTCNTR: a.costCntr } : {}),
+            ...(a.prjc != null ? { PRJC: a.prjc } : {}),
+            ...(a.prjcStage != null ? { PRJCSTAGE: a.prjcStage } : {}),
           };
           if (vat != null) row.VAT = vat;
           // Το σχόλιο κουβαλά και το ποσοστό: στο ERP η γραμμή θα φαίνεται μόνη της, και χωρίς

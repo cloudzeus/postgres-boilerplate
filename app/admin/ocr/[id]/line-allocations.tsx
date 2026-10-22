@@ -15,7 +15,8 @@ import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { FiPlus, FiTrash2, FiSave, FiSearch, FiAlertCircle, FiCheck, FiZap } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiSave, FiSearch, FiAlertCircle, FiCheck, FiZap, FiCrosshair, FiCopy } from 'react-icons/fi';
+import { AnalyticsPicker, type AnalyticsValue } from '@/components/admin/analytics-picker';
 import { cn } from '@/lib/utils';
 import { emitDocLinesChanged, useStartSplit } from '@/components/admin/doc-lines-events';
 import { CreateRegistryEntryModal } from '@/components/admin/create-registry-entry-modal';
@@ -32,7 +33,12 @@ export interface AllocationRow {
   accountName?: string | null;
   percent: number;
   amount: number;
+  /** Αναλυτικά του ΚΟΜΜΑΤΙΟΥ — κενά = της γραμμής. Επιτρέπουν τον ίδιο λογαριασμό με άλλο κέντρο κόστους. */
+  costCntr?: AnalyticsValue | null;
+  prjc?: AnalyticsValue | null;
 }
+
+const NO_ANALYTIC: AnalyticsValue = { id: null, label: null, source: null };
 
 interface Hit { id: number; code: string; name: string; sub?: string }
 
@@ -322,7 +328,20 @@ export function LineAllocations({
   const total = lineTotal ?? 0;
   const sumPct = round2(rows.reduce((t, r) => t + (Number.isFinite(r.percent) ? r.percent : 0), 0));
   const sumAmt = round2(rows.reduce((t, r) => t + (Number.isFinite(r.amount) ? r.amount : 0), 0));
-  const problems = validateAllocations(rows, lineTotal);
+  const problems = validateAllocations(rows.map((r) => ({ ...r, costCntr: r.costCntr?.id ?? null, prjc: r.prjc?.id ?? null })), lineTotal);
+  /**
+   * ΚΕΝΤΡΟ ΚΟΣΤΟΥΣ / ΕΡΓΟ ΑΝΑ ΚΟΜΜΑΤΙ. Κρυμμένα μέχρι να χρειαστούν: οι περισσότεροι επιμερισμοί είναι
+   * σε λογαριασμούς. Ανοίγουν μόνα τους όταν κάποιο κομμάτι έχει ήδη, ή με «Ίδιος λογαριασμός σε όλα».
+   */
+  const [perPiece, setPerPiece] = React.useState(() => initial.some((r) => r.costCntr?.id || r.prjc?.id));
+  /** «Ρεύμα 60% Παραγωγή / 40% Διοίκηση»: ο λογαριασμός του πρώτου κομματιού σε όλα, και κέντρο κόστους ανά κομμάτι. */
+  function sameAccountForAll() {
+    const first = rows[0];
+    if (!first?.registryMtrl) return;
+    setDirty(true);
+    setPerPiece(true);
+    setRows((rs) => rs.map((r) => ({ ...r, registryMtrl: first.registryMtrl, kind: first.kind, accountCode: first.accountCode, accountName: first.accountName })));
+  }
   const balanced = rows.length > 0 && problems.length === 0;
 
   function update(i: number, patch: Partial<AllocationRow>) {
@@ -389,7 +408,10 @@ export function LineAllocations({
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           lineId,
-          allocations: rows.map((r) => ({ registryMtrl: r.registryMtrl, kind: r.kind ?? kind, percent: r.percent })),
+          allocations: rows.map((r) => ({
+            registryMtrl: r.registryMtrl, kind: r.kind ?? kind, percent: r.percent,
+            costCntr: perPiece ? r.costCntr?.id ?? null : null, prjc: perPiece ? r.prjc?.id ?? null : null,
+          })),
         }),
       });
       const d = await res.json().catch(() => ({}));
@@ -457,6 +479,25 @@ export function LineAllocations({
                 >
                   <FiPlus className="size-3" /> Προσθήκη κομματιού
                 </button>
+                {rows.length > 1 && (
+                  <button
+                    type="button" onClick={sameAccountForAll} disabled={busy || !rows[0]?.registryMtrl}
+                    title={rows[0]?.registryMtrl ? 'Ο λογαριασμός του 1ου κομματιού σε όλα — μοίρασμα μόνο σε κέντρα κόστους' : 'Διάλεξε πρώτα λογαριασμό στο 1ο κομμάτι'}
+                    className="inline-flex h-6 items-center gap-1 rounded-md border border-sisyphus-500/40 px-2 text-[length:var(--fs-11)] font-semibold text-sisyphus-700 transition hover:bg-sisyphus-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <FiCopy className="size-3" /> Ίδιος λογαριασμός σε όλα
+                  </button>
+                )}
+                {rows.length > 0 && (
+                  <button
+                    type="button" onClick={() => { setPerPiece((v) => !v); setDirty(true); }} disabled={busy} aria-pressed={perPiece}
+                    title="Διαφορετικό κέντρο κόστους ή έργο σε κάθε κομμάτι"
+                    className={cn('inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[length:var(--fs-11)] font-semibold transition disabled:opacity-50',
+                      perPiece ? 'border-sisyphus-500 bg-sisyphus-500/15 text-sisyphus-800' : 'border-sisyphus-500/40 text-sisyphus-700 hover:bg-sisyphus-500/10')}
+                  >
+                    <FiCrosshair className="size-3" /> Κέντρο κόστους ανά κομμάτι
+                  </button>
+                )}
                 {dirty && (
                   <button
                     type="button" onClick={save} disabled={busy || (rows.length > 0 && !balanced)}
@@ -589,6 +630,20 @@ export function LineAllocations({
                 >
                   <FiTrash2 className="size-3.5" />
                 </button>
+              )}
+              {perPiece && (
+                <div className="grid grid-cols-1 gap-1.5 border-l-2 border-sisyphus-500/30 pl-2 sm:col-span-4 sm:grid-cols-2">
+                  <AnalyticsPicker
+                    id={`al-cc-${lineId}-${i}`} kind="costcenters" label={`Κέντρο κόστους κομματιού ${i + 1}`}
+                    value={r.costCntr ?? NO_ANALYTIC} disabled={!canManage || busy}
+                    onChange={(v) => update(i, { costCntr: v.id ? { ...v, source: 'manual' } : null })}
+                  />
+                  <AnalyticsPicker
+                    id={`al-pj-${lineId}-${i}`} kind="projects" label={`Έργο κομματιού ${i + 1}`}
+                    value={r.prjc ?? NO_ANALYTIC} disabled={!canManage || busy}
+                    onChange={(v) => update(i, { prjc: v.id ? { ...v, source: 'manual' } : null })}
+                  />
+                </div>
               )}
             </div>
           ))}

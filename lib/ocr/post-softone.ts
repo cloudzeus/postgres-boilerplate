@@ -112,7 +112,17 @@ export const ACCOUNT_CHART_NOT_SYNCED = 'Το λογιστικό σχέδιο δ
  * Το κείμενο ενός εμποδίου, με τις ανά γραμμή λεπτομέρειες όταν είναι εμπόδιο του ελέγχου
  * λογαριασμού: ο λογιστής πρέπει να δει ΠΟΙΑ χρεοπίστωση και ΠΟΙΟΝ λογαριασμό, όχι μια γενική φράση.
  */
-export function blockerMessage(code: BlockerCode, accounts: AccountCheck | null): string {
+export function blockerMessage(code: BlockerCode, accounts: AccountCheck | null, document?: DocumentJson | null): string {
+  // ΜΕ ΤΑ ΝΟΥΜΕΡΑ: «οι γραμμές δεν αθροίζουν» χωρίς πόσο, δεν λέει στον χρήστη τι να ψάξει.
+  if (code === 'totals_mismatch' && document) {
+    const lines = Math.round(document.lines.reduce((t, l) => t + (Number(l.net) || 0), 0) * 100) / 100;
+    const net = document.totals?.net;
+    if (net != null && Number.isFinite(net)) {
+      const diff = Math.round((net - lines) * 100) / 100;
+      const e = (v: number) => `${v.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+      return `Οι γραμμές αθροίζουν ${e(lines)} ενώ η καθαρή αξία του παραστατικού είναι ${e(net)} — ${diff > 0 ? `λείπουν ${e(diff)} (μάλλον γραμμή που δεν διαβάστηκε)` : `περισσεύουν ${e(-diff)}`}. Άνοιξε το παραστατικό: «Τα ποσά δεν κλείνουν» δείχνει τη λύση.`;
+    }
+  }
   if (code === 'account_missing' || code === 'account_not_in_chart' || code === 'account_is_mask' || code === 'account_not_postable') {
     const details = accountDetails(code, accounts);
     return details.length ? `${POST_ERROR_TEXT[code]}: ${details.join(' · ')}` : POST_ERROR_TEXT[code];
@@ -254,7 +264,7 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
         rowIndex: true, softoneMtrl: true, softoneExpn: true, softoneLinMtrl: true, softoneAsset: true, softoneIsService: true,
         softoneCostCntr: true, softonePrjc: true, softonePrjcStage: true, softoneMatchedBy: true, total: true,
         // Ο επιμερισμός σε πολλούς λογαριασμούς — όταν υπάρχει, ΥΠΕΡΙΣΧΥΕΙ της μονής αντιστοίχισης.
-        allocations: { orderBy: { order: 'asc' }, select: { registryMtrl: true, amount: true, percent: true, kind: true } },
+        allocations: { orderBy: { order: 'asc' }, select: { registryMtrl: true, amount: true, percent: true, kind: true, costCntr: true, prjc: true, prjcStage: true } },
       },
     }),
     // Η σειρά ΔΕΝ είναι διακοσμητική: δύο ενεργές εγγραφές με τον ίδιο συντελεστή (π.χ. κανονικό /
@@ -374,6 +384,7 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
               amount: Number(a.amount),
               percent: Number(a.percent),
               label: reg ? `${reg.code} — ${reg.name}` : null,
+              costCntr: a.costCntr ?? null, prjc: a.prjc ?? null, prjcStage: a.prjcStage ?? null,
             };
           }),
         }
@@ -481,7 +492,7 @@ export async function postingPreview(id: string): Promise<PostingPreview> {
   const ref = documentReference(document.type);
   return {
     enabled,
-    blockers: blockers.map((code) => ({ code, message: blockerMessage(code, accounts) })),
+    blockers: blockers.map((code) => ({ code, message: blockerMessage(code, accounts, document) })),
     warnings: warnings.map((code) => ({ code, message: warningMessage(code, accounts) })),
     target: { ...ctx.target, label: describeTargetShort(ctx.target) },
     payload,
@@ -666,7 +677,7 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
     throw new PostError('already_posted', alreadyPostedText(doc.postedRef));
   }
   if (blockers.length) {
-    throw new PostError(blockers[0], blockers.map((c) => blockerMessage(c, accounts)).join(' · '));
+    throw new PostError(blockers[0], blockers.map((c) => blockerMessage(c, accounts, document)).join(' · '));
   }
   const [enabled, lastCheck] = await Promise.all([
     getSetting<boolean>(POSTING_ENABLED_KEY),

@@ -1458,6 +1458,14 @@ model OcrInvoiceItemAllocation {
    */
   amount  Decimal @db.Decimal(18, 4)
 
+  /**
+   * Αναλυτικά του ΚΟΜΜΑΤΙΟΥ (κέντρο κόστους / έργο / στάδιο). Κενά = της γραμμής. Επιτρέπουν το
+   * μοίρασμα σε κέντρα κόστους με ΤΟΝ ΙΔΙΟ λογαριασμό (π.χ. ρεύμα 60% Παραγωγή / 40% Διοίκηση).
+   */
+  costCntr  Int?
+  prjc      Int?
+  prjcStage Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

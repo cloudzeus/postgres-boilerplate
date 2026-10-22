@@ -207,6 +207,8 @@ function LinesTable({ doc, data, match }: { doc: DocWithItems; data: any; match:
                     order: a.order, registryMtrl: a.registryMtrl,
                     kind: a.kind === 'SXACCOUNT' ? 'SXACCOUNT' : 'LINEITEM', accountCode: a.accountCode,
                     percent: Number(a.percent), amount: Number(a.amount),
+                    costCntr: a.costCntr != null ? { id: a.costCntr, label: match.analyticsLabels?.costCntr?.[a.costCntr] ?? `#${a.costCntr}`, source: 'manual' } : null,
+                    prjc: a.prjc != null ? { id: a.prjc, label: match.analyticsLabels?.prjc?.[a.prjc] ?? `#${a.prjc}`, source: 'manual' } : null,
                   }))}
                 />
                 {hasLineCustomFields(lineCf) && (

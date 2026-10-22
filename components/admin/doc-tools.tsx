@@ -18,7 +18,8 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, Dia
 import { Field, FormSection, FormSelect, RowHint } from '@/components/admin/form-kit';
 import { LinesEditorDialog, type LinesEditorPrefill } from '@/components/admin/lines-editor-dialog';
 import { PostedAmountsDialog } from '@/components/admin/posted-amounts-dialog';
-import { emitDocLinesChanged, emitDocTool, useDocTool, type DocToolRequest } from '@/components/admin/doc-lines-events';
+import { emitDocLinesChanged, emitDocTool, focusSection, useDocTool, DOC_SECTION, type DocToolRequest } from '@/components/admin/doc-lines-events';
+import { blockerFix } from '@/lib/ocr/blocker-fix';
 import { elapsedSuffix, useElapsedSeconds } from '@/lib/use-elapsed';
 import { AUTO_DOC_TYPE_HINT, UPLOAD_DOC_TYPES, UPLOAD_DOC_TYPE_LABELS, type ExtractDocType } from '@/lib/ocr/templates';
 import { cn } from '@/lib/utils';
@@ -79,6 +80,18 @@ export function DocToolsHost({ docId, canManage, canRescan, posted, canPost, lin
   const [amounts, setAmounts] = React.useState(false);
   const [rescan, setRescan] = React.useState(false);
   const [history, setHistory] = React.useState(false);
+
+  // Ήρθαμε από τη λίστα με «Λύσε» (`?fix=<εμπόδιο>`): πήγαινε κατευθείαν στη λύση.
+  React.useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get('fix');
+    const fix = code ? blockerFix(code) : null;
+    if (!fix || fix.target.kind === 'admin') return;
+    const t = setTimeout(() => {
+      if (fix.target.kind === 'tool') emitDocTool(docId, { tool: fix.target.tool });
+      else if (fix.target.kind === 'section') focusSection(DOC_SECTION[fix.target.section]);
+    }, 900);
+    return () => clearTimeout(t);
+  }, [docId]);
 
   useDocTool(docId, (req) => {
     if (req.tool === 'lines') {

@@ -32,6 +32,10 @@ const Body = z.object({
     /** Ποιο μητρώο: χρεοπίστωση (διπλογραφικά) ή λογαριασμός εσόδων/εξόδων (απλογραφικά). */
     kind: z.enum(ALLOCATION_KINDS as unknown as [AllocationKind, ...AllocationKind[]]).default('LINEITEM'),
     percent: z.number().finite(),
+    /** Αναλυτικά του κομματιού (κενά = της γραμμής) — μοίρασμα σε κέντρα κόστους με τον ίδιο λογαριασμό. */
+    costCntr: z.number().int().positive().nullable().optional(),
+    prjc: z.number().int().positive().nullable().optional(),
+    prjcStage: z.number().int().positive().nullable().optional(),
   })).max(50),
 });
 
@@ -120,6 +124,9 @@ export async function POST(req: Request) {
           ?? byKind[c.kind ?? 'LINEITEM'].get(c.registryMtrl)?.code ?? null,
         percent: c.percent,
         amount: c.amount,
+        costCntr: allocations[c.order]?.costCntr ?? null,
+        prjc: allocations[c.order]?.prjc ?? null,
+        prjcStage: allocations[c.order]?.prjcStage ?? null,
       })),
     }),
   ]);
@@ -186,13 +193,14 @@ export async function POST(req: Request) {
 
   const saved = await prisma.ocrInvoiceItemAllocation.findMany({
     where: { itemId: lineId }, orderBy: { order: 'asc' },
-    select: { order: true, registryMtrl: true, kind: true, accountCode: true, percent: true, amount: true },
+    select: { order: true, registryMtrl: true, kind: true, accountCode: true, percent: true, amount: true, costCntr: true, prjc: true, prjcStage: true },
   });
   return NextResponse.json({
     ok: true,
     allocations: saved.map((s) => ({
       order: s.order, registryMtrl: s.registryMtrl, kind: s.kind, accountCode: s.accountCode,
       percent: Number(s.percent), amount: Number(s.amount),
+      costCntr: s.costCntr, prjc: s.prjc, prjcStage: s.prjcStage,
     })),
   });
 }

@@ -732,6 +732,19 @@ describe('επιμερισμός → γραμμές LINLINES', () => {
     expect(lin[1].COMMENTS).toContain('66,67%');
   });
 
+  it('κέντρο κόστους ΑΝΑ ΚΟΜΜΑΤΙ, με τον ίδιο λογαριασμό (60/40 Παραγωγή/Διοίκηση) — και LINEVAL', () => {
+    const lin = linesOf(splitCtx({
+      lines: [{
+        rowIndex: 0,
+        allocations: [
+          { registryMtrl: 3308, mtrType: 1, amount: 633, percent: 60, costCntr: 10 },
+          { registryMtrl: 3308, mtrType: 1, amount: 422, percent: 40, costCntr: 20, prjc: 7 },
+        ],
+      }],
+    }));
+    expect(lin.map((r) => [r.MTRL, r.LINEVAL, r.COSTCNTR, r.PRJC])).toEqual([[3308, 633, 10, undefined], [3308, 422, 20, 7]]);
+  });
+
   it('οι αριθμοί γραμμής είναι συνεχόμενοι', () => {
     const lin = linesOf();
     expect(lin[1].LINENUM - lin[0].LINENUM).toBe(1);

@@ -72,17 +72,19 @@ export default async function OcrDetailPage({ params }: { params: Promise<{ id: 
   // Οι γραμμές κρατούν ΑΡΙΘΜΟΥΣ αναλυτικής (`softoneCostCntr` κ.λπ.). Οι ετικέτες
   // «κωδικός — περιγραφή» έρχονται με τρία ερωτήματα για ΟΛΟ το παραστατικό, όχι ανά γραμμή.
   const items = doc.items;
-  const ids = (pick: (i: (typeof items)[number]) => number | null) =>
-    Array.from(new Set(items.map(pick).filter((v): v is number => v != null)));
+  // Και τα αναλυτικά των ΚΟΜΜΑΤΙΩΝ του μοιράσματος (κέντρο κόστους / έργο ανά κομμάτι).
+  const allocs = items.flatMap((i) => i.allocations ?? []);
+  const ids = (pick: (i: (typeof items)[number]) => number | null, pickAlloc?: (a: (typeof allocs)[number]) => number | null) =>
+    Array.from(new Set([...items.map(pick), ...(pickAlloc ? allocs.map(pickAlloc) : [])].filter((v): v is number => v != null)));
   const [ccRows, pjRows, psRows, lineAccounts] = await Promise.all([
-    ids((i) => i.softoneCostCntr).length
+    ids((i) => i.softoneCostCntr, (a) => a.costCntr).length
       ? prisma.softoneCostCenter.findMany({
-        where: { costcntr: { in: ids((i) => i.softoneCostCntr) } }, select: { costcntr: true, code: true, name: true },
+        where: { costcntr: { in: ids((i) => i.softoneCostCntr, (a) => a.costCntr) } }, select: { costcntr: true, code: true, name: true },
       })
       : Promise.resolve([]),
-    ids((i) => i.softonePrjc).length
+    ids((i) => i.softonePrjc, (a) => a.prjc).length
       ? prisma.softoneProject.findMany({
-        where: { prjc: { in: ids((i) => i.softonePrjc) } }, select: { prjc: true, code: true, name: true },
+        where: { prjc: { in: ids((i) => i.softonePrjc, (a) => a.prjc) } }, select: { prjc: true, code: true, name: true },
       })
       : Promise.resolve([]),
     ids((i) => i.softonePrjcStage).length
