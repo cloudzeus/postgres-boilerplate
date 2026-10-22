@@ -46,6 +46,7 @@ const FIX: Record<string, BlockerFix> = {
   asset_no_whouse: admin,
   lines_no_mtrtype: admin,
   rule_blocked: go('template', 'Δες τον κανόνα'),
+  period_closed: go('fields', 'Έλεγξε την ημερομηνία'),
 };
 
 export function blockerFix(code: string): BlockerFix | null {

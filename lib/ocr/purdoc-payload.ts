@@ -293,7 +293,9 @@ export type BlockerCode =
   | 'account_is_mask'
   | 'account_not_postable'
   // Η γραμμή δείχνει σε χρεοπίστωση/έξοδο που ΔΕΝ υπάρχει στην τωρινή εγκατάσταση (βλ. `post-softone.ts`).
-  | 'registry_not_in_installation';
+  | 'registry_not_in_installation'
+  /** Η ημερομηνία πέφτει σε κλειστή/κλειδωμένη χρήση ή περίοδο της SoftOne (ή σε καμία χρήση). */
+  | 'period_closed';
 
 /** Μη-αποτρεπτικές παρατηρήσεις: φαίνονται στην προεπισκόπηση, δεν κλειδώνουν το κουμπί. */
 export type WarningCode =

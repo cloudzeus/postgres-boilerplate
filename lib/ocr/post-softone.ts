@@ -21,6 +21,7 @@ import { loadAccountChart } from './account-chart';
 import { describeTargetShort, resolvePostingTarget, type PostingTarget } from './posting-target';
 import { VAT_RATE_MAP_SETTING, buildVatRateMap, parseVatRateOverrides } from './vat-map';
 import { postingComment } from './posting-comment';
+import { periodVerdict } from '@/lib/softone-sync/periods';
 import { softoneErrorLine } from './softone-error-text';
 import { UTILITY_KIND_TITLE, analyzeUtility, utilityInputFromDocument } from './utility-bills';
 
@@ -79,6 +80,7 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   lines_no_mtrtype: 'Μια δαπάνη σε λογαριασμό δεν έχει πλήρη στοιχεία στη SoftOne. Ζήτησε από τον διαχειριστή νέο συγχρονισμό στα Μητρώα αναφοράς.',
   series_unknown: 'Το είδος παραστατικού που έχει οριστεί δεν υπάρχει (ή είναι ανενεργό) στη SoftOne. Διάλεξε άλλο από τη λίστα στην κάτω μπάρα.',
   series_module_unsupported: 'Αυτό το είδος παραστατικού δεν καταχωρείται από την εφαρμογή. Διάλεξε παραστατικό αγορών, προμηθευτών, χρεωστών ή πιστωτών.',
+  period_closed: 'Η ημερομηνία του παραστατικού πέφτει σε κλειστή περίοδο της SoftOne. Αν διαβάστηκε λάθος, διόρθωσέ τη· αλλιώς ζήτησε από τον λογιστή να ανοίξει την περίοδο.',
   registry_not_in_installation: 'Κάποια γραμμή δείχνει σε κωδικό που δεν υπάρχει στη SoftOne που είμαστε συνδεδεμένοι (παλιά σύνδεση). Άνοιξε τη γραμμή και διάλεξε ξανά τι αφορά.',
   trader_kind_mismatch: 'Ο εκδότης είναι συνδεδεμένος με καρτέλα άλλου τύπου (π.χ. πιστωτή αντί για προμηθευτή) από αυτόν που δέχεται το είδος παραστατικού. Διόρθωσέ το από τη λωρίδα ελέγχων, ή άλλαξε είδος παραστατικού.',
   account_missing: 'Μια δαπάνη σε λογαριασμό δεν έχει λογαριασμό λογιστικής στη SoftOne. Διάλεξε άλλη για τη γραμμή, ή ζήτησε από τον λογιστή να της ορίσει λογαριασμό.',
@@ -193,6 +195,8 @@ type Gathered = {
   warnings: WarningCode[];
   payload: PostingPayload;
   accounts: AccountCheck;
+  /** Το συγκεκριμένο μήνυμα της περιόδου (χρήση/μήνας ονομαστικά) όταν υπάρχει `period_closed`. */
+  periodMessage?: string | null;
 };
 
 /**
@@ -447,8 +451,16 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
     || (i.softoneAsset != null && assetById.get(i.softoneAsset)?.isActive !== true));
   if (foreign && !blockers.includes('registry_not_in_installation')) blockers.push('registry_not_in_installation');
 
+  // ΠΕΡΙΟΔΟΣ: κλειστή / κλειδωμένη χρήση ή περίοδος της SoftOne — ΠΡΙΝ φτάσουμε στην άρνηση της ίδιας.
+  // Σε ήδη καταχωρισμένο δεν έχει νόημα (και δεν πληρώνουμε την ανάγνωση).
+  let periodMessage: string | null = null;
+  if (doc.postStatus !== 'POSTED' && document.date) {
+    const v = await periodVerdict(document.date);
+    if (v && v.code !== 'ok' && v.code !== 'no_date') { blockers.push('period_closed'); periodMessage = v.message; }
+  }
+
   return {
-    doc, document, ctx, blockers,
+    doc, document, ctx, blockers, periodMessage,
     warnings: postingWarnings(ctx, accounts, document),
     payload: buildPurdocPayload(document, ctx),
     accounts,
@@ -487,12 +499,12 @@ export type PostingPreview = {
  * Ό,τι επιστρέφει εδώ είναι ακριβώς ό,τι θα έστελνε το `postDocumentToSoftone`.
  */
 export async function postingPreview(id: string): Promise<PostingPreview> {
-  const { doc, document, ctx, blockers, warnings, payload, accounts } = await gather(id);
+  const { doc, document, ctx, blockers, warnings, payload, accounts, periodMessage } = await gather(id);
   const enabled = (await getSetting<boolean>(POSTING_ENABLED_KEY)) === true;
   const ref = documentReference(document.type);
   return {
     enabled,
-    blockers: blockers.map((code) => ({ code, message: blockerMessage(code, accounts, document) })),
+    blockers: blockers.map((code) => ({ code, message: code === 'period_closed' && periodMessage ? periodMessage : blockerMessage(code, accounts, document) })),
     warnings: warnings.map((code) => ({ code, message: warningMessage(code, accounts) })),
     target: { ...ctx.target, label: describeTargetShort(ctx.target) },
     payload,
@@ -668,7 +680,7 @@ export async function postDocumentToSoftone(id: string, opts: PostOptions = {}):
 }
 
 async function postDocument(id: string, opts: PostOptions, mark: (step: string) => void): Promise<{ ref: string; warning?: string }> {
-  const { doc, document, ctx, blockers, payload, accounts } = await gather(id, opts.conversion);
+  const { doc, document, ctx, blockers, payload, accounts, periodMessage } = await gather(id, opts.conversion);
   mark('gather');
   // ΙΔΕΜΠΟΤΗΤΑ, πρώτο απ' όλα: ένα δεύτερο κλικ (ή μια δεύτερη εκτέλεση προτύπου) δεν δημιουργεί
   // δεύτερο παραστατικό στο SoftOne. Πριν από κάθε έλεγχο εμποδίων — ένα ήδη καταχωρισμένο
@@ -677,7 +689,7 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
     throw new PostError('already_posted', alreadyPostedText(doc.postedRef));
   }
   if (blockers.length) {
-    throw new PostError(blockers[0], blockers.map((c) => blockerMessage(c, accounts, document)).join(' · '));
+    throw new PostError(blockers[0], blockers.map((c) => (c === 'period_closed' && periodMessage ? periodMessage : blockerMessage(c, accounts, document))).join(' · '));
   }
   const [enabled, lastCheck] = await Promise.all([
     getSetting<boolean>(POSTING_ENABLED_KEY),
