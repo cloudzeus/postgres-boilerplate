@@ -202,12 +202,20 @@ export type PurdocAssetLine = {
 };
 /** Γραμμή ανάλυσης εξόδων (EXPANAL) — δεν έχει ποσότητα/τιμή, μόνο αξία. */
 export type PurdocExpenseLine = { LINENUM: number; EXPN: number; VAT?: number; EXPVAL: number };
-/** Γραμμή ειδικών συναλλαγών (LINLINES): `MTRL` = ΧΡΕΟΠΙΣΤΩΣΗ, με τον τύπο της. */
+/**
+ * Γραμμή ειδικών συναλλαγών (LINLINES): `MTRL` = ΧΡΕΟΠΙΣΤΩΣΗ, με τον τύπο της.
+ *
+ * ΤΟ ΠΟΣΟ ΕΙΝΑΙ ΤΟ `LINEVAL` («Αξία»). Μετρημένο στη Demo (22/10/2026, `calculate`): η SoftOne
+ * υπολογίζει την καθαρή αξία της γραμμής ΜΟΝΟ από το `LINEVAL` — αγνοεί ποσότητα × τιμή, έκπτωση
+ * και το `NETLINEVAL` που της στέλνουμε. Χωρίς `LINEVAL` η γραμμή γράφεται με ΜΗΔΕΝ: έτσι
+ * καταχωρίστηκαν με 0 € ο λογαριασμός ΕΥΔΑΠ (115601) και ο εκκαθαριστικός ΗΡΩΝ (115571).
+ * Άρα `LINEVAL` = η ΚΑΘΑΡΗ αξία της γραμμής (με την έκπτωση ήδη αφαιρεμένη), και ΚΑΜΙΑ έκπτωση.
+ */
 export type PurdocLinLine = {
   LINENUM: number; MTRL: number; MTRTYPE: number; QTY1: number; PRICE: number;
-  /** Έκπτωση ΠΟΣΟΣΤΟ / ΠΟΣΟ — δες {@link discountFields}. */
+  LINEVAL: number;
+  /** Πάντα 0 — η έκπτωση είναι ήδη μέσα στο `LINEVAL` (η SoftOne την αγνοεί έτσι κι αλλιώς εδώ). */
   DISC1PRC?: number;
-  DISC1VAL?: number;
   NETLINEVAL: number; VAT?: number; COMMENTS?: string;
   COSTCNTR?: number; PRJC?: number; PRJCSTAGE?: number;
 };
@@ -602,6 +610,7 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
             MTRTYPE: num(a.mtrType, 0),
             QTY1: 1,
             PRICE: a.amount,
+            LINEVAL: a.amount,
             DISC1PRC: 0,
             NETLINEVAL: a.amount,
             ...analyticsOf(match),
@@ -621,7 +630,8 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
         MTRTYPE: num(match.linMtrType, 0),
         QTY1: num(line.quantity, 1),
         PRICE: num(line.unitPrice, 0),
-        ...discountFields(line),
+        LINEVAL: num(line.net, 0),
+        DISC1PRC: 0,
         NETLINEVAL: num(line.net, 0),
         ...analyticsOf(match),
       };

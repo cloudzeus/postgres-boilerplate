@@ -32,7 +32,7 @@ const vatRateOf = (v: unknown): number | null => {
 /** Ο διακόπτης ασφαλείας. Κλειστός = καμία εγγραφή δεν φεύγει προς το SoftOne (μόνο dry-run). */
 export const POSTING_ENABLED_KEY = 'softone.postingEnabled';
 
-export type PostErrorCode = 'not_found' | 'posting_disabled' | 'already_posted' | 'duplicate' | 'conversion_check' | BlockerCode;
+export type PostErrorCode = 'not_found' | 'posting_disabled' | 'already_posted' | 'duplicate' | 'conversion_check' | 'amounts_check' | BlockerCode;
 
 export class PostError extends Error {
   constructor(public code: PostErrorCode, message: string) {
@@ -53,6 +53,7 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   // γλωσσαρίου (`lib/ocr/glossary.ts`) — ίδια λέξη, ίδια έννοια παντού.
   not_found: 'Το παραστατικό δεν βρέθηκε (μάλλον διαγράφηκε).',
   conversion_check: 'Ο έλεγχος πριν από τη μετατροπή του δελτίου σε τιμολόγιο απέτυχε — δεν γράφτηκε τίποτα στη SoftOne.',
+  amounts_check: 'Η SoftOne θα κατέγραφε άλλο ποσό από αυτό του παραστατικού — δεν γράφτηκε τίποτα.',
   not_completed: 'Η ανάγνωση του παραστατικού δεν ολοκληρώθηκε. Κάνε «Επανασάρωση».',
   no_category: 'Διάλεξε «Κατηγορία» στην κάτω μπάρα.',
   line_discount_ambiguous: 'Μια γραμμή έχει έκπτωση που δεν βγαίνει από τα ποσά της, οπότε δεν ξέρουμε αν είναι ποσοστό ή ποσό. Διόρθωσε έκπτωση ή καθαρή αξία της γραμμής στην «Επεξεργασία γραμμών».',
@@ -583,6 +584,45 @@ export async function conversionCalculateCheck(payload: PostingPayload, document
   return { error: null, total };
 }
 
+const eurText = (v: number) => `${v.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+const round2 = (x: number) => Math.round((x + Number.EPSILON) * 100) / 100;
+
+/** Η καθαρή αξία που ΠΡΕΠΕΙ να βγάλει η SoftOne: το άθροισμα των γραμμών που στέλνουμε. */
+export function expectedNetOf(document: DocumentJson): number {
+  return round2(document.lines.reduce((t, l) => t + (Number(l.net) || 0), 0));
+}
+
+/**
+ * ΔΙΧΤΥ ΑΣΦΑΛΕΙΑΣ ΣΕ ΚΑΘΕ ΚΑΤΑΧΩΡΙΣΗ: `calculate` (δεν αποθηκεύει) πριν από το `setData`, και η
+ * καθαρή αξία της SoftOne πρέπει να είναι αυτή των γραμμών μας.
+ *
+ * Γιατί: οι ειδικές συναλλαγές στέλνονταν χωρίς `LINEVAL`, η SoftOne τις δεχόταν με `success:true`
+ * — και τις έγραφε με ΜΗΔΕΝ (ΕΥΔΑΠ 115601, ΗΡΩΝ 115571). Το read-back έλεγχε μόνο αριθμό και
+ * συναλλασσόμενο, οπότε κανείς δεν το είδε. Ό,τι κι αν αλλάξει στο μέλλον στο payload, ένα ποσό που
+ * η SoftOne δεν θα κρατήσει σταματά ΕΔΩ, πριν γραφτεί οτιδήποτε.
+ *
+ * Τα «Έξοδα» αγορών (EXPANAL) προστίθενται στη SoftOne έξω από την καθαρή αξία των ειδών, οπότε σε
+ * παραστατικό με τέτοιες γραμμές ελέγχεται μόνο το «όχι μηδέν». `null` = εντάξει ή δεν κρίνεται.
+ */
+export async function amountsPreflight(payload: PostingPayload, expected: number): Promise<string | null> {
+  const res = await softoneCall<{ success?: boolean; error?: string; data?: Record<string, Record<string, unknown>[]> }>('calculate', {
+    ...payload,
+    LOCATEINFO: `${payload.OBJECT}:NETAMNT,SUMAMNT`,
+  });
+  if (res.success === false) return softoneErrorLine(res.error ?? 'άγνωστο σφάλμα', payload);
+  const head = res.data?.[payload.OBJECT]?.[0];
+  const net = Number(String(head?.NETAMNT ?? '').replace(',', '.'));
+  if (!head || !Number.isFinite(net)) return null;
+  const hasExpenses = ((payload.DATA as Record<string, unknown[] | undefined>).EXPANAL ?? []).length > 0;
+  if (Math.abs(expected) > 0.5 && Math.abs(net) < 0.005) {
+    return `Η SoftOne θα κατέγραφε το παραστατικό με ΜΗΔΕΝΙΚΗ αξία, ενώ οι γραμμές του είναι ${eurText(expected)} — δεν γράφτηκε τίποτα. Στείλε το στον τεχνικό (πιθανό πρόβλημα στη μορφή των γραμμών).`;
+  }
+  if (!hasExpenses && Math.abs(net - expected) > Math.max(0.1, Math.abs(expected) * 0.002)) {
+    return `Η SoftOne υπολογίζει καθαρή αξία ${eurText(net)}, ενώ οι γραμμές του παραστατικού είναι ${eurText(expected)} — δεν γράφτηκε τίποτα. Έλεγξε ποσότητες, τιμές και μονάδες των γραμμών.`;
+  }
+  return null;
+}
+
 /** Ο έλεγχος διπλού του «Καταχώριση» (πριν από το παράθυρο επιβεβαίωσης) θεωρείται φρέσκος για τόσο. */
 const FRESH_DUPLICATE_CHECK_MS = 5 * 60_000;
 
@@ -656,6 +696,11 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
     const check = await conversionCalculateCheck(payload, document.totals?.total ?? null);
     mark('calculate');
     if (check.error) throw new PostError('conversion_check', check.error);
+  } else {
+    // Σε ΚΑΘΕ καταχώριση: η SoftOne πρέπει να βγάζει το ίδιο ποσό με τις γραμμές, πριν γραφτεί κάτι.
+    const problem = await amountsPreflight(payload, expectedNetOf(document));
+    mark('calculate');
+    if (problem) throw new PostError('amounts_check', problem);
   }
 
   await prisma.ocrDocument.update({ where: { id }, data: { postStatus: 'PENDING' } });
@@ -712,12 +757,21 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
       );
     }
 
+    // ΤΟ ΠΟΣΟ ΠΟΥ ΓΡΑΦΤΗΚΕ: το παραστατικό ΥΠΑΡΧΕΙ ήδη, οπότε διαφορά εδώ = δυνατή προειδοποίηση
+    // (όχι FAILED — θα ξαναστελνόταν διπλό). Ο έλεγχος πριν το setData πρέπει να το έχει πιάσει ήδη.
+    const savedNet = Number(String(row.NETAMNT ?? '').replace(',', '.'));
+    const expectedNet = expectedNetOf(document);
+    let amountWarning: string | undefined;
+    if (row.NETAMNT != null && Number.isFinite(savedNet) && Math.abs(expectedNet) > 0.5 && Math.abs(savedNet) < 0.005) {
+      amountWarning = `ΠΟΣΑ: το παραστατικό ${ref} γράφτηκε στη SoftOne με ΜΗΔΕΝΙΚΗ καθαρή αξία αντί για ${eurText(expectedNet)}. Διόρθωσέ το στη SoftOne — ΜΗΝ το ξανακαταχωρίσεις.`;
+    }
+
     // ΠΑΓΙΑ: η γραμμή ASSLINES φεύγει με «Αγορά/Προσθήκη» = 0, με την υπόθεση ότι το SoftOne
     // δημιουργεί μόνο του την εγγραφή απόκτησης όπως στο πρότυπο 105283. Το επαληθεύουμε εδώ. Το
     // παραστατικό ΥΠΑΡΧΕΙ ήδη, οπότε δεν γίνεται FAILED (θα ξαναστελνόταν διπλό): μένει POSTED με
     // δυνατή σημείωση για τον χρήστη και τον integrator.
     const sentAssets = payload.DATA.ASSLINES?.length ?? 0;
-    let warning: string | undefined;
+    let warning: string | undefined = amountWarning;
     // ΜΕΤΑΣΧΗΜΑΤΙΣΜΟΣ: κάθε γραμμή που στάλθηκε με δελτίο-πηγή πρέπει να γυρίσει με αυτό, και τα
     // δελτία να έχουν πλέον μετασχηματιστεί. Το τιμολόγιο ΥΠΑΡΧΕΙ ήδη: αποτυχία εδώ = προειδοποίηση.
     if (opts.conversion) {

@@ -111,7 +111,7 @@ describe('postingPreview (dry-run)', () => {
     expect(preview.payload.OBJECT).toBe('LINCREDOC');
     expect(preview.payload.DATA.LINCREDOC?.[0]).toMatchObject({ SERIES: 1001, TRDR: 12345 });
     expect(preview.payload.DATA.LINLINES).toEqual([
-      { LINENUM: 9000001, MTRL: 777, MTRTYPE: 1, QTY1: 2, PRICE: 50, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Είδος Α' },
+      { LINENUM: 9000001, MTRL: 777, MTRTYPE: 1, QTY1: 2, PRICE: 50, LINEVAL: 100, DISC1PRC: 0, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Είδος Α' },
     ]);
     // Το LINLINES δεν έχει πεδίο χαρακτηρισμού — δεν στέλνουμε MYDATACODE εκεί.
     expect(preview.payload.DATA.LINLINES?.[0]).not.toHaveProperty('MYDATACODE');
@@ -165,7 +165,7 @@ describe('postingPreview (dry-run)', () => {
     expect(preview.payload.DATA.LINDEBDOC?.[0]).toMatchObject({ SERIES: 6645, TRDR: 12345, FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17' });
     expect(preview.payload.DATA.LINDEBDOC?.[0]).not.toHaveProperty('SODTYPE');
     expect(preview.payload.DATA.LINLINES).toEqual([
-      { LINENUM: 9000001, MTRL: 777, MTRTYPE: 1, QTY1: 2, PRICE: 50, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Είδος Α' },
+      { LINENUM: 9000001, MTRL: 777, MTRTYPE: 1, QTY1: 2, PRICE: 50, LINEVAL: 100, DISC1PRC: 0, NETLINEVAL: 100, VAT: 1, COMMENTS: 'Είδος Α' },
     ]);
     expect(preview.warnings.map((w) => w.code)).toContain('mydata_from_master');
   });
@@ -514,11 +514,27 @@ describe('postDocumentToSoftone', () => {
 
   it('setData αποτυγχάνει → FAILED και το σφάλμα ανεβαίνει', async () => {
     settings.getSetting.mockResolvedValue(true);
-    softone.softoneCall.mockResolvedValue({ success: false, error: 'ΛΑΘΟΣ ΣΕΙΡΑ', errorcode: 0 });
+    softone.softoneCall.mockImplementation(async (service: string) => (service === 'calculate'
+      ? { success: true }
+      : { success: false, error: 'ΛΑΘΟΣ ΣΕΙΡΑ', errorcode: 0 }));
     await expect(postDocumentToSoftone('d1')).rejects.toThrow(/ΛΑΘΟΣ ΣΕΙΡΑ/);
     expect(softone.softoneGetData).not.toHaveBeenCalled();
     const last = db.ocrDocument.update.mock.calls.at(-1)?.[0];
     expect(last.data.postStatus).toBe('FAILED');
+  });
+
+  it('ΜΗΔΕΝΙΚΗ αξία στο calculate (το σφάλμα των ειδικών συναλλαγών) ⇒ ΤΙΠΟΤΑ δεν γράφεται', async () => {
+    settings.getSetting.mockResolvedValue(true);
+    const calls: string[] = [];
+    softone.softoneCall.mockImplementation(async (service: string, params: { OBJECT?: string }) => {
+      calls.push(service);
+      return service === 'calculate'
+        ? { success: true, data: { [params.OBJECT ?? 'PURDOC']: [{ NETAMNT: '0', SUMAMNT: '0' }] } }
+        : { success: true, id: 1 };
+    });
+    await expect(postDocumentToSoftone('d1')).rejects.toThrow(/ΜΗΔΕΝΙΚΗ αξία/);
+    expect(calls).toEqual(['calculate']);
+    expect(db.ocrDocument.update.mock.calls.some((c) => c[0].data?.postStatus === 'PENDING')).toBe(false);
   });
 
   it('το read-back διαβάζει ΤΟ ΙΔΙΟ object που γράφτηκε', async () => {
