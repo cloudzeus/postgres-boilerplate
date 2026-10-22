@@ -5,7 +5,7 @@ import { emptyDocument, type DocumentJson } from '../canonical';
 
 const { db, softone, settings, documentMod } = vi.hoisted(() => ({
   db: {
-    ocrDocument: { findUnique: vi.fn(), update: vi.fn() },
+    ocrDocument: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     ocrInvoiceItem: { findMany: vi.fn() },
     vatCategory: { findMany: vi.fn() },
     purchaseDocType: { findUnique: vi.fn() },
@@ -18,7 +18,7 @@ const { db, softone, settings, documentMod } = vi.hoisted(() => ({
     templateRun: { findFirst: vi.fn(), update: vi.fn() },
     $transaction: vi.fn(),
   },
-  softone: { softoneCall: vi.fn(), softoneGetData: vi.fn() },
+  softone: { softoneCall: vi.fn(), softoneGetData: vi.fn(), SoftoneTransportError: class extends Error { phase = 'unknown'; } },
   settings: { getSetting: vi.fn() },
   documentMod: { loadDocumentJson: vi.fn() },
 }));
@@ -27,6 +27,7 @@ vi.mock('@/lib/db', () => ({ prisma: db }));
 vi.mock('@/lib/softone', () => softone);
 vi.mock('@/lib/settings', () => settings);
 vi.mock('@/lib/ocr/document', () => documentMod);
+vi.mock('@/lib/audit', () => ({ logAudit: vi.fn().mockResolvedValue(undefined) }));
 
 import { postDocumentToSoftone, postingPreview, PostError } from '../post-softone';
 
@@ -51,6 +52,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   db.ocrDocument.findUnique.mockResolvedValue({ ...READY_DOC });
   db.ocrDocument.update.mockResolvedValue({});
+  db.ocrDocument.updateMany.mockResolvedValue({ count: 1 });
   db.ocrInvoiceItem.findMany.mockResolvedValue([{ rowIndex: 0, softoneMtrl: 555, softoneExpn: null, softoneIsService: false }]);
   db.vatCategory.findMany.mockResolvedValue([{ code: '1', rate: 24 }, { code: '4', rate: 0 }]);
   // Σειρά αγοράς εμπορευμάτων → PURDOC με πίνακα ανά γραμμή (η προεπιλογή της ενότητας 1251).
@@ -521,6 +523,27 @@ describe('postDocumentToSoftone', () => {
     expect(softone.softoneGetData).not.toHaveBeenCalled();
     const last = db.ocrDocument.update.mock.calls.at(-1)?.[0];
     expect(last.data.postStatus).toBe('FAILED');
+  });
+
+  it('ΚΛΕΙΔΩΜΑ: δεύτερο ταυτόχρονο αίτημα δεν φτάνει στο setData', async () => {
+    settings.getSetting.mockResolvedValue(true);
+    db.ocrDocument.updateMany.mockResolvedValue({ count: 0 });
+    const calls: string[] = [];
+    softone.softoneCall.mockImplementation(async (service: string) => { calls.push(service); return { success: true, id: 1 }; });
+    await expect(postDocumentToSoftone('d1')).rejects.toThrow(/ήδη σε εξέλιξη/);
+    expect(calls).not.toContain('setData');
+  });
+
+  it('χρονικό όριο ΣΤΟ setData ⇒ «ΑΓΝΩΣΤΗ ΕΚΒΑΣΗ», όχι σκέτο «απέτυχε»', async () => {
+    settings.getSetting.mockResolvedValue(true);
+    softone.softoneCall.mockImplementation(async (service: string) => {
+      if (service === 'calculate') return { success: true };
+      throw new softone.SoftoneTransportError('Το SoftOne δεν απάντησε σε 90″.');
+    });
+    await expect(postDocumentToSoftone('d1')).rejects.toThrow(/ΑΓΝΩΣΤΗ ΕΚΒΑΣΗ/);
+    const last = db.ocrDocument.update.mock.calls.at(-1)?.[0];
+    expect(last.data.postStatus).toBe('FAILED');
+    expect(last.data.postError).toMatch(/^ΑΓΝΩΣΤΗ ΕΚΒΑΣΗ/);
   });
 
   it('ΜΗΔΕΝΙΚΗ αξία στο calculate (το σφάλμα των ειδικών συναλλαγών) ⇒ ΤΙΠΟΤΑ δεν γράφεται', async () => {

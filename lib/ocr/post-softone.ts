@@ -5,7 +5,8 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { decideLineUnits, hasBuyUnit } from '@/lib/ocr/line-units';
 import { getSetting } from '@/lib/settings';
-import { softoneCall, softoneGetData } from '@/lib/softone';
+import { softoneCall, softoneGetData, SoftoneTransportError } from '@/lib/softone';
+import { logAudit } from '@/lib/audit';
 import { fetchNoteState } from '@/lib/softone-sync/delivery-notes';
 import { normalizeDocRef } from '@/lib/doc-reference';
 import { buildReviewFlags } from '@/lib/templates/run-logic';
@@ -703,10 +704,27 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
     if (problem) throw new PostError('amounts_check', problem);
   }
 
-  await prisma.ocrDocument.update({ where: { id }, data: { postStatus: 'PENDING' } });
+  // ΚΛΕΙΔΩΜΑ, ατομικά: δύο ταυτόχρονα κλικ (ή κλικ + εκτελεστής προτύπων) δεν περνούν και τα δύο.
+  // Πριν, το `PENDING` γραφόταν χωρίς όρο — και τα δύο αιτήματα θα έφταναν στο `setData`.
+  const claimed = await prisma.ocrDocument.updateMany({
+    where: { id, postStatus: { notIn: ['PENDING', 'POSTED'] } },
+    data: { postStatus: 'PENDING' },
+  });
+  if (claimed.count === 0) {
+    throw new PostError('already_posted', 'Η καταχώριση αυτού του παραστατικού είναι ήδη σε εξέλιξη ή έχει ολοκληρωθεί — ανανέωσε τη σελίδα.');
+  }
+  const audit = (ok: boolean, extra: Record<string, unknown>) => logAudit({
+    userId: opts.verifiedById ?? null, action: 'ocr.post', resource: 'ocr_document', resourceId: id,
+    // Το ΑΚΡΙΒΕΣ payload που στάλθηκε: αν κάτι γραφτεί στραβά, φαίνεται τι ακριβώς ζητήσαμε.
+    metadata: { ok, object: ctx.target.object, series: ctx.series, trdr: ctx.trdr, payload, ...extra },
+  }).catch(() => null);
+  /** Το `setData` έφυγε αλλά δεν ξέρουμε αν η SoftOne το εκτέλεσε (διακοπή / χρονικό όριο). */
+  let inFlight = false;
   try {
     const object = ctx.target.object;
+    inFlight = true;
     const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>('setData', payload);
+    inFlight = false;
     mark('setData');
     // ΚΑΘΑΡΗ αποτυχία: το SoftOne είπε «όχι». Τίποτα δεν δημιουργήθηκε.
     if (res.success === false) {
@@ -761,10 +779,24 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
     // (όχι FAILED — θα ξαναστελνόταν διπλό). Ο έλεγχος πριν το setData πρέπει να το έχει πιάσει ήδη.
     const savedNet = Number(String(row.NETAMNT ?? '').replace(',', '.'));
     const expectedNet = expectedNetOf(document);
-    let amountWarning: string | undefined;
-    if (row.NETAMNT != null && Number.isFinite(savedNet) && Math.abs(expectedNet) > 0.5 && Math.abs(savedNet) < 0.005) {
-      amountWarning = `ΠΟΣΑ: το παραστατικό ${ref} γράφτηκε στη SoftOne με ΜΗΔΕΝΙΚΗ καθαρή αξία αντί για ${eurText(expectedNet)}. Διόρθωσέ το στη SoftOne — ΜΗΝ το ξανακαταχωρίσεις.`;
+    const warnings: string[] = [];
+    const hasExpenses = (payload.DATA.EXPANAL ?? []).length > 0;
+    if (row.NETAMNT != null && Number.isFinite(savedNet)) {
+      if (Math.abs(expectedNet) > 0.5 && Math.abs(savedNet) < 0.005) {
+        warnings.push(`ΠΟΣΑ: το παραστατικό ${ref} γράφτηκε στη SoftOne με ΜΗΔΕΝΙΚΗ καθαρή αξία αντί για ${eurText(expectedNet)}. Διόρθωσέ το στη SoftOne — ΜΗΝ το ξανακαταχωρίσεις.`);
+      } else if (!hasExpenses && Math.abs(savedNet - expectedNet) > Math.max(0.1, Math.abs(expectedNet) * 0.002)) {
+        warnings.push(`ΠΟΣΑ: η SoftOne κράτησε καθαρή αξία ${eurText(savedNet)} αντί για ${eurText(expectedNet)} στο ${ref}. Έλεγξέ το στη SoftOne — ΜΗΝ το ξανακαταχωρίσεις.`);
+      }
     }
+    // ΦΠΑ: η SoftOne τον υπολογίζει ανά γραμμή (στρογγυλοποίηση ανά γραμμή) — μικρή απόκλιση από το
+    // τυπωμένο είναι φυσιολογική· μεγαλύτερη σημαίνει λάθος κωδικό ΦΠΑ σε κάποια γραμμή.
+    const savedVat = Number(String(row.VATAMNT ?? '').replace(',', '.'));
+    const printedVat = document.totals?.vatAmount;
+    if (row.VATAMNT != null && Number.isFinite(savedVat) && printedVat != null
+      && Math.abs(savedVat - printedVat) > Math.max(0.1, Math.abs(printedVat) * 0.005)) {
+      warnings.push(`ΦΠΑ: η SoftOne υπολόγισε ${eurText(savedVat)} ενώ το παραστατικό γράφει ${eurText(printedVat)} (${ref}). Έλεγξε τους συντελεστές ΦΠΑ των γραμμών στη SoftOne.`);
+    }
+    const amountWarning = warnings.length ? warnings.join(' ') : undefined;
 
     // ΠΑΓΙΑ: η γραμμή ASSLINES φεύγει με «Αγορά/Προσθήκη» = 0, με την υπόθεση ότι το SoftOne
     // δημιουργεί μόνο του την εγγραφή απόκτησης όπως στο πρότυπο 105283. Το επαληθεύουμε εδώ. Το
@@ -782,7 +814,7 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
       mark('noteState');
       const open = state ? state.filter((x) => x.transformed === 0).map((x) => x.findoc) : null;
       if (backLinked < sentLinked || open == null || open.length) {
-        warning = `ΜΕΤΑΣΧΗΜΑΤΙΣΜΟΣ: το τιμολόγιο ${ref} καταχωρίστηκε, αλλά `
+        warning = (warning ? `${warning} ` : '') + `ΜΕΤΑΣΧΗΜΑΤΙΣΜΟΣ: το τιμολόγιο ${ref} καταχωρίστηκε, αλλά `
           + (backLinked < sentLinked ? `μόνο ${backLinked} από ${sentLinked} γραμμές δείχνουν στο δελτίο` : '')
           + (backLinked < sentLinked && (open == null || open.length) ? ' και ' : '')
           + (open == null ? 'η κατάσταση των δελτίων δεν διαβάστηκε' : open.length ? `τα δελτία ${open.join(', ')} εμφανίζονται ακόμη ανοιχτά` : '')
@@ -794,7 +826,7 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
       const linked = back.filter((l) => Number(l.ASSDEPR) > 0).length;
       const created = (tables.ASSDEPR ?? []).length;
       if (back.length < sentAssets || linked < sentAssets || created < sentAssets) {
-        warning = `ΠΑΓΙΑ: το παραστατικό ${ref} καταχωρίστηκε, αλλά από ${sentAssets} γραμμές παγίων `
+        warning = (warning ? `${warning} ` : '') + `ΠΑΓΙΑ: το παραστατικό ${ref} καταχωρίστηκε, αλλά από ${sentAssets} γραμμές παγίων `
           + `${linked} συνδέθηκαν με εγγραφή απόκτησης («Αγορά/Προσθήκη») και ${created} εγγραφές απόκτησης δημιουργήθηκαν. `
           + 'Έλεγξε το παραστατικό στο SoftOne και συμπλήρωσε την «Αγορά/Προσθήκη» χειροκίνητα.';
       }
@@ -810,16 +842,25 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
         ...(opts.verified ? { verifiedAt: new Date(), verifiedById: opts.verifiedById ?? null } : {}),
       },
     });
+    await audit(true, { ref, warning: warning ?? null, savedNet: Number.isFinite(savedNet) ? savedNet : null, expectedNet });
     if (opts.syncTemplateRun) {
       await markLatestRunPosted(id).catch((e) => console.error('[ocr] run status not synced after post', doc.id, (e as Error).message));
     }
     return warning ? { ref, warning } : { ref };
   } catch (err) {
+    // ΑΓΝΩΣΤΗ ΕΚΒΑΣΗ: το `setData` έφυγε και η απάντηση χάθηκε (χρονικό όριο / διακοπή). Η SoftOne μπορεί
+    // να το έχει γράψει. Δεν ξαναστέλνεται ποτέ αυτόματα· ο χρήστης ελέγχει πρώτα — και ο έλεγχος
+    // διπλού της επόμενης προσπάθειας θα το βρει, αν γράφτηκε.
+    const unknown = inFlight && err instanceof SoftoneTransportError && err.phase !== 'not_sent';
+    const message = unknown
+      ? `ΑΓΝΩΣΤΗ ΕΚΒΑΣΗ: η SoftOne δεν απάντησε στην καταχώριση και ίσως την έχει κάνει. ΜΗΝ ξανακαταχωρίσεις πριν το ελέγξεις στη SoftOne (αριθμός ${documentReference(document.type).taxSeriesNum ?? document.type.number ?? '—'}). (${String((err as Error)?.message ?? err)})`
+      : String((err as Error)?.message ?? err);
     await prisma.ocrDocument.update({
       where: { id },
-      data: { postStatus: 'FAILED', postError: String((err as Error)?.message ?? err).slice(0, 2000) },
+      data: { postStatus: 'FAILED', postError: message.slice(0, 2000) },
     });
-    throw err;
+    await audit(false, { error: message.slice(0, 500), unknownOutcome: unknown });
+    throw unknown ? new Error(message) : err;
   }
 }
 
