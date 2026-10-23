@@ -989,13 +989,21 @@ export function postingWarnings(
   accounts?: AccountCheck | null,
   /** Προαιρετικό: χωρίς αυτό δεν μπορεί να ελεγχθεί ο κοινός κωδικός (οι παλιοί καλούντες/tests). */
   document?: DocumentJson | null,
+  /**
+   * Ισχύει myDATA σε αυτή την εγκατάσταση; (`lib/tax-regime.ts`, ρύθμιση `setup.country`).
+   *
+   * Προεπιλογή `true` ώστε κάθε υπάρχουσα εγκατάσταση — και κάθε παλιός καλών — να συμπεριφέρεται
+   * ακριβώς όπως πριν. Σε **Κύπρο** οι δύο παρατηρήσεις myDATA δεν είναι απλώς περιττές: λένε στον
+   * χρήστη ότι λείπει κάτι που δεν υπάρχει καν στη χώρα του.
+   */
+  myData = true,
 ): WarningCode[] {
   const out: WarningCode[] = [];
   const hasLines = ctx.lines.length > 0;
   if (document && sharedCodeManyProducts(document, ctx.lines)) out.push('shared_code_many_products');
-  if (hasLines && ctx.lines.some((l) => l.noClassification)) out.push('no_mydata_classification');
+  if (myData && hasLines && ctx.lines.some((l) => l.noClassification)) out.push('no_mydata_classification');
   // Οι πίνακες χωρίς πεδίο MYDATACODE: ο χαρακτηρισμός έρχεται αποκλειστικά από το μητρώο.
-  if (hasLines && (ctx.target.lines === 'LINLINES' || ctx.target.lines === 'EXPANAL')) {
+  if (myData && hasLines && (ctx.target.lines === 'LINLINES' || ctx.target.lines === 'EXPANAL')) {
     out.push('mydata_from_master');
   }
   if (document) {

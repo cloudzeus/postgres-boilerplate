@@ -1,4 +1,5 @@
 import { NAME_CASE_OPTIONS } from '@/lib/item-naming';
+import { INSTALL_COUNTRY_OPTIONS } from '@/lib/tax-regime';
 import { DEFAULT_CONVERSION_MAP } from '@/lib/ocr/delivery-note-match';
 import { prisma } from '@/lib/db';
 
@@ -30,6 +31,15 @@ export interface SettingDef {
 
 export const SETTING_CATALOG: SettingDef[] = [
   // Αρχικοποίηση εφαρμογής — αποφάσεις που παίρνονται μία φορά, στο στήσιμο (βλ. lib/item-naming.ts)
+  {
+    key: 'setup.country',
+    category: 'setup',
+    label: 'Χώρα εγκατάστασης',
+    description: 'Καθορίζει τι ισχύει φορολογικά. Ελλάδα: ηλεκτρονική διαβίβαση myDATA, Δ.Ο.Υ. και στοιχεία από ΑΑΔΕ. Κύπρος: ΔΕΝ υπάρχει myDATA ούτε Δ.Ο.Υ. — οι σχετικοί έλεγχοι και προειδοποιήσεις παύουν να εμφανίζονται. Ορίζεται μία φορά στο στήσιμο.',
+    type: 'select',
+    options: INSTALL_COUNTRY_OPTIONS,
+    defaultValue: 'GR',
+  },
   {
     key: 'setup.itemNameCase',
     category: 'setup',
