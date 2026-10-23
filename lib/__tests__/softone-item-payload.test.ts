@@ -38,3 +38,10 @@ describe('buildItemPayload — Περιγραφή 2 (NAME1)', () => {
     expect((buildItemPayload(base).DATA as { ITEM: Record<string, unknown>[] }).ITEM[0]).not.toHaveProperty('NAME1');
   });
 });
+
+describe('υπηρεσία με χαρακτηρισμό myDATA', () => {
+  it('myDataCode ⇒ MYDATACODE στο payload (αλλιώς η υπηρεσία μένει αχαρακτήριστη)', () => {
+    const p = buildItemPayload({ code: 'ΥΠΗΡ-9999', name: 'Δοκιμή', isService: true, vat: '1410', unit: '101', myDataCode: '7' });
+    expect((p.DATA as { SERVICE: Record<string, unknown>[] }).SERVICE[0]).toMatchObject({ MYDATACODE: '7', VAT: '1410' });
+  });
+});

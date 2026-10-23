@@ -121,10 +121,3 @@ describe('ΦΠΑ από την κεφαλίδα', () => {
   });
 });
 
-describe('δημιουργία υπηρεσίας με χαρακτηρισμό myDATA', () => {
-  it('myDataCode ⇒ MYDATACODE στο payload (αλλιώς η υπηρεσία μένει αχαρακτήριστη)', async () => {
-    const { buildItemPayload } = await import('../../softone');
-    const p = buildItemPayload({ code: 'ΥΠΗΡ-9999', name: 'Δοκιμή', isService: true, vat: '1410', unit: '101', myDataCode: '7' }) as { DATA: Record<string, Record<string, unknown>[]> };
-    expect(Object.values(p.DATA)[0][0]).toMatchObject({ MYDATACODE: '7', VAT: '1410' });
-  });
-});
