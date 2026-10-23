@@ -1079,6 +1079,11 @@ export interface CreateItemInput {
   category?: string | null;    // MTRCATEGORY
   manufacturer?: string | null;// MTRMANFCTR
   brand?: string | null;       // MTRMARK
+  /**
+   * Χαρακτηρισμός myDATA του μητρώου → `MYDATACODE` (π.χ. «7» όπως όλες οι υπηρεσίες της Demo). Χωρίς
+   * αυτόν, κάθε γραμμή στο νέο μητρώο καταχωρείται αχαρακτήριστη (παρατήρηση `no_mydata_classification`).
+   */
+  myDataCode?: string | null;
   /** Barcode / EAN → `ITEM.CODE1` («Κωδ.Barcode»). */
   code1?: string | null;
   /** Κωδικός εργοστασίου / κατασκευαστή → `ITEM.CODE2`. */
@@ -1232,6 +1237,7 @@ export function buildItemPayload(input: CreateItemInput):
   if (input.price != null) row.PRICEW = input.price;
   if (input.group) row.MTRGROUP = input.group;
   if (input.category) row.MTRCATEGORY = input.category;
+  if (input.myDataCode) row.MYDATACODE = input.myDataCode;
   if (!input.isService) {
     if (input.manufacturer) row.MTRMANFCTR = input.manufacturer;
     if (input.brand) row.MTRMARK = input.brand;
