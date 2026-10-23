@@ -10,6 +10,7 @@
 import { normalizeDocRef } from '@/lib/doc-reference';
 import { clip } from './posting-comment';
 import { serialVerdict, splitSerials, type SerialLineVerdict } from './serial-tracking';
+import { recordedRepairs } from './line-autorepair';
 import { normalizeVatId } from './validate';
 import type { DocumentJson } from './canonical';
 import { analyzeLine } from './invoice-math';
@@ -190,11 +191,23 @@ export type PurdocItemLine = {
    * SoftOne γράφει μόνη της `QTY1` = QTY × MU31 στη βασική (βλ. `lib/item-units.ts`). ΟΧΙ `QTY1`: με
    * κιβώτιο των 100, «QTY1 = 2» γράφει 2 τεμάχια και αξία 2/100 × τιμή.
    */
-  LINENUM: number; MTRL: number; QTY: number; PRICE: number;
+  LINENUM: number; MTRL: number;
+  /** Ποσότητα στη μονάδα αγορών — ΜΟΝΟ για είδη (ITELINES). */
+  QTY?: number;
+  /**
+   * Ποσότητα στη ΒΑΣΙΚΗ μονάδα — για ΥΠΗΡΕΣΙΕΣ (SRVLINES). Μετρημένο με `calculate` (23/10/2026): με
+   * `QTY` η SoftOne μετατρέπει με τη σχέση μονάδας αγορών που οι υπηρεσίες ΔΕΝ έχουν — 4 → 1, 5 → 0 —
+   * και η αξία βγαίνει μηδέν ή αρνητική (με έκπτωση ποσού). Με `QTY1` και τα 17 παραστατικά υπηρεσιών
+   * έδωσαν ακριβώς την αξία του χαρτιού.
+   */
+  QTY1?: number;
+  PRICE: number;
   /** Έκπτωση **ΠΟΣΟΣΤΟ**. Δες {@link discountFields}: ποτέ ποσό εδώ μέσα. */
   DISC1PRC?: number;
   /** Έκπτωση **ΠΟΣΟ** σε νόμισμα. */
   DISC1VAL?: number;
+  /** Αξία γραμμής — μόνο όταν η τιμή έχει > 2 δεκαδικά (η SoftOne θα τη στρογγύλευε). */
+  LINEVAL?: number;
   VAT?: number; COMMENTS?: string; MYDATACODE?: string;
   COSTCNTR?: number; PRJC?: number; PRJCSTAGE?: number;
   /** Μετασχηματισμός: το δελτίο-πηγή (`FINDOC`) και η γραμμή του (`MTRLINES`). */
@@ -323,7 +336,13 @@ export type BlockerCode =
   /** Είδος με σειριακούς: άλλος αριθμός σειριακών από τα τεμάχια της γραμμής. */
   | 'serials_count_mismatch'
   /** Σειριακός που δεν έχει τη «Μορφή κωδ.SN» του είδους — η SoftOne θα τον απέρριπτε. */
-  | 'serials_bad_format';
+  | 'serials_bad_format'
+  /**
+   * Γραμμή «Έξοδο» αγορών (EXPANAL): η SoftOne την απορρίπτει ΠΑΝΤΑ από τη σύνδεση («Δεν έχετε
+   * συμπληρώσει: Έξοδο, Επιβαρύνει τα είδη, Τύπος» — μετρημένο με `calculate`, 22/10/2026, ακόμη και
+   * με τα πεδία συμπληρωμένα). Πριν, η προεπισκόπηση έλεγε «Έτοιμο» και η καταχώριση σταματούσε.
+   */
+  | 'lines_expense_unsupported';
 
 /** Μη-αποτρεπτικές παρατηρήσεις: φαίνονται στην προεπισκόπηση, δεν κλειδώνουν το κουμπί. */
 export type WarningCode =
@@ -335,7 +354,11 @@ export type WarningCode =
   /** Είδος που παρακολουθεί σειριακούς, χωρίς σειριακούς στο χαρτί. */
   | 'serials_missing'
   /** Σειριακοί σε είδος χωρίς παρακολούθηση (ή άγνωστη) — μένουν μόνο στο σχόλιο της γραμμής. */
-  | 'serials_untracked';
+  | 'serials_untracked'
+  /** Η ανάγνωση διορθώθηκε αυτόματα (τιμή με ΦΠΑ, χιλιάδες, έκπτωση, γραμμή χωρίς ΦΠΑ) — να το δει ο χρήστης. */
+  | 'reading_auto_repaired'
+  /** Ως εκδότης διαβάστηκε η ΔΙΚΗ μας εταιρεία (τα μέρη αντιστράφηκαν) — ίσως είναι παραστατικό πώλησης. */
+  | 'own_company_issuer';
 
 const num = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 
@@ -740,13 +763,20 @@ export function buildPurdocPayload(document: DocumentJson, ctx: PurdocContext): 
     const bucket = items[target];
     const qp = purchaseQtyPrice(num(line.quantity, 1), num(line.unitPrice, 0), match.buyRatio, match.qtyInBase === true);
     const cls = text(match.myDataCode);
+    // ΤΙΜΗ ΜΕ ΠΑΝΩ ΑΠΟ 2 ΔΕΚΑΔΙΚΑ: η SoftOne στρογγυλεύει την τιμή (0,292 → 0,29) και η αξία βγαίνει
+    // άλλη από το χαρτί (9.560 kg: 2.772,40 αντί 2.791,52). Τότε στέλνουμε και την ΑΞΙΑ (`LINEVAL`),
+    // που η SoftOne κρατά ως έχει — μετρημένο με `calculate`, 23/10/2026 — χωρίς έκπτωση (είναι ήδη μέσα).
+    const lineNet = num(line.net, NaN);
+    const exactValue = Number.isFinite(lineNet) && Math.abs(Math.round(qp.PRICE * 100) / 100 - qp.PRICE) > 1e-9;
     const makeRow = (QTY: number): PurdocItemLine => {
       const row: PurdocItemLine = {
         LINENUM: FIRST_LINENUM + bucket.length,
         MTRL: match.mtrl as number,
-        QTY,
+        ...(target === 'SRVLINES' ? { QTY1: QTY } : { QTY }),
         PRICE: qp.PRICE,
-        ...discountFields(line),
+        ...(exactValue
+          ? { LINEVAL: Math.round(lineNet * (qp.QTY ? QTY / qp.QTY : 1) * 100) / 100 }
+          : discountFields(line)),
         ...analyticsOf(match),
       };
       if (vat != null) row.VAT = vat;
@@ -917,6 +947,11 @@ export function postingBlockers(
       (m) => m && m.asset == null && (m.mtrl != null || m.expn != null || m.lin != null || hasAllocations(m)) && !lineFits(table, m),
     );
     if (misfit) out.push(mismatchCode(table));
+    // «Έξοδο» αγορών: δεν περνά ποτέ από τη σύνδεση — εμπόδιο τώρα, όχι αποτυχία στην καταχώριση.
+    if (matched.some((m) => m && !m.omit && !hasAllocations(m) && m.expn != null && m.asset == null && m.mtrl == null
+      && (table === 'EXPANAL' || (table === 'AUTO' && autoTableFor(m) === 'EXPANAL')))) {
+      out.push('lines_expense_unsupported');
+    }
     // Η γραμμή LINLINES απαιτεί MTRTYPE· λείπει όταν το μητρώο χρεοπιστώσεων δεν το συγχρόνισε.
     if (table === 'LINLINES' && matched.some(
       (m) => (m?.lin != null && !hasAllocations(m) && m.linMtrType == null)
@@ -998,6 +1033,8 @@ export function postingWarnings(
   if (hasLines && (ctx.target.lines === 'LINLINES' || ctx.target.lines === 'EXPANAL')) {
     out.push('mydata_from_master');
   }
+  if (document && recordedRepairs(document).length) out.push('reading_auto_repaired');
+  if ((document?.custom as Record<string, unknown> | undefined)?.partiesSwapped === true) out.push('own_company_issuer');
   if (document) {
     const sv = serialVerdicts(document, ctx);
     if (sv.some((v) => v.missing)) out.push('serials_missing');

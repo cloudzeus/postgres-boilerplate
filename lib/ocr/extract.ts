@@ -5,6 +5,8 @@ import { acrossProviders, resolveVisionEndpoints, type VisionEndpoint } from '@/
 import { isGoogleAiStudio, isOpenRouter, providerHeaders, providerModel, supportsPdfNative } from '@/lib/ai/vision-provider';
 import { logAiUsage, providerFromUrl, type AiScope } from '@/lib/ai/usage';
 import { qualityScore } from '@/lib/ocr/validate';
+import { autoRepairLines, likelyMissingPages } from './line-autorepair';
+import { totalsClose } from './invoice-math';
 import {
   coerceDocument, normalizeDocument, reconcileDocument, toLegacy,
   type CanonicalDocType, type DocumentJson,
@@ -588,7 +590,24 @@ function toDocument(raw: unknown, docType: ExtractDocType, ownAfm: string | null
   // Ο έλεγχος «ο εκδότης είμαστε εμείς» έχει νόημα μόνο σε τιμολόγιο: σε απόδειξη δεν υπάρχει
   // παραλήπτης να ανταλλαγεί, και σε ελεύθερο κείμενο δεν υπάρχουν καν πλευρές.
   const asInvoice = resolveDocType(docType, document.kind) === 'invoice';
-  return fixSwappedPartiesDocument(document, asInvoice ? ownAfm : null);
+  // Γνωστά μοτίβα «σωστός αριθμός, λάθος ρόλος» (τιμή αντλίας με ΦΠΑ, χιλιάδες με τελεία, έκπτωση
+  // που δεν γράφτηκε, γραμμή χωρίς ΦΠΑ) — διορθώνονται ντετερμινιστικά, με καταγραφή (`line-autorepair.ts`).
+  return autoRepairLines(fixSwappedPartiesDocument(document, asInvoice ? ownAfm : null)).document;
+}
+
+/**
+ * Χρειάζεται δεύτερη ανάγνωση με το ισχυρό μοντέλο; Όχι μόνο όταν λείπουν πεδία, αλλά και όταν τα
+ * ΠΟΣΑ ΔΕΝ ΒΓΑΙΝΟΥΝ ακόμη και μετά τις αυτόματες διορθώσεις — γραμμές που «γλίστρησαν» μία σειρά
+ * (BESSEY), γραμμή που δεν διαβάστηκε (Contabo). Αλλιώς ο χρήστης έμενε με ένα «δεν κλείνει».
+ */
+function needsStrongerRead(document: DocumentJson, docType: ExtractDocType): boolean {
+  if (missingRequired(document, docType) >= RETRY_MISSING_THRESHOLD) return true;
+  if (!document.lines.length || document.totals.net == null) return false;
+  if (likelyMissingPages(document)) return false; // δεν λύνεται με δεύτερη ανάγνωση — λείπει χαρτί
+  return !totalsClose({
+    items: document.lines.map((l) => ({ quantity: l.quantity, price: l.unitPrice, discount: l.discount, vatRate: l.vatRate, total: l.net })),
+    subtotal: document.totals.net, vatAmount: document.totals.vatAmount, otherCharges: document.totals.fees, totalAmount: document.totals.total,
+  });
 }
 
 /** Η ΜΙΑ συμφωνία συνόλων στο τέλος μιας διαδρομής (μετά από κάθε συγχώνευση και κάθε επανάληψη). */
@@ -632,7 +651,7 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
     let retried = false;
 
     // Auto-retry once with the upgraded model if too many required fields are missing.
-    if (missingRequired(document, input.docType) >= RETRY_MISSING_THRESHOLD
+    if (needsStrongerRead(document, input.docType)
         && cfg.visionModel !== providerModel(UPGRADED_VISION_MODEL, cfg.visionUrl)) {
       try {
         const retry = await callVisionLLM(cfg, system, b64, enhanced.mimeType, UPGRADED_VISION_MODEL);
@@ -703,6 +722,22 @@ async function extractDocumentRaw(input: ExtractInput): Promise<ExtractResult> {
       // (text + scanned image regions). Run vision on the rasterized pages and
       // merge — vision fills only what digital missed.
       const missing = missingRequired(digital.document, input.docType);
+      // Ποσά που δεν βγαίνουν στο ψηφιακό πέρασμα (π.χ. στήλες που «γλίστρησαν» στο κείμενο του PDF):
+      // δεύτερη γνώμη από την εικόνα, και κρατάμε όποιο διαβάζεται καλύτερα.
+      if (missing < RETRY_MISSING_THRESHOLD && needsStrongerRead(digital.document, input.docType)) {
+        try {
+          const visionResult = await runScannedPdf(cfg, system, input.buffer, input.docType, started);
+          if (score(visionResult.document, input.docType) < score(digital.document, input.docType)) {
+            return settled({
+              ...visionResult,
+              model: `${digital.model} → ${visionResult.model}`,
+              tokensUsed: (digital.tokensUsed ?? 0) + (visionResult.tokensUsed ?? 0),
+              passes: (digital.passes ?? 1) + (visionResult.passes ?? 1),
+              retried: true,
+            });
+          }
+        } catch { /* κρατάμε το ψηφιακό */ }
+      }
       if (missing >= RETRY_MISSING_THRESHOLD) {
         try {
           const visionResult = await runScannedPdf(cfg, system, input.buffer, input.docType, started);
@@ -765,7 +800,7 @@ async function runScannedPdf(
     let tokens = out.tokens;
     let passes = 1;
     let retried = false;
-    if (missingRequired(document, docType) >= RETRY_MISSING_THRESHOLD
+    if (needsStrongerRead(document, docType)
         && cfg.visionModel !== providerModel(UPGRADED_VISION_MODEL, cfg.visionUrl)) {
       try {
         const r = await callPdfNative(cfg, system, buffer, UPGRADED_VISION_MODEL);
@@ -803,7 +838,7 @@ async function runScannedPdf(
   let retried = false;
 
   // Auto-retry only the pages we actually need, with the upgraded model.
-  if (missingRequired(merged, docType) >= RETRY_MISSING_THRESHOLD
+  if (needsStrongerRead(merged, docType)
       && cfg.visionModel !== providerModel(UPGRADED_VISION_MODEL, cfg.visionUrl)) {
     try {
       const retryPages = await Promise.all(

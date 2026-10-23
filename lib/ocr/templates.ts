@@ -255,6 +255,22 @@ export const AUTO_CLASSIFY_INSTRUCTIONS = [
   'blueprint below exactly.',
 ].join('\n');
 
+/**
+ * Κανόνες ΑΡΙΘΜΗΤΙΚΗΣ ΓΡΑΜΜΩΝ — από πραγματικά παραστατικά που «κόλλησαν» (22–23/10/2026). Το
+ * μοντέλο διάβαζε σωστά τους αριθμούς αλλά τους έβαζε σε λάθος ρόλο. Οι ίδιοι κανόνες ελέγχονται και
+ * διορθώνονται ντετερμινιστικά μετά την ανάγνωση (`line-autorepair.ts`) — εδώ ζητάμε να μη χρειαστεί.
+ */
+export const LINE_ARITHMETIC_RULES = [
+  'LINE ARITHMETIC — every line MUST satisfy: quantity × unitPrice × (1 − discount%/100) = net (± a few cents). Check EVERY line before answering.',
+  '• ONE ROW = ONE LINE: quantity, unitPrice, discount and net of a line must come from the SAME printed row/position. Never shift values to the line above/below; if a row has no price, do not borrow the next row\'s price. Long tables continue across pages — read ALL pages and EVERY position (count them).',
+  '• unitPrice is the price BEFORE VAT. Fuel-pump and retail receipts print the price WITH VAT (e.g. 21,87 lt × 1,829 = 40,00 = the total incl. VAT): then output unitPrice = net ÷ quantity.',
+  '• Greek number format: «1.234,56» = one thousand two hundred thirty-four point fifty-six. A dot is a THOUSANDS separator: «11.373 kg» is 11373, not 11.373. Verify with quantity × price = net.',
+  '• If net < quantity × unitPrice, there is a line discount: put the PERCENT in `discount` (e.g. 5 × 450 = 2.250 but net 1.316,25 → discount 41.5). Never leave a discount implicit.',
+  '• vatRate per line: if the VAT column of a line is EMPTY (e.g. special levies such as ΕΤΕ), that line has vatRate 0. Check: Σ(net × vatRate) must equal the printed VAT total.',
+  '• Every amount that makes up the net total is a line — including setup fees, surcharges and small charges. Σ(lines.net) must equal totals.net.',
+  '• If the printed totals clearly include lines that are NOT on the pages you received (lines cover far less than the net total), still extract what you see and set custom.pagesMissing = true.',
+].join('\n');
+
 export function buildSystemPrompt(
   docType: ExtractDocType,
   lang: SupportedLang,
@@ -278,6 +294,8 @@ export function buildSystemPrompt(
     '',
     'Blueprint:',
     tpl.jsonStructure,
+    '',
+    LINE_ARITHMETIC_RULES,
   ];
   if (example != null) {
     lines.push(

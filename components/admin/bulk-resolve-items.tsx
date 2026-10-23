@@ -16,7 +16,9 @@ import { Line, Chip, BTN_PRIMARY, BTN_GHOST } from '@/components/admin/bulk-ui';
 type Opt = { code: string; label: string; rate?: number | null };
 type RunState = { s: 'idle' } | { s: 'running' } | { s: 'done'; msg: string } | { s: 'error'; msg: string };
 
-const KINDS: MatchKind[] = ['product', 'service', 'expense', 'lineitem'];
+// ΟΧΙ «Έξοδο» (EXPN): η SoftOne απορρίπτει πάντα τις γραμμές EXPANAL από τη σύνδεση (calculate, 22/10/2026).
+// Δαπάνη προμηθευτή → υπηρεσία· λογαριασμός ρεύματος/νερού → κατηγορία εξόδου ειδικών συναλλαγών.
+const KINDS: MatchKind[] = ['product', 'service', 'lineitem'];
 /** Ποιος τύπος αναζήτησης του `/api/admin/softone/search` αντιστοιχεί σε κάθε μητρώο. */
 const SEARCH_TYPE: Record<MatchKind, string> = { product: 'products', service: 'services', expense: 'expenses', lineitem: 'lineitems' };
 

@@ -206,5 +206,8 @@ export function fixSwappedPartiesDocument(document: DocumentJson, ownAfm: string
   if (!own) return document;
   const issuer = String(document.issuer.vat ?? '').replace(/\D+/g, '');
   if (issuer !== own) return document;
-  return { ...document, issuer: document.recipient, recipient: document.issuer };
+  // Σημειώνεται: ίσως ΔΕΝ ήταν σύγχυση του μοντέλου αλλά παραστατικό ΠΩΛΗΣΗΣ που εκδώσαμε εμείς
+  // (π.χ. «ΓΚΟΥΜΑΣ ΕΕ – ΤΔΑ 3.pdf» ήταν τιμολόγιο της ίδιας της εταιρείας προς πελάτη). Η καταχώριση
+  // το λέει στον χρήστη αντί να το περάσει σιωπηλά ως αγορά.
+  return { ...document, issuer: document.recipient, recipient: document.issuer, custom: { ...(document.custom ?? {}), partiesSwapped: true } };
 }

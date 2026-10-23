@@ -311,12 +311,11 @@ export async function matchDocItems(docId: string): Promise<{ matched: number; t
             softoneIsService: i?.isService ?? r.isService, softoneMatchedBy: 'memory',
           };
         } else if (r.expn != null) {
-          const e = expenseByExpn.get(r.expn);
-          data = {
-            softoneMtrl: null, softoneExpn: r.expn, softoneLinMtrl: null,
-            softoneCode: e?.code ?? null, softoneName: e?.name ?? null,
-            softoneIsService: r.isService, softoneMatchedBy: 'memory',
-          };
+          // Κανόνας μνήμης σε «Έξοδο» (EXPN): ΔΕΝ εφαρμόζεται πια — η SoftOne απορρίπτει πάντα τη γραμμή
+          // EXPANAL από τη σύνδεση. Καλύτερα αναντιστοίχιστη (ο χρήστης διαλέγει υπηρεσία) παρά «έτοιμη»
+          // γραμμή που θα σταματούσε στην καταχώριση.
+          void expenseByExpn;
+          continue;
         } else if (r.lin != null) {
           const l = lineItemByMtrl.get(r.lin);
           data = {

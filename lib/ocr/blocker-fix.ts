@@ -6,13 +6,13 @@
 
 export type FixTarget =
   | { kind: 'section'; section: 'fields' | 'lines' | 'amounts' | 'checks' | 'series' | 'category' | 'template' }
-  | { kind: 'tool'; tool: 'lines' | 'rescan' | 'credit-link' | 'withholding' | 'approval' }
+  | { kind: 'tool'; tool: 'lines' | 'rescan' | 'history' | 'credit-link' | 'withholding' | 'approval' }
   | { kind: 'admin' };
 
 export interface BlockerFix { label: string; target: FixTarget }
 
 const go = (section: Extract<FixTarget, { kind: 'section' }>['section'], label: string): BlockerFix => ({ label, target: { kind: 'section', section } });
-const tool = (t: 'lines' | 'rescan' | 'credit-link' | 'withholding' | 'approval', label: string): BlockerFix => ({ label, target: { kind: 'tool', tool: t } });
+const tool = (t: 'lines' | 'rescan' | 'history' | 'credit-link' | 'withholding' | 'approval', label: string): BlockerFix => ({ label, target: { kind: 'tool', tool: t } });
 const admin: BlockerFix = { label: 'Χρειάζεται διαχειριστή', target: { kind: 'admin' } };
 
 const FIX: Record<string, BlockerFix> = {
@@ -51,6 +51,8 @@ const FIX: Record<string, BlockerFix> = {
   withholding_unhandled: tool('withholding', 'Δες την παρακράτηση'),
   approval_required: tool('approval', 'Εγκρίσεις'),
   serials_count_mismatch: tool('lines', 'Διόρθωσε σειριακούς'),
+  lines_expense_unsupported: go('lines', 'Άλλαξε τι αφορά'),
+  reading_auto_repaired: tool('history', 'Δες τι άλλαξε'),
   serials_bad_format: tool('lines', 'Διόρθωσε σειριακούς'),
   // Παρατηρήσεις (δεν εμποδίζουν) — με δρόμο κι αυτές.
   serials_missing: tool('lines', 'Πρόσθεσε σειριακούς'),

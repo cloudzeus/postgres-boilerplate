@@ -49,7 +49,9 @@ const KIND_META: Record<MatchKind, { label: string; bg: string; fg: string; icon
   lineitem: { label: 'Κατηγορία εξόδου', bg: '#F3EEFF', fg: '#6D28D9', icon: <FiTag aria-hidden className="size-3" /> },
 };
 
-const SEGMENTS: MatchKind[] = ['product', 'service', 'expense', 'lineitem'];
+// ΟΧΙ «Έξοδο» (EXPN): η SoftOne απορρίπτει πάντα τις γραμμές EXPANAL από τη σύνδεση (calculate, 22/10/2026).
+// Δαπάνη προμηθευτή → υπηρεσία· λογαριασμός ρεύματος/νερού → κατηγορία εξόδου ειδικών συναλλαγών.
+const SEGMENTS: MatchKind[] = ['product', 'service', 'lineitem'];
 
 /** Το πάγιο ζει ΕΚΤΟΣ των τεσσάρων μητρώων (δεν μαθαίνεται από τη μνήμη) — ίδια μορφή chip. */
 const ASSET_META = { label: 'Πάγιο', bg: '#EEF2F7', fg: '#334155', icon: <FiHardDrive aria-hidden className="size-3" /> };

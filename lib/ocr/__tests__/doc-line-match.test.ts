@@ -299,7 +299,8 @@ describe('ο βρόχος εκπαίδευσης — το ΕΠΟΜΕΝΟ παρ�
   it('μια απόφαση στη σελίδα κάνει το επόμενο παραστατικό του ίδιου εκδότη να έρθει έτοιμο', async () => {
     // 1. Ο χρήστης αποφασίζει, μία φορά, πάνω στο ΠΡΩΤΟ παραστατικό.
     seedDoc('doc1', 'l1');
-    await applyMatchToLine({ lineId: 'l1', target: { expn: EXPENSE.expn }, analytics: { costCntr: 5, prjc: 7 } });
+    // (Χρεοπίστωση, όχι «Έξοδο»: κανόνες σε EXPN δεν εφαρμόζονται πια — βλ. softone-match.)
+    await applyMatchToLine({ lineId: 'l1', target: { lin: LINEITEM.mtrl }, analytics: { costCntr: 5, prjc: 7 } });
     expect(store.rules).toHaveLength(1);
 
     // 2. ΔΕΥΤΕΡΟ παραστατικό, ίδιος εκδότης, ίδια περιγραφή (με άλλα νούμερα μέσα).
@@ -310,15 +311,15 @@ describe('ο βρόχος εκπαίδευσης — το ΕΠΟΜΕΝΟ παρ�
         softoneMatchedBy: null, softoneMtrl: null, softoneExpn: null, softoneLinMtrl: null,
       },
     ]);
-    db.softoneExpense.findMany.mockResolvedValue([EXPENSE]);
+    db.softoneLineItem.findMany.mockResolvedValue([LINEITEM]);
 
     const r = await matchDocItems('doc2');
 
     // Καμία ενέργεια χρήστη — το πέρασμα μνήμης το συμπλήρωσε.
     expect(r).toEqual({ matched: 1, total: 1 });
     expect(lastUpdateFor('l2')).toMatchObject({
-      softoneExpn: EXPENSE.expn, softoneMtrl: null, softoneLinMtrl: null,
-      softoneCode: EXPENSE.code, softoneName: EXPENSE.name, softoneMatchedBy: 'memory',
+      softoneLinMtrl: LINEITEM.mtrl, softoneMtrl: null, softoneExpn: null,
+      softoneCode: LINEITEM.code, softoneName: LINEITEM.name, softoneMatchedBy: 'memory',
       // Η αναλυτική που έμαθε ο κανόνας ταξιδεύει μαζί.
       softoneCostCntr: 5, softonePrjc: 7,
     });

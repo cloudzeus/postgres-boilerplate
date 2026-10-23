@@ -121,7 +121,7 @@ describe('matchDocItems — memory pass', () => {
     expect(db.lineMatchRule.update).toHaveBeenCalledWith({ where: { id: 'r-issuer' }, data: { timesUsed: { increment: 2 } } });
   });
 
-  it('κανόνας εξόδου γεμίζει το softoneExpn και μετράει ως αντιστοιχισμένη γραμμή', async () => {
+  it('κανόνας σε «Έξοδο» (EXPN) ΔΕΝ εφαρμόζεται πια: η SoftOne απορρίπτει τη γραμμή EXPANAL από τη σύνδεση', async () => {
     db.ocrInvoiceItem.findMany.mockResolvedValue([
       { id: 'l1', code: null, name: 'Μεταφορές CONEX (7)', softoneMatchedBy: null },
     ]);
@@ -132,12 +132,8 @@ describe('matchDocItems — memory pass', () => {
 
     const r = await matchDocItems('doc1');
 
-    expect(r).toEqual({ matched: 1, total: 1 });
-    expect(updateFor('l1')).toMatchObject({
-      softoneMtrl: null, softoneExpn: 103, softoneLinMtrl: null, softoneCode: '103', softoneName: 'Μεταφορικά Αγορών',
-      softoneIsService: true, softoneMatchedBy: 'memory',
-    });
-    expect(db.ocrDocument.update).toHaveBeenCalledWith({ where: { id: 'doc1' }, data: { itemsTotal: 1, itemsMatched: 1 } });
+    expect(r).toEqual({ matched: 0, total: 1 });
+    expect(updateFor('l1')).toMatchObject({ softoneExpn: null, softoneMatchedBy: null });
   });
 
   it('χωρίς κανόνα η γραμμή καθαρίζει και μένει αταίριαστη', async () => {
@@ -364,11 +360,11 @@ describe('matchDocItems — μνήμη είδους χρέωσης (λογαρι
       { id: 'l2', code: null, name: 'Reactor 16m3', vatRate: 0, total: 74000, softoneMatchedBy: null },
     ]);
     db.lineMatchRule.findMany.mockResolvedValue([
-      { id: 'r1', afm: '', pattern: '@family:freight', mtrl: null, expn: 103, lin: null, isService: false, costCntr: null, prjc: null, prjcStage: null },
+      { id: 'r1', afm: '', pattern: '@family:freight', mtrl: null, expn: null, lin: 8545, isService: false, costCntr: null, prjc: null, prjcStage: null },
     ]);
     const r = await matchDocItems('doc1');
     expect(r).toEqual({ matched: 1, total: 2 });
-    expect(updateFor('l1')).toMatchObject({ softoneExpn: 103, softoneMatchedBy: 'memory' });
+    expect(updateFor('l1')).toMatchObject({ softoneLinMtrl: 8545, softoneMatchedBy: 'memory' });
     expect(updateFor('l2')).toMatchObject({ softoneExpn: null, softoneMtrl: null });
   });
 

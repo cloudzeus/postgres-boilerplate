@@ -78,7 +78,8 @@ describe('buildPurdocPayload', () => {
           SomyDataUID: 'ABC',
         }],
         ITELINES: [{ LINENUM: 9000001, MTRL: 555, QTY: 2, PRICE: 50, VAT: 1, COMMENTS: 'Είδος Α' }],
-        SRVLINES: [{ LINENUM: 9000001, MTRL: 666, QTY: 1, PRICE: 100, VAT: 1, COMMENTS: 'Υπηρεσία Β' }],
+        // Υπηρεσίες με QTY1 (βασική μονάδα): με QTY η SoftOne μηδένιζε την αξία (καμία σχέση μονάδας αγορών).
+        SRVLINES: [{ LINENUM: 9000001, MTRL: 666, QTY1: 1, PRICE: 100, VAT: 1, COMMENTS: 'Υπηρεσία Β' }],
       },
     });
   });

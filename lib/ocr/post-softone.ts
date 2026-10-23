@@ -29,6 +29,7 @@ import { approvalBlockerMessage } from './approvals';
 import { clip } from './posting-comment';
 import { softoneErrorLine } from './softone-error-text';
 import { serialIssueText } from './serial-tracking';
+import { likelyMissingPages, recordedRepairs } from './line-autorepair';
 import { serialTrackingFor } from '@/lib/softone-sync/serial-tracking';
 import { UTILITY_KIND_TITLE, analyzeUtility, utilityInputFromDocument } from './utility-bills';
 
@@ -89,6 +90,7 @@ export const POST_ERROR_TEXT: Record<PostErrorCode, string> = {
   series_module_unsupported: 'Αυτό το είδος παραστατικού δεν καταχωρείται από την εφαρμογή. Διάλεξε παραστατικό αγορών, προμηθευτών, χρεωστών ή πιστωτών.',
   approval_required: 'Χρειάζεται έγκριση πριν την καταχώριση.',
   serials_count_mismatch: 'Σε είδος με σειριακούς αριθμούς, οι σειριακοί δεν είναι όσοι και τα τεμάχια. Διόρθωσέ τους στην «Επεξεργασία γραμμών» (στήλη S/N) — αλλιώς στην πώληση το απόθεμα και οι σειριακοί δεν θα συμφωνούν.',
+  lines_expense_unsupported: 'Κάποια γραμμή έχει οριστεί ως «Έξοδο» αγορών, που η SoftOne δεν δέχεται από τη σύνδεση. Όρισε τη γραμμή ως υπηρεσία (π.χ. συνδρομή, μεταφορικά) ή είδος· για λογαριασμούς ρεύματος/νερού/ενοικίου διάλεξε σειρά ειδικών συναλλαγών με κατηγορία εξόδου. Αν δεν υπάρχει κατάλληλη υπηρεσία, «Νέα» στη γραμμή.',
   serials_bad_format: 'Κάποιος σειριακός αριθμός δεν έχει τη μορφή που ζητά η SoftOne για το είδος. Διόρθωσέ τον στην «Επεξεργασία γραμμών» (στήλη S/N).',
   withholding_unhandled: 'Το παραστατικό έχει παρακράτηση φόρου, που η SoftOne δεν περνά αυτόματα σε αυτή την εγκατάσταση. Επιβεβαίωσε ότι θα την καταχωρίσει ο λογιστής.',
   credit_not_linked: 'Είναι πιστωτικό: σύνδεσέ το με το αρχικό παραστατικό που πιστώνει — ή δήλωσε ρητά «χωρίς αρχικό» (π.χ. έκπτωση τζίρου).',
@@ -117,6 +119,8 @@ export const POST_WARNING_TEXT: Record<WarningCode, string> = {
   account_not_covered: 'Ο έλεγχος λογαριασμού γενικής δεν καλύπτει ακόμη γραμμές ειδών, υπηρεσιών και εξόδων — ο λογαριασμός τους συντίθεται στο SoftOne',
   account_vat_mismatch: 'Υπάρχει γραμμή που πάει σε λογαριασμό για άλλον συντελεστή ΦΠΑ από αυτόν της γραμμής — έλεγξε τη χρεοπίστωση',
   withholding_check: 'Έλεγξε την παρακράτηση φόρου του παραστατικού.',
+  own_company_issuer: 'Στο χαρτί ως εκδότης διαβάστηκε η δική μας εταιρεία και τα μέρη αντιστράφηκαν. Αν είναι παραστατικό ΠΩΛΗΣΗΣ που εκδώσαμε εμείς, δεν καταχωρείται εδώ ως αγορά — έλεγξε το πρωτότυπο',
+  reading_auto_repaired: 'Η ανάγνωση διορθώθηκε αυτόματα ώστε να βγαίνουν τα ποσά — δες τι άλλαξε',
   serials_missing: 'Είδος που η SoftOne παρακολουθεί με σειριακούς αριθμούς δεν έχει σειριακούς στο παραστατικό — πρόσθεσέ τους στην «Επεξεργασία γραμμών», αλλιώς θα χρειαστεί να μπουν στη SoftOne πριν την πώληση',
   serials_untracked: 'Υπάρχουν σειριακοί αριθμοί σε είδος που η SoftOne δεν παρακολουθεί με σειριακούς — γράφονται μόνο στο σχόλιο της γραμμής. Για να φαίνονται στις πωλήσεις, ενεργοποίησε «SN» στην καρτέλα του είδους στη SoftOne',
   shared_code_many_products: 'Γραμμές με ΔΙΑΦΟΡΕΤΙΚΕΣ περιγραφές μοιράζονται τον ίδιο κωδικό και ταίριαξαν όλες στο ίδιο είδος — συχνά ο κωδικός είναι δασμολογικός (CN), όχι κωδικός προϊόντος· έλεγξε τις γραμμές πριν την καταχώριση',
@@ -137,6 +141,9 @@ export function blockerMessage(code: BlockerCode, accounts: AccountCheck | null,
     if (net != null && Number.isFinite(net)) {
       const diff = Math.round((net - lines) * 100) / 100;
       const e = (v: number) => `${v.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+      if (likelyMissingPages(document)) {
+        return `Οι γραμμές αθροίζουν μόνο ${e(lines)} από ${e(net)} της καθαρής αξίας — μάλλον λείπουν ΣΕΛΙΔΕΣ από το αρχείο (το σύνολο είναι τυπωμένο, οι περισσότερες γραμμές όχι). Ανέβασε το πλήρες παραστατικό και κάνε «Επανασάρωση», ή πρόσθεσε τις γραμμές στην «Επεξεργασία γραμμών».`;
+      }
       return `Οι γραμμές αθροίζουν ${e(lines)} ενώ η καθαρή αξία του παραστατικού είναι ${e(net)} — ${diff > 0 ? `λείπουν ${e(diff)} (μάλλον γραμμή που δεν διαβάστηκε)` : `περισσεύουν ${e(-diff)}`}. Άνοιξε το παραστατικό: «Τα ποσά δεν κλείνουν» δείχνει τη λύση.`;
     }
   }
@@ -623,6 +630,7 @@ export async function postingPreview(id: string): Promise<PostingPreview> {
       code,
       message: code === 'withholding_check' && withholdingWarning ? withholdingWarning
         : (code === 'serials_missing' || code === 'serials_untracked') && serialTexts?.[code] ? serialTexts[code]!
+          : code === 'reading_auto_repaired' ? `Αυτόματες διορθώσεις ανάγνωσης: ${recordedRepairs(document).map((r) => `γραμμή ${r.row + 1}: ${r.text}`).join(' · ')}`
           : warningMessage(code, accounts),
     })),
     target: { ...ctx.target, label: describeTargetShort(ctx.target) },
