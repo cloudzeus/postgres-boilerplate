@@ -69,6 +69,7 @@ export default async function AdminHomePage({
             />
             <KpiCard
               label="Στο SoftOne" datum={data.kpis.posted} rangeLabel={rangeLabel}
+              totalEver={data.totalPostedEver} totalEverLabel="συνολικά στον ERP"
               icon={<FiUploadCloud />} tone="violet" href="/admin/ocr"
             />
             <KpiCard

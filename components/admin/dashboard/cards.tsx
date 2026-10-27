@@ -54,9 +54,21 @@ export interface KpiProps {
   invert?: boolean;
   rangeLabel: string;
   tone?: StatTone;
+  /**
+   * Το ΑΘΡΟΙΣΜΑ ΑΠΟ ΠΑΝΤΑ, όταν ο δείκτης έχει νόημα και εκτός παραθύρου.
+   *
+   * Η μεγάλη τιμή είναι πάντα της επιλεγμένης περιόδου. Για την «Καταχώριση στο SoftOne» αυτό
+   * από μόνο του παραπλανά: ένα παραστατικό καταχωρείται ΜΙΑ φορά και μένει καταχωρημένο, οπότε
+   * σε έναν μήνα ο δείκτης ξαναγίνεται 0 ενώ στον ERP υπάρχουν δεκάδες. Το σύνολο μπαίνει από
+   * κάτω, μικρό, ώστε να μη συγχέεται με τον δείκτη της περιόδου.
+   */
+  totalEver?: number;
+  totalEverLabel?: string;
 }
 
-export function KpiCard({ label, datum, icon, href, format = fmtInt, invert, rangeLabel, tone = 'blue' }: KpiProps) {
+export function KpiCard({
+  label, datum, icon, href, format = fmtInt, invert, rangeLabel, tone = 'blue', totalEver, totalEverLabel,
+}: KpiProps) {
   const { dir, pct } = datum.delta;
   const good = dir === 'flat' ? null : (dir === 'up') !== Boolean(invert);
   const chipTone = good === null
@@ -87,7 +99,16 @@ export function KpiCard({ label, datum, icon, href, format = fmtInt, invert, ran
             <DirIcon aria-hidden className="size-3" />
             <span aria-hidden className="tabular-nums">{chipText}</span>
           </span>
-          <span className="truncate">{rangeLabel}</span>
+          <span className="truncate">
+            {rangeLabel}
+            {totalEver != null && (
+              <>
+                {' · '}
+                <span className="font-semibold tabular-nums text-foreground/70">{format(totalEver)}</span>{' '}
+                {totalEverLabel ?? 'συνολικά'}
+              </>
+            )}
+          </span>
         </span>
       }
     />

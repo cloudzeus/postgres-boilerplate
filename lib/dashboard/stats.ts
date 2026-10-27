@@ -77,6 +77,8 @@ export interface DashboardData {
   window: Window;
   /** Πλήθος εγγράφων συνολικά (όχι περιόδου) — κρίνει το onboarding empty state. */
   totalDocsEver: number;
+  /** Πόσα έχουν καταχωρηθεί στο SoftOne **ΑΠΟ ΠΑΝΤΑ** — όχι μόνο μέσα στο παράθυρο. */
+  totalPostedEver: number;
   kpis: {
     created: KpiDatum;
     completed: KpiDatum;
@@ -128,6 +130,7 @@ export async function loadDashboard(range: Range, now = new Date()): Promise<Das
 
   const [
     totalDocsEver,
+    totalPostedEver,
     created, createdPrev,
     completed, completedPrev,
     review, reviewPrev,
@@ -143,6 +146,9 @@ export async function loadDashboard(range: Range, now = new Date()): Promise<Das
     fallbackRate,
   ] = await Promise.all([
     prisma.ocrDocument.count(),
+    // ΑΠΟ ΠΑΝΤΑ, χωρίς φίλτρο ημερομηνίας: ένα παραστατικό καταχωρείται μία φορά και μένει
+    // καταχωρημένο. Ο δείκτης της περιόδου ξαναμηδενίζεται· το σύνολο όχι.
+    prisma.ocrDocument.count({ where: { postStatus: 'POSTED' } }),
 
     prisma.ocrDocument.count({ where: { createdAt: { gte: start, lt: end } } }),
     prisma.ocrDocument.count({ where: { createdAt: { gte: prevStart, lt: prevEnd } } }),
@@ -366,6 +372,7 @@ export async function loadDashboard(range: Range, now = new Date()): Promise<Das
     range,
     window: w,
     totalDocsEver,
+    totalPostedEver,
     kpis: {
       created:   kpi(created, createdPrev),
       completed: kpi(completed, completedPrev),

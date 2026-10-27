@@ -8,6 +8,7 @@ import {
   reconMeta, reconMetaFor, deriveReconStatus, RECON_PENDING_ORDER,
   type ReconInput, type ReconStatus,
 } from '@/lib/ocr/recon-status';
+import { PendingBlockers, type PendingDoc } from './pending-blockers';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,6 +58,17 @@ export default async function OcrPendingPage() {
     .map((s) => ({ meta: reconMetaFor(s), items: buckets.get(s)! }));
   const totalPending = ordered.reduce((n, g) => n + g.items.length, 0);
 
+  // Η σειρά είναι η ίδια με τις ομάδες — ο χρήστης βλέπει πρώτα ό,τι είναι πιο επείγον. Η
+  // ημερομηνία μορφοποιείται ΕΔΩ: ο client δεν πρέπει να διαφωνήσει με τον server στο locale.
+  const flat: PendingDoc[] = ordered.flatMap((g) => g.items.map((it) => ({
+    id: it.id,
+    fileName: it.fileName,
+    issuer: it.issuer,
+    docNumber: it.docNumber,
+    createdAt: it.createdAt.toLocaleDateString('el-GR'),
+    statusLabel: g.meta.label,
+  })));
+
   return (
     <div className="space-y-5 p-6">
       <PageHeader
@@ -86,7 +98,6 @@ export default async function OcrPendingPage() {
             {ordered.map((g) => (
               <StatCard
                 key={g.meta.status}
-                href={`#${g.meta.status}`}
                 label={g.meta.label}
                 value={g.items.length}
                 icon={<FiAlertCircle />}
@@ -96,50 +107,7 @@ export default async function OcrPendingPage() {
             ))}
           </section>
 
-          <div className="space-y-4">
-            {ordered.map((g) => (
-              <section
-                key={g.meta.status}
-                id={g.meta.status}
-                className="scroll-mt-6 overflow-hidden rounded-lg border bg-card shadow-fluent-2"
-                style={{ borderColor: g.meta.tone.bd }}
-              >
-                <div className="flex items-center gap-2 px-4 py-2.5" style={{ backgroundColor: g.meta.tone.bg }}>
-                  <FiAlertCircle className="size-4" style={{ color: g.meta.tone.fg }} />
-                  <span className="text-[length:var(--fs-13)] font-semibold" style={{ color: g.meta.tone.fg }}>{g.meta.label}</span>
-                  <span
-                    className="rounded-full border bg-white/70 px-1.5 py-0.5 text-[length:var(--fs-10)] font-semibold tabular-nums"
-                    style={{ color: g.meta.tone.fg, borderColor: g.meta.tone.bd }}
-                  >
-                    {g.items.length}
-                  </span>
-                  {g.meta.solution && (
-                    <span className="ml-2 truncate text-[length:var(--fs-11)] text-foreground/70">
-                      <span className="font-semibold">Λύση:</span> {g.meta.solution}
-                    </span>
-                  )}
-                </div>
-                <ul className="divide-y divide-border">
-                  {g.items.map((it) => (
-                    <li key={it.id}>
-                      <Link
-                        href={`/admin/ocr/${it.id}`}
-                        className="flex items-center gap-3 px-4 py-2 text-[length:var(--fs-12)] hover:bg-muted/50"
-                      >
-                        <span className="min-w-0 flex-1 truncate font-medium text-foreground">{it.fileName}</span>
-                        <span className="hidden min-w-0 flex-1 truncate text-muted-foreground sm:block">{it.issuer ?? '—'}</span>
-                        <span className="hidden font-mono text-[length:var(--fs-11)] text-muted-foreground md:block">{it.docNumber ?? '—'}</span>
-                        <span className="shrink-0 tabular-nums text-muted-foreground">
-                          {it.createdAt.toLocaleDateString('el-GR')}
-                        </span>
-                        <FiArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </div>
+          <PendingBlockers docs={flat} />
         </>
       )}
     </div>
