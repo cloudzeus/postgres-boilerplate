@@ -836,3 +836,22 @@ describe('buildPurdocPayload — μετασχηματισμός από δελτ�
     expect(p.DATA.ITELINES?.[0]).toMatchObject({ QTY: 2, PRICE: 50, FINDOCS: 9 });
   });
 });
+
+describe('postingWarnings — χώρα εγκατάστασης χωρίς myDATA (Κύπρος)', () => {
+  const ctx = {
+    lines: [{ rowIndex: 0, lin: 777, noClassification: true } as never],
+    target: { object: 'LINCREDOC', lines: 'LINLINES' } as never,
+  };
+
+  it('Ελλάδα (προεπιλογή): οι παρατηρήσεις myDATA εμφανίζονται', () => {
+    const w = postingWarnings(ctx);
+    expect(w).toContain('no_mydata_classification');
+    expect(w).toContain('mydata_from_master');
+  });
+
+  it('Κύπρος: ΚΑΜΙΑ παρατήρηση myDATA — δεν υπάρχει myDATA στη χώρα', () => {
+    const w = postingWarnings(ctx, null, null, false);
+    expect(w).not.toContain('no_mydata_classification');
+    expect(w).not.toContain('mydata_from_master');
+  });
+});

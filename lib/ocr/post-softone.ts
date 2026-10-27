@@ -5,6 +5,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { decideLineUnits, hasBuyUnit } from '@/lib/ocr/line-units';
 import { getSetting } from '@/lib/settings';
+import { hasMyData } from '@/lib/tax-regime';
 import { softoneCall, softoneGetData, SoftoneTransportError } from '@/lib/softone';
 import { logAudit } from '@/lib/audit';
 import { fetchNoteState } from '@/lib/softone-sync/delivery-notes';
@@ -571,7 +572,10 @@ async function gather(id: string, conv?: ConversionSpec): Promise<Gathered> {
     if (v && v.code !== 'ok' && v.code !== 'no_date') { blockers.push('period_closed'); periodMessage = v.message; }
   }
 
-  const warnings = [...postingWarnings(ctx, accounts, document), ...(withholdingWarning ? ['withholding_check' as const] : [])];
+  // Η χώρα εγκατάστασης κρίνει αν ισχύει myDATA (`lib/tax-regime.ts`). Διαβάζεται εδώ, όπου
+  // φτιάχνονται οι παρατηρήσεις, ώστε ο κανόνας να μένει καθαρός και δοκιμάσιμος.
+  const myData = hasMyData(await getSetting<string>('setup.country', 'GR').catch(() => 'GR'));
+  const warnings = [...postingWarnings(ctx, accounts, document, myData), ...(withholdingWarning ? ['withholding_check' as const] : [])];
 
   // ΕΓΚΡΙΣΕΙΣ: όριο ποσού / παρατηρήσεις — ο άνθρωπος εγκρίνει πριν φύγει (και ο εκτελεστής προτύπων σταματά).
   let approvalMessage: string | null = null;
