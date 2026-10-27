@@ -4,6 +4,7 @@ import * as React from 'react';
 import { FiAlertTriangle, FiLoader, FiSearch, FiX } from 'react-icons/fi';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { analyticsParts, analyticsLabel } from '@/lib/analytics-label';
 
 /**
  * Ένα combobox για ένα πεδίο της ΑΝΑΛΥΤΙΚΗΣ μιας γραμμής: κέντρο κόστους, έργο ή κατηγορία
@@ -102,11 +103,13 @@ export function AnalyticsPicker({
     setOpen(false);
     setQ('');
     setResults([]);
-    onChange({ id: r.id, label: `${r.code} — ${r.name}`, source: 'manual' });
+    onChange({ id: r.id, label: analyticsLabel(r.code, r.name), source: 'manual' });
   };
 
   const showList = open && !failed && results.length > 0;
   const suggested = value.id != null && value.source && value.source !== 'manual';
+  /** Ο τίτλος χωριστά από τον κωδικό, ώστε να μην τον φάει το `truncate`. */
+  const selected = analyticsParts(value.label);
 
   return (
     <div className="relative" ref={rootRef}>
@@ -125,7 +128,20 @@ export function AnalyticsPicker({
 
       {value.id != null ? (
         <div className="mt-1 flex items-center gap-1.5 rounded-lg border border-input bg-background px-2.5 py-1.5">
-          <span className="min-w-0 flex-1 truncate text-[length:var(--fs-13)] text-foreground">{value.label ?? value.id}</span>
+          {/*
+            ΤΙΤΛΟΣ ΠΑΝΩ, κωδικός από κάτω — η ίδια ιεραρχία με τη λίστα αποτελεσμάτων.
+            Πριν ήταν μία γραμμή «ΚΩΔΙΚΟΣ — Τίτλος» με `truncate`: σε στενό πλαίσιο (επιμερισμός,
+            δύο πεδία σε στήλη) κοβόταν ό,τι ήταν δεξιά, δηλαδή ΑΚΡΙΒΩΣ ο τίτλος, και έμενε ένας
+            κωδικός που δεν λέει τίποτα. Το `title` δίνει ολόκληρο το κείμενο στο hover.
+          */}
+          <span className="min-w-0 flex-1" title={value.label ?? String(value.id)}>
+            <span className="block truncate text-[length:var(--fs-13)] text-foreground">
+              {selected.title || value.id}
+            </span>
+            {selected.code && (
+              <span className="block truncate font-mono text-caption text-muted-foreground">{selected.code}</span>
+            )}
+          </span>
           {suggested && (
             <span className="shrink-0 text-caption" style={{ color: '#B45309' }}>
               {SOURCE_LABEL[value.source as 'memory' | 'ai']}
