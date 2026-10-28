@@ -877,21 +877,9 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
   try {
     const object = ctx.target.object;
     inFlight = true;
-    let res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>('setData', payload);
+    const res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>('setData', payload);
     inFlight = false;
     mark('setData');
-    // ΜΑΡΚ ΣΤΙΣ ΧΡΕΟΠΙΣΤΩΣΕΙΣ: στο Demo το `LINCREDOC` με `SomyDataMARK`/`SomyDataUID` απορρίπτεται
-    // στην αποθήκευση με «SoftOne Range Error (Name: '')» (Kapaline 309, 28/10/2026)· το `calculate`
-    // περνά, και το ίδιο χωρίς ΜΑΡΚ καταχωρίζεται. Η απόρριψη είναι ΚΑΘΑΡΗ (δεν δημιουργείται τίποτα),
-    // άρα μία δεύτερη αποστολή χωρίς τα δύο πεδία δεν φτιάχνει διπλό. Τον ΜΑΡΚ αγορών η εγκατάσταση
-    // δεν τον κρατά ούτε στο PURDOC (βλ. `syncPostedMark`) — δεν χάνεται κάτι που θα έμενε.
-    const droppedMark = res.success === false ? dropMyDataIds(payload, res.error) : null;
-    if (droppedMark != null) {
-      inFlight = true;
-      res = await softoneCall<{ success?: boolean; error?: string; errorcode?: number; id?: string | number }>('setData', payload);
-      inFlight = false;
-      mark('setDataRetry');
-    }
     // ΚΑΘΑΡΗ αποτυχία: το SoftOne είπε «όχι». Τίποτα δεν δημιουργήθηκε.
     if (res.success === false) {
       // ΣΕ ΓΛΩΣΣΑ ΧΡΗΣΤΗ: «SoftOne Range Error (Name: '')» δεν λέει τίποτα σε κανέναν.
@@ -970,10 +958,6 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
     // δυνατή σημείωση για τον χρήστη και τον integrator.
     const sentAssets = payload.DATA.ASSLINES?.length ?? 0;
     let warning: string | undefined = amountWarning;
-    if (droppedMark) {
-      warning = (warning ? `${warning} ` : '') + `ΜΑΡΚ: η SoftOne δεν δέχτηκε τον ΜΑΡΚ σε αυτό το παραστατικό, οπότε το ${ref} `
-        + `καταχωρίστηκε χωρίς αυτόν. Συμπλήρωσέ τον στη SoftOne αν τον χρειάζεσαι (${droppedMark}).`;
-    }
     // ΜΕΤΑΣΧΗΜΑΤΙΣΜΟΣ: κάθε γραμμή που στάλθηκε με δελτίο-πηγή πρέπει να γυρίσει με αυτό, και τα
     // δελτία να έχουν πλέον μετασχηματιστεί. Το τιμολόγιο ΥΠΑΡΧΕΙ ήδη: αποτυχία εδώ = προειδοποίηση.
     if (opts.conversion) {
@@ -1032,21 +1016,6 @@ async function postDocument(id: string, opts: PostOptions, mark: (step: string) 
     await audit(false, { error: message.slice(0, 500), unknownOutcome: unknown });
     throw unknown ? new Error(message) : err;
   }
-}
-
-/**
- * «Range Error» σε κεφαλίδα με ΜΑΡΚ/UID: αφαιρεί τα δύο πεδία από το payload (επί τόπου, ώστε το
- * audit να δείχνει ό,τι στάλθηκε τελικά) και επιστρέφει τον ΜΑΡΚ (ή '' αν υπήρχε μόνο UID).
- * `null` = άλλο σφάλμα ή δεν υπήρχαν τα πεδία — δεν ξαναστέλνεται τίποτα.
- */
-export function dropMyDataIds(payload: { OBJECT: string; DATA: Record<string, unknown> }, error: unknown): string | null {
-  if (!/range\s*error/i.test(String(error ?? ''))) return null;
-  const head = (payload.DATA[payload.OBJECT] as Record<string, unknown>[] | undefined)?.[0];
-  if (!head || (head.SomyDataMARK == null && head.SomyDataUID == null)) return null;
-  const mark = String(head.SomyDataMARK ?? '');
-  delete head.SomyDataMARK;
-  delete head.SomyDataUID;
-  return mark;
 }
 
 /** Οι πίνακες γραμμών ενός καταχωρισμένου παραστατικού — μετριούνται πριν και μετά από μια ενημέρωση κεφαλίδας. */

@@ -29,7 +29,7 @@ vi.mock('@/lib/settings', () => settings);
 vi.mock('@/lib/ocr/document', () => documentMod);
 vi.mock('@/lib/audit', () => ({ logAudit: vi.fn().mockResolvedValue(undefined) }));
 
-import { dropMyDataIds, postDocumentToSoftone, postingPreview, PostError } from '../post-softone';
+import { postDocumentToSoftone, postingPreview, PostError } from '../post-softone';
 
 const document = (over: Partial<DocumentJson> = {}): DocumentJson => ({
   ...emptyDocument('invoice'),
@@ -523,42 +523,6 @@ describe('postDocumentToSoftone', () => {
     expect(softone.softoneGetData).not.toHaveBeenCalled();
     const last = db.ocrDocument.update.mock.calls.at(-1)?.[0];
     expect(last.data.postStatus).toBe('FAILED');
-  });
-
-  it('«Range Error» με ΜΑΡΚ ⇒ ΜΙΑ δεύτερη αποστολή χωρίς ΜΑΡΚ/UID, POSTED με σημείωση', async () => {
-    settings.getSetting.mockResolvedValue(true);
-    documentMod.loadDocumentJson.mockResolvedValue(document({ digital: { ...emptyDocument('invoice').digital, mark: '400014177526655', uid: 'ADD688D3' } }));
-    const sent: Record<string, unknown>[] = [];
-    softone.softoneCall.mockImplementation(async (service: string, params: { DATA?: { PURDOC?: Record<string, unknown>[] } }) => {
-      if (service === 'calculate') return { success: true };
-      const head = { ...params.DATA?.PURDOC?.[0] };
-      sent.push(head);
-      return 'SomyDataMARK' in head ? { success: false, error: "SoftOne Range Error (Name: '')" } : { success: true, id: 90210 };
-    });
-    softone.softoneGetData.mockResolvedValue({ PURDOC: [{ FINDOC: '90210', FINCODE: 'ΤΠΥ 17', TAXSERIES: 'ΤΠΥ', TAXSERIESNUM: '17', TRDR: '12345' }] });
-
-    const res = await postDocumentToSoftone('d1');
-
-    expect(sent).toHaveLength(2);
-    expect(sent[0]).toMatchObject({ SomyDataMARK: '400014177526655', SomyDataUID: 'ADD688D3' });
-    expect(sent[1]).not.toHaveProperty('SomyDataMARK');
-    expect(sent[1]).not.toHaveProperty('SomyDataUID');
-    expect(res.ref).toBe('90210');
-    expect(res.warning).toMatch(/ΜΑΡΚ.*400014177526655/);
-    expect(db.ocrDocument.update.mock.calls.at(-1)?.[0].data).toMatchObject({ postStatus: 'POSTED', postedRef: '90210' });
-  });
-
-  it('άλλο σφάλμα, ή «Range Error» χωρίς ΜΑΡΚ ⇒ καμία δεύτερη αποστολή', async () => {
-    settings.getSetting.mockResolvedValue(true);
-    let setData = 0;
-    softone.softoneCall.mockImplementation(async (service: string) => {
-      if (service === 'calculate') return { success: true };
-      setData += 1;
-      return { success: false, error: "SoftOne Range Error (Name: '')" };
-    });
-    await expect(postDocumentToSoftone('d1')).rejects.toThrow(/δεν χωρά/);
-    expect(setData).toBe(1);
-    expect(dropMyDataIds({ OBJECT: 'X', DATA: { X: [{ SomyDataMARK: '1' }] } }, 'ΛΑΘΟΣ ΣΕΙΡΑ')).toBeNull();
   });
 
   it('ΚΛΕΙΔΩΜΑ: δεύτερο ταυτόχρονο αίτημα δεν φτάνει στο setData', async () => {
